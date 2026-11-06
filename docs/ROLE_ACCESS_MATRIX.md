@@ -68,8 +68,9 @@ Roles & Permissions groups the catalog three ways:
 
 New keys are added to `apps/api/src/security/permission-catalog.ts` by the epic that introduces
 each endpoint (P1, P2, P4, P5 or W3). Planned: back-office web access (D-W4), terminal management,
-offline assignment and activation, the two offline capabilities, discrepancy review and remote
-refund authorization. Exact names are chosen when they are added.
+offline assignment and activation, the two offline capabilities and remote refund authorization.
+Exact names are chosen when they are added. Discrepancy review is `inventory.resolve_stock_cases`
+(P5 #51, below).
 
 The two offline capabilities protect no endpoint: P3 signs them into the branch's offline grant
 for each prepared staff member who holds them there (see [W7_COUNTER_POLICY.md](W7_COUNTER_POLICY.md)).
@@ -101,6 +102,8 @@ The Inventory page is visible to every role holding `inventory.view` (all five b
 | Quarantine units | `inventory.quarantine` | yes | yes | yes | — | yes |
 | Release from quarantine | `inventory.release_quarantine` | yes | yes | yes | — | — |
 | Quarantine all expired stock | `inventory.manage_bulk` | yes | yes | — | — | — |
+| Review offline stock cases and approve their plans | `inventory.resolve_stock_cases` | yes | yes | — | — | — |
+| Settle an approved stock case at the counter (count, correct, post) | `inventory.manage` | yes | yes | — | — | yes |
 
 - **Cost is one permission for the whole app.** `costs.view` governs every figure that says what something cost or what it earns — batch costs and stock valuation, unit costs and order values, supplier prices on an order line, stocktake variance values, and any margin derived from them. It replaced the per-module `inventory.view_cost` and `purchasing.view_cost`, which answered the same question differently depending on the screen you were standing on. The API withholds the value (`null`); pages show a dash, never a zero.
 - **Writing off directly or sending it for approval are separate actions (P1).** Posting an adjustment is counter work. A write-off that needs approval (no `inventory.write_off`, or over the tenant's threshold for a role that may not approve its own requests) is refused before anything moves; the web then sends the same write-off as a request, which anyone with `inventory.manage` or `inventory.write_off` may do from anywhere. Nothing moves until someone with `inventory.write_off` approves it and it is posted.
@@ -109,6 +112,7 @@ The Inventory page is visible to every role holding `inventory.view` (all five b
 - **Activating the offline counter at the counter** (revised D13) needs `terminal.activate_offline`, owner and manager by default (migration `20261031020000_terminal_activate_offline_permission` grants it to the built-in roles; custom roles opt in). It is deliberately separate from *authorizing* which counter it should be, which stays with owners or a manager the owner explicitly delegated.
 - **Other branches at the counter** (P2b #103, decided 2026-11-05). The desktop Stock page shows every other active branch of the tenant for a product as *In stock*, *Low* or *Out* — never a quantity, cost or batch — and *Ask the pharmacist* for a controlled product, so the counter can answer "does another branch have it?" without advertising where scarce or abusable stock sits. It needs `inventory.view_other_branches_availability`: owner, manager, pharmacist and cashier by default (migration `20261105400000_other_branch_availability` grants it to the built-in roles; custom roles opt in), listed under *At the counter (desktop)* so an owner can switch it off per role. A PIN-opened counter login gets no other branches from `products/:productId/stock`; the web's full detail (branches the person works at, every branch for owners) is unchanged.
 - **Till shifts at the counter** (P2b #103). Opening and closing your own shift needs only `sales.pos_use`, because selling at a counter needs an open shift. Closing *someone else's* shift — the absent-cashier close, with your own PIN, a reason and the count — needs `shifts.close_others`, owner and manager by default (migration `20261105200000_till_shifts` grants it to the built-in roles; custom roles opt in). The cashier stays on the record as the shift's owner and the manager as the person who closed it.
+- **Offline stock cases** (P5 #51, revised D10). When an offline sale syncs and central stock can't cover it, its batches wait on a case. Reviewing the case (the sale, the batch timeline since the snapshot, pending quantities) and approving how it is resolved needs `inventory.resolve_stock_cases`, owner and manager by default (migration `20261107000000_offline_stock_case_resolution` grants it to the built-in roles; custom roles opt in) — on the web, from anywhere, at Inventory → Stock cases. Doing it — the physical count, the correction and posting the sale's stock — is counter work for someone with `inventory.manage` (owner, manager, inventory clerk), through a signed command at the branch's enrolled counter. The existing self-approval policy applies, and the requester, approver and person at the counter are recorded separately.
 - **Write-offs moved from a hardcoded owner/manager check to `inventory.write_off`**, so a tenant can grant it to a custom role. The migration gave the new quarantine and release grants to any custom role that already had `inventory.manage`, so nobody lost an ability they had.
 
 ## Purchasing actions (built-in defaults)

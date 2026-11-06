@@ -310,6 +310,7 @@ export const counterWorkKinds = [
   "held_adjustment",
   "supplier_return",
   "import_stock",
+  "stock_case",
 ] as const;
 export type CounterWorkKind = (typeof counterWorkKinds)[number];
 
@@ -336,6 +337,49 @@ export const counterWorkItemSchema = z.object({
   }),
 });
 export type CounterWorkItem = z.infer<typeof counterWorkItemSchema>;
+
+/** P5 #51: an approved plan for an offline stock case, waiting here, with the batches to count. */
+export const stockCaseAtCounterSchema = z.object({
+  resolutionId: uuid,
+  caseId: uuid,
+  invoiceNo: z.string(),
+  soldAt: z.string(),
+  kind: z.enum(["post_now", "count_and_correct", "link_existing_settlement"]),
+  note: z.string().nullable(),
+  approvalEvidenceId: uuid.nullable(),
+  approvalState: z.enum(["matches", "changed", "revoked"]),
+  requestedBy: z.string().nullable(),
+  approvedBy: z.string().nullable(),
+  lines: z.array(
+    z.object({
+      batchId: uuid,
+      productName: z.string(),
+      batchNo: z.string(),
+      expiryDate: z.string().nullable(),
+      soldQuantity: z.number().int(),
+    }),
+  ),
+});
+export type StockCaseAtCounter = z.infer<typeof stockCaseAtCounterSchema>;
+
+export const stockCaseResolvedSchema = z.object({
+  invoiceNo: z.string(),
+  kind: z.enum(["post_now", "count_and_correct", "link_existing_settlement"]),
+  alreadyApplied: z.boolean(),
+  batches: z.array(
+    z.object({
+      batchId: uuid,
+      method: z.enum(["posted", "counted", "linked"]),
+      countedQty: z.number().int().nullable(),
+      correctionQty: z.number().int(),
+      postedQty: z.number().int(),
+      stillBlocked: z.boolean(),
+    }),
+  ),
+  requestedBy: z.string().nullable(),
+  approvedBy: z.string().nullable(),
+});
+export type StockCaseResolved = z.infer<typeof stockCaseResolvedSchema>;
 
 export const refundExecutedSchema = z.object({
   requestNumber: z.string(),
@@ -847,6 +891,15 @@ export const ipcContract = {
     channel: "pos:counter:execute-refund",
     input: z.object({ refundRequestId: uuid }),
     output: result(refundExecutedSchema),
+  },
+  stockCasesReady: { channel: "pos:counter:stock-cases", input: noInput, output: result(z.array(stockCaseAtCounterSchema)) },
+  resolveStockCase: {
+    channel: "pos:counter:resolve-stock-case",
+    input: z.object({
+      resolutionId: uuid,
+      counts: z.array(z.object({ batchId: uuid, countedQty: z.number().int().min(0).max(10_000_000) })).max(200),
+    }),
+    output: result(stockCaseResolvedSchema),
   },
   pendingCommands: {
     channel: "pos:counter:pending-commands",

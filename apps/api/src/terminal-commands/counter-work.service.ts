@@ -21,6 +21,7 @@ import { saleRefundMaterial } from "../security/sale-refund-approval-material";
 import { stocktakeApprovalMaterial } from "../security/stocktake-approval-material";
 import { transferApprovalMaterial } from "../security/transfer-approval-material";
 import { describeMaterialChanges } from "./counter-work-changes";
+import { StockCasesService } from "../stock-cases/stock-cases.service";
 
 export type CounterWorkKind =
   | "prepared_receipt"
@@ -31,7 +32,8 @@ export type CounterWorkKind =
   | "stocktake"
   | "held_adjustment"
   | "supplier_return"
-  | "import_stock";
+  | "import_stock"
+  | "stock_case";
 
 type Person = { name: string | null; at: string | null };
 
@@ -84,6 +86,8 @@ const EXECUTE_PERMISSION: Record<CounterWorkKind, string> = {
   held_adjustment: "inventory.write_off",
   supplier_return: "returns.process",
   import_stock: "products.import",
+  // P5 #51: count, correct and post an offline sale's stock, as approved on the web.
+  stock_case: "inventory.manage",
 };
 
 const RECEIVABLE_PO = ["issued", "partially_received"] as const;
@@ -131,6 +135,7 @@ export class CounterWorkService {
     private readonly prisma: PrismaService,
     private readonly access: AccessService,
     private readonly refunds: RefundRequestsService,
+    private readonly stockCases?: StockCasesService,
   ) {}
 
   async list(user: RequestUser, branchId: string): Promise<CounterWorkItem[]> {
@@ -148,6 +153,7 @@ export class CounterWorkService {
       may("held_adjustment") ? this.heldAdjustments(tenantId, branchId, costs) : [],
       may("supplier_return") ? this.supplierReturns(tenantId, branchId, costs) : [],
       may("import_stock") ? this.stagedImports(tenantId, branchId) : [],
+      may("stock_case") && this.stockCases ? this.stockCasePlans(tenantId, branchId) : [],
     ]);
     const items = parts.flat();
     await this.name(tenantId, items);
@@ -439,6 +445,42 @@ export class CounterWorkService {
           operation: "POST /api/v1/returns/:id/complete",
         };
       });
+  }
+
+  /**
+   * P5 #51: approved plans for offline stock cases. "changed" when another case has since opened
+   * on one of its batches (the approved content includes them), "revoked" when withdrawn.
+   */
+  private async stockCasePlans(tenantId: string, branchId: string) {
+    const plans = await this.stockCases!.readyAtCounter(tenantId, branchId);
+    if (!plans.length) return [];
+    const rows = await this.prisma.offlineStockResolution.findMany({
+      where: { tenantId, branchId, id: { in: plans.map((p) => p.resolutionId) } },
+      select: { id: true, requestedBy: true, approvedBy: true },
+    });
+    return plans.map((plan): CounterWorkItem => {
+      const row = rows.find((r) => r.id === plan.resolutionId)!;
+      return {
+        kind: "stock_case",
+        id: plan.resolutionId,
+        reference: plan.invoiceNo,
+        subject: plan.lines.map((line) => line.productName).join(", ") || null,
+        lineCount: plan.lines.length,
+        amount: null,
+        readyAt: plan.approvedAt ?? plan.requestedAt,
+        requested: { name: row.requestedBy, at: plan.requestedAt },
+        approved: row.approvedBy ? { name: row.approvedBy, at: plan.approvedAt } : null,
+        dispatched: null,
+        approval: {
+          evidenceId: plan.approvalEvidenceId,
+          approvedVersion: plan.approvalVersion,
+          currentVersion: plan.approvalVersion,
+          state: plan.approvalState === "matches" ? "matches" : plan.approvalState === "revoked" ? "revoked" : "changed",
+          changes: plan.approvalState === "changed" ? ["Another offline sale now waits on one of these batches"] : [],
+        },
+        operation: "POST /api/v1/offline-stock-cases/resolutions/:id/execute",
+      };
+    });
   }
 
   /** Opening stock staged from an import and not posted yet. It needs no approval. */

@@ -314,6 +314,16 @@ function registerIpc(schemaVersion: number, logger: ReturnType<typeof createLogg
           if (!executed.alreadyApplied && executor) shifts?.recordRefund(executed.requestNumber, executed.refundedTo, executor);
           return executed;
         }),
+      stockCasesReady: () =>
+        act(logger, "stockCasesReady", () => {
+          if (!counterWork) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          return counterWork.stockCasesReady();
+        }),
+      resolveStockCase: ({ resolutionId, counts }) =>
+        act(logger, "resolveStockCase", () => {
+          if (!counterWork) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          return counterWork.resolveStockCase(resolutionId, counts);
+        }),
       returnFindSale: ({ invoiceNo }) =>
         act(logger, "returnFindSale", () => {
           if (!returns) throw new ActionFailure("NOT_READY", "The counter is still starting.");

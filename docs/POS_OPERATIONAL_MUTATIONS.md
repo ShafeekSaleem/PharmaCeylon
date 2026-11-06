@@ -179,6 +179,16 @@ the replayed shift; `shift_open` / `shift_close` replay D7b's offline shift reco
 retired counter may upload to recover old evidence, which is kept for review and writes no
 effect. Contract: [API_CONTRACT.md](API_CONTRACT.md#offline-journal-sync-p5-51).
 
+## P5 offline stock case resolution
+
+`POST /offline-stock-cases/:id/resolutions`, `resolutions/:id/approve` and `resolutions/:id/cancel`
+are `management`: a manager prepares, exactly approves or cancels a resolution plan from anywhere,
+and nothing moves. `POST /offline-stock-cases/resolutions/:id/execute` is `stock`: it is the
+route the signed operation names, and the browser handler always refuses `TERMINAL_REQUIRED`;
+the count, correction and posting run only through `POST /terminal-commands/execute` at the
+enrolled counter, with the plan's exact approval. Contract:
+[API_CONTRACT.md](API_CONTRACT.md#offline-stock-case-resolution-p5-51).
+
 ## P1 signed terminal commands
 
 `POST /terminal-commands/prepare` is classified `identity`: it issues a single-use command

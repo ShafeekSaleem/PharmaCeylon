@@ -1,0 +1,154 @@
+.layout {
+  display: grid;
+  grid-template-columns: minmax(240px, 320px) 1fr;
+  gap: 1rem;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.filters {
+  display: flex;
+  gap: 0.4rem;
+  margin-bottom: 0.6rem;
+}
+
+.filter {
+  padding: 0.35rem 0.75rem;
+  border: 1px solid var(--pc-border);
+  border-radius: 999px;
+  background: var(--pc-card-bg);
+  cursor: pointer;
+  font: inherit;
+}
+
+.filter[aria-pressed="true"] {
+  border-color: var(--pc-primary, #0f766e);
+  font-weight: 600;
+}
+
+.item {
+  width: 100%;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-md, 10px);
+  background: var(--pc-card-bg);
+  cursor: pointer;
+  font: inherit;
+}
+
+.item[aria-current="true"] {
+  border-color: var(--pc-primary, #0f766e);
+  box-shadow: 0 0 0 1px var(--pc-primary, #0f766e);
+}
+
+.sub {
+  color: var(--pc-muted-fg);
+  font-size: 0.85rem;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1rem;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-md, 10px);
+  background: var(--pc-card-bg);
+}
+
+.cardTitle {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0.5rem 1rem;
+  margin: 0;
+}
+
+.facts dt {
+  color: var(--pc-muted-fg);
+  font-size: 0.8rem;
+}
+
+.facts dd {
+  margin: 0;
+  font-weight: 600;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.table th,
+.table td {
+  padding: 0.4rem 0.5rem;
+  border-bottom: 1px solid var(--pc-border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.warn {
+  color: var(--pc-warning-fg, #b45309);
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.kinds {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+
+.kind {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-start;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+
+.empty {
+  padding: 1.5rem;
+  color: var(--pc-muted-fg);
+  text-align: center;
+}

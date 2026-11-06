@@ -72,6 +72,20 @@ enum OfflineStockDiscrepancyStatus {
   resolved
 }
 
+/// P5 #51 slice 2: how a manager resolves an offline stock discrepancy case.
+enum OfflineStockResolutionKind {
+  post_now
+  count_and_correct
+  link_existing_settlement
+}
+
+enum OfflineStockResolutionStatus {
+  prepared
+  approved
+  executed
+  cancelled
+}
+
 enum SaleStatus {
   posted
   voided
@@ -3492,6 +3506,8 @@ model OfflineStockDiscrepancy {
   sale            Sale                          @relation(fields: [saleId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   lines           OfflineStockDiscrepancyLine[]
   blocks          BatchSaleBlock[]
+  resolutions     OfflineStockResolution[]
+  settlements     OfflineStockSettlement[]
 
   @@unique([tenantId, enrollmentId, commandId])
   @@unique([tenantId, branchId, id])
@@ -3540,4 +3556,92 @@ model BatchSaleBlock {
   @@unique([caseId, batchId])
   @@index([tenantId, batchId])
   @@map("batch_sale_block")
+}
+
+/// P5 #51 slice 2 (revised D10): a resolution plan for one open discrepancy case, prepared and
+/// exactly approved remotely, executed only at the branch's enrolled counter as a signed command.
+/// Content is immutable (database trigger): cancel it and prepare another to change the plan.
+/// `links` names, per case batch, what already accounted for its units (link_existing_settlement
+/// only; empty otherwise).
+model OfflineStockResolution {
+  id                  String                       @id @db.Uuid
+  tenantId            String                       @map("tenant_id") @db.Uuid
+  branchId            String                       @map("branch_id") @db.Uuid
+  caseId              String                       @map("case_id") @db.Uuid
+  kind                OfflineStockResolutionKind
+  links               Json
+  note                String?                      @db.VarChar(500)
+  status              OfflineStockResolutionStatus @default(prepared)
+  approvalVersion     Int                          @default(1) @map("approval_version")
+  requestedBy         String                       @map("requested_by") @db.Uuid
+  requestedAt         DateTime                     @default(now()) @map("requested_at")
+  executionApprovalId String?                      @map("execution_approval_id") @db.Uuid
+  approvedBy          String?                      @map("approved_by") @db.Uuid
+  approvedAt          DateTime?                    @map("approved_at")
+  executedBy          String?                      @map("executed_by") @db.Uuid
+  executedAt          DateTime?                    @map("executed_at")
+  executionCommandId  String?                      @map("execution_command_id") @db.Uuid
+  result              Json?
+  cancelledBy         String?                      @map("cancelled_by") @db.Uuid
+  cancelledAt         DateTime?                    @map("cancelled_at")
+  case                OfflineStockDiscrepancy      @relation(fields: [tenantId, branchId, caseId], references: [tenantId, branchId, id], onDelete: Restrict, onUpdate: Restrict, map: "offline_stock_resolution_case_fkey")
+  settlements         OfflineStockSettlement[]
+
+  @@index([tenantId, branchId, status])
+  @@index([caseId])
+  @@map("offline_stock_resolution")
+}
+
+/// How one batch of a resolved case was accounted for, exactly once: `posted` (issued from
+/// current stock), `counted` (a local count set the batch to count + every open case's pending
+/// units, then the sale was issued) or `linked` (an earlier stocktake or local movement already
+/// took the units off). Append-only evidence.
+model OfflineStockSettlement {
+  id                    String                      @id @db.Uuid
+  tenantId              String                      @map("tenant_id") @db.Uuid
+  branchId              String                      @map("branch_id") @db.Uuid
+  caseId                String                      @map("case_id") @db.Uuid
+  resolutionId          String                      @map("resolution_id") @db.Uuid
+  batchId               String                      @map("batch_id") @db.Uuid
+  productId             String                      @map("product_id") @db.Uuid
+  /// "posted" | "counted" | "linked"
+  method                String                      @db.VarChar(16)
+  soldQuantity          Int                         @map("sold_quantity")
+  onHandBefore          Int                         @map("on_hand_before")
+  pendingOnBatch        Int                         @map("pending_on_batch")
+  countedQuantity       Int?                        @map("counted_quantity")
+  countedAt             DateTime?                   @map("counted_at")
+  countedBy             String?                     @map("counted_by") @db.Uuid
+  correctionQuantity    Int                         @default(0) @map("correction_quantity")
+  postedQuantity        Int                         @map("posted_quantity")
+  linkedStocktakeId     String?                     @map("linked_stocktake_id") @db.Uuid
+  linkedStocktakeLineId String?                     @map("linked_stocktake_line_id") @db.Uuid
+  stockTimelineDigest   String                      @map("stock_timeline_digest") @db.Char(64)
+  approvalId            String                      @map("approval_id") @db.Uuid
+  executionCommandId    String?                     @map("execution_command_id") @db.Uuid
+  createdAt             DateTime                    @default(now()) @map("created_at")
+  case                  OfflineStockDiscrepancy     @relation(fields: [tenantId, branchId, caseId], references: [tenantId, branchId, id], onDelete: Restrict, onUpdate: Restrict, map: "offline_stock_settlement_case_fkey")
+  resolution            OfflineStockResolution      @relation(fields: [resolutionId], references: [id], onDelete: Restrict, onUpdate: Restrict, map: "offline_stock_settlement_resolution_fkey")
+  links                 OfflineStockSettlementLink[]
+
+  @@unique([caseId, batchId])
+  @@index([tenantId, branchId, batchId])
+  @@map("offline_stock_settlement")
+}
+
+/// A local movement's units linked to a settlement; per ledger entry, never more than it took off.
+model OfflineStockSettlementLink {
+  id            String                 @id @db.Uuid
+  tenantId      String                 @map("tenant_id") @db.Uuid
+  branchId      String                 @map("branch_id") @db.Uuid
+  settlementId  String                 @map("settlement_id") @db.Uuid
+  batchId       String                 @map("batch_id") @db.Uuid
+  ledgerEntryId String                 @map("ledger_entry_id") @db.Uuid
+  quantity      Int
+  createdAt     DateTime               @default(now()) @map("created_at")
+  settlement    OfflineStockSettlement @relation(fields: [settlementId], references: [id], onDelete: Restrict, onUpdate: Restrict, map: "offline_stock_settlement_link_settlement_fkey")
+
+  @@unique([settlementId, ledgerEntryId])
+  @@index([tenantId, ledgerEntryId])
+  @@map("offline_stock_settlement_link")
 }

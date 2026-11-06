@@ -392,6 +392,7 @@ describe("SignedOperations body parsers", () => {
     expect(ops.operations().sort()).toEqual([
       "POST /api/v1/inventory/adjustments",
       "POST /api/v1/inventory/held-adjustments/:id/post",
+      "POST /api/v1/offline-stock-cases/resolutions/:id/execute",
       "POST /api/v1/prescriptions",
       "POST /api/v1/products/import/:importId/stock/post",
       "POST /api/v1/products/import/:importId/undo-stock",
@@ -437,6 +438,25 @@ describe("SignedOperations body parsers", () => {
       expect(ship.approval?.action).toBe("transfer.ship");
       expect(typeof ship.approval?.waived).toBe("function");
       expect(ops.get("POST /api/v1/transfers/:id/receive").descriptor.approval).toBeUndefined();
+    });
+
+    it("an offline stock case resolution always carries its exact approval and strict counts", () => {
+      const resolve = ops.get("POST /api/v1/offline-stock-cases/resolutions/:id/execute").descriptor;
+      expect(resolve).toMatchObject({ permission: "inventory.manage", approval: { action: "offline_stock_resolution.execute" } });
+      expect(resolve.approval?.waived).toBeUndefined();
+      const resolutionId = randomUUID();
+      const batchId = randomUUID();
+      expect(resolve.parseBody({ resolutionId, counts: [] })).toEqual({ resolutionId, counts: [] });
+      expect(resolve.parseBody({ resolutionId, counts: [{ batchId, countedQty: 0 }] }))
+        .toEqual({ resolutionId, counts: [{ batchId, countedQty: 0 }] });
+      for (const bad of [
+        { resolutionId },
+        { resolutionId, counts: [{ batchId, countedQty: -1 }] },
+        { resolutionId, counts: [{ batchId, countedQty: 1.5 }] },
+        { resolutionId, counts: [{ batchId, countedQty: 1 }, { batchId, countedQty: 2 }] },
+        { resolutionId, counts: [{ batchId, countedQty: 1, note: "x" }] },
+        { resolutionId, counts: [], extra: true },
+      ]) expect(() => resolve.parseBody(bad)).toThrow();
     });
 
     it("a counter refund carries its approval (waivable under the threshold) and resolves cash movement", () => {

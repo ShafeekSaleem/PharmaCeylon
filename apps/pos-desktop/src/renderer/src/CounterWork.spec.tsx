@@ -1,7 +1,7 @@
 /** @jest-environment jsdom */
 import { afterEach, beforeEach, describe, expect, it, jest } from "@jest/globals";
 import { act, cleanup, fireEvent, screen, within } from "@testing-library/react";
-import type { CounterWorkItem, RefundAtCounter } from "../../shared/ipc-contract";
+import type { CounterWorkItem, RefundAtCounter, StockCaseAtCounter } from "../../shared/ipc-contract";
 import { press, renderWithKeys, stubPos } from "../test/harness";
 import { CounterWork, shortName, when } from "./CounterWork";
 import { KeyScope } from "./keymap";
@@ -270,6 +270,94 @@ describe("actions sent but not confirmed", () => {
     await act(async () => undefined);
     expect(pos.retryCommand).toHaveBeenCalledWith({ commandId: id(71) });
     expect(within(queue()).getByRole("alert").textContent).toContain("Only the person who sent it can confirm it.");
+  });
+});
+
+describe("an offline sale's stock (P5 #51)", () => {
+  const caseItem = work({
+    kind: "stock_case", id: id(5), reference: "INV-2611-000042", subject: "Paracetamol 500mg", lineCount: 1, amount: null,
+    readyAt: today(10, 0), requested: { name: "Nimal Perera", at: "2026-11-06T05:10:00.000Z" },
+    approved: { name: "Owner Silva", at: "2026-11-06T05:20:00.000Z" },
+    approval: { evidenceId: id(91), approvedVersion: 1, currentVersion: 1, state: "matches", changes: [] },
+  });
+  const plan = (overrides: Partial<StockCaseAtCounter> = {}): StockCaseAtCounter => ({
+    resolutionId: id(5), caseId: id(6), invoiceNo: "INV-2611-000042", soldAt: "2026-11-06T04:00:00.000Z",
+    kind: "count_and_correct", note: "Shelf looked empty", approvalEvidenceId: id(91), approvalState: "matches",
+    requestedBy: "Nimal Perera", approvedBy: "Owner Silva",
+    lines: [{ batchId: id(7), productName: "Paracetamol 500mg", batchNo: "PCM-7", expiryDate: "2027-11-01", soldQuantity: 5 }],
+    ...overrides,
+  });
+
+  it("sits in the Stock tab with the approved plan, matches its approval, and settles with a count", async () => {
+    items = [refund, caseItem];
+    pos.stockCasesReady!.mockImplementation(async () => ({ ok: true, value: [plan()] }));
+    pos.resolveStockCase!.mockImplementation(async () => ({
+      ok: true,
+      value: {
+        invoiceNo: "INV-2611-000042", kind: "count_and_correct", alreadyApplied: false,
+        batches: [{ batchId: id(7), method: "counted", countedQty: 0, correctionQty: 2, postedQty: 5, stillBlocked: false }],
+        requestedBy: "Nimal Perera", approvedBy: "Owner Silva",
+      },
+    }));
+    await renderWork();
+    fireEvent.click(tab(/^Stock/));
+    expect(tab(/^Stock/).textContent).toBe("Stock 1");
+    const card = within(queue()).getByRole("button");
+    expect(card.textContent).toContain("Offline sale stock");
+    expect(card.textContent).toContain("Sale INV-2611-000042 · Paracetamol 500mg · 1 batch");
+    expect(screen.getByRole("status").textContent).toContain("Matches the approved version");
+    expect(screen.getByText(/Count every unit of each batch here/)).toBeTruthy();
+
+    const settle = screen.getByRole("button", { name: /Settle stock/ }) as HTMLButtonElement;
+    // Every batch needs a count first; the system quantity is never shown.
+    expect(settle.disabled).toBe(true);
+    expect(screen.queryByText(/on hand/i)).toBeNull();
+    fireEvent.change(screen.getByLabelText("Units of Paracetamol 500mg batch PCM-7 counted"), { target: { value: "0" } });
+    expect(settle.disabled).toBe(false);
+    fireEvent.click(settle);
+    await act(async () => undefined);
+    expect(pos.resolveStockCase).toHaveBeenCalledWith({ resolutionId: id(5), counts: [{ batchId: id(7), countedQty: 0 }] });
+    const done = screen.getAllByRole("status").find((el) => el.textContent?.includes("Settled"))!;
+    expect(done.textContent).toContain("corrected +2, 5 posted");
+    expect(done.textContent).toContain("Requested by Nimal Perera, approved by Owner Silva, done by you.");
+  });
+
+  it("posts or links without a count, and says when another case keeps the batch paused", async () => {
+    items = [caseItem];
+    pos.stockCasesReady!.mockImplementation(async () => ({ ok: true, value: [plan({ kind: "post_now", note: null })] }));
+    pos.resolveStockCase!.mockImplementation(async () => ({
+      ok: true,
+      value: {
+        invoiceNo: "INV-2611-000042", kind: "post_now", alreadyApplied: false,
+        batches: [{ batchId: id(7), method: "posted", countedQty: null, correctionQty: 0, postedQty: 5, stillBlocked: true }],
+        requestedBy: "Nimal Perera", approvedBy: "Owner Silva",
+      },
+    }));
+    await renderWork();
+    expect(screen.queryByLabelText(/counted/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /Settle stock/ }));
+    await act(async () => undefined);
+    expect(pos.resolveStockCase).toHaveBeenCalledWith({ resolutionId: id(5), counts: [] });
+    expect(screen.getAllByRole("status").some((el) => el.textContent?.includes("still holds a batch, so it stays paused"))).toBe(true);
+  });
+
+  it("refuses a plan that changed since approval, and shows a refusal from the server", async () => {
+    items = [work({ ...caseItem, approval: { ...caseItem.approval, state: "changed", changes: ["Another offline sale now waits on one of these batches"] } })];
+    pos.stockCasesReady!.mockImplementation(async () => ({ ok: true, value: [plan({ approvalState: "changed" })] }));
+    await renderWork();
+    expect(screen.getByRole("alert").textContent).toContain("Another offline sale now waits on one of these batches");
+    expect((screen.getByRole("button", { name: /Settle stock/ }) as HTMLButtonElement).disabled).toBe(true);
+    cleanup();
+
+    items = [caseItem];
+    pos.stockCasesReady!.mockImplementation(async () => ({ ok: true, value: [plan({ kind: "post_now" })] }));
+    pos.resolveStockCase!.mockImplementation(async () => ({
+      ok: false, error: { code: "STOCK_NOT_COVERED", message: "Stock no longer covers this sale." },
+    }));
+    await renderWork();
+    fireEvent.click(screen.getByRole("button", { name: /Settle stock/ }));
+    await act(async () => undefined);
+    expect(screen.getByRole("alert").textContent).toContain("Stock no longer covers this sale.");
   });
 });
 

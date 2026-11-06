@@ -50,6 +50,10 @@ export const DAILY_WORK_KIND_DEFS: Readonly<Record<DailyWorkKind, KindDef>> = {
   // A refund prepared remotely (P6): approval over the threshold, then the counter refunds it.
   "sale_refund.approve": { executes: null },
   "sale_refund.execute": { approvalAction: "sale_refund.execute" },
+  // P5 #51: an offline sale's stock waits on a case; review and approve a plan on the web, then
+  // the counter counts, corrects and posts it.
+  "offline_stock_case.review": { executes: null },
+  "offline_stock_case.resolve": { approvalAction: "offline_stock_resolution.execute" },
 };
 
 export function kindOperation(kind: DailyWorkKind): MutationKey | null {

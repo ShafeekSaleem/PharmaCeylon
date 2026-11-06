@@ -10,6 +10,7 @@ import { TransfersModule } from "../transfers/transfers.module";
 import { CustomersModule } from "../customers/customers.module";
 import { SalesModule } from "../sales/sales.module";
 import { ClinicalModule } from "../clinical/clinical.module";
+import { StockCasesModule } from "../stock-cases/stock-cases.module";
 import { PharmacistCosigns } from "./pharmacist-cosigns.service";
 import { CounterWorkController } from "./counter-work.controller";
 import { CounterWorkService } from "./counter-work.service";
@@ -30,6 +31,7 @@ import { TerminalCommandExecutor } from "./terminal-command.executor";
     ReturnsModule,
     CustomersModule,
     ClinicalModule,
+    StockCasesModule,
   ],
   controllers: [TerminalCommandsController, CounterWorkController],
   providers: [TerminalCommandExecutor, SignedOperations, PharmacistCosigns, CounterWorkService],

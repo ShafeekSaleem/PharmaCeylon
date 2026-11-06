@@ -239,6 +239,7 @@ transaction.
 | `POST /api/v1/returns/:id/complete` | `{ goodsReturnId }` | the return's latest approval | `returns.process` |
 | `POST /api/v1/inventory/adjustments` | `{ kind, movementType, productId, batchId, newBatch, qty, reason, fromQuarantine }` | `null` | `inventory.manage` to add stock, `inventory.write_off` to write it off |
 | `POST /api/v1/prescriptions` | `{ rxNumber, patientName, doctorName, doctorRegNo, issuedOn, validUntil, customerId, notes }` | `null` | `prescriptions.create`, plus a current SLMC registration; with a pharmacist's co-sign, `sales.pos_use` and the co-signer's registration (below) |
+| `POST /api/v1/offline-stock-cases/resolutions/:id/execute` | `{ resolutionId, counts: [{ batchId, countedQty }] }` (`counts` empty unless the plan is `count_and_correct`) | the plan's `executionApprovalId` (always required) | `inventory.manage` ([P5 #51](#offline-stock-case-resolution-p5-51)) |
 
 Direct adjustments: every key is present. `movementType` is `adjustment_in`/`adjustment_out` for
 a `correction` (which also needs a `reason`) and `null` otherwise. `batchId` is `null` only with
@@ -337,7 +338,8 @@ the existing documents (no model of its own): approved prepared receipts and hel
 receivable order, approved transfers leaving this branch (approval present, or waived by
 `approvalRequiredForBranchTransfers`), transfers on their way here, refund requests the refund list
 calls `readyAtCounter` (plus open ones whose approval was revoked), approved stocktakes, approved
-held write-offs, approved supplier returns, and staged import stock not yet posted. Each kind is
+held write-offs, approved supplier returns, staged import stock not yet posted, and approved
+offline stock case plans (`stock_case`, P5 #51; `reference` is the sale's invoice number). Each kind is
 listed only to a caller holding that operation's own permission at the branch; `amount` on
 purchasing, write-off and supplier-return items is `null` without `costs.view`.
 
@@ -1586,8 +1588,8 @@ While a block is open: central checkout refuses that batch by name with 409
 `BATCH_STOCK_REVIEW` and FEFO skips it (other batches, including the same product's, keep
 selling); offline snapshots mark it `stockReviewRequired`; a later offline sale from it is
 pending too (`batch_under_review`). A pending sale cannot be voided or refunded (409
-`STOCK_POSTING_PENDING`): that would put back stock it never took. Case resolution and block
-release are a later P5 slice.
+`STOCK_POSTING_PENDING`): that would put back stock it never took. Cases are resolved, and their
+blocks released, as in [Offline stock case resolution](#offline-stock-case-resolution-p5-51).
 
 **Shifts (D7b).** `shift_open` creates the `till_shift` with the counter's work session ID, the
 opening count (total only), the previous closed shift it names, `openCommandId` and the sign-in.
@@ -1603,6 +1605,86 @@ reason in the message), or `REPLAY_CONFLICT` for changed content under a used re
 dependent commands on support-record verification is a later P5 slice.
 
 **Not yet (later P5 slices).** Rebasing a snapshot or renewing a grant over a non-empty journal
-(issuance still refuses with `RECONCILIATION_REQUIRED`), manager discrepancy review and
-resolution, support-record gating of dependent commands, replacement / missing-journal review,
+(issuance still refuses with `RECONCILIATION_REQUIRED`), support-record gating of dependent commands, replacement / missing-journal review,
 backup and restore, and the retention policy for journal evidence (nothing is deleted today).
+
+## Offline stock case resolution (P5 #51)
+
+Approved D1 and revised D10: an offline sale whose stock could not post at sync waits on an
+`offline_stock_discrepancy` case. A manager reviews the case and approves exactly how it is
+resolved, remotely; the counter executes it. Review, plans and approval move nothing.
+
+| Route | Permission | Notes |
+| --- | --- | --- |
+| `GET /offline-stock-cases?status=open\|resolved` | `inventory.resolve_stock_cases` | The branch's cases, newest first, with the sale, counter, pending and short units and the current plan |
+| `GET /offline-stock-cases/:id` | `inventory.resolve_stock_cases` | The evidence (below) and every plan |
+| `POST /offline-stock-cases/:id/resolutions` | `inventory.resolve_stock_cases` | Prepare a plan `{ kind, links?, note? }` (one open plan per case) |
+| `POST /offline-stock-cases/resolutions/:id/approve` | `inventory.resolve_stock_cases` | `{ approvalId, expectedVersion, expectedDigest }` from the plan's `approvalReview` |
+| `POST /offline-stock-cases/resolutions/:id/cancel` | `inventory.resolve_stock_cases` | A plan not yet executed |
+| `GET /offline-stock-cases/resolutions/ready` | `inventory.manage` (counter route) | Approved plans here: batches to count (product, batch, expiry, sold quantity — never the system quantity), requester, approver, `approvalEvidenceId`, `approvalState` |
+| `POST /offline-stock-cases/resolutions/:id/execute` | `inventory.manage` | Always 403 `TERMINAL_REQUIRED`: the route the signed operation names, never a browser execution |
+
+**Evidence** (`GET /offline-stock-cases/:id`): the sale with its receipt lines, payments and
+`stockPosting`; the offline evidence (counter, journal sequence and digest, `occurredAt`, the
+signed sign-in and its staff member, when it synced and who uploaded it); the snapshot it was
+sold from; and per batch: sold, available at sync, shortfall and why it waits, **pending units**
+(this case's and every other open case's on the batch), on hand / quarantined / reserved /
+available now, whether it is blocked, the **timeline since the snapshot** (every ledger movement:
+online sales with their invoice numbers, receipts, transfers, stocktakes, quarantine, adjustments,
+with actor and time; at most 300) and its digest, stocktake counts of the batch since the
+snapshot (`settlesThisSale` when posted and counted after the sale), active reservations, and
+write-off/correction movements after the sale with unlinked units. Plans carry requester,
+approver and executor separately, `approvalState` (`none`, `matches`, `changed`, `revoked`) and
+the `approvalReview` to approve; a resolved case lists one settlement per batch.
+
+**Plans.** `kind` is one of:
+
+- `post_now` — stock now covers every batch of the sale (for example after a receipt). The sale's
+  full stock effect is posted through `StockService.issue`, dated at the sale, with the usual
+  availability check; if it no longer covers, 409 `STOCK_NOT_COVERED` and nothing moves.
+- `count_and_correct` — the counter counts every batch of the case (all units of the batch at the
+  branch, sellable or held, after the sale left the shelf). Each batch is corrected once
+  (`adjustment_in` / `adjustment_out`, reference `offline_stock_resolution`) to
+  **count + every open case's pending units on that batch**, then the sale posts. Central stock
+  then equals the count plus what other open cases still owe, so nothing the count already
+  reflects is deducted twice and no balancing stock is invented. If held or reserved units leave
+  too little to post the sale, 409 `STOCK_NOT_COVERED`.
+- `link_existing_settlement` — every batch names what already took the sold units off:
+  `{ batchId, source: "stocktake", stocktakeId }` (a posted stocktake whose count of the batch was
+  taken after the sale) or `{ batchId, source: "movements", ledgerEntryIds: [...] }` (write-offs or
+  corrections on the batch after the sale; each movement's units are linked at most once across
+  all cases, and they must cover every sold unit). Nothing is posted; the link is recorded.
+  Otherwise 409 `SETTLEMENT_NOT_LINKABLE` (at preparation and again at execution).
+
+A plan's content is immutable (database trigger); to change it, cancel it and prepare another.
+
+**Approval** uses the exact-approval machinery (`management_approval`, document type
+`offline_stock_resolution`, action `offline_stock_resolution.execute`): the material is the case
+(sale, command, each line), the plan, and **the other open cases holding each batch**. Approval
+needs `inventory.resolve_stock_cases` (owner and manager by default) under the tenant's
+self-approval policy; a preparer who may approve their own requests approves as they prepare. Any
+material change — notably another offline sale on one of the batches opening a case — makes the
+approval `APPROVAL_STALE` at execution and the plan `changed` in both lists; approve again.
+
+**Execution** is a signed counter command only (`POST /terminal-commands/execute`, operation
+above), local physical execution under revised D10: the browser route refuses, an unsigned
+request is `TERMINAL_REQUIRED`, and it is never an offline journal command (a journal entry of any
+other kind refuses the upload, 400). Executing needs `inventory.manage` live and the plan's
+current approval. One READ COMMITTED transaction locks the case, the plan, then the case's batches
+(id order), re-checks the exact approval under those locks, and then: posts, corrects or links;
+writes one `offline_stock_settlement` per batch (method, sold, on hand before, pending on the
+batch, count with time and counter, correction, posted, links, timeline digest, approval and
+command IDs); sets the sale's `stockPosting` to `posted`; resolves the case; releases **this
+case's** batch blocks; and audits `offline_stock_discrepancy.resolved` with requester, approver
+and executor. A batch another open case holds stays blocked (`stillBlocked` in the result); other
+batches and counters are never paused. A retry of the same signed command returns its original
+receipt; a distinct later command for an executed plan is refused (`APPROVAL_INVALID`) and
+changes nothing.
+
+Result: `{ type: "offline_stock_case.resolved", resolutionId, caseId, saleId, approvalId, kind,
+effect, batches: [{ batchId, method: posted|counted|linked, soldQty, countedQty, correctionQty,
+postedQty, stillBlocked }] }`.
+
+After resolution the sale voids and refunds normally, and new snapshots no longer mark its batches
+`stockReviewRequired` unless another open case still holds them.
+

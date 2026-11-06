@@ -20,6 +20,7 @@ import { StocktakesService } from "../stocktakes/stocktakes.service";
 import type { CommandProvenance } from "../terminals/command-provenance";
 import { TransfersService } from "../transfers/transfers.service";
 import { RefundRequestsService } from "../sales/refund-requests.service";
+import { StockCasesService } from "../stock-cases/stock-cases.service";
 import { invalid, object, text, uuid } from "../terminals/terminal-wire";
 
 type Tx = Prisma.TransactionClient;
@@ -159,6 +160,21 @@ function prescriptionBody(raw: unknown): PrescriptionBody {
   if (body.notes !== null) trimmed(body.notes, 512);
   return body as PrescriptionBody;
 }
+type StockCaseBody = SignedOperationBody["POST /api/v1/offline-stock-cases/resolutions/:id/execute"];
+/** One count per batch for count_and_correct, none otherwise; the service checks them against the case. */
+function stockCaseBody(raw: unknown): StockCaseBody {
+  const body = object(raw, ["resolutionId", "counts"]);
+  uuid(body.resolutionId);
+  if (!Array.isArray(body.counts) || body.counts.length > 200) invalid();
+  const seen = new Set<string>();
+  for (const raw of body.counts) {
+    const line = object(raw, ["batchId", "countedQty"]);
+    if (seen.has(uuid(line.batchId))) invalid();
+    seen.add(line.batchId as string);
+    count(line.countedQty, 0);
+  }
+  return body as StockCaseBody;
+}
 /** "12.50" → 1250. Money in a receipt is integer minor units (canonical JSON has no floats). */
 const minor = (amount: string) => Math.round(Number(amount) * 100);
 const approvalId = (context: SignedExecutionContext) => {
@@ -185,6 +201,7 @@ export class SignedOperations {
     returns: ReturnsService,
     refunds: RefundRequestsService,
     prescriptions: PrescriptionsService,
+    stockCases?: StockCasesService,
   ) {
     this.registry = Object.freeze<Registry>({
       "POST /api/v1/stocktakes/:id/post": {
@@ -500,6 +517,23 @@ export class SignedOperations {
               pharmacistRegistrationId: registrationId,
             },
           };
+        },
+      },
+      // P5 #51: resolve an offline stock case with its remotely approved plan. Physical stock
+      // work (revised D10): the count, the correction and the sale's posting happen here only.
+      "POST /api/v1/offline-stock-cases/resolutions/:id/execute": {
+        descriptor: {
+          method: "POST",
+          routeTemplate: "/api/v1/offline-stock-cases/resolutions/:id/execute",
+          permission: "inventory.manage",
+          parseBody: stockCaseBody,
+          approval: { action: "offline_stock_resolution.execute", documentId: (b) => b.resolutionId },
+        },
+        async execute(tx, user, branchId, body, context) {
+          if (!stockCases) throw new Error("Stock cases are not wired into signed operations");
+          const done = await stockCases.executeInTransaction(tx, user, branchId, body.resolutionId,
+            { approvalId: approvalId(context), counts: body.counts.map((c) => ({ ...c })) }, context.command);
+          return { result: done.result };
         },
       },
     });
