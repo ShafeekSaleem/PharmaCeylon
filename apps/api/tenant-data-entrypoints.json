@@ -332,6 +332,16 @@
       "path": "src/returns/returns.service.ts",
       "mode": "scoped-domain-lock",
       "reason": "Locks the tenant/branch-scoped supplier return before exact approval and dispatch; evidence, StockService effects, debit note and audit share the caller transaction."
+    },
+    {
+      "path": "src/terminals/journal/offline-journal.service.ts",
+      "mode": "scoped-domain-lock",
+      "reason": "Transaction-scoped advisory lock on the caller's tenant + signed enrollment id only, so one enrollment's journal commands (and concurrent identical retries) serialize and the second finds the first's receipt; share-locks one till shift by the bound tenant, branch and the signed work-session id (FOR SHARE) while an offline sale joins it. No data is read or written by raw SQL."
+    },
+    {
+      "path": "src/terminals/journal/offline-shift-replay.ts",
+      "mode": "scoped-domain-lock",
+      "reason": "Locks one counter by the bound tenant, branch and the grant's register id (FOR UPDATE) to serialize replayed shift opens/closes with online ones, and one till shift by tenant, branch and id (FOR UPDATE) before a replayed close; no data is written by raw SQL."
     }
   ]
 }

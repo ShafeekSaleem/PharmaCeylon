@@ -3,6 +3,7 @@ import type { BranchStockSnapshot, OfflineGrant, Signed, TerminalIdentity } from
 import { Prisma } from "@prisma/client";
 import type { PrismaService } from "../prisma/prisma.service";
 import type { AccessService } from "../security/access.service";
+import { blockedBatchIds } from "../inventory/stock/sale-blocks";
 import { signOfflineGrant } from "./offline-grant";
 import { recordSignedStockSnapshot, type SnapshotState } from "./stock-snapshot";
 import { denied } from "./terminal-wire";
@@ -24,10 +25,11 @@ export async function hasAcceptedOfflineJournal(
  * the issuance's own consistent view. The journal is enrollment-wide: each offline command an
  * enrollment uploads is accepted as a `terminal_command_receipt` with its `offline_sequence`.
  *
- * While none has been accepted, the baseline is provably empty: watermark 0, no hash, and no
- * batch waiting on a stock posting. Once one exists, rebasing the snapshot over it needs the
- * accepted head (sequence and hash) and the stock-review blocks P5 produces, so the request is
- * refused rather than rebased on a guess.
+ * While none has been accepted, the baseline is provably empty: watermark 0 and no hash. The
+ * stock-review blocks are the branch's open batch sale blocks (P5 #51), which another counter's
+ * accepted journal may have opened. Once this enrollment has an accepted journal entry, rebasing
+ * the snapshot over it is a later P5 slice, so the request is refused rather than rebased on a
+ * guess.
  *
  * A journal entry accepted concurrently with an issuance serializes after it: the pair issued
  * at watermark 0 was correct when it was read, and the counter that uploaded the entry holds a
@@ -38,7 +40,13 @@ export async function emptyJournalState(
   identity: TerminalIdentity,
 ): Promise<SnapshotState> {
   if (await hasAcceptedOfflineJournal(tx, identity)) denied("RECONCILIATION_REQUIRED");
-  return { includedThroughSequence: 0, includedThroughHash: null, reviewRequiredBatchIds: new Set() };
+  // P5 #51 (approved D1): batches an open offline discrepancy case holds, whichever counter's
+  // journal opened it (e.g. the counter this one replaced), are never sellable offline either.
+  return {
+    includedThroughSequence: 0,
+    includedThroughHash: null,
+    reviewRequiredBatchIds: await blockedBatchIds(tx, identity.tenantId, identity.branchId),
+  };
 }
 
 /** Whether this exact enrollment is the branch's current, unrevoked offline counter. */

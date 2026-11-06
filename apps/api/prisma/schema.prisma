@@ -60,6 +60,18 @@ enum PoPriority {
   urgent
 }
 
+/// P5 #51 (D1): a sale's stock effect, posted with the sale or waiting on a reconciliation case.
+enum SaleStockPosting {
+  posted
+  pending_reconciliation
+}
+
+/// P5 #51 (D1): an offline stock discrepancy case is open until a manager accounts for it.
+enum OfflineStockDiscrepancyStatus {
+  open
+  resolved
+}
+
 enum SaleStatus {
   posted
   voided
@@ -641,6 +653,9 @@ model TerminalEnrollment {
   offlineNominations              OfflineTerminalNomination[]
   offlineStockSnapshots           OfflineStockSnapshot[]
   offlineAuthorityIssuances       OfflineAuthorityIssuance[]
+  offlineStaffSignIns             OfflineStaffSignIn[]
+  offlineJournalReviews           OfflineJournalReview[]
+  offlineStockDiscrepancies       OfflineStockDiscrepancy[]
 
   @@unique([tenantId, keyId])
   @@unique([tenantId, branchId, terminalId, id, keyId])
@@ -719,8 +734,13 @@ model TillShift {
   terminalId                  String              @map("terminal_id") @db.Uuid
   enrollmentId                String              @map("enrollment_id") @db.Uuid
   staffUserId                 String              @map("staff_user_id") @db.Uuid
-  /// The sign-in (`TerminalStaffSession`) the shift was opened from.
-  openedStaffSessionId        String              @map("opened_staff_session_id") @db.Uuid
+  /// The sign-in (`TerminalStaffSession`) the shift was opened from. Null for a shift opened
+  /// offline (P5 #51), which names its signed `shift_open` command and offline sign-in instead.
+  openedStaffSessionId        String?             @map("opened_staff_session_id") @db.Uuid
+  /// P5 #51: the offline journal `shift_open` command that opened this shift, and the signed
+  /// `OfflineStaffSignIn` it cites. The shift's ID is the counter-generated work session ID.
+  openCommandId               String?             @unique @map("open_command_id") @db.Uuid
+  openedSignInId              String?             @map("opened_sign_in_id") @db.Uuid
   previousClosedWorkSessionId String?             @map("previous_closed_work_session_id") @db.Uuid
   currency                    String              @default("LKR") @db.VarChar(3)
   openedAt                    DateTime            @default(now()) @map("opened_at")
@@ -737,6 +757,8 @@ model TillShift {
   varianceMinor               Int?                @map("variance_minor")
   closedByUserId              String?             @map("closed_by_user_id") @db.Uuid
   closedStaffSessionId        String?             @map("closed_staff_session_id") @db.Uuid
+  /// P5 #51: the signed offline sign-in a replayed `shift_close` cites (the manager's, assisted).
+  closedSignInId              String?             @map("closed_sign_in_id") @db.Uuid
   closeKind                   TillShiftCloseKind? @map("close_kind")
   assistanceReason            String?             @map("assistance_reason") @db.VarChar(500)
   /// What the person who counted said about a difference.
@@ -2441,6 +2463,8 @@ model Batch {
 
   receiptItems           GoodsReceiptItem[]
   saleItems              SaleItem[]
+  offlineDiscrepancyLines OfflineStockDiscrepancyLine[]
+  saleBlocks             BatchSaleBlock[]
   ledgerEntries          StockLedger[]
   transferItems          TransferItem[]
   returnItems            GoodsReturnItem[]
@@ -2761,7 +2785,8 @@ model Sale {
   /// `soldBy` (revised D10). Null when every line was within the limit.
   discountApprovedBy String? @map("discount_approved_by") @db.Uuid
   /// P2 attribution: the enrolled counter, till and staff session the sale was rung up on, from
-  /// the seller's own verified open session there. Null for web POS sales.
+  /// the seller's own verified open session there. Null for web POS sales. For a sale replayed
+  /// from the offline journal (P5 #51), `workSessionId` is the signed offline sign-in it cites.
   terminalId     String?    @map("terminal_id") @db.Uuid
   tillId         String?    @map("till_id") @db.Uuid
   workSessionId  String?    @map("work_session_id") @db.Uuid
@@ -2769,6 +2794,13 @@ model Sale {
   /// shift on that till. `workSessionId` above names the sign-in (`TerminalStaffSession`), not
   /// the shift. Null for web POS sales. See POS_P2_IMPLEMENTATION.md, D-P2b-shift.
   shiftId        String?    @map("shift_id") @db.Uuid
+  /// P5 #51: the nominated counter's offline journal command this sale was replayed from; null
+  /// for every sale rung up online. Its signed bytes and receipt are the terminal command receipt.
+  offlineCommandId String?  @map("offline_command_id") @db.Uuid
+  /// P5 #51, approved D1: `pending_reconciliation` when an accepted offline sale could not post
+  /// its stock at sync. The sale and payment stand; an `OfflineStockDiscrepancy` case holds the
+  /// stock effect and its batches are blocked from further sales until it is accounted for.
+  stockPosting   SaleStockPosting @default(posted) @map("stock_posting")
   createdAt      DateTime   @default(now()) @map("created_at")
 
   branch       Branch        @relation(fields: [branchId], references: [id])
@@ -2783,6 +2815,7 @@ model Sale {
   items        SaleItem[]
   payments     SalePayment[]
   goodsReturns GoodsReturn[]
+  offlineStockDiscrepancy OfflineStockDiscrepancy?
 
   @@unique([tenantId, branchId, invoiceNo])
   @@index([tenantId, branchId, soldAt(sort: Desc)])
@@ -3375,4 +3408,136 @@ model OwnerRegistration {
 
   @@index([status, verificationExpiresAt])
   @@map("owner_registration")
+}
+
+/// P5 #51: a device-signed `OfflineStaffSignIn` uploaded with the offline journal, verified
+/// against the enrollment's pinned key before it is kept. Journal commands cite it by ID, so a
+/// sale uploaded later can still be checked against the sign-in uploaded with an earlier batch.
+/// Retained and immutable: the person's PIN never reaches the server, only this attestation.
+model OfflineStaffSignIn {
+  id               String   @id @default(uuid()) @db.Uuid
+  tenantId         String   @map("tenant_id") @db.Uuid
+  branchId         String   @map("branch_id") @db.Uuid
+  terminalId       String   @map("terminal_id") @db.Uuid
+  enrollmentId     String   @map("enrollment_id") @db.Uuid
+  keyId            String   @map("key_id") @db.VarChar(128)
+  signInId         String   @map("sign_in_id") @db.Uuid
+  signInHash       String   @map("sign_in_hash") @db.Char(64)
+  staffUserId      String   @map("staff_user_id") @db.Uuid
+  workSessionId    String   @map("work_session_id") @db.Uuid
+  grantId          String   @map("grant_id") @db.Uuid
+  authenticatedAt  DateTime @map("authenticated_at")
+  envelope         Json
+  receivedAt       DateTime @default(now()) @map("received_at")
+  receivedByUserId String   @map("received_by_user_id") @db.Uuid
+  enrollment       TerminalEnrollment @relation(fields: [tenantId, branchId, terminalId, enrollmentId, keyId], references: [tenantId, branchId, terminalId, id, keyId], onDelete: Restrict, onUpdate: Restrict, map: "offline_staff_sign_in_enrollment_fkey")
+
+  @@unique([tenantId, enrollmentId, signInId])
+  @@map("offline_staff_sign_in")
+}
+
+/// P5 #51: offline journal uploads the server did not accept: `held` (waiting on review, e.g. a
+/// revoked device's journal), `rejected` (fails historical validation) or `conflict`
+/// (REPLAY_CONFLICT: an ID or sequence already accepted with other content, or a broken hash
+/// chain). One row per distinct signed content; a repeat bumps `attempts`. Never deleted, so a
+/// changed or forked journal stays visible for review.
+model OfflineJournalReview {
+  id                 String   @id @default(uuid()) @db.Uuid
+  tenantId           String   @map("tenant_id") @db.Uuid
+  branchId           String   @map("branch_id") @db.Uuid
+  terminalId         String   @map("terminal_id") @db.Uuid
+  enrollmentId       String   @map("enrollment_id") @db.Uuid
+  keyId              String   @map("key_id") @db.VarChar(128)
+  /// "command" | "staff_sign_in"
+  recordKind         String   @map("record_kind") @db.VarChar(16)
+  recordId           String   @map("record_id") @db.Uuid
+  sequence           BigInt?
+  recordHash         String   @map("record_hash") @db.Char(64)
+  /// "held" | "rejected" | "conflict"
+  outcome            String   @db.VarChar(16)
+  errorCode          String   @map("error_code") @db.VarChar(64)
+  /// For a conflict: the hash of what was accepted first under that ID or sequence.
+  originalRecordHash String?  @map("original_record_hash") @db.Char(64)
+  envelope           Json
+  attempts           Int      @default(1)
+  firstReceivedAt    DateTime @default(now()) @map("first_received_at")
+  lastReceivedAt     DateTime @default(now()) @map("last_received_at")
+  receivedByUserId   String   @map("received_by_user_id") @db.Uuid
+  enrollment         TerminalEnrollment @relation(fields: [tenantId, branchId, terminalId, enrollmentId, keyId], references: [tenantId, branchId, terminalId, id, keyId], onDelete: Restrict, onUpdate: Restrict, map: "offline_journal_review_enrollment_fkey")
+
+  @@unique([tenantId, enrollmentId, recordKind, recordHash], map: "offline_journal_review_content_key")
+  @@index([tenantId, branchId, outcome])
+  @@map("offline_journal_review")
+}
+
+/// P5 #51, approved D1: an accepted offline sale whose stock could not be posted at sync. The
+/// sale and payment are kept; this case holds its whole stock effect (never part of it) until a
+/// manager accounts for it, and blocks the sale's batches from further sales meanwhile. The
+/// shared `OfflineStockDiscrepancy` is one line of a case: the case ID plus one batch.
+model OfflineStockDiscrepancy {
+  id              String                        @id @db.Uuid
+  tenantId        String                        @map("tenant_id") @db.Uuid
+  branchId        String                        @map("branch_id") @db.Uuid
+  terminalId      String                        @map("terminal_id") @db.Uuid
+  enrollmentId    String                        @map("enrollment_id") @db.Uuid
+  keyId           String                        @map("key_id") @db.VarChar(128)
+  commandId       String                        @map("command_id") @db.Uuid
+  saleId          String                        @unique @map("sale_id") @db.Uuid
+  snapshotId      String                        @map("snapshot_id") @db.Uuid
+  snapshotVersion Int                           @map("snapshot_version")
+  status          OfflineStockDiscrepancyStatus @default(open)
+  openedAt        DateTime                      @default(now()) @map("opened_at")
+  resolvedAt      DateTime?                     @map("resolved_at")
+  enrollment      TerminalEnrollment            @relation(fields: [tenantId, branchId, terminalId, enrollmentId, keyId], references: [tenantId, branchId, terminalId, id, keyId], onDelete: Restrict, onUpdate: Restrict, map: "offline_stock_discrepancy_enrollment_fkey")
+  sale            Sale                          @relation(fields: [saleId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  lines           OfflineStockDiscrepancyLine[]
+  blocks          BatchSaleBlock[]
+
+  @@unique([tenantId, enrollmentId, commandId])
+  @@unique([tenantId, branchId, id])
+  @@index([tenantId, branchId, status])
+  @@map("offline_stock_discrepancy")
+}
+
+/// One batch of an offline discrepancy case: what the offline sale took from it, what central
+/// stock had available when the sale synced, and the shortfall. `reason` says why this batch's
+/// units are pending: its own shortfall, an earlier open case already holding the batch, or
+/// another line of the same sale falling short (a sale is never partly posted).
+model OfflineStockDiscrepancyLine {
+  id                      String                  @id @default(uuid()) @db.Uuid
+  tenantId                String                  @map("tenant_id") @db.Uuid
+  branchId                String                  @map("branch_id") @db.Uuid
+  caseId                  String                  @map("case_id") @db.Uuid
+  batchId                 String                  @map("batch_id") @db.Uuid
+  productId               String                  @map("product_id") @db.Uuid
+  soldQuantity            Int                     @map("sold_quantity")
+  availableQuantityAtSync Int                     @map("available_quantity_at_sync")
+  shortfallQuantity       Int                     @map("shortfall_quantity")
+  /// "shortfall" | "batch_under_review" | "sale_pending"
+  reason                  String                  @db.VarChar(24)
+  createdAt               DateTime                @default(now()) @map("created_at")
+  case                    OfflineStockDiscrepancy @relation(fields: [tenantId, branchId, caseId], references: [tenantId, branchId, id], onDelete: Restrict, onUpdate: Restrict)
+  batch                   Batch                   @relation(fields: [batchId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([caseId, batchId])
+  @@map("offline_stock_discrepancy_line")
+}
+
+/// P5 #51, approved D1: while a discrepancy case holds a batch's stock effect, central checkout
+/// refuses that batch and new offline snapshots mark it `stockReviewRequired`. Other batches,
+/// including the same product's, stay sellable. Released only when the case is accounted for.
+model BatchSaleBlock {
+  id         String                  @id @default(uuid()) @db.Uuid
+  tenantId   String                  @map("tenant_id") @db.Uuid
+  branchId   String                  @map("branch_id") @db.Uuid
+  batchId    String                  @map("batch_id") @db.Uuid
+  caseId     String                  @map("case_id") @db.Uuid
+  createdAt  DateTime                @default(now()) @map("created_at")
+  releasedAt DateTime?               @map("released_at")
+  case       OfflineStockDiscrepancy @relation(fields: [tenantId, branchId, caseId], references: [tenantId, branchId, id], onDelete: Restrict, onUpdate: Restrict)
+  batch      Batch                   @relation(fields: [batchId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([caseId, batchId])
+  @@index([tenantId, batchId])
+  @@map("batch_sale_block")
 }

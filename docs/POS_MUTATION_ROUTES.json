@@ -1056,6 +1056,11 @@
   },
   {
     "method": "POST",
+    "path": "/api/v1/terminals/offline-journal/sync",
+    "source": "apps/api/src/terminals/journal/offline-journal.controller.ts"
+  },
+  {
+    "method": "POST",
     "path": "/api/v1/terminals/pin-sessions",
     "source": "apps/api/src/terminals/terminal-enrollment.controller.ts"
   },

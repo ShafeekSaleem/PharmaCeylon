@@ -437,7 +437,8 @@ may succeed, because it is read-only and runs without the enrollment lock.
 
 **Sequences:** online commands carry none. Their identity is the server-issued `commandId`, and
 ordering per terminal is the server's lock order. Offline sequences belong to P5: positive,
-unique per tenant + enrollment, strictly increasing and never reset.
+unique per tenant + enrollment, strictly increasing and never reset; see
+[offline journal sync](#offline-journal-sync-p5-51).
 
 ### Errors
 
@@ -867,7 +868,8 @@ on their own open shift, and P6's supplier cash payout (revised D10) is the firs
 
 The `OfflineSupportRecord` stream (`@pharmaceylon/shared`, `pos-resilience-contracts.ts`) is what a
 counter signs while offline that is evidence, not a sale or shift: D8 hours acknowledgements,
-sale-incident notes and external-card attempt events. There is **no HTTP route yet**. P5 sync calls
+sale-incident notes and external-card attempt events. They arrive in the `supportRecords` of
+`POST /terminals/offline-journal/sync` ([P5 #51](#offline-journal-sync-p5-51)), which calls
 `OfflineSupportRecords.record(tx, user, branchId, signedEnvelope)`, which dispatches on the signed
 `kind`. The uploader needs a live sign-in at the branch. Each record is an Ed25519 `Signed<T>`
 envelope with `command` purpose, verified against the enrollment's pinned key.
@@ -1436,7 +1438,8 @@ versions followed.
 - **Journal baseline.** The snapshot's `includedThroughSequence` / `includedThroughHash` come
   from the enrollment's accepted offline journal, read in the issuance's own repeatable-read view:
   `terminal_command_receipt` rows with an `offline_sequence`. While there are none, the baseline
-  is 0 / `null` and no batch is `stockReviewRequired`. Once any is accepted, a new request is 403
+  is 0 / `null`. Batches with an open `batch_sale_block` at the branch (P5 #51, whichever
+  counter's journal opened the case) are `stockReviewRequired`. Once any is accepted, a new request is 403
   `RECONCILIATION_REQUIRED` (from the challenge already, unless the `requestId` is a replay):
   rebasing over a journal needs the accepted head and P5's stock-review blocks. Online receipts
   (no `offline_sequence`) are not journal.
@@ -1510,3 +1513,96 @@ support record.
 The acknowledgement window may extend routine
 `operatingWindows`, which is what it is for. It may never reach past a mandatory limit or the
 grant's expiry.
+
+## Offline journal sync (P5 #51)
+
+`POST /api/v1/terminals/offline-journal/sync` (counter route, `terminal.execute`, `x-branch-id`)
+takes the shared `SyncRequest` and returns a server-signed `Signed<SyncResponse>` (Ed25519,
+purpose `sync_response`, the same `OFFLINE_AUTHORITY_KEY_ID` / `OFFLINE_AUTHORITY_PRIVATE_KEY`
+as issuance; without them the route is 403 `TEMPORARILY_UNAVAILABLE`). This slice is the
+server-side intake; the desktop producer is P4 #50.
+
+**Authentication.** The uploader is a signed-in user live at the branch with `terminal.execute`;
+a PIN-opened counter login must belong to this enrollment (else `IDENTITY_MISMATCH`). The
+request's identity must be the caller's tenant and branch and every sign-in and command must
+name the same identity. Every `staffSignIns` and `commands` envelope is checked against the
+enrollment's pinned key, never a supplied one, before anything is stored: a bad signature refuses
+the whole request (`INVALID_SIGNATURE`) and keeps nothing. Malformed or unknown fields anywhere
+are 400 `INVALID_COMMAND` before any signature or policy check. At most 25 sign-ins, 25 commands
+and 25 support records per request (and the API's 100 kB body limit): send more in pages, each
+continuing from the previous response's watermark.
+
+**Revoked or retired counters** may still upload, so old signed evidence is recoverable: exact
+replays return their original receipts, and any new command is `held` with `TERMINAL_REVOKED`
+and kept for review. Nothing new is written for them.
+
+**Order.** Support records (through the existing `OfflineSupportRecords.record`), then sign-ins
+(kept once per tenant + enrollment + `staffSignInId` in `offline_staff_sign_in`; other content
+under a used ID is kept as a conflict), then commands **sorted by sequence**, each in its own
+transaction under the enrollment's journal lock:
+
+1. **Receipt first.** The tenant + enrollment + command ID, then + sequence, receipt
+   (`terminal_command_receipt` with `offline_sequence`). Same identity, ID, digest and sequence
+   (`classifyCommandReplay`) is `duplicate` with the original receipt — before any grant, expiry
+   or revocation rule, so it works after the grant expired. Anything else under that ID or
+   sequence is `rejected` `REPLAY_CONFLICT`.
+2. **Next in line.** The sequence must be the accepted head + 1 (else `held` `SEQUENCE_GAP`) and
+   `previousCommandHash` must be the head's digest (`null` at sequence 1; else `rejected`
+   `REPLAY_CONFLICT`). The digest is SHA-256 of the domain-separated `command` signing text.
+3. **Historical validation**, never against today's catalog or clock: the grant this server
+   issued to this enrollment (`offline_authority_issuance`; else `GRANT_INVALID`) and, for a sale,
+   the signed snapshot it cites (`offline_stock_snapshot`; else `SNAPSHOT_INVALID`); the cited
+   signed sign-in (missing: `held` `SESSION_INVALID`, so uploading it later repairs the entry);
+   a cited D8 acknowledgement and its manager's sign-in (missing: `held`
+   `BUSINESS_HOURS_ACK_REQUIRED`); the command's own `occurredAt` as the trusted time (no more
+   than 5 minutes ahead of the server and not before the previous accepted entry, else
+   `CLOCK_UNTRUSTED`); usage recomputed from the accepted sales on the same snapshot. Sales go
+   through `offlineSalePolicyError`, shifts through `offlineShiftTransition`, with state
+   `offline`; their codes are returned as `rejected`. Late arrival alone is never a refusal.
+4. **Commit**, in that one transaction: the effect, its audit and the receipt.
+
+Processing **stops at the first `held` or `rejected` command**; later commands get no
+acknowledgement and stay queued on the counter. Every refused upload (held, rejected or conflict)
+is retained, never deleted, in `offline_journal_review` (one row per distinct signed content,
+`attempts` counts repeats). `committedThroughSequence` / `committedThroughHash` are the accepted
+head; sequences are accepted only contiguously from 1, so it is always the highest contiguous
+point and never jumps a gap or a refused entry.
+
+**Sales (approved D1).** The sale is created at the snapshot's prices and tax (D6), sold at
+`occurredAt` by the signed-in staff member, on the replayed shift (`shiftId` = the D7b work
+session), with `offlineCommandId` set and `workSessionId` naming the offline sign-in. Cash is
+stored as tendered with the change beside it (as online); an external card payment is `card`
+with the provider reference. Under the batch locks, if every batch has the units available
+(on hand − quarantined − reserved) and none is held by an open case, the whole stock effect is
+posted through `StockService.issue` (no bypass), dated `occurredAt`. Otherwise **nothing** is
+posted: the sale and payments stand with `stockPosting: pending_reconciliation`, and one
+`offline_stock_discrepancy` case is opened with a line per batch (`soldQuantity`,
+`availableQuantityAtSync`, `shortfallQuantity`, and why: `shortfall`, `batch_under_review` or
+`sale_pending`) and a `batch_sale_block` on each of the sale's batches. The ack carries
+`stockPosting` and `reconciliationCaseId`; a retry returns the same, case included. The shared
+`OfflineStockDiscrepancy` is one line of a case (case ID + batch).
+
+While a block is open: central checkout refuses that batch by name with 409
+`BATCH_STOCK_REVIEW` and FEFO skips it (other batches, including the same product's, keep
+selling); offline snapshots mark it `stockReviewRequired`; a later offline sale from it is
+pending too (`batch_under_review`). A pending sale cannot be voided or refunded (409
+`STOCK_POSTING_PENDING`): that would put back stock it never took. Case resolution and block
+release are a later P5 slice.
+
+**Shifts (D7b).** `shift_open` creates the `till_shift` with the counter's work session ID, the
+opening count (total only), the previous closed shift it names, `openCommandId` and the sign-in.
+`shift_close` closes it with the counted cash, the server's expected cash from the replayed sales
+(`expectedCashMinor`, so the variance is against the server's figure) and the counter's figure
+beside it (`counterExpectedCashMinor`); an assisted close records the manager's sign-in, name and
+reason. Each is replayed once: a resend is a `duplicate`, and a second close of a closed shift is
+`rejected` `SESSION_INVALID`, never a reopen.
+
+**Support acknowledgements.** `accepted` / `duplicate` for an accepted record; otherwise the
+record is stored but still `held`, acknowledged `held` with `RECONCILIATION_REQUIRED` (its held
+reason in the message), or `REPLAY_CONFLICT` for changed content under a used record ID. Gating
+dependent commands on support-record verification is a later P5 slice.
+
+**Not yet (later P5 slices).** Rebasing a snapshot or renewing a grant over a non-empty journal
+(issuance still refuses with `RECONCILIATION_REQUIRED`), manager discrepancy review and
+resolution, support-record gating of dependent commands, replacement / missing-journal review,
+backup and restore, and the retention policy for journal evidence (nothing is deleted today).

@@ -242,6 +242,10 @@ export const MUTATION_ACTIONS = Object.freeze({
   // Revised D13 local activation: the signed, attended step on the exact target. Issues no grant.
   "POST /api/v1/terminals/offline-authority": "local_record",
   "POST /api/v1/terminals/offline-authority/challenge": "identity",
+  // P5 #51: the nominated counter's offline journal. Each accepted sale already happened at the
+  // enrolled counter (physical stock, branch cash, never clinical: D2); shift entries are local
+  // records. Device-signed per command; recovery from a revoked counter writes no effect.
+  "POST /api/v1/terminals/offline-journal/sync": "checkout",
   "POST /api/v1/terminals/offline-assignment/activate": "local_record",
   "POST /api/v1/terminals/offline-assignment/activate/challenge": "identity",
   "POST /api/v1/terminals/offline-assignment/authorizations": "management",
