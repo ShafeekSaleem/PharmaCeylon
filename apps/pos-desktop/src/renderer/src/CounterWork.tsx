@@ -4,6 +4,8 @@ import type {
   CounterWorkKind,
   RefundAtCounter,
   RefundExecuted,
+  StockCaseAtCounter,
+  StockCaseResolved,
 } from "../../shared/ipc-contract";
 import styles from "./CounterWork.module.css";
 import { dayMonthYear, time } from "./format";
@@ -111,6 +113,15 @@ const KINDS: Record<
     ready: { label: "Ready to post", tone: ui.neutral! },
     doing: "Posting",
   },
+  // P5 #51: an offline sale's stock, waiting on a manager-approved plan.
+  stock_case: {
+    tab: "stock",
+    title: "Offline sale stock",
+    icon: "wifi-off",
+    tone: styles.amber!,
+    ready: { label: "Approved · settle it here", tone: ui.warn! },
+    doing: "Settling",
+  },
 };
 
 const TABS: { tab: WorkTab; label: string }[] = [
@@ -135,6 +146,7 @@ const OPERATIONS: Record<string, string> = {
   "POST /api/v1/products/import/:importId/stock/post": "Opening stock",
   "POST /api/v1/products/import/:importId/undo-stock": "Undo opening stock",
   "POST /api/v1/prescriptions": "Prescription",
+  "POST /api/v1/offline-stock-cases/resolutions/:id/execute": "Offline sale stock",
 };
 export const operationName = (operation: string) =>
   OPERATIONS[operation] ?? "Counter action";
@@ -202,8 +214,28 @@ function describe(item: CounterWorkItem, refund?: RefundAtCounter) {
         "batchs",
         "batches",
       );
+    case "stock_case":
+      return [`Sale ${item.reference}`, item.subject, plural(item.lineCount, "batch").replace("batchs", "batches")]
+        .filter(Boolean)
+        .join(" · ");
   }
 }
+
+/** What a plan asks the counter to do, in words. */
+const PLAN_KINDS: Record<StockCaseAtCounter["kind"], { title: string; help: string }> = {
+  post_now: {
+    title: "Post the sale",
+    help: "Stock now covers this offline sale. Settling it takes its units off the batches below.",
+  },
+  count_and_correct: {
+    title: "Count and correct",
+    help: "Count every unit of each batch here, on the shelf and in the back, held or not. The batch is corrected to your count once, then the sale's units come off — nothing is taken off twice.",
+  },
+  link_existing_settlement: {
+    title: "Link what already settled it",
+    help: "A stocktake or write-off after the sale already took these units off. Settling links it once; no stock moves now.",
+  },
+};
 
 function byLine(item: CounterWorkItem) {
   if (item.kind === "transfer_receive")
@@ -417,10 +449,14 @@ function Detail({
   busy,
   canRefund,
   onRefund,
+  stockCase,
+  onResolve,
   error,
 }: {
   item: CounterWorkItem;
   refund?: RefundAtCounter;
+  stockCase?: StockCaseAtCounter;
+  onResolve: (resolutionId: string, counts: Array<{ batchId: string; countedQty: number }>) => void;
   you: string;
   counterLabel: string | null;
   busy: boolean;
@@ -432,6 +468,14 @@ function Detail({
   const kind = KINDS[item.kind];
   const ready = !blocked(item);
   const title = [item.reference, item.subject].filter(Boolean).join(" · ");
+  const [counts, setCounts] = useState<Record<string, string>>({});
+  const needsCounts = stockCase?.kind === "count_and_correct";
+  const countList = (stockCase?.lines ?? []).map((line) => ({
+    batchId: line.batchId,
+    raw: counts[line.batchId] ?? "",
+  }));
+  const countsComplete =
+    !needsCounts || countList.every((c) => /^\d{1,7}$/.test(c.raw.trim()));
   return (
     <section
       className={cx(ui.panel, styles.detail)}
@@ -481,6 +525,13 @@ function Detail({
 
       {item.kind === "refund" ? (
         <RefundPane item={item} refund={refund} />
+      ) : item.kind === "stock_case" ? (
+        <StockCasePane
+          stockCase={stockCase}
+          counts={counts}
+          disabled={busy || !ready}
+          onCount={(batchId, value) => setCounts((prev) => ({ ...prev, [batchId]: value }))}
+        />
       ) : (
         <div className={styles.content}>
           <div className={cx(ui.note, styles.waiting)} role="note">
@@ -510,6 +561,11 @@ function Detail({
                 ? `back to ${refund.refundMethod}`
                 : "back the way the sale was paid"}
             </>
+          ) : item.kind === "stock_case" ? (
+            <>
+              <b>{stockCase ? PLAN_KINDS[stockCase.kind].title : "Settle the sale"}</b>
+              {needsCounts && !countsComplete ? "Enter a count for every batch" : "as approved on the web"}
+            </>
           ) : (
             <>
               <b>Nothing to do here yet</b>
@@ -528,6 +584,22 @@ function Detail({
             <Icon name="rotate-ccw" />
             Refund now
             <KeyHint keys="F12" onPrimary spaced />
+          </button>
+        )}
+        {item.kind === "stock_case" && (
+          <button
+            type="button"
+            className={cx(ui.btn, ui.primary, ui.lg)}
+            disabled={busy || !ready || !stockCase || !canRefund || !countsComplete}
+            onClick={() =>
+              onResolve(
+                item.id,
+                needsCounts ? countList.map((c) => ({ batchId: c.batchId, countedQty: Number(c.raw.trim()) })) : [],
+              )
+            }
+          >
+            <Icon name="check" />
+            Settle stock
           </button>
         )}
       </div>
@@ -564,6 +636,74 @@ function RefundPane({
           Check the returned goods against the sale before refunding. Cash
           comes out of this drawer.
         </div>
+      </div>
+    </div>
+  );
+}
+
+/** The approved plan: the batches it covers, and a count box for each when it is a count. */
+function StockCasePane({
+  stockCase,
+  counts,
+  disabled,
+  onCount,
+}: {
+  stockCase?: StockCaseAtCounter;
+  counts: Record<string, string>;
+  disabled: boolean;
+  onCount: (batchId: string, value: string) => void;
+}) {
+  if (!stockCase)
+    return (
+      <div className={styles.content}>
+        <div className={cx(ui.note, styles.waiting)} role="note">
+          <Icon name="clock" />
+          <div>Loading the approved plan…</div>
+        </div>
+      </div>
+    );
+  const plan = PLAN_KINDS[stockCase.kind];
+  const counting = stockCase.kind === "count_and_correct";
+  return (
+    <div className={styles.content}>
+      <div className={cx(ui.kvs, styles.facts)}>
+        <div className={ui.kv}>
+          Sale<b>{stockCase.invoiceNo}</b>
+        </div>
+        <div className={ui.kv}>
+          Plan<b>{plan.title}</b>
+        </div>
+        {stockCase.note && (
+          <div className={ui.kv}>
+            Note<b>{stockCase.note}</b>
+          </div>
+        )}
+      </div>
+      <div className={cx(ui.note, styles.waiting)} role="note">
+        <Icon name="info" />
+        <div>{plan.help}</div>
+      </div>
+      <div aria-label="Batches in this plan">
+        {stockCase.lines.map((line) => (
+          <div key={line.batchId} className={ui.f}>
+            <label className={ui.label}>
+              <span>
+                {line.productName} · batch {line.batchNo}
+                {line.expiryDate ? ` · exp ${line.expiryDate}` : ""} · {line.soldQuantity} sold offline
+              </span>
+              {counting && (
+                <input
+                  className={ui.in}
+                  inputMode="numeric"
+                  aria-label={`Units of ${line.productName} batch ${line.batchNo} counted`}
+                  value={counts[line.batchId] ?? ""}
+                  disabled={disabled}
+                  onChange={(e) => onCount(line.batchId, e.target.value)}
+                />
+              )}
+            </label>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -640,6 +780,8 @@ export function CounterWork({
 } = {}) {
   const [items, setItems] = useState<CounterWorkItem[] | null>(null);
   const [refunds, setRefunds] = useState<RefundAtCounter[]>([]);
+  const [stockCases, setStockCases] = useState<StockCaseAtCounter[]>([]);
+  const [resolved, setResolved] = useState<StockCaseResolved | null>(null);
   const [pending, setPending] = useState<Pending[]>([]);
   const [tab, setTab] = useState<WorkTab>("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -656,6 +798,9 @@ export function CounterWork({
       );
       void invoke(() => window.pos.refundsReady()).then((result) => {
         if (result.ok) setRefunds(result.value);
+      });
+      void invoke(() => window.pos.stockCasesReady()).then((result) => {
+        if (result.ok) setStockCases(result.value);
       });
       void window.pos
         .pendingCommands()
@@ -710,6 +855,21 @@ export function CounterWork({
         window.pos.executeRefund({ refundRequestId: id }),
       );
       if (result.ok) setDone(result.value);
+      else setError(result.error.message);
+    } finally {
+      setBusy(false);
+      load();
+    }
+  }
+
+  async function resolve(resolutionId: string, counts: Array<{ batchId: string; countedQty: number }>) {
+    setBusy(true);
+    setError(null);
+    setDone(null);
+    setResolved(null);
+    try {
+      const result = await invoke(() => window.pos.resolveStockCase({ resolutionId, counts }));
+      if (result.ok) setResolved(result.value);
       else setError(result.error.message);
     } finally {
       setBusy(false);
@@ -804,6 +964,26 @@ export function CounterWork({
               </span>
             </p>
           )}
+          {resolved && (
+            <p role="status" className={styles.doneHere}>
+              <Icon name="check-circle" />
+              <span>
+                {resolved.alreadyApplied ? "Already settled" : "Settled"} the stock of offline sale{" "}
+                {resolved.invoiceNo}:{" "}
+                {resolved.batches
+                  .map((b) =>
+                    b.method === "linked"
+                      ? "linked"
+                      : `${b.correctionQty ? `corrected ${b.correctionQty > 0 ? "+" : ""}${b.correctionQty}, ` : ""}${b.postedQty} posted`,
+                  )
+                  .join("; ")}
+                {resolved.batches.some((b) => b.stillBlocked)
+                  ? ". Another offline sale still holds a batch, so it stays paused."
+                  : "."}{" "}
+                Requested by {resolved.requestedBy ?? "—"}, approved by {resolved.approvedBy ?? "—"}, done by you.
+              </span>
+            </p>
+          )}
           {shown.map((item) => (
             <QueueCard
               key={item.id}
@@ -832,6 +1012,8 @@ export function CounterWork({
             busy={busy}
             canRefund={!pending.length}
             onRefund={(id) => void execute(id)}
+            stockCase={stockCases.find((p) => p.resolutionId === selected.id)}
+            onResolve={(id, counts) => void resolve(id, counts)}
             error={error}
           />
         ) : (

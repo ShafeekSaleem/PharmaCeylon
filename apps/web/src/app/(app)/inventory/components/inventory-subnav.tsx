@@ -2,6 +2,7 @@
 
 import { useSearchParams } from "next/navigation";
 import { PageSubnav, type PageSubnavTab } from "@/components/ui";
+import { usePermissions } from "@/lib/permissions";
 
 // Adjustments no longer has its own sub-page — every tab below opens the same
 // "New adjustment" modal instead, so it isn't listed as a nav destination.
@@ -9,10 +10,18 @@ const TABS: PageSubnavTab[] = [
   { href: "/inventory", label: "Stock overview", match: (p) => p === "/inventory" },
   { href: "/inventory/batches", label: "Batches" },
   { href: "/inventory/movements", label: "Movements" },
+  // P5 #51: offline sales whose stock waits on a manager's review.
+  { href: "/inventory/stock-cases", label: "Stock cases" },
 ];
 
 export function InventorySubnav() {
   const searchParams = useSearchParams();
+  const { permissionKeys } = usePermissions();
+  const tabs = TABS.map((tab) =>
+    tab.href === "/inventory/stock-cases"
+      ? { ...tab, hidden: !permissionKeys.includes("inventory.resolve_stock_cases") }
+      : tab,
+  );
   const productId = searchParams.get("productId");
   const category = searchParams.get("category");
 
@@ -26,5 +35,5 @@ export function InventorySubnav() {
     return qs ? `?${qs}` : "";
   })();
 
-  return <PageSubnav label="Inventory sections" tabs={TABS} querySuffix={querySuffix} />;
+  return <PageSubnav label="Inventory sections" tabs={tabs} querySuffix={querySuffix} />;
 }

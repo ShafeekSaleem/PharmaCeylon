@@ -2,6 +2,8 @@ import type {
   CounterWorkItem,
   RefundAtCounter,
   RefundExecuted,
+  StockCaseAtCounter,
+  StockCaseResolved,
 } from "../../shared/ipc-contract";
 import { ApiError, type ApiSession } from "../api/api-client";
 import { ActionFailure, type TerminalService } from "./terminal-service";
@@ -140,6 +142,66 @@ export class CounterWorkService {
         amountMinor: r.amountMinor,
       })),
       alreadyApplied: result.effect === "already_applied",
+      requestedBy: ready.requestedBy,
+      approvedBy: ready.approvedBy,
+    };
+  }
+
+  /** P5 #51: approved stock-case plans and the batches to count (never the system quantity). */
+  async stockCasesReady(): Promise<StockCaseAtCounter[]> {
+    return this.deps.api.request<StockCaseAtCounter[]>(
+      "GET",
+      "/offline-stock-cases/resolutions/ready",
+      { branchId: this.branchId() },
+    );
+  }
+
+  /**
+   * Resolve an offline stock case here, with the plan approved on the web: count and correct,
+   * post, or link, in one signed command. Refused unless the plan still matches its approval.
+   */
+  async resolveStockCase(
+    resolutionId: string,
+    counts: ReadonlyArray<{ batchId: string; countedQty: number }>,
+  ): Promise<StockCaseResolved> {
+    // Re-read so the approval pinned to the command is the server's current one.
+    const ready = (await this.stockCasesReady()).find(
+      (p) => p.resolutionId === resolutionId,
+    );
+    if (!ready)
+      throw new ActionFailure(
+        "STOCK_CASE_NOT_READY",
+        "That stock case is not waiting at this counter any more.",
+      );
+    if (ready.approvalState !== "matches" || !ready.approvalEvidenceId)
+      throw new ActionFailure(
+        "APPROVAL_STALE",
+        "This plan changed since it was approved. Ask for it to be approved again on the web.",
+      );
+    const receipt = await this.deps.commands.execute(
+      "POST /api/v1/offline-stock-cases/resolutions/:id/execute",
+      {
+        resolutionId,
+        counts:
+          ready.kind === "count_and_correct"
+            ? counts.map((c) => ({ batchId: c.batchId, countedQty: c.countedQty }))
+            : [],
+      },
+      ready.approvalEvidenceId,
+    );
+    const { result } = receipt;
+    return {
+      invoiceNo: ready.invoiceNo,
+      kind: result.kind,
+      alreadyApplied: result.effect === "already_applied",
+      batches: result.batches.map((b) => ({
+        batchId: b.batchId,
+        method: b.method,
+        countedQty: b.countedQty,
+        correctionQty: b.correctionQty,
+        postedQty: b.postedQty,
+        stillBlocked: b.stillBlocked,
+      })),
       requestedBy: ready.requestedBy,
       approvedBy: ready.approvedBy,
     };

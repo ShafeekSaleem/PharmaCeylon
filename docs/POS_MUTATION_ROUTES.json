@@ -270,6 +270,26 @@
     "source": "apps/api/src/notifications/notifications.controller.ts"
   },
   {
+    "method": "POST",
+    "path": "/api/v1/offline-stock-cases/:id/resolutions",
+    "source": "apps/api/src/stock-cases/stock-cases.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/offline-stock-cases/resolutions/:id/approve",
+    "source": "apps/api/src/stock-cases/stock-cases.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/offline-stock-cases/resolutions/:id/cancel",
+    "source": "apps/api/src/stock-cases/stock-cases.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/offline-stock-cases/resolutions/:id/execute",
+    "source": "apps/api/src/stock-cases/stock-cases.controller.ts"
+  },
+  {
     "method": "PUT",
     "path": "/api/v1/onboarding",
     "source": "apps/api/src/auth/onboarding-draft.controller.ts"

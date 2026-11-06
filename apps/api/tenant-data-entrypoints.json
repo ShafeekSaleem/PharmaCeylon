@@ -342,6 +342,11 @@
       "path": "src/terminals/journal/offline-shift-replay.ts",
       "mode": "scoped-domain-lock",
       "reason": "Locks one counter by the bound tenant, branch and the grant's register id (FOR UPDATE) to serialize replayed shift opens/closes with online ones, and one till shift by tenant, branch and id (FOR UPDATE) before a replayed close; no data is written by raw SQL."
+    },
+    {
+      "path": "src/security/offline-stock-resolution-approval-material.ts",
+      "mode": "scoped-domain-lock",
+      "reason": "The one lock order for offline stock case resolution, shared by the stock cases service and approval resolution: one discrepancy case and then one resolution plan by the bound tenant, branch and id (FOR UPDATE), before batch locks through StockService; nothing is read or written by raw SQL."
     }
   ]
 }

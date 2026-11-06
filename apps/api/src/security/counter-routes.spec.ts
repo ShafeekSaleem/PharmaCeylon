@@ -4,6 +4,7 @@ import { InventoryController } from "../inventory/inventory.controller";
 import { PrescriptionsController } from "../customers/prescriptions.controller";
 import { RefundRequestsController } from "../sales/refund-requests.controller";
 import { SalesController } from "../sales/sales.controller";
+import { StockCasesController } from "../stock-cases/stock-cases.controller";
 import { CounterWorkController } from "../terminal-commands/counter-work.controller";
 import { TerminalCommandsController } from "../terminal-commands/terminal-commands.controller";
 import { OfflineActivationController } from "../terminals/offline-activation.controller";
@@ -65,6 +66,9 @@ describe("routes a PIN-opened counter login may call", () => {
     [OfflineAuthorityController, ["prepare", "issue"]],
     // P5 #51: the nominated counter uploads its offline journal.
     [OfflineJournalController, ["sync"]],
+    // P5 #51: approved stock-case plans and the batches to count. Approving stays on the web, and
+    // the plan executes through the signed command above, never its own route.
+    [StockCasesController, ["ready"]],
     [
       TerminalEnrollmentController,
       [

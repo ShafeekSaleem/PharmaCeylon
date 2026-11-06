@@ -95,3 +95,69 @@ describe("counter work from the server", () => {
     await expect(work.list()).rejects.toBeInstanceOf(ApiError);
   });
 });
+
+describe("offline sale stock at the counter (P5 #51)", () => {
+  const resolutionId = randomUUID();
+  const batchId = randomUUID();
+  const plan = (overrides: Record<string, unknown> = {}) => ({
+    resolutionId, caseId: randomUUID(), invoiceNo: "INV-2611-000042", soldAt: "2026-11-06T04:00:00.000Z",
+    kind: "count_and_correct", note: null, approvalEvidenceId: approvalId, approvalState: "matches",
+    requestedBy: "Nimal Perera", approvedBy: "Owner Silva",
+    lines: [{ batchId, productName: "Paracetamol 500mg", batchNo: "PCM-7", expiryDate: null, soldQuantity: 5 }],
+    ...overrides,
+  });
+  function withCommands(ready: unknown[], result: Record<string, unknown> = {}) {
+    const executed: unknown[][] = [];
+    const commands = {
+      execute: async (...args: unknown[]) => {
+        executed.push(args);
+        return {
+          result: {
+            type: "offline_stock_case.resolved", resolutionId, caseId: randomUUID(), saleId: randomUUID(),
+            approvalId, kind: "count_and_correct", effect: "applied",
+            batches: [{ batchId, method: "counted", soldQty: 5, countedQty: 0, correctionQty: 2, postedQty: 5, stillBlocked: false }],
+            ...result,
+          },
+        };
+      },
+    };
+    const calls: string[] = [];
+    const work = new CounterWorkService({
+      api: { request: async (_m: string, path: string) => (calls.push(path), ready) } as unknown as ApiSession,
+      terminal: { current: () => ({ identity: { branchId } }) } as unknown as TerminalService,
+      commands: commands as unknown as SignedCommandService,
+    });
+    return { work, executed, calls };
+  }
+
+  it("reads approved plans from the server and signs the count with the plan's current approval", async () => {
+    const { work, executed, calls } = withCommands([plan()]);
+    const done = await work.resolveStockCase(resolutionId, [{ batchId, countedQty: 0 }]);
+    expect(calls).toEqual(["/offline-stock-cases/resolutions/ready"]);
+    expect(executed).toEqual([[
+      "POST /api/v1/offline-stock-cases/resolutions/:id/execute",
+      { resolutionId, counts: [{ batchId, countedQty: 0 }] },
+      approvalId,
+    ]]);
+    expect(done).toEqual({
+      invoiceNo: "INV-2611-000042", kind: "count_and_correct", alreadyApplied: false,
+      batches: [{ batchId, method: "counted", countedQty: 0, correctionQty: 2, postedQty: 5, stillBlocked: false }],
+      requestedBy: "Nimal Perera", approvedBy: "Owner Silva",
+    });
+  });
+
+  it("sends no counts for a plan that is not a count", async () => {
+    const { work, executed } = withCommands([plan({ kind: "post_now" })], { kind: "post_now" });
+    await work.resolveStockCase(resolutionId, [{ batchId, countedQty: 3 }]);
+    expect(executed[0]![1]).toEqual({ resolutionId, counts: [] });
+  });
+
+  it("refuses, without signing anything, a plan that changed since approval or is no longer waiting", async () => {
+    const changed = withCommands([plan({ approvalState: "changed" })]);
+    await expect(changed.work.resolveStockCase(resolutionId, [])).rejects.toMatchObject({ code: "APPROVAL_STALE" });
+    expect(changed.executed).toEqual([]);
+    const gone = withCommands([]);
+    await expect(gone.work.resolveStockCase(resolutionId, [])).rejects.toMatchObject({ code: "STOCK_CASE_NOT_READY" });
+    expect(gone.executed).toEqual([]);
+  });
+});

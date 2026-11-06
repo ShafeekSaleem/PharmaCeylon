@@ -4,6 +4,7 @@ import { heldAdjustmentMaterial, heldDeliveryMaterial } from "./held-approval-ma
 import { goodsReturnMaterial, preparedReceiptMaterial } from "./receiving-approval-material";
 import { transferApprovalMaterial } from "./transfer-approval-material";
 import { saleRefundMaterial } from "./sale-refund-approval-material";
+import { lockOfflineStockResolution, offlineStockResolutionFacts } from "./offline-stock-resolution-approval-material";
 import { BadRequestException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import type { ApprovalDocumentIdentity } from "@pharmaceylon/shared";
@@ -56,6 +57,14 @@ export const APPROVAL_ACTIONS = {
     approvalPermission: "purchasing.approve",
     executionPermission: "purchasing.receive",
     operation: "POST /api/v1/purchasing/prepared-receipts/:id/post",
+  },
+  // P5 #51: approved remotely by someone who reviews offline stock cases; done at the counter by
+  // someone who manages inventory there (the count and correction are physical stock work).
+  "offline_stock_resolution.execute": {
+    documentType: "offline_stock_resolution",
+    approvalPermission: "inventory.resolve_stock_cases",
+    executionPermission: "inventory.manage",
+    operation: "POST /api/v1/offline-stock-cases/resolutions/:id/execute",
   },
 } as const;
 export type ApprovalAction = keyof typeof APPROVAL_ACTIONS;
@@ -180,6 +189,14 @@ export async function approvalDocument(
     version = doc.approvalVersion;
     requester = doc.requestedBy;
     material = saleRefundMaterial(doc);
+  } else if (policy.documentType === "offline_stock_resolution") {
+    // Every path that touches a case locks it first, then its plan, then the batches.
+    if (!(await lockOfflineStockResolution(tx, tenantId, branchId, documentId))) denied("APPROVAL_INVALID");
+    const doc = await tx.offlineStockResolution.findFirst({ where: { tenantId, branchId, id: documentId } });
+    if (!doc || !(use === "execution" ? ["approved"] : ["prepared", "approved"]).includes(doc.status)) denied("APPROVAL_INVALID");
+    const facts = await offlineStockResolutionFacts(tx, doc);
+    if (!facts || facts.case.status !== "open") denied("APPROVAL_INVALID");
+    version = doc.approvalVersion; requester = doc.requestedBy; material = facts.material;
   } else if (policy.documentType === "prepared_receipt") {
     // Same order as every receiving path: the purchase order first, then the prepared receipt.
     const binding = await tx.preparedReceipt.findFirst({ where: { tenantId, branchId, id: documentId }, select: { purchaseOrderId: true } });

@@ -18,6 +18,7 @@ export const SIGNED_PHYSICAL_OPERATIONS = [
   "POST /api/v1/returns/:id/complete",
   "POST /api/v1/inventory/adjustments",
   "POST /api/v1/prescriptions",
+  "POST /api/v1/offline-stock-cases/resolutions/:id/execute",
 ] as const;
 export type SignedPhysicalOperation = typeof SIGNED_PHYSICAL_OPERATIONS[number];
 
@@ -81,7 +82,20 @@ export type SignedOperationBody = {
     customerId: string | null;
     notes: string | null;
   }>;
+  /** P5 #51: resolve an offline stock discrepancy case with its remotely approved plan, here at
+   * the counter. approvalEvidenceId = the plan's executionApprovalId (always required). `counts`
+   * is the local physical count of every batch of the case, in any order, for count_and_correct,
+   * and empty for the other kinds. A count is every unit of the batch at the branch, sellable or
+   * held, after the offline sale left the shelf. */
+  "POST /api/v1/offline-stock-cases/resolutions/:id/execute": Readonly<{
+    resolutionId: string;
+    counts: ReadonlyArray<Readonly<{ batchId: string; countedQty: number }>>;
+  }>;
 };
+
+/** P5 #51: how an approved resolution plan settles an offline stock discrepancy case. */
+export const OFFLINE_STOCK_RESOLUTION_KINDS = ["post_now", "count_and_correct", "link_existing_settlement"] as const;
+export type OfflineStockResolutionKind = typeof OFFLINE_STOCK_RESOLUTION_KINDS[number];
 
 export const STOCK_ADJUSTMENT_KINDS = ["found", "damaged", "expired", "lost", "opening", "correction"] as const;
 export type StockAdjustmentKind = typeof STOCK_ADJUSTMENT_KINDS[number];
@@ -143,6 +157,22 @@ export type SignedOperationResult = {
     // The SLMC registration relied on: the signed-in pharmacist's own, or the co-signer's when the
     // command carried a co-sign (`pharmacistEvidenceId`). The co-signer is in the audit provenance.
     pharmacistRegistrationId: string;
+  }>;
+  /** Each batch of the case, once: what was posted, corrected or linked. */
+  "POST /api/v1/offline-stock-cases/resolutions/:id/execute": Readonly<{
+    type: "offline_stock_case.resolved"; resolutionId: string; caseId: string; saleId: string; approvalId: string;
+    kind: OfflineStockResolutionKind; effect: SignedOperationEffect;
+    batches: ReadonlyArray<Readonly<{
+      batchId: string;
+      method: "posted" | "counted" | "linked";
+      soldQty: number;
+      countedQty: number | null;
+      /** Units added (positive) or taken off (negative) to bring the batch to the count. */
+      correctionQty: number;
+      postedQty: number;
+      /** Batches another open case still holds stay blocked. */
+      stillBlocked: boolean;
+    }>>;
   }>;
 };
 

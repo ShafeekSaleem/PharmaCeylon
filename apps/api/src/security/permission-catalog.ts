@@ -285,6 +285,18 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
     dependencies: ["inventory.view"],
   },
   {
+    // P5 #51: approve remotely; the count, correction and posting happen at the counter, by
+    // someone with inventory.manage there (revised D10).
+    key: "inventory.resolve_stock_cases",
+    module: "inventory",
+    label: "Review and approve offline stock cases",
+    description:
+      "Review offline sales whose stock could not be posted, and approve how each case is resolved. The correction itself is done at the counter.",
+    defaultRoles: [owner, manager],
+    riskLevel: "elevated",
+    dependencies: ["inventory.view"],
+  },
+  {
     key: "costs.view",
     module: "costs",
     label: "See costs and margins",

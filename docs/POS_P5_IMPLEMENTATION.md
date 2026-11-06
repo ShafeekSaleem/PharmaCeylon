@@ -74,12 +74,85 @@ case, later sale into the blocked batch pending), a sale with one short batch, r
 grant expiry, revoked counter recovery, unsigned/malformed uploads, snapshot pricing and a late
 sign-in, support records and a wrong counter login.
 
+## Slice 2 — manager review and resolution of discrepancy cases (built)
+
+Revised D10: approve remotely online, execute physically at the enrolled counter.
+
+| Area | What exists |
+| --- | --- |
+| Review | `GET /offline-stock-cases` and `/:id` (`inventory.resolve_stock_cases`, new, owner and manager by default): the sale with receipt and payments, the offline evidence (counter, sequence, sign-in, staff, sync time, uploader), and per batch the pending units (this case and other open cases), stock now, the ledger timeline since the snapshot (online sales, receipts, transfers, stocktakes, quarantine, adjustments) with a digest, stocktake counts, reservations and linkable write-offs |
+| Web | Inventory → Stock cases (`/inventory/stock-cases`): evidence, plan form, approval evidence (requester / approver / executor), "Approved — waiting at the counter" handoff, "changed since approval" warning. Daily work lists open cases (`offline_stock_case.review`) and approved plans (`offline_stock_case.resolve`, counter work) |
+| Plans | `offline_stock_resolution`: `post_now`, `count_and_correct` or `link_existing_settlement` (links to a posted stocktake counted after the sale, or to write-offs after the sale), one open plan per case, content immutable (trigger) |
+| Approval | Existing exact approval (`management_approval`, `offline_stock_resolution.execute`): material = case, plan and the other open cases on each batch; self-approval policy; stale on any material change (`APPROVAL_STALE`) |
+| Execution | Signed operation `POST /api/v1/offline-stock-cases/resolutions/:id/execute` through `TerminalCommandsController` / `SignedCommandService`, `inventory.manage`; the browser route always refuses `TERMINAL_REQUIRED`; never an offline journal command. One transaction: lock case → plan → batches, re-check approval, post / correct / link, one `offline_stock_settlement` per batch (+ `offline_stock_settlement_link` per linked movement), sale → `posted`, case → `resolved`, release this case's blocks, audit. Idempotent through the command receipt |
+| Desktop | Counter work's Stock tab: "Offline sale stock" items with the approved plan, the "matches the approved version" header, a blind count box per batch for `count_and_correct`, and Settle stock |
+
+### Decisions taken in this slice
+
+- **A count corrects to count + every open case's pending units on the batch**, then posts this
+  sale. The count is taken after the offline sales left the shelf, so it already reflects all of
+  them; adding back the other cases' pending units keeps them owed, so when those cases post
+  later nothing is deducted twice. Central stock ends equal to the count once every case is
+  settled. The correction is an ordinary `adjustment_in` / `adjustment_out` through StockService,
+  dated at the count; the sale's posting is dated at the sale (as slice 1 posts sales).
+- **post_now needs only this sale's units available** (StockService's own check); other open
+  cases on the batch keep their claims and their blocks. The manager sees their pending units in
+  the evidence before approving.
+- **A count covers held units.** It counts every unit, so held units stay held only as far as
+  the count leaves room beside this sale's units; the rest come off the quarantine bucket, and
+  the sellable bucket takes the remainder of the correction (`correctionBuckets`). The sale
+  always posts from sellable stock.
+- **post_now never re-deducts a count.** If a posted stocktake counted a batch after the sale,
+  post_now is refused `SETTLEMENT_ALREADY_COUNTED` at preparation and execution; link the
+  stocktake or count instead.
+- **Another open case on a batch is material.** It changes what a count must account for, so a
+  case opened after approval makes the approval stale; approve again. A case that resolves after
+  the plan was prepared stays in the material, so one case settling never stales another's
+  approval. Daily work shows a stale approved plan as "Approve stock case plan again", not as
+  ready at the counter.
+- **A stock case's own count correction is never linkable** by another case (movement
+  candidates exclude reference `offline_stock_resolution`): it settles that case alone.
+- **A stocktake link** is valid when the stocktake posted and counted the batch after the sale:
+  the count already took the sold units off, whatever its variance. Several cases may link the
+  same count (each case once). **A movement link** spends a write-off's units at most once across
+  all cases and must cover every sold unit; a partial link is refused.
+- **Blind counts at the counter.** The counter's plan list never carries the system quantity.
+- **Execution permission is `inventory.manage`** (owner, manager, inventory clerk): the count and
+  correction are inventory work. Approval stays with `inventory.resolve_stock_cases`.
+- **Executed plans are final.** A retry of the same signed command replays its receipt; a distinct
+  later command is refused `APPROVAL_INVALID` (the approval resolves only for approved plans), as
+  for stocktake posting.
+
+### Schema (migrations `20261107000000_offline_stock_case_resolution`, `20261107000100_offline_stock_case_resolution_validate`)
+
+New tenant tables, each with a staged `pc_tenant_isolation` policy: `offline_stock_resolution`
+(immutable content; one open and one executed plan per case), `offline_stock_settlement` and
+`offline_stock_settlement_link` (append-only). `management_approval_shape` gains the
+`offline_stock_resolution` pair, added `NOT VALID` and validated in the second migration. The
+`inventory.resolve_stock_cases` permission is granted to built-in owner and manager roles.
+
+### Tests
+
+Unit: `stock-cases/stock-case-plan.spec.ts` (kinds, links, material, counts, the correction,
+movement allocation, timeline digest); the signed-operation parser and registry
+(`terminal-command.executor.spec.ts`); counter routes; daily-work kinds. PostgreSQL:
+`test/integration/offline-stock-cases.int-spec.ts` — the contract's 10/7/5 resolved by
+count_and_correct with remote approval and refused remote/offline execution, requester / approver
+/ executor, snapshot and refund after resolution; a second open case making the approval stale
+and keeping the block until it is resolved; concurrent identical retries executing once; a
+stocktake that already counted the sale linked without a second deduction (and post_now refused
+`SETTLEMENT_ALREADY_COUNTED`, prepared before or after the count); one case resolving leaving
+another's approval standing, its correction never linkable; a count over held units; a
+write-off linked once and post_now after a receipt; executor
+permission, wrong counts and the immutable plan. The slice 1 harness moved to
+`test/integration/offline-counter.kit.ts`, shared by both suites. Web:
+`inventory/stock-cases/case-detail.spec.tsx`. Desktop: `CounterWork.spec.tsx` (Stock tab) and
+`main/terminal/counter-work.spec.ts`.
+
 ## Later slices (not built)
 
 - Snapshot rebase and grant renewal over a non-empty journal (issuance still refuses with
   `RECONCILIATION_REQUIRED`).
-- Manager discrepancy review and resolution: exact-version authorization, local execution of the
-  stock correction, block release.
 - Support-record gating of dependent commands (held support records do not yet hold a sale).
 - Replacement and missing-journal review (D11 `journalRecoveryEvidence`), backup and restore.
 - The desktop producer (P4 #50); this slice is exercised with signed fixtures only.
