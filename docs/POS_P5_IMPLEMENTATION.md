@@ -98,8 +98,20 @@ Revised D10: approve remotely online, execute physically at the enrolled counter
 - **post_now needs only this sale's units available** (StockService's own check); other open
   cases on the batch keep their claims and their blocks. The manager sees their pending units in
   the evidence before approving.
+- **A count covers held units.** It counts every unit, so held units stay held only as far as
+  the count leaves room beside this sale's units; the rest come off the quarantine bucket, and
+  the sellable bucket takes the remainder of the correction (`correctionBuckets`). The sale
+  always posts from sellable stock.
+- **post_now never re-deducts a count.** If a posted stocktake counted a batch after the sale,
+  post_now is refused `SETTLEMENT_ALREADY_COUNTED` at preparation and execution; link the
+  stocktake or count instead.
 - **Another open case on a batch is material.** It changes what a count must account for, so a
-  case opened after approval makes the approval stale; approve again.
+  case opened after approval makes the approval stale; approve again. A case that resolves after
+  the plan was prepared stays in the material, so one case settling never stales another's
+  approval. Daily work shows a stale approved plan as "Approve stock case plan again", not as
+  ready at the counter.
+- **A stock case's own count correction is never linkable** by another case (movement
+  candidates exclude reference `offline_stock_resolution`): it settles that case alone.
 - **A stocktake link** is valid when the stocktake posted and counted the batch after the sale:
   the count already took the sold units off, whatever its variance. Several cases may link the
   same count (each case once). **A movement link** spends a write-off's units at most once across
@@ -129,7 +141,9 @@ count_and_correct with remote approval and refused remote/offline execution, req
 / executor, snapshot and refund after resolution; a second open case making the approval stale
 and keeping the block until it is resolved; concurrent identical retries executing once; a
 stocktake that already counted the sale linked without a second deduction (and post_now refused
-when nothing covers it); a write-off linked once and post_now after a receipt; executor
+`SETTLEMENT_ALREADY_COUNTED`, prepared before or after the count); one case resolving leaving
+another's approval standing, its correction never linkable; a count over held units; a
+write-off linked once and post_now after a receipt; executor
 permission, wrong counts and the immutable plan. The slice 1 harness moved to
 `test/integration/offline-counter.kit.ts`, shared by both suites. Web:
 `inventory/stock-cases/case-detail.spec.tsx`. Desktop: `CounterWork.spec.tsx` (Stock tab) and

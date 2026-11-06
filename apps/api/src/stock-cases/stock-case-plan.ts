@@ -26,8 +26,12 @@ export type CaseLineFacts = Readonly<{
   reason: string;
 }>;
 
-/** Another open case holding the same batch, and its pending units there. */
-export type OtherOpenCase = Readonly<{ batchId: string; caseId: string; soldQuantity: number }>;
+/**
+ * Another case holding the same batch, and its units there: one still open, or one resolved after
+ * this plan was prepared. Keeping the resolved ones means a case leaving never changes what was
+ * approved; only a case opening after the plan does.
+ */
+export type OtherCase = Readonly<{ batchId: string; caseId: string; soldQuantity: number }>;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const bad = (message: string): never => {
@@ -83,9 +87,10 @@ export function normalizeLinks(
 }
 
 /**
- * Approved content: the case, the plan, and which other open cases hold each batch. A new case
- * on one of the batches changes what a count must account for, so it needs fresh approval; the
- * plan's note and execution progress are not material.
+ * Approved content: the case, the plan, and which other cases hold each batch (see OtherCase). A
+ * new case on one of the batches changes what a count must account for, so it needs fresh
+ * approval; another case resolving does not. The plan's note and execution progress are not
+ * material.
  */
 export function resolutionMaterial(input: {
   caseId: string;
@@ -94,7 +99,7 @@ export function resolutionMaterial(input: {
   kind: OfflineStockResolutionKind;
   lines: readonly CaseLineFacts[];
   links: readonly SettlementLink[];
-  otherOpenCases: readonly OtherOpenCase[];
+  otherCases: readonly OtherCase[];
 }): Prisma.InputJsonObject {
   const items = [...input.lines]
     .sort((a, b) => a.batchId.localeCompare(b.batchId))
@@ -105,7 +110,7 @@ export function resolutionMaterial(input: {
       availableQuantityAtSync: line.availableQuantityAtSync,
       shortfallQuantity: line.shortfallQuantity,
       reason: line.reason,
-      otherOpenCases: input.otherOpenCases
+      otherCases: input.otherCases
         .filter((other) => other.batchId === line.batchId)
         .sort((a, b) => a.caseId.localeCompare(b.caseId))
         .map((other) => ({ caseId: other.caseId, soldQuantity: other.soldQuantity })),
@@ -155,6 +160,21 @@ export function checkCounts(
 export function countCorrection(input: { countedQty: number; pendingOnBatch: number; onHandBefore: number }) {
   const target = input.countedQty + input.pendingOnBatch;
   return { target, correctionQty: target - input.onHandBefore };
+}
+
+/**
+ * How a count's correction lands on the batch's buckets. The count covers every unit, sellable
+ * or held, so it says how many units exist (the target), not which bucket they are in. This
+ * sale's units left the shelf as sellable stock, so they must be sellable when it posts. Held
+ * units stay held as far as the target leaves room beside them; held units beyond that are gone,
+ * and the sellable bucket takes the rest of the correction (which can be a gain while held units
+ * come off). Reserved units are not moved: if the count leaves too few for them, StockService
+ * refuses the posting.
+ */
+export function correctionBuckets(input: { target: number; onHand: number; quarantined: number; soldQuantity: number }) {
+  const heldAfter = Math.min(Math.max(0, input.quarantined), Math.max(0, input.target - input.soldQuantity));
+  const quarantineDelta = heldAfter - Math.max(0, input.quarantined);
+  return { sellableDelta: input.target - input.onHand - quarantineDelta, quarantineDelta };
 }
 
 /** Units a movement took off that earlier links have not claimed. */

@@ -17,20 +17,24 @@ import {
 import type { OfflineStockResolutionKind, SignedOperationResult } from "@pharmaceylon/shared";
 import { randomUUID } from "node:crypto";
 import { AuditService } from "../audit/audit.service";
-import { InsufficientStockException, StockService } from "../inventory/stock/stock.service";
+import { InsufficientStockException, StockService, type IssueLine } from "../inventory/stock/stock.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { AccessService } from "../security/access.service";
 import type { RequestUser } from "../security/interfaces/authenticated-request.interface";
 import { ManagementApprovalsService } from "../security/management-approvals.service";
 import {
+  lockOfflineStockCase,
+  lockOfflineStockResolution,
   offlineStockResolutionDigest,
   offlineStockResolutionFacts,
+  offlineStockResolutionFactsFor,
 } from "../security/offline-stock-resolution-approval-material";
 import type { CommandProvenance } from "../terminals/command-provenance";
 import { denied } from "../terminals/terminal-wire";
 import {
   allocateMovementLinks,
   checkCounts,
+  correctionBuckets,
   countCorrection,
   normalizeLinks,
   parseKind,
@@ -40,7 +44,6 @@ import {
 } from "./stock-case-plan";
 
 type Tx = Prisma.TransactionClient;
-type Db = Tx;
 type ExecuteResult = SignedOperationResult["POST /api/v1/offline-stock-cases/resolutions/:id/execute"];
 type BatchResult = ExecuteResult["batches"][number];
 
@@ -48,10 +51,18 @@ export const REVIEW_PERMISSION = "inventory.resolve_stock_cases";
 export const EXECUTE_PERMISSION = "inventory.manage";
 const ACTION = "offline_stock_resolution.execute" as const;
 const OPEN_PLAN: OfflineStockResolutionStatus[] = [OfflineStockResolutionStatus.prepared, OfflineStockResolutionStatus.approved];
-/** Write-offs and corrections that took units off a batch: what a movement link may name. */
+/** Ledger reference of a count's correction. */
+const RESOLUTION_REFERENCE = "offline_stock_resolution";
+/**
+ * Write-offs and corrections that took units off a batch: what a movement link may name. Never
+ * another case's count correction: it keeps every open case's pending units on the batch, so it
+ * took none of them off.
+ */
 const LINKABLE_MOVEMENTS: StockMovementType[] = [StockMovementType.adjustment_out];
 const POSTED_STOCKTAKE: StocktakeStatus[] = [StocktakeStatus.posted, StocktakeStatus.completed];
+/** Ledger rows shown per batch on review (the latest ones); settlement digests read them all. */
 const TIMELINE_LIMIT = 300;
+const MOVEMENT_CANDIDATE_LIMIT = 200;
 
 export type PrepareResolutionInput = { kind: unknown; links?: unknown; note?: string | null };
 export type ApproveResolutionInput = { approvalId: string; expectedVersion: number; expectedDigest: string };
@@ -166,46 +177,44 @@ export class StockCasesService {
       this.terminalLabels(tenantId, branchId, [found.terminalId]),
     ]);
     const since = snapshot?.generatedAt ?? found.openedAt;
-    const timeline = await this.timeline(this.prisma, tenantId, branchId, batchIds, since);
-    const stocktakes = await this.prisma.stocktakeLine.findMany({
-      where: { tenantId, batchId: { in: batchIds }, stocktake: { tenantId, branchId, OR: [{ snapshotAt: { gte: since } }, { createdAt: { gte: since } }] } },
-      select: {
-        id: true, batchId: true, systemQty: true, countedQty: true, varianceQty: true, countedAt: true, postedAt: true,
-        stocktake: { select: { id: true, stocktakeNumber: true, status: true, snapshotAt: true, countedBy: true } },
-      },
-    });
-    const reservations = await this.prisma.stockReservation.findMany({
-      where: { tenantId, branchId, batchId: { in: batchIds }, status: "active" },
-      select: { batchId: true, qty: true, sourceType: true, sourceId: true, createdAt: true },
-    });
-    const capacities = await this.movementCapacities(this.prisma, tenantId, branchId, batchIds, sale.soldAt);
-    const references = await this.referenceLabels(tenantId, branchId, timeline);
-
-    const people = await this.names(tenantId, [
-      sale.soldBy, receipt?.actorUserId, signIn?.staffUserId,
-      ...timeline.map((e) => e.createdBy),
-      ...stocktakes.map((s) => s.stocktake.countedBy),
-      ...found.resolutions.flatMap((r) => [r.requestedBy, r.approvedBy, r.executedBy, r.cancelledBy]),
-      ...found.settlements.map((s) => s.countedBy),
+    const [timeline, stocktakes, reservations, capacities, blockRows, plans] = await Promise.all([
+      this.timeline(this.prisma, tenantId, branchId, batchIds, since, TIMELINE_LIMIT),
+      this.prisma.stocktakeLine.findMany({
+        where: {
+          tenantId, batchId: { in: batchIds }, stocktake: { tenantId, branchId },
+          // Counts taken since the snapshot, and any count of the batch after the sale: the
+          // latter is what a stocktake link may name, however long ago the stocktake started.
+          OR: [{ countedAt: { gt: sale.soldAt } }, { stocktake: { OR: [{ snapshotAt: { gte: since } }, { createdAt: { gte: since } }] } }],
+        },
+        select: {
+          id: true, batchId: true, systemQty: true, countedQty: true, varianceQty: true, countedAt: true, postedAt: true,
+          stocktake: { select: { id: true, stocktakeNumber: true, status: true, snapshotAt: true, countedBy: true } },
+        },
+      }),
+      this.prisma.stockReservation.findMany({
+        where: { tenantId, branchId, batchId: { in: batchIds }, status: "active" },
+        select: { batchId: true, qty: true, sourceType: true, sourceId: true, createdAt: true },
+      }),
+      this.movementCapacities(this.prisma, tenantId, branchId, batchIds, sale.soldAt),
+      this.prisma.batchSaleBlock.findMany({
+        where: { tenantId, branchId, batchId: { in: batchIds }, releasedAt: null },
+        select: { batchId: true },
+      }),
+      this.plansView(tenantId, branchId, found.status, found.resolutions),
+    ]);
+    const [references, people] = await Promise.all([
+      this.referenceLabels(tenantId, branchId, timeline.rows),
+      this.names(tenantId, [
+        sale.soldBy, receipt?.actorUserId, signIn?.staffUserId,
+        ...timeline.rows.map((e) => e.createdBy),
+        ...stocktakes.map((s) => s.stocktake.countedBy),
+        ...found.settlements.map((s) => s.countedBy),
+      ]),
     ]);
     const person = (id: string | null | undefined) => (id ? { id, name: people.get(id) ?? null } : null);
     const balanceOf = new Map(balances.map((b) => [b.batchId, b]));
     const batchOf = new Map(batches.map((b) => [b.id, b]));
-    const openBlocks = new Set(
-      (await this.prisma.batchSaleBlock.findMany({
-        where: { tenantId, branchId, batchId: { in: batchIds }, releasedAt: null },
-        select: { batchId: true },
-      })).map((b) => b.batchId),
-    );
-
-    const approvalRows = await this.prisma.managementApproval.findMany({
-      where: { tenantId, branchId, id: { in: found.resolutions.map((r) => r.executionApprovalId).filter((id): id is string => !!id) } },
-      select: { id: true, documentVersion: true, documentDigest: true, revokedAt: true },
-    });
-    const openPlan = found.resolutions.find((r) => OPEN_PLAN.includes(r.status)) ?? null;
-    const currentDigest = openPlan && found.status === "open"
-      ? offlineStockResolutionDigest((await offlineStockResolutionFacts(this.prisma, openPlan))!.material)
-      : null;
+    const openBlocks = new Set(blockRows.map((b) => b.batchId));
 
     return {
       id: found.id,
@@ -255,7 +264,8 @@ export class StockCasesService {
         const onHand = balance?.onHandQty ?? 0;
         const quarantined = balance?.quarantinedQty ?? 0;
         const reserved = balance?.reservedQty ?? 0;
-        const entries = timeline.filter((e) => e.batchId === line.batchId);
+        const entries = timeline.rows.filter((e) => e.batchId === line.batchId);
+        const truncated = timeline.truncated.has(line.batchId);
         return {
           batchId: line.batchId,
           batchNo: batch?.batchNo ?? null,
@@ -278,7 +288,9 @@ export class StockCasesService {
           stock: { onHand, quarantined, reserved, available: onHand - quarantined - reserved },
           blocked: openBlocks.has(line.batchId),
           heldByThisCase: found.blocks.some((b) => b.batchId === line.batchId && b.releasedAt === null),
-          timelineDigest: timelineDigest(line.batchId, entries.map(toTimelineEntry)),
+          // Only the latest TIMELINE_LIMIT rows are shown; a digest of part of the ledger means nothing.
+          timelineTruncated: truncated,
+          timelineDigest: truncated ? null : timelineDigest(line.batchId, entries.map(toTimelineEntry)),
           timeline: entries.map((e) => ({
             id: e.id,
             occurredAt: e.occurredAt.toISOString(),
@@ -309,40 +321,7 @@ export class StockCasesService {
             .map((c) => ({ ledgerEntryId: c.ledgerEntryId, occurredAt: c.occurredAt.toISOString(), qty: c.qty, remaining: c.remaining, reason: c.reason })),
         };
       }),
-      plans: found.resolutions.map((r) => {
-        const evidence = approvalRows.find((a) => a.id === r.executionApprovalId) ?? null;
-        const isOpen = OPEN_PLAN.includes(r.status);
-        const approvalState = !evidence
-          ? "none"
-          : evidence.revokedAt
-            ? "revoked"
-            : isOpen && currentDigest !== null && (evidence.documentDigest !== currentDigest || evidence.documentVersion !== r.approvalVersion)
-              ? "changed"
-              : "matches";
-        return {
-          id: r.id,
-          kind: r.kind,
-          links: r.links,
-          note: r.note,
-          status: r.status,
-          approvalVersion: r.approvalVersion,
-          executionApprovalId: r.executionApprovalId,
-          approvalState,
-          // Approve exactly what is shown: the current version and digest.
-          approvalReview: isOpen && currentDigest ? { expectedVersion: r.approvalVersion, expectedDigest: currentDigest } : null,
-          readyAtCounter: r.status === "approved" && approvalState === "matches",
-          requester: person(r.requestedBy),
-          requestedAt: r.requestedAt.toISOString(),
-          approver: person(r.approvedBy),
-          approvedAt: r.approvedAt?.toISOString() ?? null,
-          executor: person(r.executedBy),
-          executedAt: r.executedAt?.toISOString() ?? null,
-          executionCommandId: r.executionCommandId,
-          result: r.result,
-          cancelledBy: person(r.cancelledBy),
-          cancelledAt: r.cancelledAt?.toISOString() ?? null,
-        };
-      }),
+      plans,
       settlements: found.settlements.map((s) => ({
         batchId: s.batchId,
         method: s.method,
@@ -363,6 +342,56 @@ export class StockCasesService {
     };
   }
 
+  /** The case's plans with their approval evidence, and what to approve for the open one. */
+  private async plansView(tenantId: string, branchId: string, caseStatus: string, resolutions: readonly OfflineStockResolution[]) {
+    const approvalIds = resolutions.map((r) => r.executionApprovalId).filter((id): id is string => !!id);
+    const openPlan = resolutions.find((r) => OPEN_PLAN.includes(r.status)) ?? null;
+    const [approvalRows, facts, people] = await Promise.all([
+      this.prisma.managementApproval.findMany({
+        where: { tenantId, branchId, id: { in: approvalIds } },
+        select: { id: true, documentVersion: true, documentDigest: true, revokedAt: true },
+      }),
+      openPlan && caseStatus === "open" ? offlineStockResolutionFacts(this.prisma, openPlan) : null,
+      this.names(tenantId, resolutions.flatMap((r) => [r.requestedBy, r.approvedBy, r.executedBy, r.cancelledBy])),
+    ]);
+    const currentDigest = facts ? offlineStockResolutionDigest(facts.material) : null;
+    const person = (id: string | null | undefined) => (id ? { id, name: people.get(id) ?? null } : null);
+    return resolutions.map((r) => {
+      const evidence = approvalRows.find((a) => a.id === r.executionApprovalId) ?? null;
+      const isOpen = OPEN_PLAN.includes(r.status);
+      const approvalState = !evidence
+        ? "none"
+        : evidence.revokedAt
+          ? "revoked"
+          : isOpen && currentDigest !== null && (evidence.documentDigest !== currentDigest || evidence.documentVersion !== r.approvalVersion)
+            ? "changed"
+            : "matches";
+      return {
+        id: r.id,
+        kind: r.kind,
+        links: r.links,
+        note: r.note,
+        status: r.status,
+        approvalVersion: r.approvalVersion,
+        executionApprovalId: r.executionApprovalId,
+        approvalState,
+        // Approve exactly what is shown: the current version and digest.
+        approvalReview: isOpen && currentDigest ? { expectedVersion: r.approvalVersion, expectedDigest: currentDigest } : null,
+        readyAtCounter: r.status === "approved" && approvalState === "matches",
+        requester: person(r.requestedBy),
+        requestedAt: r.requestedAt.toISOString(),
+        approver: person(r.approvedBy),
+        approvedAt: r.approvedAt?.toISOString() ?? null,
+        executor: person(r.executedBy),
+        executedAt: r.executedAt?.toISOString() ?? null,
+        executionCommandId: r.executionCommandId,
+        result: r.result,
+        cancelledBy: person(r.cancelledBy),
+        cancelledAt: r.cancelledAt?.toISOString() ?? null,
+      };
+    });
+  }
+
   // ── Plan and approval (remote; nothing moves) ───────────────────────────────────────────────
 
   async prepare(user: RequestUser, branchId: string, caseId: string, input: PrepareResolutionInput) {
@@ -370,7 +399,8 @@ export class StockCasesService {
     const kind = parseKind(input.kind);
     const note = input.note?.trim() ? input.note.trim().slice(0, 500) : null;
     const id = await this.prisma.$transaction(async (tx) => {
-      const found = await this.lockCase(tx, tenantId, branchId, caseId);
+      await lockOfflineStockCase(tx, tenantId, branchId, caseId);
+      const found = await this.readCase(tx, tenantId, branchId, caseId);
       const actor = await this.access.resolveLive(user, branchId, tx);
       if (!actor.has(REVIEW_PERMISSION)) throw new ForbiddenException("Your role can't resolve offline stock cases");
       if (found.status !== "open") throw new ConflictException("This case is already resolved");
@@ -381,10 +411,9 @@ export class StockCasesService {
       if (open) throw new ConflictException("A plan is already waiting for this case. Cancel it to prepare another.");
       const lines = await tx.offlineStockDiscrepancyLine.findMany({ where: { tenantId, branchId, caseId } });
       const links = normalizeLinks(kind, input.links, lines.map((line) => line.batchId));
-      if (links.length) {
-        const sale = await tx.sale.findFirstOrThrow({ where: { tenantId, branchId, id: found.saleId }, select: { soldAt: true } });
-        await this.checkLinks(tx, tenantId, branchId, links, lines, sale.soldAt);
-      }
+      const sale = await tx.sale.findFirstOrThrow({ where: { tenantId, branchId, id: found.saleId }, select: { soldAt: true } });
+      if (links.length) await this.checkLinks(tx, tenantId, branchId, links, lines, sale.soldAt);
+      if (kind === "post_now") await this.refuseIfCountedAfterSale(tx, tenantId, branchId, lines.map((line) => line.batchId), sale.soldAt);
       const row = await tx.offlineStockResolution.create({
         data: {
           id: randomUUID(), tenantId, branchId, caseId, kind,
@@ -442,10 +471,9 @@ export class StockCasesService {
   async cancel(user: RequestUser, branchId: string, resolutionId: string) {
     const tenantId = user.tenantId;
     await this.prisma.$transaction(async (tx) => {
-      const binding = await tx.offlineStockResolution.findFirst({ where: { tenantId, branchId, id: resolutionId }, select: { caseId: true } });
-      if (!binding) throw new NotFoundException("Resolution plan not found");
-      await this.lockCase(tx, tenantId, branchId, binding.caseId);
-      const row = await this.lockPlan(tx, tenantId, branchId, resolutionId);
+      if (!(await lockOfflineStockResolution(tx, tenantId, branchId, resolutionId)))
+        throw new NotFoundException("Resolution plan not found");
+      const row = await this.readPlan(tx, tenantId, branchId, resolutionId);
       if (!OPEN_PLAN.includes(row.status)) throw new BadRequestException("Only a plan still waiting can be cancelled");
       const actor = await this.access.resolveLive(user, branchId, tx);
       if (!actor.has(REVIEW_PERMISSION)) throw new ForbiddenException("Your role can't resolve offline stock cases");
@@ -462,10 +490,13 @@ export class StockCasesService {
   }
 
   async planView(tenantId: string, branchId: string, resolutionId: string) {
-    const row = await this.prisma.offlineStockResolution.findFirst({ where: { tenantId, branchId, id: resolutionId } });
+    const row = await this.prisma.offlineStockResolution.findFirst({
+      where: { tenantId, branchId, id: resolutionId },
+      include: { case: { select: { status: true } } },
+    });
     if (!row) throw new NotFoundException("Resolution plan not found");
-    const detail = await this.detail(tenantId, branchId, row.caseId);
-    return detail.plans.find((plan) => plan.id === resolutionId)!;
+    const [plan] = await this.plansView(tenantId, branchId, row.case.status, [row]);
+    return plan!;
   }
 
   /**
@@ -489,7 +520,7 @@ export class StockCasesService {
     });
     if (!rows.length) return [];
     const batchIds = [...new Set(rows.flatMap((r) => r.case.lines.map((l) => l.batchId)))];
-    const [batches, approvalRows, people] = await Promise.all([
+    const [batches, approvalRows, people, factsByPlan] = await Promise.all([
       this.prisma.batch.findMany({
         where: { tenantId, branchId, id: { in: batchIds } },
         select: { id: true, batchNo: true, expiryDate: true, product: { select: { name: true, sku: true } } },
@@ -499,10 +530,11 @@ export class StockCasesService {
         select: { id: true, documentVersion: true, documentDigest: true, revokedAt: true, approvedAt: true, approvedByUserId: true },
       }),
       this.names(tenantId, rows.flatMap((r) => [r.requestedBy, r.approvedBy])),
+      offlineStockResolutionFactsFor(this.prisma, rows),
     ]);
     const out = [];
     for (const row of rows) {
-      const facts = await offlineStockResolutionFacts(this.prisma, row);
+      const facts = factsByPlan.get(row.id);
       if (!facts) continue;
       const evidence = approvalRows.find((a) => a.id === row.executionApprovalId);
       const digest = offlineStockResolutionDigest(facts.material);
@@ -556,19 +588,19 @@ export class StockCasesService {
     resolutionId: string,
     input: { approvalId: string; counts: ReadonlyArray<Readonly<{ batchId: string; countedQty: number }>> },
     command?: CommandProvenance,
-  ): Promise<{ changed: boolean; result: ExecuteResult }> {
+  ): Promise<ExecuteResult> {
     const tenantId = user.tenantId;
-    const binding = await tx.offlineStockResolution.findFirst({ where: { tenantId, branchId, id: resolutionId }, select: { caseId: true } });
+    const binding = await lockOfflineStockResolution(tx, tenantId, branchId, resolutionId);
     if (!binding) throw new NotFoundException("Resolution plan not found");
-    const found = await this.lockCase(tx, tenantId, branchId, binding.caseId);
-    const plan = await this.lockPlan(tx, tenantId, branchId, resolutionId);
+    const found = await this.readCase(tx, tenantId, branchId, binding.caseId);
+    const plan = await this.readPlan(tx, tenantId, branchId, resolutionId);
     const actor = await this.access.resolveLive(user, branchId, tx);
     if (!actor.has(EXECUTE_PERMISSION))
       throw new ForbiddenException({ code: "PERMISSION_DENIED", message: "Your role can't correct stock at this counter" });
     if (plan.executionApprovalId !== input.approvalId)
       throw new ConflictException("Approval changed; refresh and review before resolving");
-    if (plan.status === OfflineStockResolutionStatus.executed)
-      return { changed: false, result: { ...(plan.result as unknown as ExecuteResult), effect: "already_applied" } };
+    // An executed plan is final: a retry of the same command is answered from its receipt before
+    // this runs, and any other command is refused here (as the executor's approval check does).
     if (plan.status !== OfflineStockResolutionStatus.approved) denied("APPROVAL_INVALID");
     if (found.status !== "open") denied("APPROVAL_INVALID");
 
@@ -595,30 +627,39 @@ export class StockCasesService {
     const pendingOn = (batchId: string) => pendingRows.filter((p) => p.batchId === batchId).reduce((sum, p) => sum + p.soldQuantity, 0);
     const heldElsewhere = new Set(pendingRows.filter((p) => p.caseId !== found.id).map((p) => p.batchId));
     const snapshot = await tx.offlineStockSnapshot.findFirst({ where: { tenantId, branchId, id: found.snapshotId }, select: { generatedAt: true } });
-    const timeline = await this.timeline(tx, tenantId, branchId, batchIds, snapshot?.generatedAt ?? found.openedAt);
+    // Every row since the snapshot: the settlement's digest covers the whole ledger it settles.
+    const { rows: timeline } = await this.timeline(tx, tenantId, branchId, batchIds, snapshot?.generatedAt ?? found.openedAt);
     const now = new Date();
     const links = plan.links as unknown as SettlementLink[];
     const linkAllocations = kind === "link_existing_settlement"
       ? await this.checkLinks(tx, tenantId, branchId, links, lines, sale.soldAt)
       : new Map<string, Array<{ ledgerEntryId: string; quantity: number }>>();
+    // Under the batch locks: a stocktake posted since approval may have taken the units off already.
+    if (kind === "post_now") await this.refuseIfCountedAfterSale(tx, tenantId, branchId, batchIds, sale.soldAt);
 
     const saleCtx = { tenantId, branchId, userId: sale.soldBy, referenceType: "sale", referenceId: sale.id, occurredAt: sale.soldAt };
-    const correctionCtx = { tenantId, branchId, userId: user.userId, referenceType: "offline_stock_resolution", referenceId: resolutionId, occurredAt: now };
+    const correctionCtx = { tenantId, branchId, userId: user.userId, referenceType: RESOLUTION_REFERENCE, referenceId: resolutionId, occurredAt: now };
     const batchResults: BatchResult[] = [];
     const settlements: Prisma.OfflineStockSettlementCreateManyInput[] = [];
     try {
       if (kind === "count_and_correct") {
         const gains = [];
-        const losses = [];
+        const losses: IssueLine[] = [];
         for (const line of lines) {
-          const onHandBefore = balances.get(line.batchId)?.onHand ?? 0;
+          const balance = balances.get(line.batchId);
+          const onHandBefore = balance?.onHand ?? 0;
           const countedQty = counts.get(line.batchId)!;
-          const { correctionQty } = countCorrection({ countedQty, pendingOnBatch: pendingOn(line.batchId), onHandBefore });
+          const { target, correctionQty } = countCorrection({ countedQty, pendingOnBatch: pendingOn(line.batchId), onHandBefore });
           const reason = `Counted ${countedQty} at the counter for offline sale ${sale.invoiceNo}`;
-          if (correctionQty > 0)
-            gains.push({ productId: line.productId, batchId: line.batchId, qty: correctionQty, movementType: StockMovementType.adjustment_in, reason });
-          if (correctionQty < 0)
-            losses.push({ productId: line.productId, batchId: line.batchId, qty: -correctionQty, movementType: StockMovementType.adjustment_out, reason, from: "sellable" as const });
+          // The count includes held units: held units it leaves no room for come off quarantine,
+          // and the sale's own units are sellable when it posts.
+          const { sellableDelta, quarantineDelta } = correctionBuckets({
+            target, onHand: onHandBefore, quarantined: balance?.quarantined ?? 0, soldQuantity: line.soldQuantity,
+          });
+          const movement = { productId: line.productId, batchId: line.batchId, reason };
+          if (sellableDelta > 0) gains.push({ ...movement, qty: sellableDelta, movementType: StockMovementType.adjustment_in });
+          if (sellableDelta < 0) losses.push({ ...movement, qty: -sellableDelta, movementType: StockMovementType.adjustment_out, from: "sellable" });
+          if (quarantineDelta < 0) losses.push({ ...movement, qty: -quarantineDelta, movementType: StockMovementType.adjustment_out, from: "quarantine" });
           settlements.push(this.settlement(found, plan, line, {
             method: "counted", onHandBefore, pendingOnBatch: pendingOn(line.batchId), countedQuantity: countedQty, countedAt: now,
             countedBy: user.userId, correctionQuantity: correctionQty, postedQuantity: line.soldQuantity,
@@ -639,7 +680,7 @@ export class StockCasesService {
           code: "STOCK_NOT_COVERED",
           message: kind === "post_now"
             ? "Stock no longer covers this sale. Count the batches instead, or resolve the case another way."
-            : "After the count, units held in quarantine or reserved for transfers leave too little to post this sale. Release or cancel them first.",
+            : "After the count, units reserved for transfers leave too little to post this sale. Cancel or ship those transfers first.",
         });
       throw error;
     }
@@ -715,7 +756,7 @@ export class StockCasesService {
         ...(command ? { command } : {}),
       },
     }, tx);
-    return { changed: true, result };
+    return result;
   }
 
   // ── Helpers ─────────────────────────────────────────────────────────────────────────────────
@@ -786,16 +827,39 @@ export class StockCasesService {
     return allocations;
   }
 
-  /** Write-off / correction movements on the batches after the sale, with their unclaimed units. */
-  private async movementCapacities(db: Db, tenantId: string, branchId: string, batchIds: string[], after: Date, ids?: readonly string[]) {
+  /**
+   * Post a sale's units only if no posted stocktake counted one of its batches after the sale:
+   * that count already took them off, so posting would deduct them twice.
+   */
+  private async refuseIfCountedAfterSale(tx: Tx, tenantId: string, branchId: string, batchIds: string[], soldAt: Date) {
+    const counted = await tx.stocktakeLine.findFirst({
+      where: {
+        tenantId, batchId: { in: batchIds }, countedAt: { gt: soldAt }, postedAt: { not: null },
+        stocktake: { tenantId, branchId, status: { in: POSTED_STOCKTAKE } },
+      },
+      select: { stocktake: { select: { stocktakeNumber: true } } },
+    });
+    if (counted)
+      throw new ConflictException({
+        code: "SETTLEMENT_ALREADY_COUNTED",
+        message: `Stocktake ${counted.stocktake.stocktakeNumber} counted a batch of this sale after it was made, so its units are already off. Link that stocktake or count the batches instead.`,
+      });
+  }
+
+  /**
+   * Write-off / correction movements on the batches after the sale, with their unclaimed units,
+   * latest first. Another case's count correction is never one (see LINKABLE_MOVEMENTS).
+   */
+  private async movementCapacities(db: Tx, tenantId: string, branchId: string, batchIds: string[], after: Date, ids?: readonly string[]) {
     const rows = await db.stockLedger.findMany({
       where: {
         tenantId, branchId, batchId: { in: batchIds }, movementType: { in: LINKABLE_MOVEMENTS }, qtyDelta: { lt: 0 },
+        referenceType: { not: RESOLUTION_REFERENCE },
         occurredAt: { gt: after }, ...(ids ? { id: { in: [...ids] } } : {}),
       },
       select: { id: true, batchId: true, qtyDelta: true, occurredAt: true, reason: true },
-      orderBy: { occurredAt: "asc" },
-      take: 200,
+      orderBy: [{ occurredAt: "desc" }, { id: "desc" }],
+      take: MOVEMENT_CANDIDATE_LIMIT,
     });
     if (!rows.length) return [];
     const claimed = await db.offlineStockSettlementLink.groupBy({
@@ -809,16 +873,42 @@ export class StockCasesService {
     });
   }
 
-  private timeline(db: Db, tenantId: string, branchId: string, batchIds: string[], since: Date): Promise<TimelineRow[]> {
-    return db.stockLedger.findMany({
-      where: { tenantId, branchId, batchId: { in: batchIds }, occurredAt: { gte: since } },
-      select: {
-        id: true, batchId: true, occurredAt: true, movementType: true, bucket: true, qtyDelta: true,
-        referenceType: true, referenceId: true, reason: true, createdBy: true,
-      },
-      orderBy: [{ occurredAt: "asc" }, { id: "asc" }],
-      take: TIMELINE_LIMIT,
+  /**
+   * Each batch's ledger since `since`, oldest first. With `limitPerBatch`, only each batch's
+   * latest rows, and which batches had more (`truncated`); without, every row.
+   */
+  private async timeline(
+    db: Tx,
+    tenantId: string,
+    branchId: string,
+    batchIds: string[],
+    since: Date,
+    limitPerBatch?: number,
+  ): Promise<{ rows: TimelineRow[]; truncated: Set<string> }> {
+    const select = {
+      id: true, batchId: true, occurredAt: true, movementType: true, bucket: true, qtyDelta: true,
+      referenceType: true, referenceId: true, reason: true, createdBy: true,
+    } as const;
+    const truncated = new Set<string>();
+    if (limitPerBatch === undefined) {
+      const rows = await db.stockLedger.findMany({
+        where: { tenantId, branchId, batchId: { in: batchIds }, occurredAt: { gte: since } },
+        select,
+        orderBy: [{ occurredAt: "asc" }, { id: "asc" }],
+      });
+      return { rows, truncated };
+    }
+    const perBatch = await Promise.all(batchIds.map((batchId) => db.stockLedger.findMany({
+      where: { tenantId, branchId, batchId, occurredAt: { gte: since } },
+      select,
+      orderBy: [{ occurredAt: "desc" }, { id: "desc" }],
+      take: limitPerBatch + 1,
+    })));
+    const rows = perBatch.flatMap((list, i) => {
+      if (list.length > limitPerBatch) truncated.add(batchIds[i]!);
+      return list.slice(0, limitPerBatch).reverse();
     });
+    return { rows, truncated };
   }
 
   /** Invoice numbers, stocktake and transfer numbers for the references a timeline shows. */
@@ -836,15 +926,14 @@ export class StockCasesService {
     return labels;
   }
 
-  private async lockCase(tx: Tx, tenantId: string, branchId: string, caseId: string) {
-    await tx.$queryRaw`SELECT id FROM offline_stock_discrepancy WHERE tenant_id = ${tenantId}::uuid AND branch_id = ${branchId}::uuid AND id = ${caseId}::uuid FOR UPDATE`;
+  /** Read after lockOfflineStockCase / lockOfflineStockResolution. */
+  private async readCase(tx: Tx, tenantId: string, branchId: string, caseId: string) {
     const found = await tx.offlineStockDiscrepancy.findFirst({ where: { tenantId, branchId, id: caseId } });
     if (!found) throw new NotFoundException("Stock case not found");
     return found;
   }
 
-  private async lockPlan(tx: Tx, tenantId: string, branchId: string, resolutionId: string) {
-    await tx.$queryRaw`SELECT id FROM offline_stock_resolution WHERE tenant_id = ${tenantId}::uuid AND branch_id = ${branchId}::uuid AND id = ${resolutionId}::uuid FOR UPDATE`;
+  private async readPlan(tx: Tx, tenantId: string, branchId: string, resolutionId: string) {
     const row = await tx.offlineStockResolution.findFirst({ where: { tenantId, branchId, id: resolutionId } });
     if (!row) throw new NotFoundException("Resolution plan not found");
     return row;

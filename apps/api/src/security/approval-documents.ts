@@ -4,7 +4,7 @@ import { heldAdjustmentMaterial, heldDeliveryMaterial } from "./held-approval-ma
 import { goodsReturnMaterial, preparedReceiptMaterial } from "./receiving-approval-material";
 import { transferApprovalMaterial } from "./transfer-approval-material";
 import { saleRefundMaterial } from "./sale-refund-approval-material";
-import { offlineStockResolutionFacts } from "./offline-stock-resolution-approval-material";
+import { lockOfflineStockResolution, offlineStockResolutionFacts } from "./offline-stock-resolution-approval-material";
 import { BadRequestException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import type { ApprovalDocumentIdentity } from "@pharmaceylon/shared";
@@ -191,10 +191,7 @@ export async function approvalDocument(
     material = saleRefundMaterial(doc);
   } else if (policy.documentType === "offline_stock_resolution") {
     // Every path that touches a case locks it first, then its plan, then the batches.
-    const binding = await tx.offlineStockResolution.findFirst({ where: { tenantId, branchId, id: documentId }, select: { caseId: true } });
-    if (!binding) denied("APPROVAL_INVALID");
-    await tx.$queryRaw`SELECT id FROM offline_stock_discrepancy WHERE tenant_id = ${tenantId}::uuid AND branch_id = ${branchId}::uuid AND id = ${binding.caseId}::uuid FOR UPDATE`;
-    await tx.$queryRaw`SELECT id FROM offline_stock_resolution WHERE tenant_id = ${tenantId}::uuid AND branch_id = ${branchId}::uuid AND id = ${documentId}::uuid FOR UPDATE`;
+    if (!(await lockOfflineStockResolution(tx, tenantId, branchId, documentId))) denied("APPROVAL_INVALID");
     const doc = await tx.offlineStockResolution.findFirst({ where: { tenantId, branchId, id: documentId } });
     if (!doc || !(use === "execution" ? ["approved"] : ["prepared", "approved"]).includes(doc.status)) denied("APPROVAL_INVALID");
     const facts = await offlineStockResolutionFacts(tx, doc);

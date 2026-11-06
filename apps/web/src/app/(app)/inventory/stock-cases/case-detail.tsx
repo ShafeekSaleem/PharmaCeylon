@@ -224,6 +224,9 @@ function BatchEvidence({ batch }: { batch: CaseBatch }) {
           </dd>
         </div>
       </dl>
+      {batch.timelineTruncated ? (
+        <p className={css.sub}>Showing the latest {batch.timeline.length} movements since the snapshot; earlier ones are in Movements.</p>
+      ) : null}
       <table className={css.table} aria-label={`Since the snapshot: batch ${batch.batchNo ?? ""}`}>
         <thead>
           <tr>
@@ -282,6 +285,8 @@ function PlanForm({
   const [note, setNote] = useState("");
   const [choice, setChoice] = useState<Record<string, string>>({});
   const coversNow = detail.batches.every((b) => b.stock.available >= b.soldQuantity);
+  // A posted count after the sale already took its units off; posting them again would double them.
+  const countedAfterSale = detail.batches.some((b) => b.stocktakes.some((s) => s.settlesThisSale));
   const options = (batch: CaseBatch) => [
     ...batch.stocktakes
       .filter((s) => s.settlesThisSale)
@@ -316,14 +321,18 @@ function PlanForm({
               value={k}
               checked={kind === k}
               onChange={() => setKind(k)}
-              disabled={busy || (k === "link_existing_settlement" && !linkable)}
+              disabled={busy || (k === "link_existing_settlement" && !linkable) || (k === "post_now" && countedAfterSale)}
             />
             <span>
               <strong>{KIND_LABELS[k].title}</strong>
               <br />
               <span className={css.sub}>
                 {KIND_LABELS[k].help}
-                {k === "post_now" && !coversNow ? " Stock does not cover the sale right now." : ""}
+                {k === "post_now" && countedAfterSale
+                  ? " A stocktake counted a batch after the sale, so its units are already off. Link it or count instead."
+                  : k === "post_now" && !coversNow
+                    ? " Stock does not cover the sale right now."
+                    : ""}
                 {k === "link_existing_settlement" && !linkable ? " Nothing after the sale has accounted for every batch." : ""}
               </span>
             </span>

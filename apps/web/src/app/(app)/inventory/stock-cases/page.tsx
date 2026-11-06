@@ -143,6 +143,8 @@ function StockCasesPage() {
           </div>
           {detail ? (
             <CaseDetail
+              // A fresh plan form per case: a kind, note or link picked for one never carries over.
+              key={detail.id}
               detail={detail}
               busy={busy}
               userId={user?.id ?? null}

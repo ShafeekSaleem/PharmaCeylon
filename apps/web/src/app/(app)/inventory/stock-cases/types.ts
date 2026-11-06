@@ -79,7 +79,9 @@ export type CaseBatch = {
   stock: { onHand: number; quarantined: number; reserved: number; available: number };
   blocked: boolean;
   heldByThisCase: boolean;
-  timelineDigest: string;
+  /** The latest rows only when true; the digest is then null. */
+  timelineTruncated: boolean;
+  timelineDigest: string | null;
   timeline: TimelineEntry[];
   stocktakes: Array<{
     stocktakeId: string;

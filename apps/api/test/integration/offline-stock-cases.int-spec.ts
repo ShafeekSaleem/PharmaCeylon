@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { RoleName, StockMovementType } from "@prisma/client";
 import type { OnlineTerminalCommand, SignedPhysicalOperation } from "@pharmaceylon/shared";
+import { DailyWorkService } from "../../src/dashboard/daily-work.service";
 import { ManagementApprovalsService } from "../../src/security/management-approvals.service";
 import { MandatoryOperationEvidence } from "../../src/security/mandatory-operation-evidence";
 import { OperationAuthorizationService } from "../../src/security/operation-authorization.service";
@@ -98,6 +99,14 @@ const onlineSale = (c: Counter, batchId: string, qty: number) =>
 
 const reviewSet = async (c: Counter) =>
   [...(await prisma.$transaction((tx) => emptyJournalState(tx, { ...c.identity, enrollmentId: randomUUID() }))).reviewRequiredBatchIds].sort();
+
+/** A case's daily work item for someone who both reviews and manages inventory. */
+const workItem = async (c: Counter, caseId: string) =>
+  (await new DailyWorkService(prisma as never, { resolve: async () => ({ canSelfApprove: true, has: () => true }) } as never)
+    .get(c.manager, branch(c), { filter: "all", category: "inventory", page: 1 } as never, { pageSize: 200 }))
+    .items.find((item) => item.id === `stock_case:${caseId}`);
+
+const batchStock = (batchId: string) => prisma.batchStock.findUniqueOrThrow({ where: { batchId } });
 
 async function selfApproval(c: Counter, roles: string[]) {
   await prisma.tenantSettings.upsert({
@@ -227,6 +236,8 @@ describe("offline stock case resolution (P5 #51)", () => {
     const stale = (await cases.detail(c.fx.tenantId, branch(c), caseA)).plans[0]!;
     expect(stale).toMatchObject({ approvalState: "changed", readyAtCounter: false });
     expect((await listedFor(c)).find((i) => i.id === planA.id)).toMatchObject({ approval: { state: "changed" } });
+    // It goes back to reviewers' daily work, not on to the counter team.
+    expect(await workItem(c, caseA)).toMatchObject({ kind: "offline_stock_case.review", title: "Approve stock case plan again" });
     await expect(run(c, c.manager, await signedResolve(c, c.manager, planA.id,
       [{ batchId: c.batches.partition, countedQty: 0 }], planA.executionApprovalId)))
       .rejects.toMatchObject({ response: { code: "APPROVAL_STALE" } });
@@ -235,6 +246,7 @@ describe("offline stock case resolution (P5 #51)", () => {
     // Fresh approval of what is shown now, then the count: 0 on the shelf. Central becomes
     // 0 + 5 + 1 pending, the first sale posts 5, and case B's 1 unit is still owed.
     const fresh = await cases.approve(c.manager, branch(c), planA.id, { approvalId: randomUUID(), ...stale.approvalReview! });
+    expect(await workItem(c, caseA)).toMatchObject({ kind: "offline_stock_case.resolve" });
     const done = await run(c, c.manager, await signedResolve(c, c.manager, planA.id,
       [{ batchId: c.batches.partition, countedQty: 0 }], fresh.executionApprovalId));
     expect(done.result).toMatchObject({ batches: [{ correctionQty: 3, postedQty: 5, stillBlocked: true }] });
@@ -300,6 +312,8 @@ describe("offline stock case resolution (P5 #51)", () => {
       return id;
     };
     const early = await stocktake(new Date(Math.min(before.getTime(), soldAt.getTime()) - 60_000));
+    // A post_now plan approved before the late count posted...
+    const postNow = await cases.prepare(c.manager, branch(c), caseId, { kind: "post_now" });
     const late = await stocktake(new Date(soldAt.getTime() + 60_000));
     await prisma.$transaction((t) => stock.issue(t,
       { tenantId: c.fx.tenantId, branchId: branch(c), userId: c.manager.userId, referenceType: "stocktake", referenceId: late },
@@ -309,16 +323,18 @@ describe("offline stock case resolution (P5 #51)", () => {
     expect(detail.batches[0]!.stocktakes.find((s) => s.stocktakeId === late)).toMatchObject({ settlesThisSale: true });
     expect(detail.batches[0]!.stocktakes.find((s) => s.stocktakeId === early)?.settlesThisSale ?? false).toBe(false);
 
+    // ...is refused at the counter, under the batch locks: the count already took the sold units
+    // off, so posting them would deduct them twice. Nor can it be prepared again.
+    await expect(run(c, c.manager, await signedResolve(c, c.manager, postNow.id, [], postNow.executionApprovalId)))
+      .rejects.toMatchObject({ response: { code: "SETTLEMENT_ALREADY_COUNTED" } });
+    expect(await prisma.offlineStockDiscrepancy.findUniqueOrThrow({ where: { id: caseId } })).toMatchObject({ status: "open" });
+    await cases.cancel(c.manager, branch(c), postNow.id);
+    await expect(cases.prepare(c.manager, branch(c), caseId, { kind: "post_now" }))
+      .rejects.toMatchObject({ response: { code: "SETTLEMENT_ALREADY_COUNTED" } });
     // A count from before the sale cannot account for it.
     await expect(cases.prepare(c.manager, branch(c), caseId, {
       kind: "link_existing_settlement", links: [{ batchId: c.batches.partition, source: "stocktake", stocktakeId: early }],
     })).rejects.toMatchObject({ response: { code: "SETTLEMENT_NOT_LINKABLE" } });
-    // post_now can't be done either: nothing is left to post from.
-    const postNow = await cases.prepare(c.manager, branch(c), caseId, { kind: "post_now" });
-    await expect(run(c, c.manager, await signedResolve(c, c.manager, postNow.id, [], postNow.executionApprovalId)))
-      .rejects.toMatchObject({ response: { code: "STOCK_NOT_COVERED" } });
-    expect(await prisma.offlineStockDiscrepancy.findUniqueOrThrow({ where: { id: caseId } })).toMatchObject({ status: "open" });
-    await cases.cancel(c.manager, branch(c), postNow.id);
 
     const plan = await cases.prepare(c.manager, branch(c), caseId, {
       kind: "link_existing_settlement", links: [{ batchId: c.batches.partition, source: "stocktake", stocktakeId: late }],
@@ -382,6 +398,69 @@ describe("offline stock case resolution (P5 #51)", () => {
     await run(c, c.manager, await signedResolve(c, c.manager, postNow.id, [], postNow.executionApprovalId));
     expect(await onHand(c.batches.main)).toBe(2 - 1 + 10 - 2);
     expect(await reviewSet(c)).toEqual([]);
+  });
+
+  it("one case resolving leaves another's approval standing, and its count correction is never linkable", async () => {
+    const c = await counter({ partition: 10 });
+    await onlineSale(c, c.batches.partition, 7);
+    const first = await offlineSale(c, [[c.batches.partition, 5]]);
+    const caseA = first.ack.reconciliationCaseId!;
+    const caseB = (await offlineSale(c, [[c.batches.partition, 1]], first)).ack.reconciliationCaseId!;
+    // 10 arrive: central 13, though the shelf holds 2 once both offline sales left it.
+    await prisma.$transaction((t) => stock.receive(t,
+      { tenantId: c.fx.tenantId, branchId: branch(c), userId: c.fx.ownerId, referenceType: "adjustment", referenceId: randomUUID() },
+      [{ productId: c.fx.productId, batchId: c.batches.partition, qty: 10, movementType: StockMovementType.purchase_in }]));
+    // Both plans approved (self-approved) while both cases are open.
+    const planA = await cases.prepare(c.manager, branch(c), caseA, { kind: "count_and_correct" });
+    const planB = await cases.prepare(c.manager, branch(c), caseB, { kind: "count_and_correct" });
+
+    // A is counted: 2 + 6 pending = 8, so -5, then A posts 5. Central 3 = the count + B's 1.
+    const doneA = await run(c, c.manager, await signedResolve(c, c.manager, planA.id,
+      [{ batchId: c.batches.partition, countedQty: 2 }], planA.executionApprovalId));
+    expect(doneA.result).toMatchObject({ batches: [{ correctionQty: -5, postedQty: 5, stillBlocked: true }] });
+    expect(await onHand(c.batches.partition)).toBe(3);
+
+    // A leaving does not change what B's approval covered: B is still ready at the counter.
+    expect((await cases.detail(c.fx.tenantId, branch(c), caseB)).plans[0]).toMatchObject({ approvalState: "matches", readyAtCounter: true });
+    expect((await cases.readyAtCounter(c.fx.tenantId, branch(c))).find((p) => p.resolutionId === planB.id)).toMatchObject({ approvalState: "matches" });
+    expect(await workItem(c, caseB)).toMatchObject({ kind: "offline_stock_case.resolve" });
+
+    // A's -5 kept B's unit on central, so it took none of B's units off: never a link candidate.
+    const correction = await prisma.stockLedger.findFirstOrThrow({ where: { tenantId: c.fx.tenantId, referenceId: planA.id, qtyDelta: { lt: 0 } } });
+    const detailB = await cases.detail(c.fx.tenantId, branch(c), caseB);
+    expect(detailB.batches[0]!.movementCandidates.map((m) => m.ledgerEntryId)).not.toContain(correction.id);
+    await cases.cancel(c.manager, branch(c), planB.id);
+    await expect(cases.prepare(c.manager, branch(c), caseB, {
+      kind: "link_existing_settlement", links: [{ batchId: c.batches.partition, source: "movements", ledgerEntryIds: [correction.id] }],
+    })).rejects.toMatchObject({ response: { code: "SETTLEMENT_NOT_LINKABLE" } });
+
+    // B is counted (still 2 on the shelf): 2 + 1 = 3, no correction, B posts 1. Central = the shelf.
+    const againB = await cases.prepare(c.manager, branch(c), caseB, { kind: "count_and_correct" });
+    await run(c, c.manager, await signedResolve(c, c.manager, againB.id,
+      [{ batchId: c.batches.partition, countedQty: 2 }], againB.executionApprovalId));
+    expect(await onHand(c.batches.partition)).toBe(2);
+    expect(await reviewSet(c)).toEqual([]);
+  });
+
+  it("a count covers held units: those it leaves no room for come off quarantine, and the sale still posts", async () => {
+    const c = await counter({ partition: 10 });
+    await prisma.$transaction((t) => stock.quarantine(t,
+      { tenantId: c.fx.tenantId, branchId: branch(c), userId: c.fx.ownerId, referenceId: randomUUID() },
+      { productId: c.fx.productId, batchId: c.batches.partition, qty: 4, reasonCode: "damaged" }));
+    // 6 sellable and 4 held; 8 sold offline (the snapshot still allowed 10): short.
+    const { ack } = await offlineSale(c, [[c.batches.partition, 8]]);
+    const plan = await cases.prepare(c.manager, branch(c), ack.reconciliationCaseId!, { kind: "count_and_correct" });
+
+    // Nothing is left, held units included. The held 4 come off quarantine, sellable gains 2 so
+    // the sale's 8 post from it, and the batch ends empty: -2 overall, as the count says.
+    const done = await run(c, c.manager, await signedResolve(c, c.manager, plan.id,
+      [{ batchId: c.batches.partition, countedQty: 0 }], plan.executionApprovalId));
+    expect(done.result).toMatchObject({ batches: [{ method: "counted", correctionQty: -2, postedQty: 8 }] });
+    expect(await batchStock(c.batches.partition)).toMatchObject({ onHandQty: 0, quarantinedQty: 0 });
+    const corrections = await prisma.stockLedger.findMany({ where: { tenantId: c.fx.tenantId, referenceId: plan.id }, orderBy: { qtyDelta: "asc" } });
+    expect(corrections.map((l) => [l.movementType, l.bucket, l.qtyDelta])).toEqual([
+      ["adjustment_out", "quarantine", -4], ["adjustment_in", "sellable", 2],
+    ]);
   });
 
   it("refuses an executor without inventory authority, wrong counts, and editing a plan in place", async () => {

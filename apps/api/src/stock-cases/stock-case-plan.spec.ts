@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import {
   allocateMovementLinks,
   checkCounts,
+  correctionBuckets,
   countCorrection,
   normalizeLinks,
   parseKind,
@@ -40,18 +41,18 @@ describe("offline stock case plans (P5 #51)", () => {
     expect(normalizeLinks("count_and_correct", undefined, [a])).toEqual([]);
   });
 
-  it("binds the approval to the case, the plan and the other open cases on each batch", () => {
+  it("binds the approval to the case, the plan and the other cases on each batch", () => {
     const base = {
       caseId: randomUUID(), saleId: randomUUID(), commandId: randomUUID(), kind: "post_now" as const, links: [],
       lines: [
         { batchId: b, productId: "p", soldQuantity: 2, availableQuantityAtSync: 9, shortfallQuantity: 0, reason: "sale_pending" },
         { batchId: a, productId: "p", soldQuantity: 5, availableQuantityAtSync: 3, shortfallQuantity: 2, reason: "shortfall" },
       ],
-      otherOpenCases: [],
+      otherCases: [],
     };
     const material = resolutionMaterial(base);
     expect((material.items as Array<{ batchId: string }>).map((i) => i.batchId)).toEqual([a, b]);
-    const another = resolutionMaterial({ ...base, otherOpenCases: [{ batchId: a, caseId: randomUUID(), soldQuantity: 1 }] });
+    const another = resolutionMaterial({ ...base, otherCases: [{ batchId: a, caseId: randomUUID(), soldQuantity: 1 }] });
     expect(JSON.stringify(another)).not.toBe(JSON.stringify(material));
     expect(JSON.stringify(resolutionMaterial({ ...base, kind: "count_and_correct" }))).not.toBe(JSON.stringify(material));
   });
@@ -76,6 +77,26 @@ describe("offline stock case plans (P5 #51)", () => {
     // until that case posts them, so nothing is deducted twice.
     const { target } = countCorrection({ countedQty: 1, pendingOnBatch: 5 + 3, onHandBefore: 3 });
     expect(target - 5).toBe(1 + 3);
+  });
+
+  it("lands a count on held units too, leaving the sale's units sellable", () => {
+    const after = (input: Parameters<typeof correctionBuckets>[0]) => {
+      const { sellableDelta, quarantineDelta } = correctionBuckets(input);
+      const quarantined = input.quarantined + quarantineDelta;
+      return { onHand: input.onHand + sellableDelta + quarantineDelta, quarantined, sellable: input.onHand - input.quarantined + sellableDelta };
+    };
+    // 10 on hand, 4 held, the sale took 5, the shelf (held included) is empty: target 5.
+    expect(correctionBuckets({ target: 5, onHand: 10, quarantined: 4, soldQuantity: 5 })).toEqual({ sellableDelta: -1, quarantineDelta: -4 });
+    // 6 sellable and 4 held, a sale of 8 and an empty shelf: the held units are gone, and the
+    // sale's 8 need 2 more sellable units than central had, though the batch loses 2 overall.
+    expect(correctionBuckets({ target: 8, onHand: 10, quarantined: 4, soldQuantity: 8 })).toEqual({ sellableDelta: 2, quarantineDelta: -4 });
+    expect(after({ target: 8, onHand: 10, quarantined: 4, soldQuantity: 8 })).toEqual({ onHand: 8, quarantined: 0, sellable: 8 });
+    // A gain with held units the count can't leave room for (3 on hand, 2 held, 5 sold, empty shelf).
+    expect(after({ target: 5, onHand: 3, quarantined: 2, soldQuantity: 5 })).toEqual({ onHand: 5, quarantined: 0, sellable: 5 });
+    // Room for the held units: they stay held, and only sellable stock moves.
+    expect(correctionBuckets({ target: 12, onHand: 10, quarantined: 4, soldQuantity: 5 })).toEqual({ sellableDelta: 2, quarantineDelta: 0 });
+    // Nothing held: the whole correction is sellable, as before.
+    expect(correctionBuckets({ target: 2, onHand: 6, quarantined: 0, soldQuantity: 2 })).toEqual({ sellableDelta: -4, quarantineDelta: 0 });
   });
 
   it("links movement units at most once, and never partly", () => {

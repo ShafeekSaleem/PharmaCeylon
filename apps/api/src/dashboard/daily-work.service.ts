@@ -190,23 +190,32 @@ export class DailyWorkService {
     }
     // P5 #51: offline sales whose stock waits on a case. Reviewers see open cases until a plan is
     // approved; once approved, the plan waits at the counter for someone who manages inventory.
+    // An approved plan whose approval no longer holds goes back to reviewers: revoked, or another
+    // case opened on one of its batches since (the only content change an approval can see).
     if (actor.has("inventory.resolve_stock_cases") || actor.has("inventory.manage")) {
-      const approved = Prisma.sql`(p.status = 'approved')`;
+      const stale = Prisma.sql`COALESCE(p.status = 'approved' AND (a.id IS NULL OR a.revoked_at IS NOT NULL OR EXISTS(
+          SELECT 1 FROM offline_stock_discrepancy_line mine
+            JOIN offline_stock_discrepancy_line other ON other.tenant_id = mine.tenant_id AND other.batch_id = mine.batch_id AND other.case_id <> mine.case_id
+            JOIN offline_stock_discrepancy oc ON oc.tenant_id = other.tenant_id AND oc.id = other.case_id
+          WHERE mine.tenant_id = c.tenant_id AND mine.case_id = c.id AND oc.opened_at > a.approved_at)), false)`;
+      const ready = Prisma.sql`(COALESCE(p.status = 'approved', false) AND NOT ${stale})`;
       sources.push(Prisma.sql`
-        SELECT 'stock_case:' || c.id, CASE WHEN ${approved} THEN 'offline_stock_case.resolve' ELSE 'offline_stock_case.review' END, 'inventory',
-          CASE WHEN ${approved} THEN 'Count and settle offline sale stock' WHEN p.status = 'prepared' THEN 'Approve stock case plan' ELSE 'Review offline stock case' END,
+        SELECT 'stock_case:' || c.id, CASE WHEN ${ready} THEN 'offline_stock_case.resolve' ELSE 'offline_stock_case.review' END, 'inventory',
+          CASE WHEN ${ready} THEN 'Count and settle offline sale stock' WHEN ${stale} THEN 'Approve stock case plan again'
+            WHEN p.status = 'prepared' THEN 'Approve stock case plan' ELSE 'Review offline stock case' END,
           concat(s.invoice_no, ' · ', (SELECT count(*) FROM offline_stock_discrepancy_line l WHERE l.tenant_id = c.tenant_id AND l.case_id = c.id), ' batch(es) paused'),
-          s.invoice_no, COALESCE(p.status::text, 'open'), '/inventory/stock-cases?caseId=' || c.id,
-          CASE WHEN ${approved} THEN 'Open case' ELSE 'Review case' END,
+          s.invoice_no, CASE WHEN ${stale} THEN 'changed' ELSE COALESCE(p.status::text, 'open') END, '/inventory/stock-cases?caseId=' || c.id,
+          CASE WHEN ${ready} THEN 'Open case' ELSE 'Review case' END,
           c.opened_at, NULL::timestamp,
-          CASE WHEN ${approved} THEN 'Counter team' ELSE 'Branch managers' END,
-          COALESCE(p.requested_by = ${uid}::uuid AND ${approved}, false), NOT COALESCE(${approved}, false),
-          COALESCE(p.status = 'prepared' AND ${blocked(Prisma.sql`p.requested_by`)}, false), 1
+          CASE WHEN ${ready} THEN 'Counter team' ELSE 'Branch managers' END,
+          COALESCE(p.requested_by = ${uid}::uuid AND ${ready}, false), NOT ${ready},
+          COALESCE((p.status = 'prepared' OR ${stale}) AND ${blocked(Prisma.sql`p.requested_by`)}, false), 1
         FROM offline_stock_discrepancy c JOIN sale s ON s.id = c.sale_id AND s.tenant_id = c.tenant_id AND s.branch_id = c.branch_id
           LEFT JOIN offline_stock_resolution p ON p.tenant_id = c.tenant_id AND p.case_id = c.id AND p.status IN ('prepared', 'approved')
+          LEFT JOIN management_approval a ON a.tenant_id = p.tenant_id AND a.branch_id = p.branch_id AND a.id = p.execution_approval_id
         WHERE c.tenant_id = ${tenant}::uuid AND c.branch_id = ${branchId}::uuid AND c.status = 'open'
-          AND ((${actor.has("inventory.resolve_stock_cases")} AND NOT COALESCE(${approved}, false))
-            OR (${actor.has("inventory.manage")} AND COALESCE(${approved}, false)))`);
+          AND ((${actor.has("inventory.resolve_stock_cases")} AND NOT ${ready})
+            OR (${actor.has("inventory.manage")} AND ${ready}))`);
     }
     // Held bills live in the web POS. At a live branch it is hidden, so they leave the web (W9);
     // during a fallback the web POS is back and so are its holds.

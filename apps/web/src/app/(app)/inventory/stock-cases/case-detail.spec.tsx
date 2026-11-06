@@ -46,7 +46,7 @@ function detail(overrides: Partial<StockCaseDetail> = {}): StockCaseDetail {
       reason: "shortfall", soldQuantity: 5, availableQuantityAtSync: 3, shortfallQuantity: 2,
       pending: { thisCase: 5, otherOpenCases: [], total: 5 },
       stock: { onHand: 3, quarantined: 0, reserved: 0, available: 3 },
-      blocked: true, heldByThisCase: true, timelineDigest: "a".repeat(64),
+      blocked: true, heldByThisCase: true, timelineTruncated: false, timelineDigest: "a".repeat(64),
       timeline: [{
         id: "l1", occurredAt: "2026-11-06T04:30:00.000Z", movementType: "sale_out", bucket: "sellable", qtyDelta: -7,
         referenceType: "sale", referenceId: "s2", reference: "INV-2611-000041", reason: null, actor: owner,
@@ -121,6 +121,8 @@ describe("offline stock cases (P5 #51)", () => {
       varianceQty: -3, countedAt: "2026-11-06T06:00:00.000Z", postedAt: "2026-11-06T06:10:00.000Z", countedBy: manager, settlesThisSale: true,
     }];
     const { onPrepare } = renderDetail(d);
+    // The count already took the sale's units off, so posting them again is not offered.
+    expect(screen.getByRole("radio", { name: /Post the sale now/ })).toBeDisabled();
     fireEvent.click(screen.getByRole("radio", { name: /Link an existing settlement/ }));
     expect(screen.getByRole("combobox", { name: /What accounted for batch PCM-7/ })).toHaveDisplayValue(/ST-0009/);
     fireEvent.click(screen.getByRole("button", { name: "Prepare plan" }));

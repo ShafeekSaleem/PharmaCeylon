@@ -1631,9 +1631,11 @@ sold from; and per batch: sold, available at sync, shortfall and why it waits, *
 (this case's and every other open case's on the batch), on hand / quarantined / reserved /
 available now, whether it is blocked, the **timeline since the snapshot** (every ledger movement:
 online sales with their invoice numbers, receipts, transfers, stocktakes, quarantine, adjustments,
-with actor and time; at most 300) and its digest, stocktake counts of the batch since the
-snapshot (`settlesThisSale` when posted and counted after the sale), active reservations, and
-write-off/correction movements after the sale with unlinked units. Plans carry requester,
+with actor and time; the latest 300 per batch, `timelineTruncated` when there are more, and then
+no `timelineDigest`; execution digests the whole timeline), stocktake counts of the batch since
+the snapshot (`settlesThisSale` when posted and counted after the sale), active reservations, and
+write-off/correction movements after the sale with unlinked units (never a stock case's own count
+correction). Plans carry requester,
 approver and executor separately, `approvalState` (`none`, `matches`, `changed`, `revoked`) and
 the `approvalReview` to approve; a resolved case lists one settlement per batch.
 
@@ -1641,14 +1643,19 @@ the `approvalReview` to approve; a resolved case lists one settlement per batch.
 
 - `post_now` — stock now covers every batch of the sale (for example after a receipt). The sale's
   full stock effect is posted through `StockService.issue`, dated at the sale, with the usual
-  availability check; if it no longer covers, 409 `STOCK_NOT_COVERED` and nothing moves.
+  availability check; if it no longer covers, 409 `STOCK_NOT_COVERED` and nothing moves. If a
+  posted stocktake counted one of the batches after the sale, the count already took the units
+  off, so posting them again is refused 409 `SETTLEMENT_ALREADY_COUNTED` (at preparation and at
+  execution): link that stocktake or count instead.
 - `count_and_correct` — the counter counts every batch of the case (all units of the batch at the
   branch, sellable or held, after the sale left the shelf). Each batch is corrected once
   (`adjustment_in` / `adjustment_out`, reference `offline_stock_resolution`) to
   **count + every open case's pending units on that batch**, then the sale posts. Central stock
   then equals the count plus what other open cases still owe, so nothing the count already
-  reflects is deducted twice and no balancing stock is invented. If held or reserved units leave
-  too little to post the sale, 409 `STOCK_NOT_COVERED`.
+  reflects is deducted twice and no balancing stock is invented. The count covers held units
+  too: they stay held as far as the count leaves room beside the sale's units, and any beyond
+  that come off the quarantine bucket, so the sale always posts from sellable stock. If reserved
+  units leave too little to post the sale, 409 `STOCK_NOT_COVERED`.
 - `link_existing_settlement` — every batch names what already took the sold units off:
   `{ batchId, source: "stocktake", stocktakeId }` (a posted stocktake whose count of the batch was
   taken after the sale) or `{ batchId, source: "movements", ledgerEntryIds: [...] }` (write-offs or
@@ -1660,11 +1667,13 @@ A plan's content is immutable (database trigger); to change it, cancel it and pr
 
 **Approval** uses the exact-approval machinery (`management_approval`, document type
 `offline_stock_resolution`, action `offline_stock_resolution.execute`): the material is the case
-(sale, command, each line), the plan, and **the other open cases holding each batch**. Approval
-needs `inventory.resolve_stock_cases` (owner and manager by default) under the tenant's
-self-approval policy; a preparer who may approve their own requests approves as they prepare. Any
-material change — notably another offline sale on one of the batches opening a case — makes the
-approval `APPROVAL_STALE` at execution and the plan `changed` in both lists; approve again.
+(sale, command, each line), the plan, and **the other cases holding each batch** — those still
+open, and those resolved after the plan was prepared, so another case settling never changes what
+was approved. Approval needs `inventory.resolve_stock_cases` (owner and manager by default) under
+the tenant's self-approval policy; a preparer who may approve their own requests approves as they
+prepare. Any material change — notably another offline sale on one of the batches opening a case
+— makes the approval `APPROVAL_STALE` at execution and the plan `changed` in both lists and in
+daily work ("Approve stock case plan again"); approve again.
 
 **Execution** is a signed counter command only (`POST /terminal-commands/execute`, operation
 above), local physical execution under revised D10: the browser route refuses, an unsigned

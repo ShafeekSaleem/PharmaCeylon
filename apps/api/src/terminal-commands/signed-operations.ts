@@ -531,9 +531,9 @@ export class SignedOperations {
         },
         async execute(tx, user, branchId, body, context) {
           if (!stockCases) throw new Error("Stock cases are not wired into signed operations");
-          const done = await stockCases.executeInTransaction(tx, user, branchId, body.resolutionId,
+          const result = await stockCases.executeInTransaction(tx, user, branchId, body.resolutionId,
             { approvalId: approvalId(context), counts: body.counts.map((c) => ({ ...c })) }, context.command);
-          return { result: done.result };
+          return { result };
         },
       },
     });
