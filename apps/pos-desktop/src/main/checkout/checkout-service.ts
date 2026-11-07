@@ -19,6 +19,7 @@ import {
   ActionFailure,
   type TerminalService,
 } from "../terminal/terminal-service";
+import type { OfflineJournalWriter } from "../terminal/offline-journal-writer";
 import { saleTotalMinor } from "../../shared/sale-total";
 import { fromMinor, toMinor } from "./money";
 
@@ -50,7 +51,8 @@ type RawSale = {
     unitPrice: string;
     discountAmount?: string;
     lineTotal: string;
-    product: { name: string };
+    product: { name: string; id?: string };
+    batch?: { id: string };
   }[];
   payments: { method: string; amount: string; reference: string | null }[];
   seller: { fullName: string } | null;
@@ -106,6 +108,7 @@ const toSale = (sale: RawSale): CompletedSale => ({
     unitPrice: i.unitPrice,
     discountAmount: i.discountAmount ?? "0.00",
     lineTotal: i.lineTotal,
+    ...(i.product.id && i.batch?.id ? { productId: i.product.id, batchId: i.batch.id } : {}),
   })),
   payments: sale.payments.map((p) => ({
     method: p.method,
@@ -141,6 +144,7 @@ export class CheckoutService {
       api: ApiSession;
       terminal: TerminalService;
       logger: Logger;
+      offlineJournal?: OfflineJournalWriter;
       now?: () => Date;
     },
   ) {}
@@ -538,10 +542,7 @@ export class CheckoutService {
       throw error;
     }
     if (answer.outcome === "landed") {
-      this.mark(row.id, "completed", {
-        saleId: answer.sale.id,
-        invoiceNo: answer.sale.invoiceNo,
-      });
+      this.completeSuccessfulSale(row.id, answer.sale);
       this.deps.logger.info("checkout.resolved", {
         draftId: row.id,
         saleId: answer.sale.id,
@@ -581,6 +582,24 @@ export class CheckoutService {
     }));
   }
 
+  /** Marks the draft completed and records journal batch usage in one transaction (idempotent per sale id). */
+  private completeSuccessfulSale(draftId: string, sale: RawSale): void {
+    const device = this.deps.terminal.current();
+    const at = this.now().toISOString();
+    const lines = sale.items.flatMap((i) => (i.batch?.id ? [{ batchId: i.batch.id, qty: i.qty }] : []));
+    this.deps.db.transaction(() => {
+      this.mark(draftId, "completed", { saleId: sale.id, invoiceNo: sale.invoiceNo }, at);
+      if (device?.identity.enrollmentId && this.deps.offlineJournal) {
+        this.deps.offlineJournal.recordOnlineSaleLinesIfNew(
+          sale.id,
+          device.identity.enrollmentId,
+          lines,
+          at,
+        );
+      }
+    }).immediate();
+  }
+
   private row(id: string): DraftRow | undefined {
     return this.deps.db
       .prepare("SELECT * FROM checkout_draft WHERE id = ?")
@@ -591,6 +610,7 @@ export class CheckoutService {
     id: string,
     status: DraftRow["status"],
     fields: { saleId?: string; invoiceNo?: string; errorCode?: string },
+    updatedAt?: string,
   ) {
     this.deps.db
       .prepare(
@@ -601,7 +621,7 @@ export class CheckoutService {
         fields.saleId ?? null,
         fields.invoiceNo ?? null,
         fields.errorCode ?? null,
-        this.now().toISOString(),
+        updatedAt ?? this.now().toISOString(),
         id,
       );
   }
@@ -631,10 +651,7 @@ export class CheckoutService {
           },
         },
       );
-      this.mark(id, "completed", {
-        saleId: sale.id,
-        invoiceNo: sale.invoiceNo,
-      });
+      this.completeSuccessfulSale(id, sale);
       this.deps.logger.info("checkout.completed", {
         draftId: id,
         saleId: sale.id,

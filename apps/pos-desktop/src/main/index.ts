@@ -20,6 +20,7 @@ import { CounterWorkService } from "./terminal/counter-work";
 import { ReturnsService } from "./returns/returns-service";
 import { readInstalledOfflineAuthority } from "./terminal/offline-authority";
 import { startOfflineAuthorityRefresh, type OfflineAuthorityRefresh } from "./terminal/offline-authority-refresh";
+import { OfflineJournalWriter } from "./terminal/offline-journal-writer";
 import { SignedCommandService } from "./terminal/signed-commands";
 import { ShiftService } from "./shifts/shift-service";
 import { StockLookupService } from "./terminal/stock-lookup";
@@ -462,6 +463,7 @@ async function start(): Promise<void> {
 
   logger.info("startup.ready", { appVersion: app.getVersion(), schemaVersion: store.schemaVersion });
   const deviceStore = new DeviceStore(store.db);
+  const offlineJournalWriter = new OfflineJournalWriter({ db: store.db });
   // Offline PIN lockouts count down in uptime; save their progress so a restart resumes it.
   const pins = new PinStore(store.db);
   pins.checkpoint();
@@ -479,6 +481,7 @@ async function start(): Promise<void> {
     listProcesses: listProcessImages,
     appVersion: app.getVersion(),
     logger,
+    offlineJournal: offlineJournalWriter,
   });
   const authorityKeyId = process.env.POS_OFFLINE_AUTHORITY_KEY_ID;
   const authorityPublicKey = process.env.POS_OFFLINE_AUTHORITY_PUBLIC_KEY;
@@ -500,7 +503,7 @@ async function start(): Promise<void> {
       logger.error("offline_authority.invalid_public_key", { error });
     }
   }
-  checkout = new CheckoutService({ db: store.db, api: terminalApi, terminal, logger });
+  checkout = new CheckoutService({ db: store.db, api: terminalApi, terminal, logger, offlineJournal: offlineJournalWriter });
   commands = new SignedCommandService({ db: store.db, api: terminalApi, terminal, logger });
   dispensing = new DispensingService({ api: terminalApi, terminal, commands });
   counterWork = new CounterWorkService({ api: terminalApi, terminal, commands });

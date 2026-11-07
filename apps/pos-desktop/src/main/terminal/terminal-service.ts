@@ -30,6 +30,7 @@ import { DeviceKey } from "../device/device-key";
 import type { DeviceStore } from "../device/device-store";
 import type { Logger } from "../logging/logger";
 import type { PinStore } from "../staff/pin-store";
+import type { OfflineJournalWriter } from "./offline-journal-writer";
 
 export type TerminalServiceDeps = {
   store: DeviceStore;
@@ -44,6 +45,8 @@ export type TerminalServiceDeps = {
   appVersion: string;
   logger: Logger;
   now?: () => Date;
+  /** P4: records durable `offline_staff_sign_in` envelopes after server-verified PIN sessions. */
+  offlineJournal?: OfflineJournalWriter;
 };
 
 type StaffSession = {
@@ -321,6 +324,21 @@ export class TerminalService {
     // The server just confirmed this PIN at its current version here: refresh the verifier,
     // which also clears any local lockout.
     this.keepVerifier(this.staff!, enrollmentId, this.credential!, pin);
+    try {
+      this.deps.offlineJournal?.recordStaffSignInFromPin({
+        enrollmentId,
+        identity: device.identity,
+        registerId: device.registerId,
+        tillId: device.tillId,
+        session: result.session,
+        key: this.requireKey(),
+        confirmedPinVersion: this.credential!.pinVersion,
+      });
+    } catch (error) {
+      this.deps.logger.warn("offline_journal.staff_sign_in_failed", {
+        error: error instanceof Error ? error.message : "unknown",
+      });
+    }
     return this.state();
   }
 

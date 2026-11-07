@@ -12,6 +12,7 @@ import {
 
 import type { PosDatabase } from "../db/database";
 import { hasLocalOfflineUsage } from "./offline-journal";
+import { resetJournalUsageForEnrollment } from "./offline-journal-writer";
 
 export type OfflineAuthority = {
   grant: Signed<OfflineGrant>;
@@ -138,6 +139,7 @@ export function installOfflineAuthority(
         VALUES (?, ?, ?, ?)
       `).run(...values);
     }
+    resetJournalUsageForEnrollment(db, enrollmentId);
     return "installed";
   });
   return install.immediate();
