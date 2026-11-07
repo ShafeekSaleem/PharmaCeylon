@@ -100,6 +100,7 @@ export const deviceStateSchema = z.object({
   enrollment: z
     .object({
       status: z.enum(["pending", "active", "revoked", "retired"]),
+      branchId: uuid,
       branchName: z.string(),
       /** Branch short code from tenant context when enrolled; empty string when unknown (older enrollments). */
       branchCode: z.string(),
@@ -116,7 +117,14 @@ export const deviceStateSchema = z.object({
       enrolledByName: z.string().nullable(),
     })
     .nullable(),
-  operator: z.object({ userId: uuid, fullName: z.string(), email: z.string() }).nullable(),
+  operator: z
+    .object({
+      userId: uuid,
+      fullName: z.string(),
+      email: z.string(),
+      branchRoles: z.array(z.object({ branchId: uuid, role: z.string() })),
+    })
+    .nullable(),
   staffSession: z
     .object({ workSessionId: uuid, staffUserId: uuid, staffName: z.string(), openedAt: z.string() })
     .nullable(),
@@ -984,10 +992,9 @@ export const ipcContract = {
     input: z.object({ printerName: z.string().min(1).max(260) }),
     output: result(
       z.object({
+        /** Server clock for the confirmation (ISO). */
         confirmedAt: z.string(),
-        /** ISO time from the server when available; otherwise same as confirmedAt. */
-        confirmedByAt: z.string(),
-        /** Display name of the person who confirmed, when the API returns it. */
+        /** Display name of the person who confirmed (signed-in staff session). */
         confirmedByName: z.string().nullable(),
       }),
     ),

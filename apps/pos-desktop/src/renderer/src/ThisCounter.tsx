@@ -9,7 +9,7 @@ import type {
   ReadinessCheck,
   ReadinessReport,
 } from "../../shared/ipc-contract";
-import { dayMonthYear, longDay, relativeTime, time } from "./format";
+import { dayMonthYear, relativeTime, time } from "./format";
 import { Icon } from "./Icon";
 import { KeyHint } from "./KeyHint";
 import { useKeyBinding } from "./keymap";
@@ -32,10 +32,8 @@ const STATUS_PILL: Record<CheckStatus, string | undefined> = {
   not_ready: ui.neutral,
 };
 
-/** Short till label from UUID: "a1b2c3d4" — no stable human label exists locally. */
 function tillShortLabel(tillId: string) {
-  const hex = tillId.replace(/-/g, "");
-  return hex.slice(0, 8);
+  return tillId.replace(/-/g, "").slice(0, 8);
 }
 
 /** The readiness checks in the mockup's three groups; any check not listed lands in the first. */
@@ -196,7 +194,7 @@ function PrinterTest() {
         .catch(() => null);
       if (result?.ok) {
         setConfirmed({
-          at: result.value.confirmedByAt,
+          at: result.value.confirmedAt,
           byName: result.value.confirmedByName,
         });
         setPrinted(null);
@@ -322,9 +320,9 @@ function PrinterTest() {
         )}
         {confirmed && !printed && (
           <div className={styles.footN}>
-            Last confirmed {longDay(new Date(confirmed.at))}
+            Last confirmed {dayMonthYear(new Date(confirmed.at))}
             {confirmed.byName ? ` by ${confirmed.byName}` : ""}. Recorded for
-            the branch go-live checklist.
+            the branch go-live checklist. Shown for this session only.
           </div>
         )}
       </div>
@@ -538,18 +536,17 @@ export function ThisCounterPage({
   const enrollerLine = enrollment.enrolledByName
     ? ` by ${enrollment.enrolledByName}`
     : "";
-  const enrolledSub =
-    enrolledAtDate && enrollment.enrolledByName
-      ? `${longDay(enrolledAtDate)}${enrollerLine}`
-      : enrolledAtDate
-        ? `${longDay(enrolledAtDate)}${enrollerLine || " · who enrolled isn’t stored on this computer"}`
-        : "Date not recorded";
   const local = atTheComputer(state);
   const server = host(state.serverUrl);
   const branchCodeSub = enrollment.branchCode
     ? `Branch code ${enrollment.branchCode}`
-    : "Branch code: sign in online as whoever enrolled this counter to store it here";
+    : "Sign in online once to store it here";
   const tillSub = `Till ${tillShortLabel(enrollment.tillId)} · one open shift at a time`;
+  const enrolledSub = enrollment.enrolledByName
+    ? `By ${enrollment.enrolledByName}`
+    : enrolledAtDate
+      ? "Enroller name not stored"
+      : "Date not recorded";
   return (
     <div className={styles.page}>
       <div className={ui.pageH}>

@@ -16,6 +16,7 @@ const operator = {
   userId: ids.ana,
   fullName: "Ana Perera",
   email: "ana@example.com",
+  branchRoles: [{ branchId: ids.branch, role: "manager" }],
 };
 const counter = {
   registerId: ids.register,

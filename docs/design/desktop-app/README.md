@@ -129,6 +129,6 @@ These are proposals, not existing features:
   - The "By hour" takings view.
   - The "End of day" close without a handover.
 - **This counter:**
-  - Who authorized and activated the offline backup, and when (the API does not yet expose activation time or actor for the listing panel).
-  - ~~Who last confirmed the test receipt.~~ **Done in the app:** confirmation shows the person who confirmed when they are the signed-in operator; the server does not return a separate name field on `POST …/test-receipt`.
+  - Who authorized and activated the offline backup, and when.
+  - Who last confirmed the test receipt.
 - **Pharmacist queue (B):** all of it, including the bag label, the checklist, owed items and the controlled-register balance.

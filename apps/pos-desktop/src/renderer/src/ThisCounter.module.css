@@ -54,6 +54,13 @@ div.tiles {
   margin: 0 18px 18px;
 }
 
+/* Narrow windows: allow tile captions to wrap instead of long one-line overflow. */
+div.tiles :global(.tile span) {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+}
+
 .body {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 520px;
@@ -206,8 +213,10 @@ div.tiles {
 }
 
 .footN {
+  max-width: 100%;
   font-size: 11.5px;
   color: var(--pos-text-3);
+  text-wrap: pretty;
 }
 
 /* ---------- offline backup ---------- */

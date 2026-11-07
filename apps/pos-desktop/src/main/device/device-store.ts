@@ -199,7 +199,7 @@ export class DeviceStore {
   patchEnrollmentDisplay(input: { branchCode?: string; enrolledByName?: string | null }): void {
     const sets: string[] = [];
     const values: unknown[] = [];
-    if (input.branchCode !== undefined) {
+    if (input.branchCode !== undefined && input.branchCode !== "") {
       sets.push("branch_code = ?");
       values.push(input.branchCode);
     }

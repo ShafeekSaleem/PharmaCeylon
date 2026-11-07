@@ -15,6 +15,7 @@ afterEach(cleanup);
 const state = deviceState({
   enrollment: {
     status: "active",
+    branchId: ids.branch,
     branchName: "Colombo 03",
     branchCode: "C03",
     registerId: ids.register,

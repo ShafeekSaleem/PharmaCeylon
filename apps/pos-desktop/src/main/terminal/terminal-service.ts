@@ -150,6 +150,7 @@ export class TerminalService {
       enrollment: device
         ? {
             status: device.status,
+            branchId: device.identity.branchId,
             branchName: device.branchName,
             branchCode: device.branchCode,
             registerId: device.registerId,
@@ -168,6 +169,10 @@ export class TerminalService {
             userId: operator.id,
             fullName: operator.fullName,
             email: operator.email,
+            branchRoles: operator.branchRoles.map((r) => ({
+              branchId: r.branchId,
+              role: r.role,
+            })),
           }
         : null,
       staffSession: this.staff,
@@ -728,7 +733,10 @@ export class TerminalService {
     return this.state();
   }
 
-  /** Fills branch code and enroller name on older enrollments when the signed-in user is the enroller. */
+  /**
+   * Fills display metadata on older enrollments: branch code from tenant context on any online
+   * sign-in; enroller display name only when the signed-in user enrolled this counter.
+   */
   private async maybeBackfillEnrollmentDisplay(): Promise<void> {
     const device = this.deps.store.read();
     if (!device || device.status !== "active") return;
@@ -744,7 +752,7 @@ export class TerminalService {
     }
     const branchFromList = this.branches.find((b) => b.id === device.identity.branchId);
     const patch: { branchCode?: string; enrolledByName?: string | null } = {};
-    if (needBranchCode) patch.branchCode = branchFromList?.code ?? "";
+    if (needBranchCode && branchFromList?.code) patch.branchCode = branchFromList.code;
     if (
       needEnroller &&
       this.deps.api.user &&
@@ -773,9 +781,8 @@ export class TerminalService {
   /** Go-live evidence: the signed-in person confirms the test receipt came out of this printer. */
   async confirmTestReceipt(
     printerName: string,
-  ): Promise<{ confirmedAt: string; confirmedByAt: string; confirmedByName: string | null }> {
+  ): Promise<{ confirmedAt: string; confirmedByName: string | null }> {
     const { staff, device } = this.requireStaff();
-    const operator = this.requireOperator();
     const result = await this.deps.api.request<{
       testReceiptId: string;
       confirmedAt: number;
@@ -784,10 +791,11 @@ export class TerminalService {
       body: { printerName },
     });
     const confirmedAt = new Date(result.confirmedAt).toISOString();
+    const operator = this.deps.api.user;
+    const confirmedByName = operator?.fullName ?? staff.staffName;
     return {
       confirmedAt,
-      confirmedByAt: confirmedAt,
-      confirmedByName: operator.fullName,
+      confirmedByName,
     };
   }
 
