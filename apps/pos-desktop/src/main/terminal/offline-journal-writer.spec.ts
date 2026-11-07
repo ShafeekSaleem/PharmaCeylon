@@ -215,6 +215,26 @@ afterEach(() => {
 });
 
 describe("OfflineJournalWriter", () => {
+  it("stamps journal persistence rows with the injected clock", () => {
+    const fixed = new Date(NOW + 9_999);
+    const timed = new OfflineJournalWriter({ db: local.db, now: () => fixed });
+    timed.recordStaffSignInFromPin({
+      enrollmentId: identity.enrollmentId,
+      identity,
+      registerId: counter.registerId,
+      tillId: counter.tillId,
+      session: { workSessionId: staffSession.workSessionId, staffUserId: staffSession.staffUserId },
+      key: deviceKey,
+      confirmedPinVersion: 1,
+    });
+    expect(
+      local.db.prepare("SELECT created_at FROM offline_journal_staff_sign_in LIMIT 1").get(),
+    ).toEqual({ created_at: fixed.toISOString() });
+    expect(
+      local.db.prepare("SELECT updated_at FROM offline_journal_state WHERE enrollment_id = ?").get(identity.enrollmentId),
+    ).toEqual({ updated_at: fixed.toISOString() });
+  });
+
   it("records PIN staff sign-in envelopes and sets active staff for journal attribution", () => {
     const env = writer.recordStaffSignInFromPin({
       enrollmentId: identity.enrollmentId,
@@ -223,6 +243,7 @@ describe("OfflineJournalWriter", () => {
       tillId: counter.tillId,
       session: { workSessionId: staffSession.workSessionId, staffUserId: staffSession.staffUserId },
       key: deviceKey,
+      confirmedPinVersion: 1,
     });
     expect(env).not.toBeNull();
     expect(writer.getActiveStaffSignInId(identity.enrollmentId)).toBe(env!.payload.staffSignInId);
@@ -250,6 +271,7 @@ describe("OfflineJournalWriter", () => {
       tillId: counter.tillId,
       session: { workSessionId: staffSession.workSessionId, staffUserId: staffSession.staffUserId },
       key: deviceKey,
+      confirmedPinVersion: 1,
     })!;
     const { offlineSessionId, offlineStartedAt } = writer.ensureOfflineOutageSession(identity.enrollmentId, NOW + 30_000);
     const snapLine = installed.snapshot.payload.lines[0]!;
@@ -314,6 +336,7 @@ describe("OfflineJournalWriter", () => {
       tillId: counter.tillId,
       session: { workSessionId: staffSession.workSessionId, staffUserId: staffSession.staffUserId },
       key: deviceKey,
+      confirmedPinVersion: 1,
     })!;
     const { offlineSessionId, offlineStartedAt } = writer.ensureOfflineOutageSession(identity.enrollmentId, NOW + 30_000);
     const snapLine = installed.snapshot.payload.lines[0]!;
@@ -365,6 +388,7 @@ describe("OfflineJournalWriter", () => {
       tillId: counter.tillId,
       session: { workSessionId: staffSession.workSessionId, staffUserId: staffSession.staffUserId },
       key: deviceKey,
+      confirmedPinVersion: 1,
     })!;
     const { offlineSessionId, offlineStartedAt } = writer.ensureOfflineOutageSession(identity.enrollmentId, NOW + 30_000);
     const snapLine = installed.snapshot.payload.lines[0]!;
@@ -464,6 +488,7 @@ describe("OfflineJournalWriter", () => {
       tillId: counter.tillId,
       session: { workSessionId: staffSession.workSessionId, staffUserId: staffSession.staffUserId },
       key: deviceKey,
+      confirmedPinVersion: 1,
     })!;
     const outageA = writer.ensureOfflineOutageSession(identity.enrollmentId, NOW + 30_000);
     const snapLineA = installedA.snapshot.payload.lines[0]!;
@@ -510,6 +535,7 @@ describe("OfflineJournalWriter", () => {
       tillId: counter.tillId,
       session: { workSessionId: staffSession.workSessionId, staffUserId: staffSession.staffUserId },
       key: keyB,
+      confirmedPinVersion: 1,
     })!;
     const outageB = writerB.ensureOfflineOutageSession(identityB.enrollmentId, NOW + 45_000);
     const snapLineB = installedB.snapshot.payload.lines[0]!;
@@ -554,6 +580,7 @@ describe("OfflineJournalWriter", () => {
         tillId: counter.tillId,
         session: { workSessionId: staffSession.workSessionId, staffUserId: staffSession.staffUserId },
         key: deviceKey,
+        confirmedPinVersion: 1,
       }),
     ).toBeNull();
   });
@@ -568,6 +595,21 @@ describe("OfflineJournalWriter", () => {
         tillId: counter.tillId,
         session: { workSessionId: staffSession.workSessionId, staffUserId: staffSession.staffUserId },
         key: deviceKey,
+        confirmedPinVersion: 1,
+      }),
+    ).toBeNull();
+  });
+
+  it("refuses staff sign-in when server-confirmed pin version does not match grant credentialVersion", () => {
+    expect(
+      writer.recordStaffSignInFromPin({
+        enrollmentId: identity.enrollmentId,
+        identity,
+        registerId: counter.registerId,
+        tillId: counter.tillId,
+        session: { workSessionId: staffSession.workSessionId, staffUserId: staffSession.staffUserId },
+        key: deviceKey,
+        confirmedPinVersion: 2,
       }),
     ).toBeNull();
   });
@@ -581,6 +623,7 @@ describe("OfflineJournalWriter", () => {
         tillId: counter.tillId,
         session: { workSessionId: staffSession.workSessionId, staffUserId: randomUUID() },
         key: deviceKey,
+        confirmedPinVersion: 1,
       }),
     ).toBeNull();
   });
@@ -593,6 +636,7 @@ describe("OfflineJournalWriter", () => {
       tillId: counter.tillId,
       session: { workSessionId: staffSession.workSessionId, staffUserId: staffSession.staffUserId },
       key: deviceKey,
+      confirmedPinVersion: 1,
     })!;
     const { offlineSessionId, offlineStartedAt } = writer.ensureOfflineOutageSession(identity.enrollmentId, NOW + 30_000);
     const snapLine = installed.snapshot.payload.lines[0]!;
@@ -624,6 +668,7 @@ describe("OfflineJournalWriter", () => {
       tillId: counter.tillId,
       session: { workSessionId: staffSession.workSessionId, staffUserId: staffSession.staffUserId },
       key: deviceKey,
+      confirmedPinVersion: 1,
     })!;
     const { offlineSessionId, offlineStartedAt } = writer.ensureOfflineOutageSession(identity.enrollmentId, NOW + 30_000);
     const snapLine = installed.snapshot.payload.lines[0]!;

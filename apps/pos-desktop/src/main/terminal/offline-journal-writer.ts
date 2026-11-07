@@ -122,11 +122,28 @@ export class OfflineJournalWriter {
     },
   ) {}
 
-  private nowMs() {
-    return (this.deps.now ?? (() => new Date()))().getTime();
+  private clock(): Date {
+    return (this.deps.now ?? (() => new Date()))();
   }
 
-  /** After a successful PIN sign-in at the counter, while online authority is installed. */
+  private nowMs() {
+    return this.clock().getTime();
+  }
+
+  private atIso() {
+    return this.clock().toISOString();
+  }
+
+  /**
+   * After a successful PIN sign-in at the counter, while online authority is installed.
+   *
+   * `confirmedPinVersion` is `TerminalStaffCredentialView.pinVersion` from GET
+   * `/terminals/sessions/:workSessionId/credential` (fetched after pin-sessions succeeds). The
+   * pin-sessions response does not expose a credential revision. Grant `credentialVersion` uses the
+   * same meaning as `pinVersion` at grant issue (`readOfflineGrantStaff` on the API). When they
+   * differ the installed grant is stale for this sign-in; recording nothing is safer than
+   * attesting a PIN generation the grant did not authorize.
+   */
   recordStaffSignInFromPin(options: {
     enrollmentId: string;
     identity: TerminalIdentity;
@@ -134,12 +151,15 @@ export class OfflineJournalWriter {
     tillId: string;
     session: { workSessionId: string; staffUserId: string };
     key: { sign: <T>(payload: T, purpose: "command") => Signed<T> };
+    /** Server-confirmed PIN revision after sign-in; must match grant staff `credentialVersion`. */
+    confirmedPinVersion: number;
   }): Signed<OfflineStaffSignIn> | null {
     const installed = readInstalledOfflineAuthority(this.deps.db, options.enrollmentId);
     if (!installed) return null;
     const grant = installed.grant.payload;
     const staff = grant.authorizedStaff.find((s) => s.staffUserId === options.session.staffUserId);
     if (!staff) return null;
+    if (options.confirmedPinVersion !== staff.credentialVersion) return null;
 
     const trustedNow = this.nowMs();
     if (trustedNow >= grant.expiresAt || trustedNow < grant.notBefore) return null;
@@ -164,7 +184,7 @@ export class OfflineJournalWriter {
       authenticatedAt: trustedNow,
     };
     const envelope = options.key.sign(payload, "command");
-    const at = new Date().toISOString();
+    const at = this.atIso();
     const tx = this.deps.db.transaction(() => {
       this.deps.db
         .prepare(
@@ -304,7 +324,7 @@ export class OfflineJournalWriter {
     if (!sameTerminalIdentity(command.identity, grant.identity) || !sameTerminalIdentity(command.identity, snapshot.identity))
       throw new Error("IDENTITY_MISMATCH");
 
-    const at = new Date().toISOString();
+    const at = this.atIso();
     const tx = this.deps.db.transaction(() => {
       const existingCmd = this.deps.db
         .prepare("SELECT payload_hash FROM offline_journal_command WHERE command_id = ?")
@@ -405,7 +425,7 @@ export class OfflineJournalWriter {
   private upsertStateRow(enrollmentId: string, build: (prev: JournalStateRow | null) => JournalStatePartial): void {
     const prev = readState(this.deps.db, enrollmentId);
     const next = build(prev);
-    const updated_at = new Date().toISOString();
+    const updated_at = this.atIso();
     if (!prev) {
       this.deps.db
         .prepare(
@@ -449,12 +469,4 @@ export class OfflineJournalWriter {
         );
     }
   }
-}
-
-export function assertSnapshotFreshAtOutage(snapshotGeneratedAt: number, offlineStartedAt: number): boolean {
-  return offlineStartedAt - snapshotGeneratedAt <= MAX_SNAPSHOT_AGE_AT_OUTAGE_MS;
-}
-
-export function grantWithinValidity(grantNotBefore: number, grantExpiresAt: number, trustedNow: number): boolean {
-  return trustedNow >= grantNotBefore && trustedNow < grantExpiresAt;
 }

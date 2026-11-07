@@ -332,6 +332,7 @@ export class TerminalService {
         tillId: device.tillId,
         session: result.session,
         key: this.requireKey(),
+        confirmedPinVersion: this.credential!.pinVersion,
       });
     } catch (error) {
       this.deps.logger.warn("offline_journal.staff_sign_in_failed", {
