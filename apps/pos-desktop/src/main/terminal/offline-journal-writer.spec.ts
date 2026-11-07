@@ -57,7 +57,11 @@ function signedServer<T>(purpose: "grant" | "snapshot", payload: T): Signed<T> {
   };
 }
 
-function authorityPair(snapshotGeneratedAt: number): OfflineAuthority {
+function authorityPair(
+  snapshotGeneratedAt: number,
+  bound: typeof identity = identity,
+  version = 1,
+): OfflineAuthority {
   const issuedAt = snapshotGeneratedAt + 500;
   const batchId = randomUUID();
   // Server uses batch id as snapshotLineId (`stock-snapshot-lines.ts`); usage keys must match.
@@ -66,8 +70,8 @@ function authorityPair(snapshotGeneratedAt: number): OfflineAuthority {
     contractVersion: 1,
     kind: "branch_stock_snapshot",
     snapshotId: randomUUID(),
-    snapshotVersion: 1,
-    identity,
+    snapshotVersion: version,
+    identity: bound,
     generatedAt: snapshotGeneratedAt,
     includedThroughSequence: 0,
     includedThroughHash: null,
@@ -87,7 +91,7 @@ function authorityPair(snapshotGeneratedAt: number): OfflineAuthority {
   const grant: OfflineGrant = {
     contractVersion: 1,
     kind: "offline_grant",
-    identity,
+    identity: bound,
     ...counter,
     authorizedStaff: [
       {
@@ -99,7 +103,7 @@ function authorityPair(snapshotGeneratedAt: number): OfflineAuthority {
       },
     ],
     grantId: randomUUID(),
-    grantVersion: 1,
+    grantVersion: version,
     nominationVersion: 1,
     issuedAt,
     notBefore: issuedAt,
@@ -162,7 +166,12 @@ function buildOrdinarySale(
   };
 }
 
-function seedDeviceIdentity(db: PosDatabase): void {
+function seedDeviceIdentity(
+  db: PosDatabase,
+  bound: typeof identity = identity,
+  key: DeviceKey = deviceKey,
+): void {
+  db.prepare("DELETE FROM device_identity WHERE id = 1").run();
   db.prepare(
     `INSERT INTO device_identity (
       id, status, api_base_url, tenant_id, branch_id, branch_name, terminal_id,
@@ -173,15 +182,15 @@ function seedDeviceIdentity(db: PosDatabase): void {
       ?, ?, ?, ?, ''
     )`,
   ).run(
-    identity.tenantId,
-    identity.branchId,
-    identity.terminalId,
-    identity.enrollmentId,
-    identity.keyId,
+    bound.tenantId,
+    bound.branchId,
+    bound.terminalId,
+    bound.enrollmentId,
+    bound.keyId,
     counter.registerId,
     counter.tillId,
-    deviceKey.publicKeyHex,
-    deviceKey.exportPkcs8(),
+    key.publicKeyHex,
+    key.exportPkcs8(),
     randomUUID(),
     new Date(NOW).toISOString(),
   );
@@ -410,10 +419,149 @@ describe("OfflineJournalWriter", () => {
     expect(() => writer.ensureOfflineOutageSession(identity.enrollmentId, atBoundary)).not.toThrow();
   });
 
+  it("keeps an existing offline outage session past snapshot max age and across a restart", () => {
+    const outageStart = NOW + 30_000;
+    const { offlineSessionId, offlineStartedAt } = writer.ensureOfflineOutageSession(
+      identity.enrollmentId,
+      outageStart,
+    );
+    const wellAfterStale =
+      installed.snapshot.payload.generatedAt + MAX_SNAPSHOT_AGE_AT_OUTAGE_MS + 120_000;
+    const continued = writer.ensureOfflineOutageSession(identity.enrollmentId, wellAfterStale);
+    expect(continued).toEqual({ offlineSessionId, offlineStartedAt });
+    expect(() => writer.ensureOfflineOutageSession(identity.enrollmentId, wellAfterStale)).not.toThrow(
+      "SNAPSHOT_STALE",
+    );
+
+    local.db.close();
+    const reopened = openLocalStore(dir, protector, migrations);
+    const afterRestart = new OfflineJournalWriter({
+      db: reopened.db,
+      now: () => new Date(wellAfterStale),
+    }).ensureOfflineOutageSession(identity.enrollmentId, wellAfterStale);
+    expect(afterRestart.offlineSessionId).toBe(offlineSessionId);
+    reopened.db.close();
+    local = openLocalStore(dir, protector, migrations);
+    writer = new OfflineJournalWriter({ db: local.db, now: () => new Date(NOW) });
+  });
+
+  it("isolates journal heads and snapshot-scoped usage across two enrollment ids", () => {
+    const keyB = DeviceKey.generate();
+    const identityB = {
+      ...identity,
+      enrollmentId: randomUUID(),
+      terminalId: randomUUID(),
+      keyId: keyB.keyId,
+    };
+    const installedA = installed;
+    const batchA = installedA.snapshot.payload.lines[0]!.batchId;
+    writer.recordOnlineSaleLinesIfNew(randomUUID(), identity.enrollmentId, [{ batchId: batchA, qty: 3 }], new Date(NOW).toISOString());
+
+    const signInA = writer.recordStaffSignInFromPin({
+      enrollmentId: identity.enrollmentId,
+      identity,
+      registerId: counter.registerId,
+      tillId: counter.tillId,
+      session: { workSessionId: staffSession.workSessionId, staffUserId: staffSession.staffUserId },
+      key: deviceKey,
+    })!;
+    const outageA = writer.ensureOfflineOutageSession(identity.enrollmentId, NOW + 30_000);
+    const snapLineA = installedA.snapshot.payload.lines[0]!;
+    const saleA = buildOrdinarySale(installedA, {
+      sequence: 1,
+      previousCommandHash: null,
+      staffSignInId: signInA.payload.staffSignInId,
+      offlineSessionId: outageA.offlineSessionId,
+      offlineStartedAt: outageA.offlineStartedAt,
+      lines: [
+        {
+          snapshotLineId: snapLineA.snapshotLineId,
+          quantity: 1,
+          unitPriceMinor: snapLineA.unitPriceMinor,
+          discountMinor: 0,
+          taxMinor: 0,
+        },
+      ],
+    });
+    writer.appendSignedCommand(deviceKey.sign(saleA, "command"));
+    const headA = writer.getHead(identity.enrollmentId);
+    const usageA = writer.getBatchUsageQuantities(identity.enrollmentId)[batchA];
+
+    seedDeviceIdentity(local.db, identityB, keyB);
+    const installedB = authorityPair(NOW - 60_000, identityB, 1);
+    installOfflineAuthority(local.db, installedB, {
+      identity: identityB,
+      ...counter,
+      signer,
+      trustedNow: NOW,
+    });
+    const writerB = new OfflineJournalWriter({ db: local.db, now: () => new Date(NOW) });
+    const batchB = installedB.snapshot.payload.lines[0]!.batchId;
+    writerB.recordOnlineSaleLinesIfNew(
+      randomUUID(),
+      identityB.enrollmentId,
+      [{ batchId: batchB, qty: 7 }],
+      new Date(NOW).toISOString(),
+    );
+    const signInB = writerB.recordStaffSignInFromPin({
+      enrollmentId: identityB.enrollmentId,
+      identity: identityB,
+      registerId: counter.registerId,
+      tillId: counter.tillId,
+      session: { workSessionId: staffSession.workSessionId, staffUserId: staffSession.staffUserId },
+      key: keyB,
+    })!;
+    const outageB = writerB.ensureOfflineOutageSession(identityB.enrollmentId, NOW + 45_000);
+    const snapLineB = installedB.snapshot.payload.lines[0]!;
+    const saleB = {
+      ...buildOrdinarySale(installedB, {
+        sequence: 1,
+        previousCommandHash: null,
+        staffSignInId: signInB.payload.staffSignInId,
+        offlineSessionId: outageB.offlineSessionId,
+        offlineStartedAt: outageB.offlineStartedAt,
+        lines: [
+          {
+            snapshotLineId: snapLineB.snapshotLineId,
+            quantity: 2,
+            unitPriceMinor: snapLineB.unitPriceMinor,
+            discountMinor: 0,
+            taxMinor: 0,
+          },
+        ],
+      }),
+      identity: identityB,
+    };
+    writerB.appendSignedCommand(keyB.sign(saleB, "command"));
+
+    expect(writer.getHead(identity.enrollmentId)).toEqual(headA);
+    expect(writerB.getHead(identityB.enrollmentId)).toEqual({
+      sequence: 1,
+      previousHash: journalCommandHash(saleB),
+    });
+    expect(writer.getBatchUsageQuantities(identity.enrollmentId)[batchA]).toBe(usageA);
+    expect(writer.getBatchUsageQuantities(identityB.enrollmentId)[batchB]).toBe(7 + 2);
+    expect(writer.getBatchUsageQuantities(identityB.enrollmentId)[batchA]).toBeUndefined();
+  });
+
   it("refuses staff sign-in when grant is expired", () => {
     const expiredWriter = new OfflineJournalWriter({ db: local.db, now: () => new Date(NOW + 86_400_000 * 400) });
     expect(
       expiredWriter.recordStaffSignInFromPin({
+        enrollmentId: identity.enrollmentId,
+        identity,
+        registerId: counter.registerId,
+        tillId: counter.tillId,
+        session: { workSessionId: staffSession.workSessionId, staffUserId: staffSession.staffUserId },
+        key: deviceKey,
+      }),
+    ).toBeNull();
+  });
+
+  it("refuses staff sign-in when no offline authority is installed", () => {
+    local.db.prepare("DELETE FROM offline_authority WHERE enrollment_id = ?").run(identity.enrollmentId);
+    expect(
+      writer.recordStaffSignInFromPin({
         enrollmentId: identity.enrollmentId,
         identity,
         registerId: counter.registerId,
