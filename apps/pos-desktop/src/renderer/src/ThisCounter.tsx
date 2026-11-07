@@ -588,22 +588,24 @@ export function ThisCounterPage({
           <div className={ui.tile}>
             <small>Branch</small>
             <b>{enrollment.branchName}</b>
-            <span>{branchCodeSub}</span>
+            <span className={styles.tileSub}>{branchCodeSub}</span>
           </div>
           <div className={ui.tile}>
             <small>Counter and till</small>
             <b>{enrollment.counterLabel}</b>
-            <span>{tillSub}</span>
+            <span className={styles.tileSub}>{tillSub}</span>
           </div>
           <div className={ui.tile}>
             <small>Enrolled</small>
             <b>{enrolledAt ?? "—"}</b>
-            <span>{enrolledSub}</span>
+            <span className={styles.tileSub}>{enrolledSub}</span>
           </div>
           <div className={ui.tile}>
             <small>App version</small>
             <b>{info?.appVersion ?? "—"}</b>
-            <span>{server ? `Server ${server}` : "No server address"}</span>
+            <span className={styles.tileSub}>
+              {server ? `Server ${server}` : "No server address"}
+            </span>
           </div>
         </div>
       </div>
