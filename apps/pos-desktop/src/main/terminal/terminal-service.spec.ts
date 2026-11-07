@@ -104,6 +104,8 @@ class FakeServer {
   /** The person lost their role at the branch. */
   pinDenied = false;
   enrolledKey: string | null = null;
+  /** When set, `/tenant/context` returns an empty branch code (upgrade gap). */
+  emptyBranchCode = false;
   readonly proofs = new Map<string, LocalAttendanceAttestation>();
   readonly calls: string[] = [];
   private challenge:
@@ -156,7 +158,14 @@ class FakeServer {
     if (path === "/tenant/context")
       return {
         branchRoles: [
-          { branchId, branch: { id: branchId, code: "MAIN", name: "Main" } },
+          {
+            branchId,
+            branch: {
+              id: branchId,
+              code: this.emptyBranchCode ? "" : "MAIN",
+              name: "Main",
+            },
+          },
         ],
       };
     if (path === "/terminals/counters")
@@ -423,6 +432,8 @@ class FakeServer {
       this.preparedVersion = this.pinVersion;
       return credential();
     }
+    if (path.endsWith("/test-receipt"))
+      return { testReceiptId: randomUUID(), confirmedAt: now };
     throw new Error(`Unexpected ${method} ${path}`);
   }
 }
@@ -470,7 +481,12 @@ describe("TerminalService enrollment", () => {
     expect(state.enrollment).toMatchObject({
       status: "active",
       branchName: "Main",
+      branchCode: "MAIN",
       counterLabel: "Counter 1",
+      registerId,
+      tillId,
+      enrolledByUserId: manager.id,
+      enrolledByName: manager.fullName,
     });
     expect(state.operator).toBeNull();
     const key = new DeviceStore(local.db).key()!;
@@ -982,6 +998,62 @@ describe("TerminalService PIN sign-in (D-W5)", () => {
   });
 });
 
+describe("TerminalService enrollment display backfill", () => {
+  it("backfills branch code on any online sign-in, not only the enroller", async () => {
+    const terminal = service();
+    await enrolled(terminal);
+    local.db.prepare("UPDATE device_identity SET branch_code = ''").run();
+    await terminal.signIn(cashier.email, "password");
+    const device = new DeviceStore(local.db).read()!;
+    expect(device.branchCode).toBe("MAIN");
+    expect(device.enrolledByName).toBe(manager.fullName);
+  });
+
+  it("backfills enroller name only when the enroller signs in", async () => {
+    const terminal = service();
+    await enrolled(terminal);
+    local.db.prepare("UPDATE device_identity SET enrolled_by_name = NULL").run();
+    await terminal.signIn(cashier.email, "password");
+    expect(new DeviceStore(local.db).read()?.enrolledByName).toBeNull();
+    await terminal.signOut();
+    await terminal.signIn(manager.email, "password");
+    expect(new DeviceStore(local.db).read()?.enrolledByName).toBe(manager.fullName);
+  });
+
+  it("does not write an empty branch code when tenant context has no code", async () => {
+    await enrolled();
+    local.db.prepare("UPDATE device_identity SET branch_code = ''").run();
+    server.emptyBranchCode = true;
+    const fresh = service();
+    await fresh.signIn(cashier.email, "password");
+    expect(new DeviceStore(local.db).read()?.branchCode).toBe("");
+  });
+});
+
+describe("TerminalService test receipt confirmation", () => {
+  it("returns the confirmer name from the signed-in operator, or staff when absent", async () => {
+    const terminal = service();
+    await enrolled(terminal);
+    await terminal.signIn(manager.email, "password");
+    const withOperator = await terminal.confirmTestReceipt("EPSON TM-T88");
+    expect(withOperator).toMatchObject({
+      confirmedByName: manager.fullName,
+    });
+    expect(withOperator.confirmedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(
+      server.calls.some((c) => c.startsWith("POST /terminals/sessions/") && c.includes("/test-receipt")),
+    ).toBe(true);
+  });
+
+  it("patchEnrollmentDisplay does not persist an empty branch code", async () => {
+    const terminal = service();
+    await enrolled(terminal);
+    local.db.prepare("UPDATE device_identity SET branch_code = 'KOL'").run();
+    new DeviceStore(local.db).patchEnrollmentDisplay({ branchCode: "" });
+    expect(new DeviceStore(local.db).read()?.branchCode).toBe("KOL");
+  });
+});
+
 describe("TerminalService enrollment codes", () => {
   it("lets a cashier enroll with a manager's code", async () => {
     const terminal = service();
@@ -1001,6 +1073,8 @@ describe("TerminalService enrollment codes", () => {
       counterLabel: "Code counter",
     });
     expect(new DeviceStore(local.db).read()?.enrolledByUserId).toBe(cashier.id);
+    expect(new DeviceStore(local.db).read()?.enrolledByName).toBe(cashier.fullName);
+    expect(new DeviceStore(local.db).read()?.branchCode).toBe("MAIN");
   });
 });
 
