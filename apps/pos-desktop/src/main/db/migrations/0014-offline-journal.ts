@@ -1,12 +1,12 @@
 import type { Migration } from "../migrator";
 
 /**
- * P4 #50: durable offline journal producer state — staff sign-in envelopes, journal chain head,
- * signed command outbox, and batch-level consumption since the installed stock snapshot (including
- * online sales on this terminal) for watermark math at offline checkout.
+ * P4 #50: durable offline journal producer (PR #137). Version 14 follows PR #136's 0013
+ * device-enrollment-display. Batch usage is scoped to snapshot id/version; online sales are
+ * recorded idempotently by sale id.
  */
 export const offlineJournal: Migration = {
-  version: 13,
+  version: 14,
   name: "offline-journal",
   up(db) {
     db.exec(`
@@ -43,11 +43,21 @@ export const offlineJournal: Migration = {
       CREATE INDEX offline_journal_command_enrollment_seq ON offline_journal_command (enrollment_id, sequence);
 
       CREATE TABLE offline_journal_batch_usage (
-        enrollment_id  TEXT NOT NULL,
-        batch_id         TEXT NOT NULL,
-        qty_sold         INTEGER NOT NULL CHECK (qty_sold >= 0),
-        PRIMARY KEY (enrollment_id, batch_id)
+        enrollment_id      TEXT NOT NULL,
+        snapshot_id          TEXT NOT NULL,
+        snapshot_version     INTEGER NOT NULL CHECK (snapshot_version >= 1),
+        batch_id             TEXT NOT NULL,
+        qty_sold             INTEGER NOT NULL CHECK (qty_sold >= 0),
+        PRIMARY KEY (enrollment_id, snapshot_id, snapshot_version, batch_id)
       ) STRICT;
+
+      CREATE TABLE offline_journal_online_sale_record (
+        enrollment_id TEXT NOT NULL,
+        sale_id       TEXT NOT NULL,
+        created_at    TEXT NOT NULL,
+        PRIMARY KEY (enrollment_id, sale_id)
+      ) STRICT;
+      CREATE INDEX offline_journal_online_sale_enrollment ON offline_journal_online_sale_record (enrollment_id);
     `);
   },
 };

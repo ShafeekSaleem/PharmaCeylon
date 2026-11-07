@@ -542,11 +542,7 @@ export class CheckoutService {
       throw error;
     }
     if (answer.outcome === "landed") {
-      this.mark(row.id, "completed", {
-        saleId: answer.sale.id,
-        invoiceNo: answer.sale.invoiceNo,
-      });
-      this.recordOnlineJournalUsage(answer.sale);
+      this.completeSuccessfulSale(row.id, answer.sale);
       this.deps.logger.info("checkout.resolved", {
         draftId: row.id,
         saleId: answer.sale.id,
@@ -586,13 +582,22 @@ export class CheckoutService {
     }));
   }
 
-  private recordOnlineJournalUsage(sale: RawSale): void {
+  /** Marks the draft completed and records journal batch usage in one transaction (idempotent per sale id). */
+  private completeSuccessfulSale(draftId: string, sale: RawSale): void {
     const device = this.deps.terminal.current();
-    if (!device || !this.deps.offlineJournal) return;
-    this.deps.offlineJournal.recordOnlineSaleBatchUsage(
-      device.identity.enrollmentId,
-      sale.items.flatMap((i) => (i.batch?.id ? [{ batchId: i.batch.id, qty: i.qty }] : [])),
-    );
+    const at = this.now().toISOString();
+    const lines = sale.items.flatMap((i) => (i.batch?.id ? [{ batchId: i.batch.id, qty: i.qty }] : []));
+    this.deps.db.transaction(() => {
+      this.mark(draftId, "completed", { saleId: sale.id, invoiceNo: sale.invoiceNo }, at);
+      if (device?.identity.enrollmentId && this.deps.offlineJournal) {
+        this.deps.offlineJournal.recordOnlineSaleLinesIfNew(
+          sale.id,
+          device.identity.enrollmentId,
+          lines,
+          at,
+        );
+      }
+    }).immediate();
   }
 
   private row(id: string): DraftRow | undefined {
@@ -605,6 +610,7 @@ export class CheckoutService {
     id: string,
     status: DraftRow["status"],
     fields: { saleId?: string; invoiceNo?: string; errorCode?: string },
+    updatedAt?: string,
   ) {
     this.deps.db
       .prepare(
@@ -615,7 +621,7 @@ export class CheckoutService {
         fields.saleId ?? null,
         fields.invoiceNo ?? null,
         fields.errorCode ?? null,
-        this.now().toISOString(),
+        updatedAt ?? this.now().toISOString(),
         id,
       );
   }
@@ -645,11 +651,7 @@ export class CheckoutService {
           },
         },
       );
-      this.mark(id, "completed", {
-        saleId: sale.id,
-        invoiceNo: sale.invoiceNo,
-      });
-      this.recordOnlineJournalUsage(sale);
+      this.completeSuccessfulSale(id, sale);
       this.deps.logger.info("checkout.completed", {
         draftId: id,
         saleId: sale.id,

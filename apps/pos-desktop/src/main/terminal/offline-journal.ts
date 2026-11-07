@@ -14,6 +14,7 @@ export const OFFLINE_USAGE_TABLES: readonly string[] = [
   "offline_journal_staff_sign_in",
   "offline_journal_command",
   "offline_journal_batch_usage",
+  "offline_journal_online_sale_record",
 ];
 
 /** Tables whose names say "offline" but record no offline use: authority itself. */

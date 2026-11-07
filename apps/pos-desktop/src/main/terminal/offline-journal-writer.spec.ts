@@ -16,6 +16,7 @@ import type { SecretProtector } from "../db/key-store";
 import { migrations } from "../db/migrations";
 import { DeviceKey } from "../device/device-key";
 import { openLocalStore, type LocalStore } from "../local-store";
+import type { PosDatabase } from "../db/database";
 import { installOfflineAuthority, type OfflineAuthority } from "./offline-authority";
 import { journalCommandHash, OfflineJournalWriter } from "./offline-journal-writer";
 
@@ -117,6 +118,7 @@ function authorityPair(snapshotGeneratedAt: number): OfflineAuthority {
 function buildOrdinarySale(
   installed: OfflineAuthority,
   input: {
+    commandId?: string;
     sequence: number;
     previousCommandHash: string | null;
     staffSignInId: string;
@@ -135,7 +137,7 @@ function buildOrdinarySale(
   const totalMinor = input.totalMinor ?? lineNet + lineTax;
   return {
     contractVersion: 1,
-    commandId: randomUUID(),
+    commandId: input.commandId ?? randomUUID(),
     identity,
     session: staffSession,
     staffSignInId: input.staffSignInId,
@@ -160,6 +162,31 @@ function buildOrdinarySale(
   };
 }
 
+function seedDeviceIdentity(db: PosDatabase): void {
+  db.prepare(
+    `INSERT INTO device_identity (
+      id, status, api_base_url, tenant_id, branch_id, branch_name, terminal_id,
+      enrollment_id, key_id, register_id, till_id, counter_label, label,
+      public_key_hex, private_key_pkcs8, enrolled_by_user_id, created_at, branch_code
+    ) VALUES (
+      1, 'active', 'http://127.0.0.1:3000', ?, ?, '', ?, ?, ?, ?, ?, '', '',
+      ?, ?, ?, ?, ''
+    )`,
+  ).run(
+    identity.tenantId,
+    identity.branchId,
+    identity.terminalId,
+    identity.enrollmentId,
+    identity.keyId,
+    counter.registerId,
+    counter.tillId,
+    deviceKey.publicKeyHex,
+    deviceKey.exportPkcs8(),
+    randomUUID(),
+    new Date(NOW).toISOString(),
+  );
+}
+
 let dir: string;
 let local: LocalStore;
 let writer: OfflineJournalWriter;
@@ -168,6 +195,7 @@ let installed: OfflineAuthority;
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "pos-offline-journal-writer-"));
   local = openLocalStore(dir, protector, migrations);
+  seedDeviceIdentity(local.db);
   writer = new OfflineJournalWriter({ db: local.db, now: () => new Date(NOW) });
   installed = authorityPair(NOW - 60_000);
   installOfflineAuthority(local.db, installed, { identity, ...counter, signer, trustedNow: NOW });
@@ -195,12 +223,13 @@ describe("OfflineJournalWriter", () => {
     expect(JSON.parse(row.envelope_json).payload.kind).toBe("offline_staff_sign_in");
   });
 
-  it("accumulates online batch usage for snapshot watermark math", () => {
+  it("accumulates online batch usage idempotently per sale id", () => {
     const batchId = installed.snapshot.payload.lines[0]!.batchId;
-    writer.recordOnlineSaleBatchUsage(identity.enrollmentId, [
-      { batchId, qty: 3 },
-      { batchId, qty: 2 },
-    ]);
+    const saleId = randomUUID();
+    const at = new Date(NOW).toISOString();
+    writer.recordOnlineSaleLinesIfNew(saleId, identity.enrollmentId, [{ batchId, qty: 3 }], at);
+    writer.recordOnlineSaleLinesIfNew(saleId, identity.enrollmentId, [{ batchId, qty: 99 }], at);
+    writer.recordOnlineSaleLinesIfNew(randomUUID(), identity.enrollmentId, [{ batchId, qty: 2 }], at);
     expect(writer.getBatchUsageQuantities(identity.enrollmentId)[batchId]).toBe(5);
   });
 
@@ -330,7 +359,12 @@ describe("OfflineJournalWriter", () => {
     })!;
     const { offlineSessionId, offlineStartedAt } = writer.ensureOfflineOutageSession(identity.enrollmentId, NOW + 30_000);
     const snapLine = installed.snapshot.payload.lines[0]!;
-    writer.recordOnlineSaleBatchUsage(identity.enrollmentId, [{ batchId: snapLine.batchId, qty: snapLine.availableQuantity }]);
+    writer.recordOnlineSaleLinesIfNew(
+      randomUUID(),
+      identity.enrollmentId,
+      [{ batchId: snapLine.batchId, qty: snapLine.availableQuantity }],
+      new Date(NOW).toISOString(),
+    );
     const qty = 1;
     const net = qty * snapLine.unitPriceMinor;
     const tax = Number((BigInt(net) * BigInt(snapLine.taxBasisPoints) + 5000n) / 10000n);
@@ -368,5 +402,171 @@ describe("OfflineJournalWriter", () => {
       },
     });
     expect(err).toBe("LOCAL_STOCK_EXHAUSTED");
+  });
+
+  it("accepts outage at exactly maxSnapshotAgeAtOutageMs after snapshot generation", () => {
+    const snapshotAt = installed.snapshot.payload.generatedAt;
+    const atBoundary = snapshotAt + MAX_SNAPSHOT_AGE_AT_OUTAGE_MS;
+    expect(() => writer.ensureOfflineOutageSession(identity.enrollmentId, atBoundary)).not.toThrow();
+  });
+
+  it("refuses staff sign-in when grant is expired", () => {
+    const expiredWriter = new OfflineJournalWriter({ db: local.db, now: () => new Date(NOW + 86_400_000 * 400) });
+    expect(
+      expiredWriter.recordStaffSignInFromPin({
+        enrollmentId: identity.enrollmentId,
+        identity,
+        registerId: counter.registerId,
+        tillId: counter.tillId,
+        session: { workSessionId: staffSession.workSessionId, staffUserId: staffSession.staffUserId },
+        key: deviceKey,
+      }),
+    ).toBeNull();
+  });
+
+  it("refuses staff sign-in when staff is not on the grant", () => {
+    expect(
+      writer.recordStaffSignInFromPin({
+        enrollmentId: identity.enrollmentId,
+        identity,
+        registerId: counter.registerId,
+        tillId: counter.tillId,
+        session: { workSessionId: staffSession.workSessionId, staffUserId: randomUUID() },
+        key: deviceKey,
+      }),
+    ).toBeNull();
+  });
+
+  it("offline ordinary_sale append increases snapshot-scoped batch usage", () => {
+    const signIn = writer.recordStaffSignInFromPin({
+      enrollmentId: identity.enrollmentId,
+      identity,
+      registerId: counter.registerId,
+      tillId: counter.tillId,
+      session: { workSessionId: staffSession.workSessionId, staffUserId: staffSession.staffUserId },
+      key: deviceKey,
+    })!;
+    const { offlineSessionId, offlineStartedAt } = writer.ensureOfflineOutageSession(identity.enrollmentId, NOW + 30_000);
+    const snapLine = installed.snapshot.payload.lines[0]!;
+    const sale = buildOrdinarySale(installed, {
+      sequence: 1,
+      previousCommandHash: null,
+      staffSignInId: signIn.payload.staffSignInId,
+      offlineSessionId,
+      offlineStartedAt,
+      lines: [
+        {
+          snapshotLineId: snapLine.snapshotLineId,
+          quantity: 4,
+          unitPriceMinor: snapLine.unitPriceMinor,
+          discountMinor: 0,
+          taxMinor: 0,
+        },
+      ],
+    });
+    writer.appendSignedCommand(deviceKey.sign(sale, "command"));
+    expect(writer.getBatchUsageQuantities(identity.enrollmentId)[snapLine.batchId]).toBe(4);
+  });
+
+  it("rejects SEQUENCE_GAP, REPLAY_CONFLICT, and duplicate commandId rules", () => {
+    const signIn = writer.recordStaffSignInFromPin({
+      enrollmentId: identity.enrollmentId,
+      identity,
+      registerId: counter.registerId,
+      tillId: counter.tillId,
+      session: { workSessionId: staffSession.workSessionId, staffUserId: staffSession.staffUserId },
+      key: deviceKey,
+    })!;
+    const { offlineSessionId, offlineStartedAt } = writer.ensureOfflineOutageSession(identity.enrollmentId, NOW + 30_000);
+    const snapLine = installed.snapshot.payload.lines[0]!;
+    const base = buildOrdinarySale(installed, {
+      sequence: 2,
+      previousCommandHash: null,
+      staffSignInId: signIn.payload.staffSignInId,
+      offlineSessionId,
+      offlineStartedAt,
+      lines: [
+        {
+          snapshotLineId: snapLine.snapshotLineId,
+          quantity: 1,
+          unitPriceMinor: snapLine.unitPriceMinor,
+          discountMinor: 0,
+          taxMinor: 0,
+        },
+      ],
+    });
+    expect(() => writer.appendSignedCommand(deviceKey.sign(base, "command"))).toThrow("SEQUENCE_GAP");
+
+    const sale1 = buildOrdinarySale(installed, {
+      sequence: 1,
+      previousCommandHash: "0".repeat(64),
+      staffSignInId: signIn.payload.staffSignInId,
+      offlineSessionId,
+      offlineStartedAt,
+      lines: [
+        {
+          snapshotLineId: snapLine.snapshotLineId,
+          quantity: 1,
+          unitPriceMinor: snapLine.unitPriceMinor,
+          discountMinor: 0,
+          taxMinor: 0,
+        },
+      ],
+    });
+    expect(() => writer.appendSignedCommand(deviceKey.sign(sale1, "command"))).toThrow("REPLAY_CONFLICT");
+
+    const sale2 = buildOrdinarySale(installed, {
+      sequence: 1,
+      previousCommandHash: null,
+      staffSignInId: signIn.payload.staffSignInId,
+      offlineSessionId,
+      offlineStartedAt,
+      lines: [
+        {
+          snapshotLineId: snapLine.snapshotLineId,
+          quantity: 1,
+          unitPriceMinor: snapLine.unitPriceMinor,
+          discountMinor: 0,
+          taxMinor: 0,
+        },
+      ],
+    });
+    const env = deviceKey.sign(sale2, "command");
+    writer.appendSignedCommand(env);
+    writer.appendSignedCommand(env);
+    const tampered = { ...env, signature: env.signature.slice(0, -2) + "xx" };
+    expect(() => writer.appendSignedCommand(tampered as typeof env)).toThrow("INVALID_SIGNATURE");
+
+    const wrongIdentitySale = {
+      ...buildOrdinarySale(installed, {
+        sequence: 2,
+        previousCommandHash: journalCommandHash(sale2),
+        staffSignInId: signIn.payload.staffSignInId,
+        offlineSessionId,
+        offlineStartedAt,
+        lines: sale2.lines,
+      }),
+      identity: { ...identity, enrollmentId: randomUUID() },
+    };
+    expect(() => writer.appendSignedCommand(deviceKey.sign(wrongIdentitySale, "command"))).toThrow("IDENTITY_MISMATCH");
+
+    const replayId = buildOrdinarySale(installed, {
+      commandId: sale2.commandId,
+      sequence: 2,
+      previousCommandHash: journalCommandHash(sale2),
+      staffSignInId: signIn.payload.staffSignInId,
+      offlineSessionId,
+      offlineStartedAt,
+      lines: [
+        {
+          snapshotLineId: snapLine.snapshotLineId,
+          quantity: 2,
+          unitPriceMinor: snapLine.unitPriceMinor,
+          discountMinor: 0,
+          taxMinor: 0,
+        },
+      ],
+    });
+    expect(() => writer.appendSignedCommand(deviceKey.sign(replayId, "command"))).toThrow("REPLAY_CONFLICT");
   });
 });
