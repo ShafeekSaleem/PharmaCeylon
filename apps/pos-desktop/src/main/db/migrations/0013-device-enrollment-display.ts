@@ -1,6 +1,6 @@
 import type { Migration } from "../migrator";
 
-/** Snapshot branch code and enroller display name at/after enrollment for This counter metadata (PR #136). */
+/** Snapshot branch code and enroller display name at/after enrollment for This counter metadata. */
 export const deviceEnrollmentDisplay: Migration = {
   version: 13,
   name: "device-enrollment-display",

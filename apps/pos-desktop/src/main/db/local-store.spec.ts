@@ -203,4 +203,72 @@ describe("openLocalStore", () => {
     );
     expect(existsSync(store.databasePath)).toBe(true);
   });
+
+  it("migration 13 adds enrollment display columns on an existing device row", () => {
+    const through12 = migrations.slice(0, 12);
+    const store = openLocalStore(dir, fakeProtector, through12);
+    const pub = "a".repeat(64);
+    const now = new Date().toISOString();
+    const ids = {
+      tenant: "00000000-0000-4000-8000-0000000000aa",
+      branch: "00000000-0000-4000-8000-0000000000bb",
+      terminal: "00000000-0000-4000-8000-0000000000cc",
+      enrollment: "00000000-0000-4000-8000-0000000000dd",
+      register: "00000000-0000-4000-8000-0000000000ee",
+      till: "00000000-0000-4000-8000-0000000000ff",
+      enroller: "00000000-0000-4000-8000-000000000011",
+    };
+    store.db
+      .prepare(
+        `INSERT INTO device_identity (
+          id, status, api_base_url, tenant_id, branch_id, branch_name,
+          terminal_id, enrollment_id, key_id, register_id, till_id,
+          counter_label, label, public_key_hex, private_key_pkcs8,
+          enrolled_by_user_id, created_at, enrolled_at
+        ) VALUES (
+          1, 'active', 'https://pos.example.test/api/v1', ?, ?, 'Main',
+          ?, ?, 'key-1', ?, ?,
+          'Counter 1', 'Back counter PC', ?, X'01', ?, ?, ?
+        )`,
+      )
+      .run(
+        ids.tenant,
+        ids.branch,
+        ids.terminal,
+        ids.enrollment,
+        ids.register,
+        ids.till,
+        pub,
+        ids.enroller,
+        now,
+        now,
+      );
+    store.db.close();
+
+    const through13 = openLocalStore(dir, fakeProtector, migrations.slice(0, 13));
+    expect(through13.schemaVersion).toBe(13);
+    const cols = through13.db
+      .prepare("PRAGMA table_info(device_identity)")
+      .all() as { name: string }[];
+    expect(cols.map((c) => c.name)).toEqual(
+      expect.arrayContaining(["branch_code", "enrolled_by_name"]),
+    );
+    expect(
+      through13.db
+        .prepare("SELECT branch_code, enrolled_by_name FROM device_identity WHERE id = 1")
+        .get(),
+    ).toEqual({ branch_code: "", enrolled_by_name: null });
+    through13.db.close();
+
+    const through14 = openLocalStore(dir, fakeProtector, migrations);
+    expect(through14.schemaVersion).toBe(14);
+    expect(
+      through14.db
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'offline_journal_state'",
+        )
+        .get(),
+    ).toBeDefined();
+    through14.db.close();
+  });
 });

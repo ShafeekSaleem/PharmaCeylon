@@ -9,12 +9,16 @@ export type DeviceIdentity = {
   apiBaseUrl: string;
   identity: TerminalIdentity;
   branchName: string;
+  /** Branch short code from tenant context when enrolled (for display on This counter). */
+  branchCode: string;
   registerId: string;
   tillId: string;
   counterLabel: string;
   label: string;
   publicKeyHex: string;
   enrolledByUserId: string;
+  /** Enroller display name when known (same as `enrolledByUserId` at finish). */
+  enrolledByName: string | null;
   createdAt: string;
   enrolledAt: string | null;
   statusCheckedAt: string | null;
@@ -26,6 +30,7 @@ type Row = {
   tenant_id: string;
   branch_id: string;
   branch_name: string;
+  branch_code: string;
   terminal_id: string;
   enrollment_id: string;
   key_id: string;
@@ -36,6 +41,7 @@ type Row = {
   public_key_hex: string;
   private_key_pkcs8: Buffer;
   enrolled_by_user_id: string;
+  enrolled_by_name: string | null;
   created_at: string;
   enrolled_at: string | null;
   status_checked_at: string | null;
@@ -52,12 +58,14 @@ const toIdentity = (row: Row): DeviceIdentity => ({
     keyId: row.key_id,
   },
   branchName: row.branch_name,
+  branchCode: row.branch_code,
   registerId: row.register_id,
   tillId: row.till_id,
   counterLabel: row.counter_label,
   label: row.label,
   publicKeyHex: row.public_key_hex,
   enrolledByUserId: row.enrolled_by_user_id,
+  enrolledByName: row.enrolled_by_name,
   createdAt: row.created_at,
   enrolledAt: row.enrolled_at,
   statusCheckedAt: row.status_checked_at,
@@ -94,12 +102,14 @@ export class DeviceStore {
     apiBaseUrl: string;
     identity: TerminalIdentity;
     branchName: string;
+    branchCode: string;
     registerId: string;
     tillId: string;
     counterLabel: string;
     label: string;
     key: DeviceKey;
     enrolledByUserId: string;
+    enrolledByName: string;
     now: Date;
   }): void {
     if (input.key.keyId !== input.identity.keyId)
@@ -116,16 +126,17 @@ export class DeviceStore {
         this.db.prepare("DELETE FROM device_identity WHERE id = 1").run();
         this.db
           .prepare(
-            `INSERT INTO device_identity (id, status, api_base_url, tenant_id, branch_id, branch_name, terminal_id,
+            `INSERT INTO device_identity (id, status, api_base_url, tenant_id, branch_id, branch_name, branch_code, terminal_id,
              enrollment_id, key_id, register_id, till_id, counter_label, label, public_key_hex, private_key_pkcs8,
-             enrolled_by_user_id, created_at)
-           VALUES (1, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             enrolled_by_user_id, enrolled_by_name, created_at)
+           VALUES (1, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           )
           .run(
             input.apiBaseUrl,
             input.identity.tenantId,
             input.identity.branchId,
             input.branchName,
+            input.branchCode,
             input.identity.terminalId,
             input.identity.enrollmentId,
             input.identity.keyId,
@@ -136,6 +147,7 @@ export class DeviceStore {
             input.key.publicKeyHex,
             input.key.exportPkcs8(),
             input.enrolledByUserId,
+            input.enrolledByName,
             input.now.toISOString(),
           );
       })
@@ -181,6 +193,22 @@ export class DeviceStore {
         input.enrollmentId,
         input.now.toISOString(),
       );
+  }
+
+  /** Fills branch code and enroller name on older rows when the app learns them (online refresh). */
+  patchEnrollmentDisplay(input: { branchCode?: string; enrolledByName?: string | null }): void {
+    const sets: string[] = [];
+    const values: unknown[] = [];
+    if (input.branchCode !== undefined && input.branchCode !== "") {
+      sets.push("branch_code = ?");
+      values.push(input.branchCode);
+    }
+    if (input.enrolledByName !== undefined) {
+      sets.push("enrolled_by_name = ?");
+      values.push(input.enrolledByName);
+    }
+    if (!sets.length) return;
+    this.db.prepare(`UPDATE device_identity SET ${sets.join(", ")} WHERE id = 1`).run(...values);
   }
 
   recordSessionClosed(workSessionId: string, reason: string, now: Date): void {
