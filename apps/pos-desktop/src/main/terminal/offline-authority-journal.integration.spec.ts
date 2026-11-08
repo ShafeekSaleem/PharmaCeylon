@@ -15,6 +15,7 @@ import { migrations } from "../db/migrations";
 import { DeviceKey } from "../device/device-key";
 import { openLocalStore, type LocalStore } from "../local-store";
 import { installOfflineAuthority, type OfflineAuthority } from "./offline-authority";
+import { hasLocalOfflineUsage } from "./offline-journal";
 import { OfflineJournalWriter } from "./offline-journal-writer";
 
 const protector: SecretProtector = {
@@ -27,6 +28,7 @@ const signer = { keyId: "offline-authority", publicKey: server.publicKey };
 const deviceKey = DeviceKey.generate();
 const NOW = Date.UTC(2026, 10, 4, 10, 0);
 const counter = { registerId: randomUUID(), tillId: randomUUID() };
+const staffUserId = randomUUID();
 const identity = {
   tenantId: randomUUID(),
   branchId: randomUUID(),
@@ -76,7 +78,7 @@ function authority(version: number, snapshotGeneratedAt: number): OfflineAuthori
     ...counter,
     authorizedStaff: [
       {
-        staffUserId: randomUUID(),
+        staffUserId,
         staffAuthorizationId: randomUUID(),
         credentialVersion: 1,
         signInMethod: "personal_pin",
@@ -139,11 +141,46 @@ afterEach(() => {
 });
 
 describe("offline authority install with journal consumption", () => {
+  const expected = { identity, ...counter, signer, trustedNow: NOW };
+
+  it("renews with the default usage guard after online sale watermarks only", () => {
+    const first = authority(1, NOW - 60_000);
+    installOfflineAuthority(local.db, first, expected);
+    const batchV1 = first.snapshot.payload.lines[0]!.batchId;
+    writer.recordOnlineSaleLinesIfNew(
+      randomUUID(),
+      identity.enrollmentId,
+      [{ batchId: batchV1, qty: 11 }],
+      new Date(NOW).toISOString(),
+    );
+    expect(hasLocalOfflineUsage(local.db, identity.enrollmentId)).toBe(false);
+
+    const second = authority(2, NOW - 50_000);
+    expect(installOfflineAuthority(local.db, second, expected)).toBe("installed");
+    expect(writer.getBatchUsageQuantities(identity.enrollmentId)).toEqual({});
+  });
+
+  it("renews with the default guard after online PIN staff sign-in bookkeeping", () => {
+    const first = authority(1, NOW - 60_000);
+    installOfflineAuthority(local.db, first, expected);
+    writer.recordStaffSignInFromPin({
+      enrollmentId: identity.enrollmentId,
+      identity,
+      registerId: counter.registerId,
+      tillId: counter.tillId,
+      session: { workSessionId: randomUUID(), staffUserId },
+      key: deviceKey,
+      confirmedPinVersion: 1,
+    });
+    expect(hasLocalOfflineUsage(local.db, identity.enrollmentId)).toBe(false);
+
+    const second = authority(2, NOW - 50_000);
+    expect(installOfflineAuthority(local.db, second, expected)).toBe("installed");
+  });
+
   it("clears prior snapshot-scoped usage when a newer authority pair installs", () => {
     const first = authority(1, NOW - 60_000);
-    expect(installOfflineAuthority(local.db, first, { identity, ...counter, signer, trustedNow: NOW })).toBe(
-      "installed",
-    );
+    expect(installOfflineAuthority(local.db, first, expected)).toBe("installed");
     const batchV1 = first.snapshot.payload.lines[0]!.batchId;
     const snapshotV1 = first.snapshot.payload.snapshotId;
     writer.recordOnlineSaleLinesIfNew(
@@ -155,9 +192,7 @@ describe("offline authority install with journal consumption", () => {
     expect(writer.getBatchUsageQuantities(identity.enrollmentId)[batchV1]).toBe(11);
 
     const second = authority(2, NOW - 50_000);
-    expect(
-      installOfflineAuthority(local.db, second, { identity, ...counter, signer, trustedNow: NOW }, () => false),
-    ).toBe("installed");
+    expect(installOfflineAuthority(local.db, second, expected)).toBe("installed");
     expect(writer.getBatchUsageQuantities(identity.enrollmentId)).toEqual({});
 
     const batchV2 = second.snapshot.payload.lines[0]!.batchId;
@@ -179,7 +214,7 @@ describe("offline authority install with journal consumption", () => {
 
   it("reads batch usage only for the currently installed snapshot after renewal", () => {
     const first = authority(1, NOW - 120_000);
-    installOfflineAuthority(local.db, first, { identity, ...counter, signer, trustedNow: NOW - 110_000 });
+    installOfflineAuthority(local.db, first, { ...expected, trustedNow: NOW - 110_000 });
     const batchShared = first.snapshot.payload.lines[0]!.batchId;
     writer.recordOnlineSaleLinesIfNew(
       randomUUID(),
@@ -189,7 +224,7 @@ describe("offline authority install with journal consumption", () => {
     );
 
     const second = authority(2, NOW - 30_000);
-    installOfflineAuthority(local.db, second, { identity, ...counter, signer, trustedNow: NOW }, () => false);
+    installOfflineAuthority(local.db, second, expected);
     const batchOnV2 = second.snapshot.payload.lines[0]!.batchId;
     expect(batchOnV2).not.toBe(batchShared);
     writer.recordOnlineSaleLinesIfNew(
@@ -199,5 +234,30 @@ describe("offline authority install with journal consumption", () => {
       new Date(NOW).toISOString(),
     );
     expect(writer.getBatchUsageQuantities(identity.enrollmentId)).toEqual({ [batchOnV2]: 2 });
+  });
+
+  it("blocks renewal under the default guard when an offline journal command exists", () => {
+    const first = authority(1, NOW - 60_000);
+    installOfflineAuthority(local.db, first, expected);
+    local.db
+      .prepare(
+        `INSERT INTO offline_journal_command (
+          command_id, enrollment_id, sequence, previous_hash, payload_hash,
+          envelope_json, sync_status, created_at
+        ) VALUES (?, ?, 1, NULL, ?, '{}', 'pending', ?)`,
+      )
+      .run(randomUUID(), identity.enrollmentId, "a".repeat(64), new Date(NOW).toISOString());
+    expect(hasLocalOfflineUsage(local.db, identity.enrollmentId)).toBe(true);
+
+    const second = authority(2, NOW - 50_000);
+    expect(installOfflineAuthority(local.db, second, expected)).toBe("local_usage");
+  });
+
+  it("blocks renewal while an offline outage session is active", () => {
+    const first = authority(1, NOW - 60_000);
+    installOfflineAuthority(local.db, first, expected);
+    writer.ensureOfflineOutageSession(identity.enrollmentId, NOW + 30_000);
+    expect(hasLocalOfflineUsage(local.db, identity.enrollmentId)).toBe(true);
+    expect(installOfflineAuthority(local.db, authority(2, NOW - 50_000), expected)).toBe("local_usage");
   });
 });

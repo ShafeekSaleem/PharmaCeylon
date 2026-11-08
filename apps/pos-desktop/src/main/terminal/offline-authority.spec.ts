@@ -182,6 +182,37 @@ describe("the local offline journal check", () => {
     expect(hasLocalOfflineUsage(local.db, identity.enrollmentId, ["offline_sale_test"])).toBe(true);
     expect(() => hasLocalOfflineUsage(local.db, identity.enrollmentId, ["x; DROP TABLE y"])).toThrow();
   });
+
+  it("ignores online-only journal bookkeeping when deciding if renewal is blocked", () => {
+    installOfflineAuthority(local.db, authority(), expected());
+    const at = new Date(NOW).toISOString();
+    local.db
+      .prepare(
+        `INSERT INTO offline_journal_online_sale_record (enrollment_id, sale_id, created_at) VALUES (?, ?, ?)`,
+      )
+      .run(identity.enrollmentId, randomUUID(), at);
+    local.db
+      .prepare(
+        `INSERT INTO offline_journal_batch_usage
+          (enrollment_id, snapshot_id, snapshot_version, batch_id, qty_sold)
+         VALUES (?, ?, 1, ?, 3)`,
+      )
+      .run(identity.enrollmentId, randomUUID(), randomUUID());
+    expect(hasLocalOfflineUsage(local.db, identity.enrollmentId)).toBe(false);
+  });
+
+  it("blocks renewal when a journal command row exists for this enrollment", () => {
+    installOfflineAuthority(local.db, authority(), expected());
+    local.db
+      .prepare(
+        `INSERT INTO offline_journal_command (
+          command_id, enrollment_id, sequence, previous_hash, payload_hash,
+          envelope_json, sync_status, created_at
+        ) VALUES (?, ?, 1, NULL, ?, '{}', 'pending', ?)`,
+      )
+      .run(randomUUID(), identity.enrollmentId, "b".repeat(64), new Date(NOW).toISOString());
+    expect(hasLocalOfflineUsage(local.db, identity.enrollmentId)).toBe(true);
+  });
 });
 
 describe("refreshing in the background", () => {
