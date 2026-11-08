@@ -12,6 +12,7 @@ import { offlineAuthority } from "./0010-offline-authority";
 import { checkoutDiscountCoSigner } from "./0011-checkout-discount-co-signer";
 import { tillShifts } from "./0012-till-shifts";
 import { deviceEnrollmentDisplay } from "./0013-device-enrollment-display";
+import { offlineJournal } from "./0014-offline-journal";
 
 /** Append only. A released migration is never edited or reordered. */
 export const migrations: readonly Migration[] = [
@@ -28,4 +29,5 @@ export const migrations: readonly Migration[] = [
   checkoutDiscountCoSigner,
   tillShifts,
   deviceEnrollmentDisplay,
+  offlineJournal,
 ];

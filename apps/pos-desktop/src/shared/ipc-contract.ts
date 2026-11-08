@@ -280,7 +280,16 @@ export const completedSaleSchema = z.object({
   /** Who approved a discount over the limit, when one did. */
   discountApproverName: z.string().nullable(),
   lines: z.array(
-    z.object({ name: z.string(), qty: z.number().int(), unitPrice: z.string(), discountAmount: z.string(), lineTotal: z.string() }),
+    z.object({
+      name: z.string(),
+      qty: z.number().int(),
+      unitPrice: z.string(),
+      discountAmount: z.string(),
+      lineTotal: z.string(),
+      /** Filled by checkout for local offline consumption (P4); omitted in older responses. */
+      productId: uuid.optional(),
+      batchId: uuid.optional(),
+    }),
   ),
   payments: z.array(z.object({ method: z.string(), amount: z.string(), reference: z.string().nullable() })),
 });

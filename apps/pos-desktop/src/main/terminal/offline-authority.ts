@@ -12,6 +12,7 @@ import {
 
 import type { PosDatabase } from "../db/database";
 import { hasLocalOfflineUsage } from "./offline-journal";
+import { resetJournalUsageForEnrollment } from "./offline-journal-writer";
 
 export type OfflineAuthority = {
   grant: Signed<OfflineGrant>;
@@ -96,9 +97,8 @@ export function readInstalledOfflineAuthority(
 /**
  * The rebasing installer. Verifies the pair, then, in one immediate transaction, stores it as
  * this counter's only installed pair. A newer version replaces the installed one only while
- * nothing has used offline authority here (`hasLocalOfflineUsage`): once P4 has journalled a
- * sale or shift against the installed pair, that pair is the journal's baseline and stays until
- * P5 reconciles. A pair the server rebased over an accepted journal is P5's to install too.
+ * nothing has unreconciled offline journal evidence here (`hasLocalOfflineUsage`): appended
+ * offline commands and an active outage block renewal; online sale watermarks and sign-in rows do not. A pair the server rebased over an accepted journal is P5's to install too.
  *
  * Earlier pairs are not kept on the counter: one that was replaced was never used here (that is
  * the condition for replacing it), and the server keeps every issued version as immutable
@@ -138,6 +138,7 @@ export function installOfflineAuthority(
         VALUES (?, ?, ?, ?)
       `).run(...values);
     }
+    resetJournalUsageForEnrollment(db, enrollmentId);
     return "installed";
   });
   return install.immediate();
