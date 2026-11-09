@@ -70,14 +70,28 @@ export type TerminalPinSignInResult = Readonly<{
   session: WorkSessionIdentity;
 }>;
 
+/** Offline nomination / assignment facts for the enrolled counter (epoch ms; null when N/A). */
+export type TerminalEnrollmentOfflineBackup = Readonly<{
+  authorizedAt: number | null;
+  authorizedByUserId: string | null;
+  authorizedByFullName: string | null;
+  activatedAt: number | null;
+  activatedByUserId: string | null;
+  activatedByFullName: string | null;
+}>;
+
 /** GET `/terminals/enrollments/:enrollmentId`. */
 export type TerminalEnrollmentStatusView = Readonly<{
   enrollmentId: string;
   terminalId: string;
   registerId: string | null;
   tillId: string | null;
+  /** Device label on `OperationalTerminal` (unchanged). */
   label: string;
+  /** Human till name from `TerminalCounter.label` (same meaning as enrollment-code `counterLabel`). */
+  counterLabel: string | null;
   status: "active" | "revoked" | "retired";
+  offlineBackup: TerminalEnrollmentOfflineBackup;
 }>;
 
 /** D-W5: GET `/terminals/sessions/:workSessionId/credential` (and the PIN set/prepare results).

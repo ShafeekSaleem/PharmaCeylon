@@ -258,7 +258,16 @@ class FakeServer {
         registerId,
         tillId,
         label: "PC",
+        counterLabel: "Counter 1",
         status: this.enrollmentStatus,
+        offlineBackup: {
+          authorizedAt: null,
+          authorizedByUserId: null,
+          authorizedByFullName: null,
+          activatedAt: null,
+          activatedByUserId: null,
+          activatedByFullName: null,
+        },
       };
     if (path === "/terminals/sessions/challenge") {
       this.challenge = {
