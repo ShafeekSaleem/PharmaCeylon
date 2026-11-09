@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from "@jest/globals";
 import { act, cleanup, screen } from "@testing-library/react";
 import {
   deviceState,
+  emptyEnrollmentOfflineBackup,
   ids,
   press,
   renderWithKeys,
@@ -27,6 +28,7 @@ const state = deviceState({
     enrolledAt: null,
     enrolledByUserId: ids.ana,
     enrolledByName: "Branch enroller",
+    offlineBackup: emptyEnrollmentOfflineBackup,
   },
   counterStaff: [
     {

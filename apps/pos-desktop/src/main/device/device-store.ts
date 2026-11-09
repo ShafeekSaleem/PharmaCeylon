@@ -196,7 +196,11 @@ export class DeviceStore {
   }
 
   /** Fills branch code and enroller name on older rows when the app learns them (online refresh). */
-  patchEnrollmentDisplay(input: { branchCode?: string; enrolledByName?: string | null }): void {
+  patchEnrollmentDisplay(input: {
+    branchCode?: string;
+    enrolledByName?: string | null;
+    counterLabel?: string;
+  }): void {
     const sets: string[] = [];
     const values: unknown[] = [];
     if (input.branchCode !== undefined && input.branchCode !== "") {
@@ -206,6 +210,10 @@ export class DeviceStore {
     if (input.enrolledByName !== undefined) {
       sets.push("enrolled_by_name = ?");
       values.push(input.enrolledByName);
+    }
+    if (input.counterLabel !== undefined && input.counterLabel !== "") {
+      sets.push("counter_label = ?");
+      values.push(input.counterLabel);
     }
     if (!sets.length) return;
     this.db.prepare(`UPDATE device_identity SET ${sets.join(", ")} WHERE id = 1`).run(...values);

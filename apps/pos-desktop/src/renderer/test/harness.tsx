@@ -1,7 +1,7 @@
 import { jest } from "@jest/globals";
 import { fireEvent, render } from "@testing-library/react";
 import type { ReactElement } from "react";
-import type { DeviceState } from "../../shared/ipc-contract";
+import type { DeviceState, EnrollmentOfflineBackup } from "../../shared/ipc-contract";
 import { KeyMap, KeyMapProvider } from "../src/keymap";
 
 export const ids = {
@@ -14,11 +14,31 @@ export const ids = {
   register2: "00000000-0000-4000-8000-0000000000c2",
 };
 
+export const emptyEnrollmentOfflineBackup: EnrollmentOfflineBackup = {
+  authorizedAt: null,
+  authorizedByUserId: null,
+  authorizedByFullName: null,
+  activatedAt: null,
+  activatedByUserId: null,
+  activatedByFullName: null,
+};
+
 export function deviceState(overrides: Partial<DeviceState> = {}): DeviceState {
+  const { enrollment: enrollmentOverride, ...rest } = overrides;
+  const enrollment =
+    enrollmentOverride === undefined
+      ? null
+      : enrollmentOverride === null
+        ? null
+        : {
+            ...enrollmentOverride,
+            offlineBackup:
+              enrollmentOverride.offlineBackup ?? emptyEnrollmentOfflineBackup,
+          };
   return {
     serverUrl: "https://pharmacy.example/api/v1",
     serverUrlEditable: true,
-    enrollment: null,
+    enrollment,
     operator: null,
     staffSession: null,
     pin: null,
@@ -26,7 +46,7 @@ export function deviceState(overrides: Partial<DeviceState> = {}): DeviceState {
     counterStaff: [],
     branches: [],
     windowsSession: { protocol: "console", remoteSession: false },
-    ...overrides,
+    ...rest,
   };
 }
 
