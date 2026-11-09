@@ -184,6 +184,7 @@ export class TerminalEnrollmentService {
                 tenantId: user.tenantId,
                 branchId,
                 id: nomination.authorizationId,
+                status: "consumed",
               },
               select: { authorizedAt: true, authorizedByUserId: true },
             })

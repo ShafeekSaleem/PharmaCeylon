@@ -63,6 +63,30 @@ describe("buildEnrollmentOfflineBackup", () => {
     });
   });
 
+  it("omits authorization on nomination when the linked row is not consumed", () => {
+    expect(
+      buildEnrollmentOfflineBackup(
+        "e1",
+        {
+          enrollmentId: "e1",
+          authorizationId: "a1",
+          activatedAt: at(2000),
+          activatedByUserId: "u-act",
+        },
+        null,
+        null,
+        fullName,
+      ),
+    ).toEqual({
+      authorizedAt: null,
+      authorizedByUserId: null,
+      authorizedByFullName: null,
+      activatedAt: 2000,
+      activatedByUserId: "u-act",
+      activatedByFullName: "Activator",
+    });
+  });
+
   it("returns null activation when the branch nomination is for another enrollment", () => {
     expect(
       buildEnrollmentOfflineBackup(

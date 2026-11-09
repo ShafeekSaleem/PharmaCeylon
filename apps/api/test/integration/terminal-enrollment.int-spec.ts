@@ -1346,6 +1346,23 @@ describe("go-live evidence from counters", () => {
 });
 
 describe("GET enrollment status for This counter", () => {
+  const resetOfflineAssignment = async () => {
+    await prisma.offlineTerminalNomination.deleteMany({
+      where: { tenantId: fx.tenantId, branchId: fx.mainBranchId },
+    });
+    await prisma.offlineTerminalAssignmentAuthorization.updateMany({
+      where: { tenantId: fx.tenantId, branchId: fx.mainBranchId, status: "authorized" },
+      data: {
+        status: "revoked",
+        revokedAt: new Date(),
+        revokedByUserId: fx.ownerId,
+        revocationReason: "test reset",
+      },
+    });
+  };
+
+  beforeEach(resetOfflineAssignment);
+
   it("exposes counterLabel from TerminalCounter while label stays the device label", async () => {
     const device = terminalDevice();
     const tillHumanLabel = `Till display ${randomUUID().slice(0, 6)}`;
@@ -1445,6 +1462,7 @@ describe("GET enrollment status for This counter", () => {
         authorizedAt: new Date("2019-06-01T00:00:00.000Z"),
         status: "consumed",
         consumedAt: new Date("2019-06-02T00:00:00.000Z"),
+        consumedByUserId: fx.ownerId,
       },
     });
 
@@ -1462,45 +1480,66 @@ describe("GET enrollment status for This counter", () => {
       },
     });
 
-    try {
-      await offlineAssignments.authorize(owner, fx.mainBranchId, {
-        authorizationId: randomUUID(),
-        targetTerminalId: identity.terminalId,
-        targetEnrollmentId: identity.enrollmentId,
-        expectedNominationVersion: 1,
-        reason: "Fixture authorization",
-      });
+    await offlineAssignments.authorize(owner, fx.mainBranchId, {
+      authorizationId: randomUUID(),
+      targetTerminalId: identity.terminalId,
+      targetEnrollmentId: identity.enrollmentId,
+      expectedNominationVersion: 1,
+      reason: "Fixture authorization",
+    });
 
-      const ownerRow = await prisma.appUser.findUniqueOrThrow({ where: { id: fx.ownerId } });
-      const managerRow = await prisma.appUser.findUniqueOrThrow({ where: { id: fx.managerId } });
+    const ownerRow = await prisma.appUser.findUniqueOrThrow({ where: { id: fx.ownerId } });
+    const managerRow = await prisma.appUser.findUniqueOrThrow({ where: { id: fx.managerId } });
 
-      const nominated = await enrollmentService.enrollmentStatus(owner, fx.mainBranchId, other.identity.enrollmentId);
-      expect(nominated.offlineBackup).toEqual({
-        authorizedAt: Date.parse("2019-06-01T00:00:00.000Z"),
-        authorizedByUserId: fx.managerId,
-        authorizedByFullName: managerRow.fullName,
-        activatedAt: Date.parse("2020-01-01T00:00:00.000Z"),
-        activatedByUserId: fx.ownerId,
-        activatedByFullName: ownerRow.fullName,
-      });
+    const assignmentView = await offlineAssignments.view(owner, fx.mainBranchId);
+    expect(assignmentView.nomination).toMatchObject({
+      enrollmentId: other.identity.enrollmentId,
+      activatedByUserId: fx.ownerId,
+      activatedByFullName: ownerRow.fullName,
+    });
 
-      const pending = await enrollmentService.enrollmentStatus(owner, fx.mainBranchId, identity.enrollmentId);
-      expect(pending.offlineBackup).toMatchObject({
-        authorizedByUserId: fx.ownerId,
-        authorizedByFullName: ownerRow.fullName,
-        activatedAt: null,
-        activatedByUserId: null,
-        activatedByFullName: null,
-      });
-      expect(typeof pending.offlineBackup.authorizedAt).toBe("number");
-    } finally {
-      await prisma.offlineTerminalAssignmentAuthorization.deleteMany({
-        where: { tenantId: fx.tenantId, branchId: fx.mainBranchId },
-      });
-      await prisma.offlineTerminalNomination.deleteMany({
-        where: { tenantId: fx.tenantId, branchId: fx.mainBranchId },
-      });
-    }
+    const nominated = await enrollmentService.enrollmentStatus(owner, fx.mainBranchId, other.identity.enrollmentId);
+    expect(nominated.offlineBackup).toEqual({
+      authorizedAt: Date.parse("2019-06-01T00:00:00.000Z"),
+      authorizedByUserId: fx.managerId,
+      authorizedByFullName: managerRow.fullName,
+      activatedAt: Date.parse("2020-01-01T00:00:00.000Z"),
+      activatedByUserId: fx.ownerId,
+      activatedByFullName: ownerRow.fullName,
+    });
+
+    const pending = await enrollmentService.enrollmentStatus(owner, fx.mainBranchId, identity.enrollmentId);
+    expect(pending.offlineBackup).toMatchObject({
+      authorizedByUserId: fx.ownerId,
+      authorizedByFullName: ownerRow.fullName,
+      activatedAt: null,
+      activatedByUserId: null,
+      activatedByFullName: null,
+    });
+    expect(typeof pending.offlineBackup.authorizedAt).toBe("number");
+  });
+
+  it("does not surface a revoked outstanding authorization on enrollment status", async () => {
+    const { identity } = await enroll();
+    const authorizationId = randomUUID();
+    await offlineAssignments.authorize(owner, fx.mainBranchId, {
+      authorizationId,
+      targetTerminalId: identity.terminalId,
+      targetEnrollmentId: identity.enrollmentId,
+      expectedNominationVersion: 0,
+      reason: "Will revoke",
+    });
+    await offlineAssignments.revokeAuthorization(owner, fx.mainBranchId, authorizationId, "No longer needed");
+
+    const status = await enrollmentService.enrollmentStatus(owner, fx.mainBranchId, identity.enrollmentId);
+    expect(status.offlineBackup).toEqual({
+      authorizedAt: null,
+      authorizedByUserId: null,
+      authorizedByFullName: null,
+      activatedAt: null,
+      activatedByUserId: null,
+      activatedByFullName: null,
+    });
   });
 });
 
