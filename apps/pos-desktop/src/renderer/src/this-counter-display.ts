@@ -13,21 +13,6 @@ export function tillDisplayName(
   return counterLabel ?? tillShortLabel(tillId);
 }
 
-export type OfflineBackupNomination =
-  | "not_nominated"
-  | "authorized_not_activated"
-  | "activated";
-
-export function offlineBackupNomination(
-  backup: TerminalEnrollmentOfflineBackup,
-): OfflineBackupNomination {
-  const any = Object.values(backup).some((v) => v != null);
-  if (!any) return "not_nominated";
-  if (backup.activatedAt != null) return "activated";
-  if (backup.authorizedAt != null) return "authorized_not_activated";
-  return "not_nominated";
-}
-
 /** "On the web by … · 13 Oct 2026" — no invented roles when the name is missing. */
 export function formatOfflineAuthorized(
   backup: TerminalEnrollmentOfflineBackup,
@@ -51,12 +36,3 @@ export function formatOfflineActivated(
     return `Here by ${backup.activatedByFullName} · ${when}`;
   return `Here · ${when}`;
 }
-
-export const emptyOfflineBackup: TerminalEnrollmentOfflineBackup = {
-  authorizedAt: null,
-  authorizedByUserId: null,
-  authorizedByFullName: null,
-  activatedAt: null,
-  activatedByUserId: null,
-  activatedByFullName: null,
-};

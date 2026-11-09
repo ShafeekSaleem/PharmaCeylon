@@ -18,11 +18,12 @@ import type {
   WindowsSessionEvidence,
   WorkSessionIdentity,
 } from "@pharmaceylon/shared";
-import type {
-  ActionError,
-  Branch,
-  DeviceState,
-  OfflineCounterView,
+import {
+  emptyEnrollmentOfflineBackup,
+  type ActionError,
+  type Branch,
+  type DeviceState,
+  type OfflineCounterView,
 } from "../../shared/ipc-contract";
 import { ApiError, type ApiSession, type AuthUser } from "../api/api-client";
 import { buildAttestation } from "../attendance/attestation";
@@ -173,14 +174,9 @@ export class TerminalService {
             enrolledAt: device.enrolledAt,
             enrolledByUserId: device.enrolledByUserId,
             enrolledByName: device.enrolledByName,
-            offlineBackup: this.enrollmentFromServer?.offlineBackup ?? {
-              authorizedAt: null,
-              authorizedByUserId: null,
-              authorizedByFullName: null,
-              activatedAt: null,
-              activatedByUserId: null,
-              activatedByFullName: null,
-            },
+            offlineBackup:
+              this.enrollmentFromServer?.offlineBackup ??
+              emptyEnrollmentOfflineBackup,
           }
         : null,
       operator: operator

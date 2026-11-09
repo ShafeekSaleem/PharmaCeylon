@@ -110,7 +110,7 @@ describe("offline backup enrollment facts", () => {
   it("shows authorization only when authorized but not activated", async () => {
     const backup: EnrollmentOfflineBackup = {
       ...emptyEnrollmentOfflineBackup,
-      authorizedAt: Date.UTC(2026, 9, 13),
+      authorizedAt: Date.UTC(2026, 9, 13, 12),
       authorizedByUserId: ids.ana,
       authorizedByFullName: "Dilini Fernando",
     };
@@ -124,10 +124,10 @@ describe("offline backup enrollment facts", () => {
 
   it("shows authorization and activation when activated", async () => {
     const backup: EnrollmentOfflineBackup = {
-      authorizedAt: Date.UTC(2026, 9, 13),
+      authorizedAt: Date.UTC(2026, 9, 13, 12),
       authorizedByUserId: ids.ben,
       authorizedByFullName: "Branch Owner",
-      activatedAt: Date.UTC(2026, 9, 14),
+      activatedAt: Date.UTC(2026, 9, 14, 12),
       activatedByUserId: ids.ana,
       activatedByFullName: "Dilini Fernando",
     };
@@ -143,10 +143,10 @@ describe("offline backup enrollment facts", () => {
 
   it("handles missing authorizer and activator names", async () => {
     const backup: EnrollmentOfflineBackup = {
-      authorizedAt: Date.UTC(2026, 9, 13),
+      authorizedAt: Date.UTC(2026, 9, 13, 12),
       authorizedByUserId: ids.ben,
       authorizedByFullName: null,
-      activatedAt: Date.UTC(2026, 9, 14),
+      activatedAt: Date.UTC(2026, 9, 14, 12),
       activatedByUserId: ids.ana,
       activatedByFullName: null,
     };

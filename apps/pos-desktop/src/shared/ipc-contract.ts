@@ -29,6 +29,15 @@ export const enrollmentOfflineBackupSchema = z.object({
 });
 export type EnrollmentOfflineBackup = z.infer<typeof enrollmentOfflineBackupSchema>;
 
+export const emptyEnrollmentOfflineBackup: EnrollmentOfflineBackup = {
+  authorizedAt: null,
+  authorizedByUserId: null,
+  authorizedByFullName: null,
+  activatedAt: null,
+  activatedByUserId: null,
+  activatedByFullName: null,
+};
+
 /** This counter's installed offline authority, for the This counter page (P3 #49). */
 export const offlineBackupSchema = z.object({
   /** The grant's expiry and the saved stock's time, ISO; null when nothing is installed. */

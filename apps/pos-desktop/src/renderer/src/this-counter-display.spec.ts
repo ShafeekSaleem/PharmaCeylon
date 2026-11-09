@@ -1,10 +1,9 @@
-import { afterAll, beforeAll, describe, expect, it } from "@jest/globals";
+import { describe, expect, it } from "@jest/globals";
 import type { TerminalEnrollmentOfflineBackup } from "@pharmaceylon/shared";
+import { emptyEnrollmentOfflineBackup } from "../../shared/ipc-contract";
 import {
-  emptyOfflineBackup,
   formatOfflineActivated,
   formatOfflineAuthorized,
-  offlineBackupNomination,
   tillDisplayName,
 } from "./this-counter-display";
 
@@ -21,47 +20,11 @@ describe("tillDisplayName", () => {
   });
 });
 
-describe("offlineBackupNomination", () => {
-  it("is not nominated when every field is null", () => {
-    expect(offlineBackupNomination(emptyOfflineBackup)).toBe("not_nominated");
-  });
-
-  it("is authorized-not-activated when only authorization is set", () => {
-    const backup: TerminalEnrollmentOfflineBackup = {
-      ...emptyOfflineBackup,
-      authorizedAt: Date.UTC(2020, 0, 2),
-      authorizedByUserId: "00000000-0000-4000-8000-000000000001",
-      authorizedByFullName: "Dilini Fernando",
-    };
-    expect(offlineBackupNomination(backup)).toBe("authorized_not_activated");
-  });
-
-  it("is activated when activation is set", () => {
-    const backup: TerminalEnrollmentOfflineBackup = {
-      authorizedAt: Date.UTC(2020, 0, 1),
-      authorizedByUserId: "00000000-0000-4000-8000-000000000002",
-      authorizedByFullName: "Owner Name",
-      activatedAt: Date.UTC(2020, 0, 2),
-      activatedByUserId: "00000000-0000-4000-8000-000000000001",
-      activatedByFullName: "Dilini Fernando",
-    };
-    expect(offlineBackupNomination(backup)).toBe("activated");
-  });
-});
-
 describe("formatOfflineAuthorized", () => {
-  const tz = process.env.TZ;
-  beforeAll(() => {
-    process.env.TZ = "UTC";
-  });
-  afterAll(() => {
-    process.env.TZ = tz;
-  });
-
   it("includes the authorizer when present", () => {
     const text = formatOfflineAuthorized(
       {
-        ...emptyOfflineBackup,
+        ...emptyEnrollmentOfflineBackup,
         authorizedAt: Date.UTC(2020, 0, 13),
         authorizedByUserId: "00000000-0000-4000-8000-000000000002",
         authorizedByFullName: "Dilini Fernando",
@@ -71,10 +34,10 @@ describe("formatOfflineAuthorized", () => {
     expect(text).toBe("On the web by Dilini Fernando · 2 Jan 2020");
   });
 
-  it("omits a invented name when authorizedByFullName is null", () => {
+  it("omits an invented name when authorizedByFullName is null", () => {
     const text = formatOfflineAuthorized(
       {
-        ...emptyOfflineBackup,
+        ...emptyEnrollmentOfflineBackup,
         authorizedAt: Date.UTC(2020, 0, 13),
         authorizedByUserId: "00000000-0000-4000-8000-000000000002",
         authorizedByFullName: null,
@@ -85,7 +48,9 @@ describe("formatOfflineAuthorized", () => {
   });
 
   it("returns null when not authorized", () => {
-    expect(formatOfflineAuthorized(emptyOfflineBackup, formatFixed)).toBeNull();
+    expect(
+      formatOfflineAuthorized(emptyEnrollmentOfflineBackup, formatFixed),
+    ).toBeNull();
   });
 });
 
@@ -93,7 +58,7 @@ describe("formatOfflineActivated", () => {
   it("includes the activator when present", () => {
     const text = formatOfflineActivated(
       {
-        ...emptyOfflineBackup,
+        ...emptyEnrollmentOfflineBackup,
         activatedAt: Date.UTC(2020, 0, 14),
         activatedByUserId: "00000000-0000-4000-8000-000000000001",
         activatedByFullName: "Dilini Fernando",
@@ -103,10 +68,10 @@ describe("formatOfflineActivated", () => {
     expect(text).toBe("Here by Dilini Fernando · 2 Jan 2020");
   });
 
-  it("omits a invented name when activatedByFullName is null", () => {
+  it("omits an invented name when activatedByFullName is null", () => {
     const text = formatOfflineActivated(
       {
-        ...emptyOfflineBackup,
+        ...emptyEnrollmentOfflineBackup,
         activatedAt: Date.UTC(2020, 0, 14),
         activatedByUserId: "00000000-0000-4000-8000-000000000001",
         activatedByFullName: null,
