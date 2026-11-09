@@ -1,0 +1,42 @@
+.review {
+  display: grid;
+  gap: 1rem;
+}
+.review p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.lines {
+  overflow-x: auto;
+}
+.lines table {
+  min-width: 30rem;
+}
+
+@media (max-width: 600px) {
+  .lines table {
+    min-width: 0;
+  }
+  .lines thead {
+    display: none;
+  }
+  .lines tbody,
+  .lines tr,
+  .lines td {
+    display: block;
+  }
+  .lines tr {
+    padding: 0.5rem 0;
+    border-bottom: 1px solid var(--pc-border);
+  }
+  .lines td {
+    overflow-wrap: anywhere;
+  }
+  .lines td::before {
+    content: attr(data-label);
+    display: block;
+    color: var(--pc-muted-fg);
+    font-size: 0.72rem;
+    font-weight: 600;
+  }
+}

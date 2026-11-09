@@ -31,9 +31,11 @@ import type {
   ExecuteSaleRefundDto,
   ListSaleRefundRequestsQueryDto,
   PrepareSaleRefundDto,
+  RefundApprovalQueueQueryDto,
 } from "./dto/refund-request.dto";
 import { ApproverCoSignService } from "./approver-cosign.service";
 import { refundReason, SalesService, type RefundPlan } from "./sales.service";
+import { refundNeedsApprovalSql } from "./refund-approval-queue";
 
 type Tx = Prisma.TransactionClient;
 /** One prepared line, priced at what the customer paid (stored as text, LKR). */
@@ -364,6 +366,37 @@ export class RefundRequestsService {
     };
   }
 
+  async approvalQueue(user: RequestUser, branchId: string, query: RefundApprovalQueueQueryDto) {
+    const actor = await this.access.resolveLive(user, branchId, this.prisma);
+    if (!actor.has("returns.approve")) throw new ForbiddenException("Your role can't approve refunds");
+    const page = query.page ?? 1;
+    const pageSize = query.pageSize ?? 25;
+    const term = query.q?.trim() ?? "";
+    // strpos treats %, _ and backslashes as literal receipt characters.
+    const from = Prisma.sql`FROM sale_refund_request r
+      JOIN sale s ON s.tenant_id = r.tenant_id AND s.branch_id = r.branch_id AND s.id = r.sale_id
+      LEFT JOIN tenant_settings ts ON ts.tenant_id = r.tenant_id
+      LEFT JOIN management_approval a ON a.tenant_id = r.tenant_id AND a.branch_id = r.branch_id AND a.id = r.execution_approval_id
+      WHERE r.tenant_id = ${user.tenantId}::uuid AND r.branch_id = ${branchId}::uuid
+        AND r.status IN ('prepared', 'approved') AND ${refundNeedsApprovalSql()}
+        AND (${term} = '' OR strpos(lower(r.request_number), lower(${term})) > 0
+          OR strpos(lower(s.invoice_no), lower(${term})) > 0)`;
+    const [ids, counts] = await Promise.all([
+      this.prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`SELECT r.id ${from}
+        ORDER BY r.requested_at ASC, r.id ASC LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`),
+      this.prisma.$queryRaw<Array<{ total: bigint }>>(Prisma.sql`SELECT count(*) AS total ${from}`),
+    ]);
+    const rows = ids.length ? await this.prisma.saleRefundRequest.findMany({
+      where: { tenantId: user.tenantId, branchId, id: { in: ids.map(row => row.id) } },
+    }) : [];
+    const views = await this.view(user.tenantId, branchId, rows);
+    const byId = new Map(views.map(row => [row.id, row]));
+    return { items: ids.flatMap(({ id }) => {
+      const row = byId.get(id);
+      return row ? [{ ...row, selfApprovalBlocked: row.requester?.id === user.userId && !actor.canSelfApprove }] : [];
+    }), total: Number(counts[0]?.total ?? 0), page, pageSize };
+  }
+
   async list(tenantId: string, branchId: string, query: ListSaleRefundRequestsQueryDto) {
     const rows = await this.prisma.saleRefundRequest.findMany({
       where: { tenantId, branchId, ...(query.saleId ? { saleId: query.saleId } : {}),
@@ -385,15 +418,17 @@ export class RefundRequestsService {
     if (!rows.length) return [];
     const userIds = [...new Set(rows.flatMap((row) => [row.requestedBy, row.approvedBy, row.executedBy, row.cancelledBy])
       .filter((value): value is string => !!value))];
-    const [people, sales, threshold, evidence] = await Promise.all([
+    const [people, sales, threshold, evidence, products, batches] = await Promise.all([
       this.prisma.appUser.findMany({ where: { tenantId, id: { in: userIds } }, select: { id: true, fullName: true } }),
       this.prisma.sale.findMany({ where: { tenantId, branchId, id: { in: rows.map((row) => row.saleId) } },
         select: { id: true, invoiceNo: true } }),
       this.sales.refundApprovalThreshold(this.prisma, tenantId),
       this.prisma.managementApproval.findMany({
-        where: { tenantId, id: { in: rows.map((row) => row.executionApprovalId).filter((v): v is string => !!v) } },
+        where: { tenantId, branchId, id: { in: rows.map((row) => row.executionApprovalId).filter((v): v is string => !!v) } },
         select: { id: true, revokedAt: true },
       }),
+      this.prisma.product.findMany({ where: { tenantId, id: { in: rows.flatMap(row => storedLines(row).map(line => line.productId)) } }, select: { id: true, name: true } }),
+      this.prisma.batch.findMany({ where: { tenantId, branchId, id: { in: rows.flatMap(row => storedLines(row).map(line => line.batchId)) } }, select: { id: true, batchNo: true } }),
     ]);
     const person = (userId: string | null) => (userId ? people.find((p) => p.id === userId) ?? null : null);
     const revoked = new Set(evidence.filter((e) => e.revokedAt).map((e) => e.id));
@@ -406,7 +441,10 @@ export class RefundRequestsService {
         saleId: row.saleId,
         invoiceNo: sales.find((s) => s.id === row.saleId)?.invoiceNo ?? null,
         status: row.status,
-        lines: storedLines(row),
+        lines: storedLines(row).map(line => ({ ...line,
+          productName: products.find(product => product.id === line.productId)?.name ?? null,
+          batchNo: batches.find(batch => batch.id === line.batchId)?.batchNo ?? null,
+        })),
         amount: row.amount.toFixed(2),
         refundMethod: row.refundMethod,
         reasonCode: row.reasonCode,
@@ -415,7 +453,7 @@ export class RefundRequestsService {
         executionApprovalId: row.executionApprovalId,
         approvalRevoked: row.executionApprovalId ? revoked.has(row.executionApprovalId) : false,
         // Waiting at the counter: nothing more is needed before someone there refunds it.
-        readyAtCounter: open && (row.executionApprovalId ? !revoked.has(row.executionApprovalId) : !needsApproval),
+        readyAtCounter: open && (row.executionApprovalId ? evidence.some(e => e.id === row.executionApprovalId && !e.revokedAt) : !needsApproval),
         approvalReview: open ? saleRefundApprovalReview(row) : null,
         approvalVersion: row.approvalVersion,
         requester: person(row.requestedBy),

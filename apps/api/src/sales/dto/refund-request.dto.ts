@@ -11,12 +11,17 @@ import {
   Matches,
   MaxLength,
   Min,
+  Max,
   ValidateIf,
   ValidateNested,
 } from "class-validator";
 import { PaymentMethod, SaleRefundRequestStatus } from "@prisma/client";
 import { ApproverCoSignDto } from "./approver-cosign.dto";
-import { REFUND_REASONS, RefundSaleItemDto, type RefundReason } from "./refund-sale.dto";
+import {
+  REFUND_REASONS,
+  RefundSaleItemDto,
+  type RefundReason,
+} from "./refund-sale.dto";
 
 /**
  * A refund prepared remotely (D10): what comes back, how much and why. It moves no stock or
@@ -90,4 +95,24 @@ export class ListSaleRefundRequestsQueryDto {
   @IsOptional()
   @IsEnum(SaleRefundRequestStatus)
   status?: SaleRefundRequestStatus;
+}
+
+export class RefundApprovalQueueQueryDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  pageSize?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  q?: string;
 }

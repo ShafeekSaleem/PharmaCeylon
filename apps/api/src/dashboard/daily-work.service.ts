@@ -12,6 +12,7 @@ import { RequestUser } from "../security/interfaces/authenticated-request.interf
 import { POS_ROLLOUT_SELECT, resolvePosRollout } from "../tenant/pos-rollout";
 import { counterKinds } from "./daily-work-kinds";
 import { DailyWorkQueryDto } from "./dto/daily-work-query.dto";
+import { refundNeedsApprovalSql } from "../sales/refund-approval-queue";
 
 const PAGE_SIZE = 6;
 
@@ -172,21 +173,23 @@ export class DailyWorkService {
     }
     // Refunds prepared remotely (P6): over the threshold they need an approver; once approved, or
     // under the threshold, they wait at the counter. A threshold lowered since preparation counts.
-    if (allowed("sales.refund")) {
-      const needsApproval = Prisma.sql`(r.status = 'prepared' AND (r.approval_required OR (ts.approval_required_return_threshold IS NOT NULL AND r.amount >= ts.approval_required_return_threshold)))`;
+    if (actor.has("sales.refund") || actor.has("returns.approve")) {
+      const needsApproval = refundNeedsApprovalSql();
       sources.push(Prisma.sql`
         SELECT 'refund:' || r.id, CASE WHEN ${needsApproval} THEN 'sale_refund.approve' ELSE 'sale_refund.execute' END, 'counter',
           CASE WHEN ${needsApproval} THEN 'Approve prepared refund' ELSE 'Refund the customer' END,
           concat(s.invoice_no, ' · LKR ', r.amount::text), r.request_number, r.status::text,
-          '/sales/' || r.sale_id, CASE WHEN ${needsApproval} THEN 'Review refund' ELSE 'Open sale' END,
+          CASE WHEN ${needsApproval} THEN '/refund-approvals?request=' || r.id ELSE '/sales/' || r.sale_id END,
+          CASE WHEN ${needsApproval} THEN 'Review refund' ELSE 'Open sale' END,
           r.requested_at, NULL::timestamp,
           CASE WHEN ${needsApproval} THEN 'Branch approvers' ELSE 'Counter team' END,
           (r.requested_by = ${uid}::uuid AND NOT ${needsApproval}), ${needsApproval},
           (${needsApproval} AND ${blocked(Prisma.sql`r.requested_by`)}), 1
         FROM sale_refund_request r JOIN sale s ON s.id = r.sale_id AND s.tenant_id = r.tenant_id AND s.branch_id = r.branch_id
           LEFT JOIN tenant_settings ts ON ts.tenant_id = r.tenant_id
+          LEFT JOIN management_approval a ON a.tenant_id = r.tenant_id AND a.branch_id = r.branch_id AND a.id = r.execution_approval_id
         WHERE r.tenant_id = ${tenant}::uuid AND r.branch_id = ${branchId}::uuid AND r.status IN ('prepared', 'approved')
-          AND ((${actor.has("returns.approve")} AND ${needsApproval}) OR NOT ${needsApproval})`);
+          AND ((${actor.has("returns.approve")} AND ${needsApproval}) OR (${actor.has("sales.refund")} AND NOT ${needsApproval}))`);
     }
     // P5 #51: offline sales whose stock waits on a case. Reviewers see open cases until a plan is
     // approved; once approved, the plan waits at the counter for someone who manages inventory.

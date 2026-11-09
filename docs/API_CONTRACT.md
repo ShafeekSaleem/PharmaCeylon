@@ -985,6 +985,20 @@ is locked, so a revocation that commits first refuses the sale and a later one w
     goods return's `approvedBy` is `null` and the `sale.refunded` audit carries `approvalWaived: true`. `GET /sales/refund-requests?saleId=&status=`
     and `GET /sales/refund-requests/:id` (`sales.refund`) return `status`, `readyAtCounter`,
     `approvalRequired`, `approvalReview` and requester/approver/executor.
+  - **Refund approval inbox (W4).** `GET /sales/refund-approval-queue?page=1&pageSize=25&q=`
+    and `GET /sales/refund-approval-queue/:id` require `returns.approve` at the active
+    `x-branch-id`; neither requires `sales.refund` or `sales.view`, and neither is a PIN-counter
+    route. The inbox returns `{ items, total, page, pageSize }`, oldest request first (stable ID
+    tie-break), with page sizes 1–100. `q` searches refund/invoice numbers case-insensitively as
+    literal text. Only open requests needing approval appear: the original or current threshold
+    applies, and revoked/missing pinned approval evidence requires fresh approval even after
+    the threshold is switched off. Rows include `selfApprovalBlocked`; blocked requests remain
+    visible. Detail returns the exact `approvalReview`, priced lines with nullable `productName`
+    and `batchNo`, disposition, reason, payment method and actor history. Display names are read
+    labels and are not added to the signed approval digest. Daily work and sales notifications
+    use the same waiting rule and deep-link to `/refund-approvals?request=<id>`; notifications
+    exclude self-blocked requests and respect sales preferences. The browser uses the existing
+    exact-version approval command; stock and money move only at separate counter execution.
   - **The desktop Returns page** prepares at the counter too: a PIN-opened counter login may call
     `POST /sales/:id/refund-requests` (`@CounterRoute()`), then executes the request through the
     signed operation when it is `readyAtCounter`. Over the threshold, a cashier's request waits

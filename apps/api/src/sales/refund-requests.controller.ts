@@ -21,6 +21,7 @@ import {
   ExecuteSaleRefundDto,
   ListSaleRefundRequestsQueryDto,
   PrepareSaleRefundDto,
+  RefundApprovalQueueQueryDto,
 } from "./dto/refund-request.dto";
 import { RefundRequestsService } from "./refund-requests.service";
 
@@ -33,7 +34,33 @@ import { RefundRequestsService } from "./refund-requests.service";
 export class RefundRequestsController {
   constructor(private readonly refunds: RefundRequestsService) {}
 
-  @ApiOperation({ summary: "Refunds prepared at this branch (filter by sale or status)" })
+  @ApiOperation({
+    summary: "Paginated branch refund approval inbox; no physical execution",
+  })
+  @RequirePermission("returns.approve")
+  @Get("refund-approval-queue")
+  approvalQueue(
+    @CurrentUser() user: RequestUser,
+    @RequireBranchId() branchId: string,
+    @Query() query: RefundApprovalQueueQueryDto,
+  ) {
+    return this.refunds.approvalQueue(user, branchId, query);
+  }
+
+  @ApiOperation({ summary: "Read exact refund lines for remote approval" })
+  @RequirePermission("returns.approve")
+  @Get("refund-approval-queue/:id")
+  approvalDetail(
+    @CurrentUser() user: RequestUser,
+    @RequireBranchId() branchId: string,
+    @Param("id", ParseUUIDPipe) id: string,
+  ) {
+    return this.refunds.getOne(user.tenantId, branchId, id);
+  }
+
+  @ApiOperation({
+    summary: "Refunds prepared at this branch (filter by sale or status)",
+  })
   @RequirePermission("sales.refund")
   @CounterRoute()
   @Get("refund-requests")
@@ -45,7 +72,9 @@ export class RefundRequestsController {
     return this.refunds.list(user.tenantId, branchId, query);
   }
 
-  @ApiOperation({ summary: "One prepared refund, with its approval evidence and status" })
+  @ApiOperation({
+    summary: "One prepared refund, with its approval evidence and status",
+  })
   @RequirePermission("sales.refund")
   @Get("refund-requests/:id")
   getOne(
@@ -56,7 +85,10 @@ export class RefundRequestsController {
     return this.refunds.getOne(user.tenantId, branchId, id);
   }
 
-  @ApiOperation({ summary: "Prepare a refund from a sale; it waits at the counter (no stock or money moves)" })
+  @ApiOperation({
+    summary:
+      "Prepare a refund from a sale; it waits at the counter (no stock or money moves)",
+  })
   @RequirePermission("sales.refund")
   @CounterRoute()
   @Post(":id/refund-requests")
@@ -88,7 +120,9 @@ export class RefundRequestsController {
     return this.refunds.approve(user, branchId, id, dto);
   }
 
-  @ApiOperation({ summary: "Cancel a prepared refund that has not been executed" })
+  @ApiOperation({
+    summary: "Cancel a prepared refund that has not been executed",
+  })
   @RequirePermission("sales.refund")
   @HttpCode(HttpStatus.OK)
   @Post("refund-requests/:id/cancel")
@@ -100,7 +134,10 @@ export class RefundRequestsController {
     return this.refunds.cancel(user, branchId, id);
   }
 
-  @ApiOperation({ summary: "Execute a prepared refund at the counter: stock back and money out, once" })
+  @ApiOperation({
+    summary:
+      "Execute a prepared refund at the counter: stock back and money out, once",
+  })
   @RequirePermission("sales.refund")
   @HttpCode(HttpStatus.OK)
   @Post("refund-requests/:id/execute")

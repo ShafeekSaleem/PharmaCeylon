@@ -213,6 +213,76 @@ describe("remote preparation and approval move no stock or money", () => {
   });
 });
 
+describe("W4 remote approval inbox", () => {
+  it("paginates all waiting requests oldest first, then removes approved/cancelled ones without physical effects", async () => {
+    await setThreshold("100");
+    await prisma.tenantSettings.update({ where: { tenantId: fx.tenantId }, data: { selfApprovalRoleKeys: ["owner"] } });
+    try {
+      const created = [];
+      const prefix = `QUEUE-${randomUUID().slice(0, 8)}`;
+      for (let index = 0; index < 3; index++) {
+        const sale = await cashSale(2);
+        await prisma.sale.update({ where: { id: sale.saleId }, data: { invoiceNo: `${prefix}-${index}` } });
+        const before = await batchTotals(prisma, sale.batchId);
+        const request = await refunds.prepare(user(fx.managerId), branch(), sale.saleId, { reasonCode: "damaged", items: lines(sale.batchId, 1) });
+        created.push({ request, sale, before });
+      }
+      const first = await refunds.approvalQueue(user(fx.managerId), branch(), { page: 1, pageSize: 2, q: prefix });
+      const second = await refunds.approvalQueue(user(fx.ownerId), branch(), { page: 2, pageSize: 2, q: prefix });
+      expect(first).toMatchObject({ total: 3, page: 1, pageSize: 2 });
+      expect(first.items.map(row => row.id)).toEqual(created.slice(0, 2).map(row => row.request.id));
+      expect(first.items.every(row => row.selfApprovalBlocked)).toBe(true);
+      expect(second.items.map(row => row.id)).toEqual([created[2]!.request.id]);
+      expect(second.items[0]!.selfApprovalBlocked).toBe(false);
+      expect(first.items[0]!.lines[0]).toMatchObject({ qty: 1, disposition: "restock", productName: expect.any(String), batchNo: expect.any(String) });
+      const one = created[0]!;
+      await refunds.approve(user(fx.ownerId), branch(), one.request.id, { approvalId: randomUUID(), ...one.request.approvalReview! });
+      await refunds.cancel(user(fx.managerId), branch(), created[1]!.request.id);
+      const remaining = await refunds.approvalQueue(user(fx.ownerId), branch(), { q: prefix });
+      expect(remaining.total).toBe(1);
+      expect(remaining.items[0]!.id).toBe(created[2]!.request.id);
+      for (const item of created) {
+        expect(await cashOut(item.sale.saleId)).toBe("0.00");
+        expect(await batchTotals(prisma, item.sale.batchId)).toEqual(item.before);
+      }
+    } finally {
+      await prisma.tenantSettings.update({ where: { tenantId: fx.tenantId }, data: { selfApprovalRoleKeys: ["owner", "manager"] } });
+    }
+  });
+
+  it("includes lowered-threshold and revoked approvals, shares daily-work routing, and treats search characters literally", async () => {
+    const sale = await cashSale(3);
+    const invoiceNo = `QUEUE%_${randomUUID().slice(0, 8)}`;
+    await prisma.sale.update({ where: { id: sale.saleId }, data: { invoiceNo } });
+    const request = await refunds.prepare(user(fx.managerId), branch(), sale.saleId, { reasonCode: "damaged", items: lines(sale.batchId, 2) });
+    expect((await refunds.approvalQueue(user(fx.ownerId), branch(), { q: invoiceNo })).total).toBe(0);
+    await setThreshold("100");
+    expect((await refunds.approvalQueue(user(fx.ownerId), branch(), { q: invoiceNo })).items.map(row => row.id)).toEqual([request.id]);
+    const approved = await refunds.approve(user(fx.ownerId), branch(), request.id, { approvalId: randomUUID(), ...request.approvalReview! });
+    expect((await refunds.approvalQueue(user(fx.ownerId), branch(), { q: invoiceNo })).total).toBe(0);
+    await tx(c => approvals.revoke(c, user(fx.ownerId), branch(), approved.executionApprovalId!, "Needs another review"));
+    // An issued approval remains pinned even if the threshold is subsequently switched off.
+    await setThreshold(null);
+    const inbox = await refunds.approvalQueue(user(fx.ownerId), branch(), { q: invoiceNo.toLowerCase() });
+    expect(inbox.items[0]).toMatchObject({ id: request.id, approvalRevoked: true, readyAtCounter: false });
+    const work = new DailyWorkService(proxy as never, { resolve: async () => ({ canSelfApprove: true, has: (key: string) => key === "returns.approve" }) } as never);
+    const item = (await work.get(user(fx.ownerId), branch(), { filter: "all", category: "counter", page: 1 }, { pageSize: 200 }))
+      .items.find(row => row.reference === request.requestNumber);
+    expect(item).toMatchObject({ kind: "sale_refund.approve", href: `/refund-approvals?request=${request.id}`, where: "web" });
+    expect((await refunds.approvalQueue(user(fx.ownerId), branch(), { q: "QUEUE%_does-not-exist" })).total).toBe(0);
+  });
+
+  it("rejects non-approvers, stale authentication and unassigned branches; detail never crosses tenant or branch", async () => {
+    await expect(refunds.approvalQueue(user(fx.clerkId), branch(), {})).rejects.toMatchObject({ status: 403 });
+    await expect(refunds.approvalQueue({ ...user(fx.ownerId), tokenVersion: 999 }, branch(), {})).rejects.toMatchObject({ status: 403 });
+    await expect(refunds.approvalQueue(user(fx.managerId), fx.otherBranchId, {})).rejects.toMatchObject({ status: 403 });
+    const sale = await cashSale();
+    const request = await refunds.prepare(user(fx.managerId), branch(), sale.saleId, { reasonCode: "damaged", items: lines(sale.batchId, 1) });
+    await expect(refunds.getOne(fx.tenantId, fx.otherBranchId, request.id)).rejects.toMatchObject({ status: 404 });
+    await expect(refunds.getOne(randomUUID(), branch(), request.id)).rejects.toMatchObject({ status: 404 });
+  });
+});
+
 describe("execution at the counter", () => {
   let counter: Counter;
   beforeAll(async () => {
