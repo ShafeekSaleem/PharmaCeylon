@@ -2,7 +2,13 @@
 import { afterEach, describe, expect, it } from "@jest/globals";
 import { act, cleanup, fireEvent, screen } from "@testing-library/react";
 import type { LocalShift, ShiftState } from "../../shared/ipc-contract";
-import { deviceState, ids, renderWithKeys, stubPos } from "../test/harness";
+import {
+  deviceState,
+  emptyEnrollmentOfflineBackup,
+  ids,
+  renderWithKeys,
+  stubPos,
+} from "../test/harness";
 import { CashShiftPage, ShiftGate } from "./CashShift";
 import { SignInScreen } from "./SignIn";
 
@@ -22,6 +28,7 @@ const enrollment = {
   enrolledAt: null,
   enrolledByUserId: ids.ana,
   enrolledByName: "Branch enroller",
+  offlineBackup: emptyEnrollmentOfflineBackup,
 };
 const signedIn = (staffUserId: string, staffName: string) =>
   deviceState({

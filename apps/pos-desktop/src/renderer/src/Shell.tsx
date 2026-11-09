@@ -11,6 +11,7 @@ import { Icon, type IconName } from "./Icon";
 import styles from "./Shell.module.css";
 import ui from "./ui.module.css";
 import { cx } from "./useAction";
+import { tillDisplayName } from "./this-counter-display";
 
 export type Page = "sell" | "returns" | "work" | "stock" | "cash" | "counter";
 
@@ -81,7 +82,8 @@ export function TitleBar({
         <Icon name="map-pin" />
         {placed ? (
           <>
-            <b>{enrollment.branchName}</b> · {enrollment.counterLabel}
+            <b>{enrollment.branchName}</b> ·{" "}
+            {tillDisplayName(enrollment.counterLabel, enrollment.tillId)}
             {enrollment.status === "revoked" && " · switched off"}
           </>
         ) : (

@@ -18,6 +18,26 @@ export const readinessCheckSchema = z.object({
 });
 export type ReadinessCheck = z.infer<typeof readinessCheckSchema>;
 
+/** GET `/terminals/enrollments/:id` offline nomination facts (epoch ms; null when N/A). */
+export const enrollmentOfflineBackupSchema = z.object({
+  authorizedAt: z.number().nullable(),
+  authorizedByUserId: z.string().uuid().nullable(),
+  authorizedByFullName: z.string().nullable(),
+  activatedAt: z.number().nullable(),
+  activatedByUserId: z.string().uuid().nullable(),
+  activatedByFullName: z.string().nullable(),
+});
+export type EnrollmentOfflineBackup = z.infer<typeof enrollmentOfflineBackupSchema>;
+
+export const emptyEnrollmentOfflineBackup: EnrollmentOfflineBackup = {
+  authorizedAt: null,
+  authorizedByUserId: null,
+  authorizedByFullName: null,
+  activatedAt: null,
+  activatedByUserId: null,
+  activatedByFullName: null,
+};
+
 /** This counter's installed offline authority, for the This counter page (P3 #49). */
 export const offlineBackupSchema = z.object({
   /** The grant's expiry and the saved stock's time, ISO; null when nothing is installed. */
@@ -107,7 +127,8 @@ export const deviceStateSchema = z.object({
       /** Register and till tied to this enrollment (UUIDs from the server). */
       registerId: uuid,
       tillId: uuid,
-      counterLabel: z.string(),
+      /** Till display name from enrollment status; null falls back to a till id prefix in the UI. */
+      counterLabel: z.string().nullable(),
       label: z.string(),
       terminalId: uuid,
       enrollmentId: uuid,
@@ -115,6 +136,7 @@ export const deviceStateSchema = z.object({
       enrolledByUserId: uuid,
       /** Enroller display name when stored or backfilled; null when unknown. */
       enrolledByName: z.string().nullable(),
+      offlineBackup: enrollmentOfflineBackupSchema,
     })
     .nullable(),
   operator: z

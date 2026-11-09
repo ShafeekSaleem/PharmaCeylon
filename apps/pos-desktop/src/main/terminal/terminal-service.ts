@@ -7,6 +7,7 @@ import type {
   TerminalCounterView,
   TerminalEnrollmentCodeChallenge,
   TerminalEnrollmentCommand,
+  TerminalEnrollmentOfflineBackup,
   TerminalEnrollmentStatusView,
   TerminalIdentity,
   TerminalPinSessionCommand,
@@ -17,11 +18,12 @@ import type {
   WindowsSessionEvidence,
   WorkSessionIdentity,
 } from "@pharmaceylon/shared";
-import type {
-  ActionError,
-  Branch,
-  DeviceState,
-  OfflineCounterView,
+import {
+  emptyEnrollmentOfflineBackup,
+  type ActionError,
+  type Branch,
+  type DeviceState,
+  type OfflineCounterView,
 } from "../../shared/ipc-contract";
 import { ApiError, type ApiSession, type AuthUser } from "../api/api-client";
 import { buildAttestation } from "../attendance/attestation";
@@ -137,6 +139,11 @@ export class TerminalService {
   private readonly serverPinLocks = new Map<string, number>();
   /** People whose PIN the server has switched off, until they sign in here with their password. */
   private readonly serverPinsOff = new Set<string>();
+  /** Last enrollment status from the server (till name and offline backup facts). */
+  private enrollmentFromServer: {
+    counterLabel: string | null;
+    offlineBackup: TerminalEnrollmentOfflineBackup;
+  } | null = null;
   private readonly now: () => Date;
 
   constructor(private readonly deps: TerminalServiceDeps) {
@@ -158,13 +165,18 @@ export class TerminalService {
             branchCode: device.branchCode,
             registerId: device.registerId,
             tillId: device.tillId,
-            counterLabel: device.counterLabel,
+            counterLabel: this.enrollmentFromServer
+              ? this.enrollmentFromServer.counterLabel
+              : device.counterLabel,
             label: device.label,
             terminalId: device.identity.terminalId,
             enrollmentId: device.identity.enrollmentId,
             enrolledAt: device.enrolledAt,
             enrolledByUserId: device.enrolledByUserId,
             enrolledByName: device.enrolledByName,
+            offlineBackup:
+              this.enrollmentFromServer?.offlineBackup ??
+              emptyEnrollmentOfflineBackup,
           }
         : null,
       operator: operator
@@ -747,8 +759,19 @@ export class TerminalService {
       );
       this.staff = null;
     }
+    this.syncEnrollmentStatus(status);
     await this.maybeBackfillEnrollmentDisplay();
     return this.state();
+  }
+
+  /** Caches till name and offline-backup facts for the renderer; persists a non-null till name. */
+  private syncEnrollmentStatus(status: TerminalEnrollmentStatusView): void {
+    this.enrollmentFromServer = {
+      counterLabel: status.counterLabel,
+      offlineBackup: status.offlineBackup,
+    };
+    if (status.counterLabel)
+      this.deps.store.patchEnrollmentDisplay({ counterLabel: status.counterLabel });
   }
 
   /**
@@ -1034,6 +1057,7 @@ export class TerminalService {
         { branchId: device.identity.branchId },
       );
       this.deps.store.setStatus(status.status, this.now());
+      this.syncEnrollmentStatus(status);
     } catch (error) {
       if (error instanceof ApiError && error.status === 404)
         this.deps.store.discardPending();

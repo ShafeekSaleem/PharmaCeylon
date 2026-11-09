@@ -3,6 +3,7 @@ import type {
   AppInfo,
   CheckStatus,
   DeviceState,
+  EnrollmentOfflineBackup,
   OfflineBackup,
   OfflineCounterView,
   Printer,
@@ -10,6 +11,11 @@ import type {
   ReadinessReport,
 } from "../../shared/ipc-contract";
 import { dayMonthYear, relativeTime, time } from "./format";
+import {
+  formatOfflineActivated,
+  formatOfflineAuthorized,
+  tillDisplayName,
+} from "./this-counter-display";
 import { Icon } from "./Icon";
 import { KeyHint } from "./KeyHint";
 import { useKeyBinding } from "./keymap";
@@ -31,10 +37,6 @@ const STATUS_PILL: Record<CheckStatus, string | undefined> = {
   failed: ui.bad,
   not_ready: ui.neutral,
 };
-
-function tillShortLabel(tillId: string) {
-  return tillId.replace(/-/g, "").slice(0, 8);
-}
 
 /** The readiness checks in the mockup's three groups; any check not listed lands in the first. */
 const GROUPS: { title: string; ids: string[] }[] = [
@@ -334,9 +336,11 @@ function PrinterTest() {
 function OfflineCounterPanel({
   branchName,
   backup,
+  enrollmentBackup,
 }: {
   branchName: string;
   backup: OfflineBackup | null;
+  enrollmentBackup: EnrollmentOfflineBackup;
 }) {
   const [view, setView] = useState<OfflineCounterView | null>(null);
   const [hidden, setHidden] = useState(false);
@@ -350,6 +354,8 @@ function OfflineCounterPanel({
   if (hidden || !view) return null;
 
   const authorization = view.authorization;
+  const authorizedLine = formatOfflineAuthorized(enrollmentBackup);
+  const activatedLine = formatOfflineActivated(enrollmentBackup);
   const expiresAt = backup?.grantExpiresAt
     ? new Date(backup.grantExpiresAt)
     : null;
@@ -399,6 +405,16 @@ function OfflineCounterPanel({
         {view.thisCounterNominated && (
           <>
             <div className={ui.kvs}>
+              {authorizedLine && (
+                <div className={ui.kv}>
+                  Authorized<b>{authorizedLine}</b>
+                </div>
+              )}
+              {activatedLine && (
+                <div className={ui.kv}>
+                  Activated<b>{activatedLine}</b>
+                </div>
+              )}
               <div className={ui.kv}>
                 Offline permission
                 <b>
@@ -449,8 +465,8 @@ function OfflineCounterPanel({
               <div className={ui.kv}>
                 Authorized
                 <b>
-                  On the web by the owner ·{" "}
-                  {dayMonthYear(new Date(authorization.authorizedAt))}
+                  {authorizedLine ??
+                    `On the web · ${dayMonthYear(new Date(authorization.authorizedAt))}`}
                 </b>
               </div>
               <div className={ui.kv}>
@@ -538,10 +554,11 @@ export function ThisCounterPage({
     : "";
   const local = atTheComputer(state);
   const server = host(state.serverUrl);
+  const tillName = tillDisplayName(enrollment.counterLabel, enrollment.tillId);
   const branchCodeSub = enrollment.branchCode
     ? `Branch code ${enrollment.branchCode}`
     : "Sign in online once to store it here";
-  const tillSub = `Till ${tillShortLabel(enrollment.tillId)} · one open shift at a time`;
+  const tillSub = `Till ${tillName} · one open shift at a time`;
   const enrolledSub = enrollment.enrolledByName
     ? `By ${enrollment.enrolledByName}`
     : enrolledAtDate
@@ -566,7 +583,7 @@ export function ThisCounterPage({
           </span>
           <div>
             <b>
-              {enrollment.counterLabel} · {enrollment.branchName}
+              {tillName} · {enrollment.branchName}
             </b>
             <small>
               This computer is &quot;{enrollment.label}&quot;
@@ -592,7 +609,7 @@ export function ThisCounterPage({
           </div>
           <div className={ui.tile}>
             <small>Counter and till</small>
-            <b>{enrollment.counterLabel}</b>
+            <b>{tillName}</b>
             <span className={styles.tileSub}>{tillSub}</span>
           </div>
           <div className={ui.tile}>
@@ -617,6 +634,7 @@ export function ThisCounterPage({
           <OfflineCounterPanel
             branchName={enrollment.branchName}
             backup={readiness?.offlineBackup ?? null}
+            enrollmentBackup={enrollment.offlineBackup}
           />
         </div>
       </div>

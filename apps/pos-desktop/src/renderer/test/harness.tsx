@@ -1,7 +1,12 @@
 import { jest } from "@jest/globals";
 import { fireEvent, render } from "@testing-library/react";
 import type { ReactElement } from "react";
-import type { DeviceState } from "../../shared/ipc-contract";
+import {
+  emptyEnrollmentOfflineBackup,
+  type DeviceState,
+} from "../../shared/ipc-contract";
+
+export { emptyEnrollmentOfflineBackup };
 import { KeyMap, KeyMapProvider } from "../src/keymap";
 
 export const ids = {
@@ -15,10 +20,21 @@ export const ids = {
 };
 
 export function deviceState(overrides: Partial<DeviceState> = {}): DeviceState {
+  const { enrollment: enrollmentOverride, ...rest } = overrides;
+  const enrollment =
+    enrollmentOverride === undefined
+      ? null
+      : enrollmentOverride === null
+        ? null
+        : {
+            ...enrollmentOverride,
+            offlineBackup:
+              enrollmentOverride.offlineBackup ?? emptyEnrollmentOfflineBackup,
+          };
   return {
     serverUrl: "https://pharmacy.example/api/v1",
     serverUrlEditable: true,
-    enrollment: null,
+    enrollment,
     operator: null,
     staffSession: null,
     pin: null,
@@ -26,7 +42,7 @@ export function deviceState(overrides: Partial<DeviceState> = {}): DeviceState {
     counterStaff: [],
     branches: [],
     windowsSession: { protocol: "console", remoteSession: false },
-    ...overrides,
+    ...rest,
   };
 }
 
