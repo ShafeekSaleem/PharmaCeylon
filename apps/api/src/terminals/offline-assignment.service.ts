@@ -432,6 +432,12 @@ export class OfflineAssignmentService {
       take: 20,
     });
     const ms = (d: Date | null) => (d ? d.getTime() : null);
+    const activatedBy = nomination
+      ? await tx.appUser.findFirst({
+          where: { tenantId, id: nomination.activatedByUserId },
+          select: { fullName: true },
+        })
+      : null;
     return {
       branchId,
       nomination: nomination
@@ -440,6 +446,8 @@ export class OfflineAssignmentService {
             enrollmentId: nomination.enrollmentId,
             version: nomination.version,
             activatedAt: nomination.activatedAt.getTime(),
+            activatedByUserId: nomination.activatedByUserId,
+            activatedByFullName: activatedBy?.fullName ?? null,
           }
         : null,
       nominationVersion: nomination?.version ?? 0,

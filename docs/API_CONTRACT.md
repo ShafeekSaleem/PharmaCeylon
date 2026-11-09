@@ -571,7 +571,7 @@ transaction. Nothing here nominates an offline terminal, issues a grant or opens
 | `POST /terminals/counters` | `tenant.management` | `{ label }` → `TerminalCounterView` |
 | `POST /terminals/enrollments/challenge` | `tenant.management` | `TerminalEnrollmentChallengeRequest` → `TerminalEnrollmentCommand` (two-minute challenge) |
 | `POST /terminals/enrollments` | `terminal.execute`; `tenant.management` too unless the challenge came from a code | `{ envelope, attendanceProofId }` → `TerminalIdentity`; 409 `COUNTER_OCCUPIED` if a computer enrolled there first |
-| `GET /terminals/enrollments/:enrollmentId` | `terminal.execute` | `TerminalEnrollmentStatusView` (`active` / `revoked` / `retired`) |
+| `GET /terminals/enrollments/:enrollmentId` | `terminal.execute` | `TerminalEnrollmentStatusView`: `label` = device name; `counterLabel` = human till name (`TerminalCounter.label`); `offlineBackup` = epoch-ms authorization/activation timestamps and actor ids plus `authorizedByFullName` / `activatedByFullName` when this enrollment is nominated or has an outstanding offline assignment authorization (otherwise each field null) |
 | `POST /terminals/enrollments/:enrollmentId/revoke` | `tenant.management` | `{ reason }` → 204; closes its staff sessions |
 | `POST /terminals/devices/:terminalId/retire` | `tenant.management` | `{ reason }` → 204; frees the counter for a replacement |
 | `GET /terminals/enrollment-codes` | `tenant.management` | `TerminalEnrollmentCodeView[]` (newest 50; never the codes) |

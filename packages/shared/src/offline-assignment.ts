@@ -13,6 +13,8 @@ export type OfflineAssignmentView = Readonly<{
     enrollmentId: string;
     version: number;
     activatedAt: number;
+    activatedByUserId: string;
+    activatedByFullName: string | null;
   }> | null;
   nominationVersion: number;
   /** Newest first: every active delegation and up to 50 recent revoked ones (`revokedAt` set). */

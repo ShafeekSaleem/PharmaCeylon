@@ -13,6 +13,7 @@ import { PrismaService } from "../prisma/prisma.service";
 import { AccessService } from "../security/access.service";
 import type { RequestUser } from "../security/interfaces/authenticated-request.interface";
 import { AttendanceProofsService } from "./attendance-proofs.service";
+import { buildEnrollmentOfflineBackup } from "./enrollment-status.util";
 import { TerminalTrustService } from "./terminal-trust.service";
 import { denied, object, parseIdentity, text, uuid } from "./terminal-wire";
 
@@ -141,17 +142,86 @@ export class TerminalEnrollmentService {
           include: { terminal: true },
         });
         if (!enrollment) throw new NotFoundException("Enrollment not found.");
+        const terminal = enrollment.terminal;
+        let counterLabel: string | null = null;
+        if (terminal.registerId !== null && terminal.tillId !== null) {
+          const counter = await tx.terminalCounter.findFirst({
+            where: {
+              tenantId: user.tenantId,
+              branchId,
+              id: terminal.registerId,
+              tillId: terminal.tillId,
+            },
+            select: { label: true },
+          });
+          counterLabel = counter?.label ?? null;
+        }
+
+        const nomination = await tx.offlineTerminalNomination.findUnique({
+          where: { tenantId_branchId: { tenantId: user.tenantId, branchId } },
+          select: {
+            enrollmentId: true,
+            authorizationId: true,
+            activatedAt: true,
+            activatedByUserId: true,
+          },
+        });
+
+        const outstandingAuthorization =
+          await tx.offlineTerminalAssignmentAuthorization.findFirst({
+            where: {
+              tenantId: user.tenantId,
+              branchId,
+              targetEnrollmentId: enrollment.id,
+              status: "authorized",
+            },
+            select: { authorizedAt: true, authorizedByUserId: true },
+          });
+
+        const nominationAuthorization = nomination
+          ? await tx.offlineTerminalAssignmentAuthorization.findFirst({
+              where: {
+                tenantId: user.tenantId,
+                branchId,
+                id: nomination.authorizationId,
+              },
+              select: { authorizedAt: true, authorizedByUserId: true },
+            })
+          : null;
+
+        const actorIds = [
+          nomination?.activatedByUserId,
+          nominationAuthorization?.authorizedByUserId,
+          outstandingAuthorization?.authorizedByUserId,
+        ].filter((id): id is string => id !== undefined && id !== null);
+        const names =
+          actorIds.length === 0
+            ? new Map<string, string>()
+            : new Map(
+                (
+                  await tx.appUser.findMany({
+                    where: { tenantId: user.tenantId, id: { in: [...new Set(actorIds)] } },
+                    select: { id: true, fullName: true },
+                  })
+                ).map((u) => [u.id, u.fullName] as const),
+              );
+        const fullName = (id: string) => names.get(id) ?? null;
+
         return {
           enrollmentId: enrollment.id,
           terminalId: enrollment.terminalId,
-          registerId: enrollment.terminal.registerId,
-          tillId: enrollment.terminal.tillId,
-          label: enrollment.terminal.label,
-          status: enrollment.terminal.retiredAt
-            ? "retired"
-            : enrollment.revokedAt
-              ? "revoked"
-              : "active",
+          registerId: terminal.registerId,
+          tillId: terminal.tillId,
+          label: terminal.label,
+          counterLabel,
+          status: terminal.retiredAt ? "retired" : enrollment.revokedAt ? "revoked" : "active",
+          offlineBackup: buildEnrollmentOfflineBackup(
+            enrollment.id,
+            nomination,
+            nominationAuthorization,
+            outstandingAuthorization,
+            fullName,
+          ),
         };
       },
     );

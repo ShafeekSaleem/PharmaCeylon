@@ -29,6 +29,7 @@ import { SalesService } from "../../src/sales/sales.service";
 import { PermissionsService } from "../../src/security/permissions.service";
 import { LocalAttendanceVerifier } from "../../src/terminals/local-attendance.verifier";
 import { OperatingHoursEvidence } from "../../src/terminals/operating-hours.evidence";
+import { OfflineAssignmentService } from "../../src/terminals/offline-assignment.service";
 import { TerminalTrustService } from "../../src/terminals/terminal-trust.service";
 import { boundedCanonical, sha256 } from "../../src/terminals/terminal-wire";
 import { terminalDevice } from "../fixtures/terminal-device";
@@ -68,6 +69,7 @@ const enrollmentService = new TerminalEnrollmentService(
   proofs,
   audit,
 );
+const offlineAssignments = new OfflineAssignmentService(prisma as never, access, audit);
 // Token issuing is AuthService's (unit-tested there); these tests cover what a PIN must prove.
 const issueCounterSession = jest.fn(
   async (
@@ -1339,6 +1341,165 @@ describe("go-live evidence from counters", () => {
       ).toEqual({ preparedStaff: 0, testReceipts: 0 });
     } finally {
       ({ fx, owner, clerk } = saved);
+    }
+  });
+});
+
+describe("GET enrollment status for This counter", () => {
+  it("exposes counterLabel from TerminalCounter while label stays the device label", async () => {
+    const device = terminalDevice();
+    const tillHumanLabel = `Till display ${randomUUID().slice(0, 6)}`;
+    const counterRow = await tx((c) => trust.createCounter(c, owner, fx.mainBranchId, tillHumanLabel));
+    const challenge = await tx((c) =>
+      trust.beginEnrollment(c, owner, fx.mainBranchId, {
+        registerId: counterRow.id,
+        keyId: randomUUID(),
+        publicKeyHex: device.publicKeyHex,
+        label: "POS device name",
+      }),
+    );
+    const proof = await record(device, attestation(challenge, "enrollment", owner));
+    const identity = await tx((c) =>
+      trust.finishEnrollment(c, owner, fx.mainBranchId, device.sign(challenge, challenge.identity.keyId), proof.proofId),
+    );
+    const status = await enrollmentService.enrollmentStatus(owner, fx.mainBranchId, identity.enrollmentId);
+    expect(status.label).toBe("POS device name");
+    expect(status.counterLabel).toBe(tillHumanLabel);
+    expect(status.offlineBackup).toEqual({
+      authorizedAt: null,
+      authorizedByUserId: null,
+      authorizedByFullName: null,
+      activatedAt: null,
+      activatedByUserId: null,
+      activatedByFullName: null,
+    });
+  });
+
+  it("does not leak another tenant's enrollment through enrollment status", async () => {
+    const foreign = await createTenant(prisma, `foreign-${randomUUID().slice(0, 6)}`);
+    await prisma.userBranchRole.create({
+      data: {
+        tenantId: foreign.tenantId,
+        branchId: foreign.mainBranchId,
+        userId: foreign.ownerId,
+        role: RoleName.owner,
+      },
+    });
+    const foreignOwner = user(foreign.ownerId);
+    foreignOwner.tenantId = foreign.tenantId;
+    const device = terminalDevice();
+    const counterRow = await tx((c) => trust.createCounter(c, foreignOwner, foreign.mainBranchId, "Foreign"));
+    const challenge = await tx((c) =>
+      trust.beginEnrollment(c, foreignOwner, foreign.mainBranchId, {
+        registerId: counterRow.id,
+        keyId: randomUUID(),
+        publicKeyHex: device.publicKeyHex,
+        label: "Foreign device",
+      }),
+    );
+    const proof = await record(device, attestation(challenge, "enrollment", foreignOwner), foreignOwner, foreign.mainBranchId);
+    const identity = await tx((c) =>
+      trust.finishEnrollment(
+        c,
+        foreignOwner,
+        foreign.mainBranchId,
+        device.sign(challenge, challenge.identity.keyId),
+        proof.proofId,
+      ),
+    );
+    await expect(
+      enrollmentService.enrollmentStatus(owner, fx.mainBranchId, identity.enrollmentId),
+    ).rejects.toThrow("Enrollment not found.");
+  });
+
+  it("returns offline backup authorization, activation, and full names for this enrollment only", async () => {
+    const device = terminalDevice();
+    const counterRow = await tx((c) => trust.createCounter(c, owner, fx.mainBranchId, "Desk A"));
+    const challenge = await tx((c) =>
+      trust.beginEnrollment(c, owner, fx.mainBranchId, {
+        registerId: counterRow.id,
+        keyId: randomUUID(),
+        publicKeyHex: device.publicKeyHex,
+        label: "Unit under test",
+      }),
+    );
+    const proof = await record(device, attestation(challenge, "enrollment", owner));
+    const identity = await tx((c) =>
+      trust.finishEnrollment(c, owner, fx.mainBranchId, device.sign(challenge, challenge.identity.keyId), proof.proofId),
+    );
+    const other = await enroll();
+    const authId = randomUUID();
+
+    await prisma.offlineTerminalAssignmentAuthorization.create({
+      data: {
+        id: authId,
+        tenantId: fx.tenantId,
+        branchId: fx.mainBranchId,
+        targetTerminalId: other.identity.terminalId,
+        targetEnrollmentId: other.identity.enrollmentId,
+        targetKeyId: other.identity.keyId,
+        expectedNominationVersion: 0,
+        reason: "Nomination auth",
+        authorizedByUserId: fx.managerId,
+        authority: "owner",
+        authorizedAt: new Date("2019-06-01T00:00:00.000Z"),
+        status: "consumed",
+        consumedAt: new Date("2019-06-02T00:00:00.000Z"),
+      },
+    });
+
+    await prisma.offlineTerminalNomination.create({
+      data: {
+        tenantId: fx.tenantId,
+        branchId: fx.mainBranchId,
+        terminalId: other.identity.terminalId,
+        enrollmentId: other.identity.enrollmentId,
+        keyId: other.identity.keyId,
+        version: 1,
+        authorizationId: authId,
+        activatedAt: new Date("2020-01-01T00:00:00.000Z"),
+        activatedByUserId: fx.ownerId,
+      },
+    });
+
+    try {
+      await offlineAssignments.authorize(owner, fx.mainBranchId, {
+        authorizationId: randomUUID(),
+        targetTerminalId: identity.terminalId,
+        targetEnrollmentId: identity.enrollmentId,
+        expectedNominationVersion: 1,
+        reason: "Fixture authorization",
+      });
+
+      const ownerRow = await prisma.appUser.findUniqueOrThrow({ where: { id: fx.ownerId } });
+      const managerRow = await prisma.appUser.findUniqueOrThrow({ where: { id: fx.managerId } });
+
+      const nominated = await enrollmentService.enrollmentStatus(owner, fx.mainBranchId, other.identity.enrollmentId);
+      expect(nominated.offlineBackup).toEqual({
+        authorizedAt: Date.parse("2019-06-01T00:00:00.000Z"),
+        authorizedByUserId: fx.managerId,
+        authorizedByFullName: managerRow.fullName,
+        activatedAt: Date.parse("2020-01-01T00:00:00.000Z"),
+        activatedByUserId: fx.ownerId,
+        activatedByFullName: ownerRow.fullName,
+      });
+
+      const pending = await enrollmentService.enrollmentStatus(owner, fx.mainBranchId, identity.enrollmentId);
+      expect(pending.offlineBackup).toMatchObject({
+        authorizedByUserId: fx.ownerId,
+        authorizedByFullName: ownerRow.fullName,
+        activatedAt: null,
+        activatedByUserId: null,
+        activatedByFullName: null,
+      });
+      expect(typeof pending.offlineBackup.authorizedAt).toBe("number");
+    } finally {
+      await prisma.offlineTerminalAssignmentAuthorization.deleteMany({
+        where: { tenantId: fx.tenantId, branchId: fx.mainBranchId },
+      });
+      await prisma.offlineTerminalNomination.deleteMany({
+        where: { tenantId: fx.tenantId, branchId: fx.mainBranchId },
+      });
     }
   });
 });
