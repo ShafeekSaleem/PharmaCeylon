@@ -79,8 +79,8 @@ export function App() {
       .then((list) => setPrinter(list[0] ?? null))
       .catch(() => setPrinter(null));
     refreshApi();
-    const timer = window.setInterval(refreshApi, API_POLL_MS);
-    return () => window.clearInterval(timer);
+    const apiTimer = window.setInterval(refreshApi, API_POLL_MS);
+    return () => window.clearInterval(apiTimer);
   }, [refreshApi, loadDevice]);
 
   const [commandsSent, setCommandsSent] = useState(0);
@@ -192,7 +192,7 @@ export function App() {
   if (!device)
     return (
       <div className={shell.win}>
-        <TitleBar state={null} api={api} />
+        <TitleBar state={null} api={api} journal={journal} />
         {deviceFailed && (
           <section className={full.screen} aria-label="Not started">
             <div className={full.wrap}>
@@ -368,6 +368,7 @@ export function App() {
             <StatusBar
               state={device}
               api={api}
+              journal={journal}
               printer={printer}
               info={info}
               shift={shift?.current ?? null}
@@ -387,7 +388,7 @@ export function App() {
 
   return (
     <div className={shell.win}>
-      <TitleBar state={device} api={api} />
+      <TitleBar state={device} api={api} journal={journal} />
       {body}
     </div>
   );
