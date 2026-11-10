@@ -212,8 +212,60 @@ describe("offline backup readiness (P3 #49)", () => {
   });
 
   it("words every failure as something to do", () => {
-    for (const code of ["GRANT_INVALID", "BRANCH_HOURS_NOT_CONFIGURED", "RECONCILIATION_REQUIRED", "local_usage", "invalid", "NETWORK", "HTTP_502", "WEIRD"])
+    for (const code of [
+      "GRANT_INVALID", "BRANCH_HOURS_NOT_CONFIGURED", "RECONCILIATION_REQUIRED", "local_usage", "journal_mismatch",
+      "drain_incomplete", "invalid", "NETWORK", "HTTP_502", "WEIRD",
+    ])
       expect(explainRefreshFailure(code).length).toBeGreaterThan(20);
     expect(clockTime(new Date(2026, 10, 6, 9, 5).getTime(), now)).toBe("6 Nov 09:05");
+  });
+});
+
+describe("synchronisation readiness (P5 #51)", () => {
+  const now = new Date(2026, 10, 10, 14, 32);
+  const t = now.getTime();
+  const active = {
+    databaseOpen: true, schemaVersion: 1, latestSchemaVersion: 1, credentialStoreAvailable: true,
+    enrollmentStatus: "active" as const,
+  };
+  const view = {
+    recorded: 0, accepted: 0, waiting: 0, refused: 0, syncing: false, lastSuccessAt: null as string | null,
+    issue: null as { code: string; message: string; sequence: number | null; at: string } | null,
+    outage: null, lastDrain: null as { outageId: string; startedAt: number; drainedAt: string } | null,
+    pause: null as { reason: "draining" | "unsynced"; waiting: number; outageStartedAt: number | null } | null,
+  };
+  const sync = (over: Partial<typeof view>, configured = true) =>
+    buildReadinessReport({ ...active, journalSync: { configured, view: { ...view, ...over } } }, now).checks.find((c) => c.id === "sync")!;
+
+  it("is ok only once the server has confirmed everything recorded here", () => {
+    expect(sync({})).toMatchObject({ status: "not_ready", detail: expect.stringContaining("Not confirmed") });
+    expect(sync({ lastSuccessAt: new Date(t - 60_000).toISOString() })).toMatchObject({
+      status: "ok", detail: "Everything recorded here is on the server, confirmed 14:31 today.",
+    });
+    expect(sync({
+      recorded: 4, accepted: 4, lastSuccessAt: new Date(t - 60_000).toISOString(),
+      lastDrain: { outageId: "o", startedAt: t - 3_600_000, drainedAt: new Date(t - 60_000).toISOString() },
+    }).detail).toContain("Offline sales from the outage at 13:32 today are all on the server.");
+    expect(sync({}, false)).toMatchObject({ status: "not_ready", detail: expect.stringContaining("no offline permission key") });
+    expect(buildReadinessReport(active, now).checks.find((c) => c.id === "sync")!.status).toBe("not_ready");
+  });
+
+  it("warns while a drain pauses new sales, and says what it is waiting for", () => {
+    expect(sync({ recorded: 3, waiting: 3, pause: { reason: "draining", waiting: 3, outageStartedAt: t - 600_000 } })).toMatchObject({
+      status: "warning",
+      detail: "Synchronising offline sales: new sales wait until it finishes. 3 offline records waiting to reach the server.",
+    });
+    expect(sync({ recorded: 3, accepted: 3, pause: { reason: "draining", waiting: 0, outageStartedAt: t - 600_000 } }).detail)
+      .toContain("Waiting for fresh stock from the server.");
+  });
+
+  it("fails on a refused record or a journal the server doesn't recognise", () => {
+    const refused = sync({
+      recorded: 5, accepted: 3, waiting: 2, refused: 1,
+      issue: { code: "LOCAL_STOCK_EXHAUSTED", message: "A manager reviews it in the back office.", sequence: 4, at: "" },
+      pause: { reason: "draining", waiting: 2, outageStartedAt: t },
+    });
+    expect(refused).toMatchObject({ status: "failed", detail: "A manager reviews it in the back office. 2 offline records waiting to reach the server." });
+    expect(sync({ issue: { code: "JOURNAL_MISMATCH", message: "Contact support.", sequence: 3, at: "" } }).status).toBe("failed");
   });
 });

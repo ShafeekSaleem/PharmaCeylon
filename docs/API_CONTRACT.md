@@ -1437,14 +1437,19 @@ from 1 per enrollment), its grant expires 24 hours after this issuance, and earl
 kept. A `requestId` that was already issued always replays its own version, however many
 versions followed.
 
-- **Journal baseline.** The snapshot's `includedThroughSequence` / `includedThroughHash` come
-  from the enrollment's accepted offline journal, read in the issuance's own repeatable-read view:
-  `terminal_command_receipt` rows with an `offline_sequence`. While there are none, the baseline
-  is 0 / `null`. Batches with an open `batch_sale_block` at the branch (P5 #51, whichever
-  counter's journal opened the case) are `stockReviewRequired`. Once any is accepted, a new request is 403
-  `RECONCILIATION_REQUIRED` (from the challenge already, unless the `requestId` is a replay):
-  rebasing over a journal needs the accepted head and P5's stock-review blocks. Online receipts
-  (no `offline_sequence`) are not journal.
+- **Journal baseline (the rebase, P5 #51).** The snapshot's `includedThroughSequence` /
+  `includedThroughHash` are the enrollment's accepted offline journal head: the highest
+  `terminal_command_receipt` with an `offline_sequence`, and its digest. They are read in the
+  issuance's own repeatable-read view together with the stock the snapshot signs, so every posted
+  offline sale through the head is already out of the balances. While nothing is accepted, the
+  baseline is 0 / `null`. Batches with an open `batch_sale_block` at the branch (whichever
+  counter's journal opened the case) are `stockReviewRequired`, which covers the sales still
+  pending reconciliation. Online receipts (no `offline_sequence`) are not journal. A new request
+  is 403 `RECONCILIATION_REQUIRED` only while the journal is stuck past its head on an entry that
+  was rejected or conflicts with the accepted chain (an `offline_journal_review` row): nothing
+  after it can be accepted until it is reviewed. This is refused at the challenge already,
+  unless the `requestId` is a replay. Held entries (a gap, a sign-in not uploaded yet) don't
+  refuse.
 - **Replaced counters.** Only the current nomination is issued to, replays included. Issuance holds
   the nomination, enrollment and terminal rows (`FOR SHARE`) until it commits, so moving the
   nomination, revoking the enrollment or retiring the terminal either waits for it or makes it
@@ -1455,19 +1460,26 @@ versions followed.
 
 **Desktop cadence.** The nominated counter renews whenever its installed snapshot is 5 minutes
 old, checking once a minute while someone is signed in and the counter is unlocked, so a healthy
-counter's saved stock is under 6 minutes old against the 15-minute outage-entry limit. Each
+counter's saved stock is under 6 minutes old against the 15-minute outage-entry limit. It also
+renews whenever an outage is draining or the installed snapshot doesn't include the whole local
+journal, but never while journal entries recorded here wait for the server: a pair issued then
+could not include them. Each
 renewal is a fresh signed command and attendance proof. A transient failure (network, 5xx,
 `TEMPORARILY_UNAVAILABLE`) is retried after 1, 2, 4, then every 5 minutes; a refusal that needs a
 person (`GRANT_INVALID`, `BRANCH_HOURS_NOT_CONFIGURED`, `RECONCILIATION_REQUIRED`, or a pair
 that will not install) backs off from 1 to 30 minutes. A request ID is kept until its response
 arrives, then discarded.
 
-**Desktop install.** The verified pair replaces the installed one in a single SQLite transaction,
-only if it is newer, its baseline is 0, and `hasLocalOfflineUsage` finds no offline use recorded
-for the enrollment (`pos-desktop/src/main/terminal/offline-journal.ts`; P4 lists its tables
-there). A pair that fails verification, is older than the installed one, or claims a newer
-version with older evidence is never installed. Only the current pair is kept on the counter;
-the server keeps every version.
+**Desktop install.** The verified pair replaces the installed one in a single SQLite
+transaction, only if it is newer and its watermark is exactly this computer's journal head
+(`journalCoverage` in `pos-desktop/src/main/terminal/offline-journal.ts`). A pair whose watermark
+is behind the local head is refused `local_usage` (upload first). One whose watermark names
+entries this computer doesn't have is refused `journal_mismatch` and never installed. Installing
+resets the consumption counted against the replaced snapshot, which the new one already
+includes. During a reconnect drain it is the drain's last step, as described below. A pair that
+fails verification, is older than the installed one, or claims a newer version with older
+evidence is never installed. Only the current pair is kept on the counter; the server keeps
+every version.
 
 ## Held offline evidence verification (P3)
 
@@ -1604,9 +1616,37 @@ record is stored but still `held`, acknowledged `held` with `RECONCILIATION_REQU
 reason in the message), or `REPLAY_CONFLICT` for changed content under a used record ID. Gating
 dependent commands on support-record verification is a later P5 slice.
 
-**Not yet (later P5 slices).** Rebasing a snapshot or renewing a grant over a non-empty journal
-(issuance still refuses with `RECONCILIATION_REQUIRED`), support-record gating of dependent commands, replacement / missing-journal review,
-backup and restore, and the retention policy for journal evidence (nothing is deleted today).
+**Desktop upload and reconnect drain (approved D12).** The nominated counter uploads its journal
+(`pos-desktop/src/main/terminal/offline-journal-sync.ts`) every 15 seconds while someone is
+signed in. It sends the entries the server hasn't accepted, in sequence order, 50 per request,
+with every staff sign-in they cite. With nothing waiting, it sends an empty upload every
+5 minutes, so the server confirms the whole journal.
+
+- **Trust.** A reply is applied only if it verifies against the offline authority key (purpose
+  `sync_response`) and names this identity. Its acknowledgements must match what was sent: one
+  each, in order, with the exact hash, sequence and kind, nothing after a refusal and nothing
+  committed past the watermark. Otherwise nothing in it is applied.
+- **Outcomes.** `committed` / `duplicate` entries are marked accepted, with the acknowledgement
+  kept. `held` ones are resent after a minute; `rejected` ones never are. A lost reply is
+  recovered by resending the same entries.
+- **Watermark.** It is recorded only if it names this computer's own chain. One naming entries
+  this computer doesn't have (`JOURNAL_MISMATCH`, e.g. a restored backup) is never adopted, and
+  no new outage may start until it is recovered.
+- **Pause.** After an outage, new checkouts on that counter are refused `SYNC_PAUSED` until the
+  drain finishes. Confirming an unconfirmed sale still works.
+- **Finishing the drain.** The drain finishes, by `mayResumeOnlineCheckout`, when the journal is
+  accepted through its last entry, nothing sent is `submitted` / `uncertain`, and a fresh pair
+  rebased over the journal installs. That install ends the outage in the same transaction. If the
+  server refuses the counter offline authority (no longer nominated, or `GRANT_INVALID`), the
+  drain ends without a pair once the rest holds: online checkout checks stock centrally.
+
+**Not yet (later P5 slices).**
+
+- Review of a rejected journal entry.
+- Support-record gating of dependent commands.
+- Replacement / missing-journal review (D11 `journalRecoveryEvidence`).
+- Backup and restore.
+- The retention policy for journal evidence (nothing is deleted today).
 
 ## Offline stock case resolution (P5 #51)
 

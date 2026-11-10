@@ -453,6 +453,12 @@
   background: var(--pos-bad-soft);
 }
 
+/* Synchronising after an outage (P5 #51): in progress, not a fault. */
+.blockCard .blockIcon.syncIcon {
+  color: var(--pos-info);
+  background: var(--pos-info-soft);
+}
+
 /* Status bar words that give way first in a narrow window; the figures stay. */
 @media (max-width: 1200px) {
   .sbLabel {

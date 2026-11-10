@@ -3,6 +3,7 @@ import type {
   ApiReachability,
   AppInfo,
   DeviceState,
+  JournalSync,
   Printer,
   ReadinessReport,
   ShiftState,
@@ -17,7 +18,7 @@ import { Returns } from "./Returns";
 import { Sell } from "./Sell";
 import { Stock } from "./Stock";
 import { SetupScreen } from "./Setup";
-import { Rail, ServerBlock, StatusBar, TitleBar, type Page } from "./Shell";
+import { Rail, ServerBlock, StatusBar, SyncBlock, TitleBar, type Page } from "./Shell";
 import shell from "./Shell.module.css";
 import { SignInScreen } from "./SignIn";
 import { ThisCounterPage } from "./ThisCounter";
@@ -28,6 +29,8 @@ const API_POLL_MS = 15_000;
 /** The counter's own copy of its shift is a local read: cheap enough to keep the status bar current. */
 const SHIFT_LOCAL_MS = 3_000;
 const SHIFT_SERVER_MS = 30_000;
+/** The offline journal's upload state (P5 #51) is a local read too. */
+const JOURNAL_SYNC_MS = 3_000;
 
 export function App() {
   const [info, setInfo] = useState<AppInfo | null>(null);
@@ -42,6 +45,7 @@ export function App() {
   const [workCount, setWorkCount] = useState(0);
   const [lockError, setLockError] = useState<string | null>(null);
   const [shift, setShift] = useState<ShiftState | null>(null);
+  const [journal, setJournal] = useState<JournalSync | null>(null);
   /** Who the last handover named to take over, picked first on the lock screen. */
   const [nextUp, setNextUp] = useState<string | null>(null);
 
@@ -127,6 +131,20 @@ export function App() {
     return () => window.clearInterval(timer);
   }, [unlocked, sessionId, refreshShift]);
 
+  // After an outage the counter pauses new sales while it synchronises (P5 #51).
+  const loadJournal = useCallback(() => {
+    window.pos
+      .getJournalSync()
+      .then(setJournal)
+      .catch(() => undefined);
+  }, []);
+  useEffect(() => {
+    if (!device) return;
+    loadJournal();
+    const timer = window.setInterval(loadJournal, JOURNAL_SYNC_MS);
+    return () => window.clearInterval(timer);
+  }, [Boolean(device), loadJournal]);
+
   // Owners and managers approve their own refunds by default (the tenant's self-approval
   // roles); Returns words its button by this, and the server decides.
   const sessionRole = device?.counterStaff.find(
@@ -209,6 +227,8 @@ export function App() {
   const sellGated =
     Boolean(shift) &&
     !(current?.status === "open" && current.staffUserId === session?.staffUserId);
+  // The server can be reached but this counter is still synchronising an outage's sales.
+  const syncPaused = Boolean(journal?.pause) && Boolean(api?.reachable);
   const signIn = (
     <SignInScreen
       key={sessionId ?? "signed-out"}
@@ -257,7 +277,7 @@ export function App() {
               <main className={shell.content}>
                 {/* Each page's keys work only while it is the one shown. Sell's go quiet while
                     there's no open shift to sell on. */}
-                <KeyScope active={page === "sell" && !sellGated}>
+                <KeyScope active={page === "sell" && !sellGated && !syncPaused}>
                   <div className={shell.page} hidden={page !== "sell"}>
                     <Sell
                       key={sessionId}
@@ -321,7 +341,8 @@ export function App() {
                     />
                   </div>
                 </KeyScope>
-                {page === "sell" && shift && sellGated && (
+                {page === "sell" && syncPaused && journal && <SyncBlock sync={journal} />}
+                {page === "sell" && shift && sellGated && !syncPaused && (
                   <ShiftGate
                     device={device}
                     shift={shift}

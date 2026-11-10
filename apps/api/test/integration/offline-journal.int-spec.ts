@@ -1,11 +1,12 @@
 import { randomBytes, randomUUID, verify } from "node:crypto";
 import { RoleName, StockMovementType } from "@prisma/client";
 import { terminalSigningText, type Signed } from "@pharmaceylon/shared";
-import { emptyJournalState } from "../../src/terminals/offline-authority-issuance";
+import { acceptedJournalState, issueOfflineAuthority } from "../../src/terminals/offline-authority-issuance";
 import { commandText, sha256 } from "../../src/terminals/terminal-wire";
 import { terminalDevice } from "../fixtures/terminal-device";
 import {
   prisma,
+  access,
   trust,
   stock,
   sales,
@@ -256,7 +257,7 @@ describe("offline journal intake (P5 #51)", () => {
       .rejects.toMatchObject({ response: { code: "STOCK_POSTING_PENDING" } });
 
     // A fresh snapshot for any counter at this branch marks the blocked batch for review.
-    const state = await prisma.$transaction((tx) => emptyJournalState(tx, { ...c.identity, enrollmentId: randomUUID() }));
+    const state = await prisma.$transaction((tx) => acceptedJournalState(tx, { ...c.identity, enrollmentId: randomUUID() }));
     expect([...state.reviewRequiredBatchIds]).toEqual([c.batches.partition]);
 
     // The response was lost: the retry returns the original receipt, case included.
@@ -272,6 +273,36 @@ describe("offline journal intake (P5 #51)", () => {
     expect(await prisma.offlineStockDiscrepancyLine.findFirstOrThrow({ where: { caseId: second.reconciliationCaseId! } }))
       .toMatchObject({ soldQuantity: 1, availableQuantityAtSync: 3, shortfallQuantity: 0, reason: "batch_under_review" });
     expect(await onHand(c.batches.partition)).toBe(3);
+  });
+
+  it("rebases the counter's next authority over its accepted journal: posted sales come off, a pending one stays blocked", async () => {
+    const c = await counter({ partition: 10, other: 20 });
+    await sales.checkout(c.fx.tenantId, c.fx.mainBranchId, c.owner.userId, [],
+      { items: [{ productId: c.fx.productId, batchId: c.batches.partition, qty: 7, unitPrice: "15.50" }] } as never, undefined);
+    const j = offlineJournal(c);
+    const cashierIn = j.signIn(c.cashier.userId, randomUUID());
+    const commands = [j.open(cashierIn, 0), j.sale(cashierIn, [[c.batches.other, 4]]), j.sale(cashierIn, [[c.batches.partition, 5]])];
+    const response = await sync(c, { staffSignIns: [cashierIn], commands });
+    expect(response.payload.acknowledgements.map((a) => a.status)).toEqual(["committed", "committed", "committed"]);
+
+    // The drain's fresh snapshot: stock and watermark from one view, after the upload.
+    const renewed = await issueOfflineAuthority(prisma as never, access, {
+      signer, defaultVatRatePercent: 18,
+      authenticate: async () => ({ identity: c.identity, commandId: randomUUID() }),
+      readState: acceptedJournalState,
+    });
+    const snapshot = renewed.snapshot.payload;
+    expect(snapshot).toMatchObject({
+      snapshotVersion: c.snapshot.snapshotVersion + 1,
+      includedThroughSequence: 3,
+      includedThroughHash: response.payload.committedThroughHash,
+    });
+    const line = (batchId: string) => snapshot.lines.find((l) => l.batchId === batchId);
+    // The posted sale is in central stock, so it is in the snapshot: 20 - 4, not sold twice.
+    expect(line(c.batches.other)).toMatchObject({ availableQuantity: 16, stockReviewRequired: false });
+    // The pending one holds its batch: advancing the watermark doesn't make those units sellable.
+    expect(line(c.batches.partition)).toMatchObject({ stockReviewRequired: true });
+    expect(response.payload.committedThroughHash).toBe(sha256(commandText(commands[2]!.payload)));
   });
 
   it("acknowledges support records in the same upload, and refuses a counter login from another counter", async () => {

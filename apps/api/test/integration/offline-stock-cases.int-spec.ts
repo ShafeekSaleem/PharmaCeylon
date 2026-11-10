@@ -13,7 +13,7 @@ import { StockCasesService } from "../../src/stock-cases/stock-cases.service";
 import { CounterWorkService } from "../../src/terminal-commands/counter-work.service";
 import { SignedOperations } from "../../src/terminal-commands/signed-operations";
 import { TerminalCommandExecutor } from "../../src/terminal-commands/terminal-command.executor";
-import { emptyJournalState } from "../../src/terminals/offline-authority-issuance";
+import { acceptedJournalState } from "../../src/terminals/offline-authority-issuance";
 import {
   access,
   attest,
@@ -98,7 +98,7 @@ const onlineSale = (c: Counter, batchId: string, qty: number) =>
     { items: [{ productId: c.fx.productId, batchId, qty, unitPrice: "15.50" }] } as never, undefined);
 
 const reviewSet = async (c: Counter) =>
-  [...(await prisma.$transaction((tx) => emptyJournalState(tx, { ...c.identity, enrollmentId: randomUUID() }))).reviewRequiredBatchIds].sort();
+  [...(await prisma.$transaction((tx) => acceptedJournalState(tx, { ...c.identity, enrollmentId: randomUUID() }))).reviewRequiredBatchIds].sort();
 
 /** A case's daily work item for someone who both reviews and manages inventory. */
 const workItem = async (c: Counter, caseId: string) =>
