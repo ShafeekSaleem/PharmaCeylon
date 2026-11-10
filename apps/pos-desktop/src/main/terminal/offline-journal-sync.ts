@@ -22,9 +22,11 @@ import {
   drainAwaitsFreshSnapshot,
   ensureSyncRow,
   finishDrainWithoutRenewal,
+  NOTHING_UNCONFIRMED,
   readAcceptedWatermark,
   recordAcceptedWatermark,
   syncPauseFrom,
+  unresolvedSubmissions,
   type CheckoutSyncPause,
 } from "./reconnect-drain";
 import type { TerminalService } from "./terminal-service";
@@ -719,7 +721,12 @@ export function readJournalSyncView(
             drainedAt: row.drained_at,
           }
         : null,
-    pause: syncPauseFrom(outage, head, accepted),
+    pause: syncPauseFrom(
+      outage,
+      head,
+      accepted,
+      outage ? unresolvedSubmissions(db, enrollmentId) : NOTHING_UNCONFIRMED,
+    ),
   };
 }
 
@@ -747,7 +754,13 @@ export function createSyncCoordinator(deps: {
     const current = deps.terminal.current();
     if (!current || !deps.refresh) return;
     const enrollmentId = current.identity.enrollmentId;
-    if (!drainAwaitsFreshSnapshot(deps.db, enrollmentId)) return;
+    if (!drainAwaitsFreshSnapshot(deps.db, enrollmentId)) {
+      // Ask afresh once it does. A sale left unconfirmed when the pair arrived (`drain_incomplete`,
+      // which backs the refresh off) is confirmed by a person: the drain then finishes at once
+      // rather than after that back-off.
+      renewalAskedFor = null;
+      return;
+    }
     const key = `${activeOutage(deps.db, enrollmentId)?.offlineSessionId}:${localJournalHead(deps.db, enrollmentId).sequence}`;
     if (renewalAskedFor?.key !== key) {
       renewalAskedFor = { key, at: now() };
@@ -824,6 +837,7 @@ export function journalSyncState(view: JournalSyncView | null): JournalSync {
         view.pause.outageStartedAt === null
           ? null
           : new Date(view.pause.outageStartedAt).toISOString(),
+      unconfirmed: { ...view.pause.unconfirmed },
     },
     lastDrainAt: view.lastDrain?.drainedAt ?? null,
   };

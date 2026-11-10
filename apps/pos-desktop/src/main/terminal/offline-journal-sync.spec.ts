@@ -47,6 +47,7 @@ import {
   drainAwaitsFreshSnapshot,
   journalNeedsRecovery,
   readAcceptedWatermark,
+  unresolvedSubmissions,
 } from "./reconnect-drain";
 
 /** P5 #51: uploading the offline journal P4 writes, and finishing the reconnect drain. */
@@ -433,6 +434,7 @@ describe("uploading the offline journal", () => {
       reason: "draining",
       waiting: 3,
       outageStartedAt: NOW,
+      unconfirmed: { sales: 0, actions: 0 },
     });
 
     await u.sync.tick();
@@ -473,6 +475,7 @@ describe("uploading the offline journal", () => {
       reason: "draining",
       waiting: 0,
       outageStartedAt: NOW,
+      unconfirmed: { sales: 0, actions: 0 },
     });
     expect(drainAwaitsFreshSnapshot(local.db, identity.enrollmentId)).toBe(
       true,
@@ -753,12 +756,19 @@ describe("trusting the server's reply", () => {
     expect(u.srv.requests).toHaveLength(3);
     expect(u.view().issue).toMatchObject({ code: "JOURNAL_MISMATCH" });
 
-    // A verified reply naming this computer's own chain does.
+    // Nor does a clean, verified reply that still names entries this computer doesn't have.
     u.srv.signWith(server.privateKey);
-    u.srv.alter(null);
     u.advance(120_000);
     await u.sync.tick();
     expect(u.srv.requests).toHaveLength(4);
+    expect(u.view().issue).toMatchObject({ code: "JOURNAL_MISMATCH" });
+    expect(journalNeedsRecovery(local.db, identity.enrollmentId)).toBe(true);
+
+    // A verified reply naming this computer's own chain does.
+    u.srv.alter(null);
+    u.advance(ISSUE_RETRY_MS);
+    await u.sync.tick();
+    expect(u.srv.requests).toHaveLength(5);
     expect(u.view().issue).toBeNull();
     expect(journalNeedsRecovery(local.db, identity.enrollmentId)).toBe(false);
   });
@@ -846,22 +856,26 @@ describe("finishing the reconnect drain (approved D12)", () => {
     ).not.toBe(outage.offlineSessionId);
   });
 
-  it("keeps the outage and the installed pair while a sale sent from here is unconfirmed", async () => {
-    const { head } = await drained(1);
+  it("keeps the outage and the installed pair while a sale sent from here is unconfirmed, but records the pair's watermark", async () => {
+    // The journal reached the server but the upload's reply was lost: nothing is accepted here yet.
+    sellOffline(1);
+    const head = localJournalHead(local.db, identity.enrollmentId);
+    expect(readAcceptedWatermark(local.db, identity.enrollmentId)).toEqual({
+      sequence: 0,
+      hash: null,
+    });
+    const draftId = randomUUID();
     local.db
       .prepare(
         `INSERT INTO checkout_draft (id, work_session_id, staff_user_id, request_json, total_minor, status, enrollment_id, created_at, updated_at)
        VALUES (?, ?, ?, '{"items":[]}', 100, 'uncertain', ?, 'x', 'x')`,
       )
       .run(
-        randomUUID(),
+        draftId,
         staff.workSessionId,
         staff.staffUserId,
         identity.enrollmentId,
       );
-    expect(drainAwaitsFreshSnapshot(local.db, identity.enrollmentId)).toBe(
-      false,
-    );
     expect(
       installOfflineAuthority(
         local.db,
@@ -873,8 +887,73 @@ describe("finishing the reconnect drain (approved D12)", () => {
       readInstalledOfflineAuthority(local.db, identity.enrollmentId)?.version,
     ).toBe(1);
     expect(activeOutage(local.db, identity.enrollmentId)).not.toBeNull();
-    expect(checkoutSyncPause(local.db, identity.enrollmentId)).toMatchObject({
+    // Intended: the pair's watermark is the server's signed acceptance of the journal, true
+    // whatever this install made of the pair. So the upload is done, and staff are told that
+    // only the unconfirmed sale holds the drain now.
+    expect(readAcceptedWatermark(local.db, identity.enrollmentId)).toEqual(head);
+    expect(checkoutSyncPause(local.db, identity.enrollmentId)).toEqual({
       reason: "draining",
+      waiting: 0,
+      outageStartedAt: NOW,
+      unconfirmed: { sales: 1, actions: 0 },
+    });
+
+    // Confirmed: the same pair now finishes the drain.
+    local.db
+      .prepare("UPDATE checkout_draft SET status = 'completed' WHERE id = ?")
+      .run(draftId);
+    expect(drainAwaitsFreshSnapshot(local.db, identity.enrollmentId)).toBe(true);
+    expect(
+      installOfflineAuthority(
+        local.db,
+        authority(2, NOW + 5_000, head),
+        expected(NOW + 6_000),
+      ),
+    ).toBe("installed");
+    expect(activeOutage(local.db, identity.enrollmentId)).toBeNull();
+  });
+
+  it("waits for what this enrollment sent, not what an earlier enrollment of this computer left", async () => {
+    await drained(1);
+    const signedCommand = (enrollmentId: string) =>
+      local.db
+        .prepare(
+          `INSERT INTO signed_command (command_id, operation, staff_user_id, envelope_json, attendance_proof_id, status, created_at, updated_at)
+           VALUES (?, 'POST /api/v1/terminal-commands/x', ?, ?, ?, 'uncertain', 'x', 'x')`,
+        )
+        .run(
+          randomUUID(),
+          staff.staffUserId,
+          JSON.stringify({ payload: { identity: { ...identity, enrollmentId } } }),
+          randomUUID(),
+        );
+    const draft = (enrollmentId: string | null) =>
+      local.db
+        .prepare(
+          `INSERT INTO checkout_draft (id, work_session_id, staff_user_id, request_json, total_minor, status, enrollment_id, created_at, updated_at)
+           VALUES (?, ?, ?, '{"items":[]}', 100, 'submitted', ?, 'x', 'x')`,
+        )
+        .run(randomUUID(), staff.workSessionId, staff.staffUserId, enrollmentId);
+    // Neither can be resent from this enrollment, so neither can be confirmed here.
+    signedCommand(randomUUID());
+    draft(randomUUID());
+    expect(unresolvedSubmissions(local.db, identity.enrollmentId)).toEqual({
+      sales: 0,
+      actions: 0,
+    });
+    expect(drainAwaitsFreshSnapshot(local.db, identity.enrollmentId)).toBe(true);
+
+    // This enrollment's own, and a draft from before drafts recorded their enrollment, do count.
+    signedCommand(identity.enrollmentId);
+    draft(null);
+    expect(unresolvedSubmissions(local.db, identity.enrollmentId)).toEqual({
+      sales: 1,
+      actions: 1,
+    });
+    expect(drainAwaitsFreshSnapshot(local.db, identity.enrollmentId)).toBe(false);
+    expect(checkoutSyncPause(local.db, identity.enrollmentId)?.unconfirmed).toEqual({
+      sales: 1,
+      actions: 1,
     });
   });
 
@@ -973,6 +1052,52 @@ describe("finishing the reconnect drain (approved D12)", () => {
     expect(
       readInstalledOfflineAuthority(local.db, identity.enrollmentId)?.version,
     ).toBe(1);
+  });
+
+  it("asks again for a fresh pair as soon as the last unconfirmed sale is confirmed", async () => {
+    sellOffline(1);
+    await uploader().sync.tick();
+    const refresh = {
+      renewNow: jest.fn(),
+      tick: jest.fn(async () => undefined),
+      status: () => ({
+        nominated: true,
+        nominatedAt: null,
+        lastFailure: null,
+        lastSuccessAt: null,
+        consecutiveFailures: 0,
+        nextAttemptAt: null,
+      }),
+    };
+    const cycle = createSyncCoordinator({
+      db: local.db,
+      sync: { tick: async () => undefined },
+      refresh,
+      now: () => NOW,
+      terminal: {
+        current: () => ({ identity, staff, key: deviceKey }),
+      } as never,
+    });
+    await cycle();
+    expect(refresh.renewNow).toHaveBeenCalledTimes(1);
+
+    // A sale goes uncertain before the pair arrives: the installer refuses it (`drain_incomplete`)
+    // and the refresh backs off. Confirming the sale must not wait out that back-off.
+    const draftId = randomUUID();
+    local.db
+      .prepare(
+        `INSERT INTO checkout_draft (id, work_session_id, staff_user_id, request_json, total_minor, status, enrollment_id, created_at, updated_at)
+         VALUES (?, ?, ?, '{"items":[]}', 100, 'uncertain', ?, 'x', 'x')`,
+      )
+      .run(draftId, staff.workSessionId, staff.staffUserId, identity.enrollmentId);
+    await cycle();
+    expect(refresh.renewNow).toHaveBeenCalledTimes(1);
+    local.db
+      .prepare("UPDATE checkout_draft SET status = 'completed' WHERE id = ?")
+      .run(draftId);
+    await cycle();
+    expect(refresh.renewNow).toHaveBeenCalledTimes(2);
+    expect(refresh.tick).toHaveBeenCalledTimes(2);
   });
 
   it("never ends the drain without a pair while journal entries are still waiting", async () => {

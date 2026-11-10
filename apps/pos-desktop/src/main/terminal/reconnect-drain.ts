@@ -31,7 +31,16 @@ export type CheckoutSyncPause = {
   /** Journal entries recorded here that the server has not accepted yet. */
   waiting: number;
   outageStartedAt: number | null;
+  /**
+   * Online sales and signed actions sent from this enrollment with no confirmed outcome. The
+   * drain waits for them, so staff are told what to confirm (zero when no outage is draining).
+   */
+  unconfirmed: Unconfirmed;
 };
+
+export type Unconfirmed = { sales: number; actions: number };
+
+export const NOTHING_UNCONFIRMED: Unconfirmed = Object.freeze({ sales: 0, actions: 0 });
 
 type SyncRow = {
   accepted_through_sequence: number;
@@ -90,11 +99,16 @@ export function recordAcceptedWatermark(
   return true;
 }
 
-/** Online sales and signed actions sent from this counter without a confirmed outcome. */
+/**
+ * Online sales and signed actions sent from this enrollment without a confirmed outcome. Each one
+ * can be confirmed here: a sale or action left by an earlier enrollment of this computer can't be
+ * resent from this one (its sale is checked on the web instead), so it never holds this drain.
+ * Drafts written before they recorded their enrollment can still be resent, so they count.
+ */
 export function unresolvedSubmissions(
   db: PosDatabase,
   enrollmentId: string,
-): { sales: number; actions: number } {
+): Unconfirmed {
   const sales = (
     db
       .prepare(
@@ -103,13 +117,15 @@ export function unresolvedSubmissions(
       )
       .get(enrollmentId) as { n: number }
   ).n;
-  // Signed commands carry no enrollment column: this computer has one enrollment at a time.
+  // A signed command has no enrollment column; its signed envelope names the one it was sent from.
   const actions = (
     db
       .prepare(
-        "SELECT COUNT(*) AS n FROM signed_command WHERE status IN ('sent', 'uncertain')",
+        `SELECT COUNT(*) AS n FROM signed_command
+         WHERE status IN ('sent', 'uncertain')
+           AND json_extract(envelope_json, '$.payload.identity.enrollmentId') = ?`,
       )
-      .get() as { n: number }
+      .get(enrollmentId) as { n: number }
   ).n;
   return { sales, actions };
 }
@@ -212,18 +228,24 @@ export function checkoutSyncPause(
   db: PosDatabase,
   enrollmentId: string,
 ): CheckoutSyncPause | null {
+  const outage = activeOutage(db, enrollmentId);
   return syncPauseFrom(
-    activeOutage(db, enrollmentId),
+    outage,
     localJournalHead(db, enrollmentId),
     readAcceptedWatermark(db, enrollmentId),
+    outage ? unresolvedSubmissions(db, enrollmentId) : NOTHING_UNCONFIRMED,
   );
 }
 
-/** `checkoutSyncPause` from facts the caller has already read (the sync view polls every 3 s). */
+/**
+ * `checkoutSyncPause` from facts the caller has already read (the sync view polls every 3 s).
+ * `unconfirmed` matters only while an outage drains: pass `NOTHING_UNCONFIRMED` otherwise.
+ */
 export function syncPauseFrom(
   outage: { offlineStartedAt: number } | null,
   head: JournalPosition,
   accepted: JournalPosition,
+  unconfirmed: Unconfirmed,
 ): CheckoutSyncPause | null {
   const waiting = Math.max(0, head.sequence - accepted.sequence);
   if (!outage && waiting === 0) return null;
@@ -231,6 +253,7 @@ export function syncPauseFrom(
     reason: outage ? "draining" : "unsynced",
     waiting,
     outageStartedAt: outage?.offlineStartedAt ?? null,
+    unconfirmed: outage ? { ...unconfirmed } : { ...NOTHING_UNCONFIRMED },
   };
 }
 

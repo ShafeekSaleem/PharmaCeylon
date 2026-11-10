@@ -163,6 +163,10 @@ export function installOfflineAuthority(
     if (coverage === "behind") return "local_usage";
     if (usage?.(db, enrollmentId)) return "local_usage";
     const at = new Date(expected.trustedNow).toISOString();
+    // Recorded even when the drain can't finish yet (`drain_incomplete` below commits, it doesn't
+    // throw): the watermark is the server's signed acceptance of the journal, true whatever this
+    // install makes of the pair, and it only moves forward. After a lost upload reply it is the
+    // only evidence the journal arrived, so the upload isn't repeated while a sale is confirmed.
     recordAcceptedWatermark(db, enrollmentId, watermark, at);
     const outage = activeOutage(db, enrollmentId);
     if (outage && !mayResumeOnlineCheckout(drainResumeEvidence(db, enrollmentId, { snapshotCoversJournal: true })))

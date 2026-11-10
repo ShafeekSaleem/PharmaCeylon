@@ -191,7 +191,18 @@ and only then sells again.
   issued then could not include them), and a pair that is `behind` is not installed. Waiting is
   not a failure: nothing is asked, nothing backs off, and the next minute's check after the
   upload is accepted asks. The coordinator asks for one immediate renewal per outage and journal
-  head, then the refresh's own back-off applies.
+  head, then the refresh's own back-off applies — except that it asks afresh each time the drain
+  becomes ready again, so a sale confirmed after a `drain_incomplete` refusal doesn't wait out
+  that refusal's back-off.
+- **The drain waits only for what this enrollment can confirm.** Unconfirmed online sales and
+  signed actions count when this enrollment sent them (a signed action by the enrollment its
+  envelope names; a draft from before drafts recorded one still counts, since it can be resent).
+  An earlier enrollment's leftovers can't be resent from here, so they never hold the drain. The
+  pause carries the counts: Sell's block names them and holds the unconfirmed sales, which are
+  confirmable only on Sell, and readiness says what the drain is waiting for.
+- **A `drain_incomplete` install still records the pair's watermark.** It is the server's signed
+  acceptance of the journal whatever the install makes of the pair, and it only moves forward;
+  after a lost upload reply it is the only evidence the journal arrived.
 - **Finishing without a pair.** A counter that is no longer the offline counter, or whose branch
   no longer allows offline selling, will never get a rebased pair. Its drain ends once the
   journal is accepted and nothing sent is uncertain (the same `mayResumeOnlineCheckout` rule the
@@ -224,10 +235,16 @@ Desktop:
   through a dropped connection or a bad reply, and cleared only by a verified reply), the
   drain's install ending the outage, `drain_incomplete`, a `behind` pair, and the coordinator
   (immediate renewal, finishing without a pair, ignoring a refusal from before it asked, never
-  finishing with entries waiting), and the last-sync key following the enrollment signed in.
+  finishing with entries waiting, asking again once the last unconfirmed sale is confirmed), the
+  watermark a `drain_incomplete` install records, the drain waiting only for this enrollment's
+  unconfirmed sales and actions, and the last-sync key following the enrollment signed in.
+- `offline-journal-writer.spec.ts` (desktop), `offline-journal-wire.spec.ts` (API) and the shared
+  package's tests all check `packages/shared/test/journal-command-hash.json`: the desktop's
+  `journalCommandHash` and the API's `journalHash` give the same hash for the same entry.
 - `checkout-service.spec.ts` covers `SYNC_PAUSED` with retry still working.
 - `shell.spec.ts` covers the Synchronisation readiness row.
-- `Shell.spec.tsx` covers `SyncBlock`.
+- `Shell.spec.tsx` covers `SyncBlock`; `Sell.pending.spec.tsx` covers confirming an
+  unconfirmed sale under it.
 - `migrations.integration.spec.ts` covers the upgrade from 15 to 16.
 - `offline-authority*.spec.ts` covers the installer's new results, and the refresh: waiting for
   the upload without a request or a back-off, due at once during an outage, and `renewNow`.

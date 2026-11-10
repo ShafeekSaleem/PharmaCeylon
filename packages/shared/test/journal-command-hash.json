@@ -1,0 +1,53 @@
+{
+  "note": "P5 #51 golden vector: an offline journal entry's payload_hash. The desktop (journalCommandHash) and the API (journalHash: sha256(commandText(payload))) must both produce this hash for this payload: the server chains and acknowledges entries by it, so drift on either side refuses every upload. Changing it changes the hash of every journal already on a counter, so it changes only with a new contract version, never to make a test pass.",
+  "payload": {
+    "contractVersion": 1,
+    "kind": "ordinary_sale",
+    "commandId": "command-1",
+    "identity": {
+      "tenantId": "tenant-1",
+      "branchId": "branch-1",
+      "terminalId": "terminal-1",
+      "enrollmentId": "enrollment-1",
+      "keyId": "device-key-1"
+    },
+    "session": {
+      "registerId": "register-1",
+      "tillId": "till-1",
+      "workSessionId": "session-1",
+      "staffUserId": "staff-1"
+    },
+    "staffSignInId": "sign-in-1",
+    "businessHoursAcknowledgementId": null,
+    "sequence": 1,
+    "previousCommandHash": null,
+    "occurredAt": 1792368001000,
+    "grantId": "grant-1",
+    "grantVersion": 1,
+    "nominationVersion": 1,
+    "snapshotId": "snapshot-1",
+    "snapshotVersion": 1,
+    "offlineSessionId": "outage-1",
+    "offlineStartedAt": 1792368001000,
+    "currency": "LKR",
+    "lines": [
+      {
+        "snapshotLineId": "line-1",
+        "quantity": 2,
+        "unitPriceMinor": 1000,
+        "discountMinor": 0,
+        "taxMinor": 360
+      }
+    ],
+    "payments": [
+      {
+        "method": "cash",
+        "amountMinor": 2360,
+        "tenderedMinor": 2500,
+        "changeMinor": 140
+      }
+    ],
+    "totalMinor": 2360
+  },
+  "hash": "36d4b0f729738fffe982244ee2279598987abae9c8ea79bc0ce365c6a8239e18"
+}
