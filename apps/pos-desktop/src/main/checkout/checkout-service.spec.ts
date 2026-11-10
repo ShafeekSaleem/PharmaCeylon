@@ -411,6 +411,35 @@ describe("checkout safety", () => {
     expect(checkout.pending()).toEqual([]);
   });
 
+  it("pauses new sales while the counter drains an offline outage, but still confirms an unconfirmed one (P5 #51)", async () => {
+    const checkout = service();
+    await checkout.catalog();
+    checkoutReply = () => {
+      throw new ApiError(0, "NETWORK", "lost");
+    };
+    await expect(
+      checkout.submit([{ productId: paracetamol, qty: 1 }], { cashAmount: "5" }),
+    ).rejects.toMatchObject({ code: "CHECKOUT_UNCERTAIN" });
+    const [pending] = checkout.pending();
+    // The counter sold offline and is back: its drain hasn't finished.
+    local.db
+      .prepare(
+        `INSERT INTO offline_journal_state (enrollment_id, offline_session_id, offline_started_at, updated_at)
+         VALUES (?, ?, ?, 'x')`,
+      )
+      .run(identity.enrollmentId, randomUUID(), Date.now());
+    const sent = calls.length;
+    await expect(
+      checkout.submit([{ productId: paracetamol, qty: 1 }], { cashAmount: "5" }),
+    ).rejects.toMatchObject({ code: "SYNC_PAUSED" });
+    expect(calls).toHaveLength(sent);
+    expect(checkout.pending()).toHaveLength(1);
+
+    const original = randomUUID();
+    checkoutReply = () => saleResponse(original);
+    expect((await checkout.retry(pending!.draftId)).saleId).toBe(original);
+  });
+
   it("names who rang up an unconfirmed sale, and whether it is the person signed in", async () => {
     local.db
       .prepare(

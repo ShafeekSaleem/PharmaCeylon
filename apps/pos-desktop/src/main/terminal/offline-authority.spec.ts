@@ -15,7 +15,12 @@ import type { SecretProtector } from "../db/key-store";
 import { migrations } from "../db/migrations";
 import { DeviceKey } from "../device/device-key";
 import { openLocalStore, type LocalStore } from "../local-store";
-import { installOfflineAuthority, readInstalledOfflineAuthority, type OfflineAuthority } from "./offline-authority";
+import {
+  installedPairCoversJournal,
+  installOfflineAuthority,
+  readInstalledOfflineAuthority,
+  type OfflineAuthority,
+} from "./offline-authority";
 import {
   createOfflineAuthorityRefresh,
   FIRST_BACKOFF_MS,
@@ -23,7 +28,8 @@ import {
   OFFLINE_AUTHORITY_REFRESH_MS,
   OFFLINE_AUTHORITY_TICK_MS,
 } from "./offline-authority-refresh";
-import { hasLocalOfflineUsage, NOT_OFFLINE_USAGE, OFFLINE_USAGE_TABLES } from "./offline-journal";
+import { activeOutage, NOT_OFFLINE_USAGE, OFFLINE_USAGE_TABLES } from "./offline-journal";
+import { recordAcceptedWatermark } from "./reconnect-drain";
 
 const protector: SecretProtector = {
   isAvailable: () => true,
@@ -147,9 +153,9 @@ describe("rebasing onto a newer version", () => {
     expect(readInstalledOfflineAuthority(local.db, identity.enrollmentId)).toEqual({ version: 1, ...first });
   });
 
-  it("leaves a pair rebased over an accepted journal to P5", () => {
+  it("never installs a pair rebased over journal entries this computer doesn't have (P5 #51)", () => {
     installOfflineAuthority(local.db, authority({ issuedAt: NOW - 120_000 }), expected());
-    expect(installOfflineAuthority(local.db, authority({ version: 2, sequence: 3 }), expected())).toBe("reconciliation_required");
+    expect(installOfflineAuthority(local.db, authority({ version: 2, sequence: 3 }), expected())).toBe("journal_mismatch");
     expect(installedVersion()).toBe(1);
   });
 
@@ -173,16 +179,6 @@ describe("the local offline journal check", () => {
     expect(tables.filter((name) => !OFFLINE_USAGE_TABLES.includes(name))).toEqual([]);
   });
 
-  it("finds any row for this enrollment in an offline usage table", () => {
-    local.db.exec("CREATE TABLE offline_sale_test (enrollment_id TEXT NOT NULL)");
-    expect(hasLocalOfflineUsage(local.db, identity.enrollmentId, ["offline_sale_test"])).toBe(false);
-    local.db.prepare("INSERT INTO offline_sale_test VALUES (?)").run(randomUUID());
-    expect(hasLocalOfflineUsage(local.db, identity.enrollmentId, ["offline_sale_test"])).toBe(false);
-    local.db.prepare("INSERT INTO offline_sale_test VALUES (?)").run(identity.enrollmentId);
-    expect(hasLocalOfflineUsage(local.db, identity.enrollmentId, ["offline_sale_test"])).toBe(true);
-    expect(() => hasLocalOfflineUsage(local.db, identity.enrollmentId, ["x; DROP TABLE y"])).toThrow();
-  });
-
   it("ignores online-only journal bookkeeping when deciding if renewal is blocked", () => {
     installOfflineAuthority(local.db, authority(), expected());
     const at = new Date(NOW).toISOString();
@@ -198,7 +194,8 @@ describe("the local offline journal check", () => {
          VALUES (?, ?, 1, ?, 3)`,
       )
       .run(identity.enrollmentId, randomUUID(), randomUUID());
-    expect(hasLocalOfflineUsage(local.db, identity.enrollmentId)).toBe(false);
+    expect(installedPairCoversJournal(local.db, identity.enrollmentId)).toBe(true);
+    expect(installOfflineAuthority(local.db, authority({ version: 2 }), expected())).toBe("installed");
   });
 
   it("blocks renewal when a journal command row exists for this enrollment", () => {
@@ -211,13 +208,17 @@ describe("the local offline journal check", () => {
         ) VALUES (?, ?, 1, NULL, ?, '{}', 'pending', ?)`,
       )
       .run(randomUUID(), identity.enrollmentId, "b".repeat(64), new Date(NOW).toISOString());
-    expect(hasLocalOfflineUsage(local.db, identity.enrollmentId)).toBe(true);
+    expect(installedPairCoversJournal(local.db, identity.enrollmentId)).toBe(false);
+    expect(installOfflineAuthority(local.db, authority({ version: 2 }), expected())).toBe("local_usage");
   });
 });
 
 describe("refreshing in the background", () => {
   /** A fake server: each new request ID is the next version; a known one replays its pair. */
-  function refresh(reply: () => Promise<unknown> = async () => undefined, options: { usage?: () => boolean } = {}) {
+  function refresh(
+    reply: () => Promise<unknown> = async () => undefined,
+    options: { usage?: () => boolean; sequence?: () => number } = {},
+  ) {
     let clock = NOW;
     let version = 0;
     let loseNext = false;
@@ -239,7 +240,8 @@ describe("refreshing in the background", () => {
             session: { ...device, staffUserId: staff.staffUserId, workSessionId: staff.workSessionId },
           };
         }
-        if (!issued.has(challenged)) issued.set(challenged, authority({ version: ++version, issuedAt: clock - 1_000 }));
+        if (!issued.has(challenged))
+          issued.set(challenged, authority({ version: ++version, issuedAt: clock - 1_000, sequence: options.sequence?.() }));
         if (loseNext) {
           loseNext = false;
           throw new ApiError(0, "NETWORK", "The connection dropped");
@@ -335,6 +337,70 @@ describe("refreshing in the background", () => {
     expect(r.loop.status()).toMatchObject({ consecutiveFailures: 1, lastFailure: { code: "local_usage" } });
   });
 
+  /** An offline journal entry recorded here (its hash is the one `authority` signs for a watermark). */
+  function journalEntry(sequence: number) {
+    local.db
+      .prepare(
+        `INSERT INTO offline_journal_command (
+          command_id, enrollment_id, sequence, previous_hash, payload_hash,
+          envelope_json, sync_status, created_at
+        ) VALUES (?, ?, ?, NULL, ?, '{}', 'pending', ?)`,
+      )
+      .run(randomUUID(), identity.enrollmentId, sequence, "a".repeat(64), new Date(NOW).toISOString());
+  }
+
+  it("waits for the journal upload without asking or backing off, then asks at the next check (P5 #51)", async () => {
+    let head = 0;
+    const r = refresh(undefined, { sequence: () => head });
+    await r.loop.tick();
+    expect(r.installed()?.version).toBe(1);
+    // An offline sale is recorded here and the server hasn't accepted it: the pair is behind the
+    // journal, so a renewal is due, but one issued now couldn't include the sale.
+    journalEntry(1);
+    head = 1;
+    await r.run(3 * OFFLINE_AUTHORITY_TICK_MS);
+    expect(r.requests).toHaveLength(2);
+    expect(r.attendCommand).toHaveBeenCalledTimes(1);
+    expect(r.loop.status()).toMatchObject({ consecutiveFailures: 0, lastFailure: null, nextAttemptAt: null });
+    expect(r.report).not.toHaveBeenCalled();
+    // Accepted: the next minute's check asks, and the new pair includes the entry.
+    recordAcceptedWatermark(local.db, identity.enrollmentId, { sequence: 1, hash: "a".repeat(64) }, new Date(r.now()).toISOString());
+    await r.run(OFFLINE_AUTHORITY_TICK_MS);
+    expect(r.installed()?.version).toBe(2);
+    expect(r.installed()?.snapshot.payload.includedThroughSequence).toBe(1);
+  });
+
+  it("is due at once during an outage however young the pair, and installing ends the outage (P5 #51)", async () => {
+    const r = refresh();
+    await r.loop.tick();
+    local.db
+      .prepare(
+        `INSERT INTO offline_journal_state (enrollment_id, offline_session_id, offline_started_at, updated_at)
+         VALUES (?, ?, ?, 'x')
+         ON CONFLICT(enrollment_id) DO UPDATE SET offline_session_id = excluded.offline_session_id,
+           offline_started_at = excluded.offline_started_at`,
+      )
+      .run(identity.enrollmentId, randomUUID(), r.now());
+    await r.run(OFFLINE_AUTHORITY_TICK_MS);
+    expect(r.installed()?.version).toBe(2);
+    expect(activeOutage(local.db, identity.enrollmentId)).toBeNull();
+  });
+
+  it("asks at the next check after renewNow, whatever the back-off (P5 #51)", async () => {
+    let failing = true;
+    const r = refresh(async () => {
+      if (failing) throw new ApiError(0, "NETWORK", "Offline");
+    });
+    await r.loop.tick();
+    expect(r.loop.status().nextAttemptAt).toBe(r.now() + FIRST_BACKOFF_MS);
+    failing = false;
+    await r.loop.tick();
+    expect(r.requests).toHaveLength(1);
+    r.loop.renewNow();
+    await r.loop.tick();
+    expect(r.installed()?.version).toBe(1);
+  });
+
   it("waits 15 minutes before asking again on a counter that isn't the branch's offline counter", async () => {
     const { loop, requests, attendCommand, report, advance } = refresh(async () => {
       throw new ApiError(403, "IDENTITY_MISMATCH", "Terminal authorization failed");
@@ -345,7 +411,7 @@ describe("refreshing in the background", () => {
     expect(requests).toHaveLength(1);
     expect(attendCommand).not.toHaveBeenCalled();
     expect(report).not.toHaveBeenCalled();
-    expect(loop.status().nominated).toBe(false);
+    expect(loop.status()).toMatchObject({ nominated: false, nominatedAt: NOW });
     advance(1);
     await loop.tick();
     expect(requests).toHaveLength(2);

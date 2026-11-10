@@ -260,16 +260,16 @@ describe("openLocalStore", () => {
     ).toEqual({ branch_code: "", enrolled_by_name: null });
     through13.db.close();
 
-    const through15 = openLocalStore(dir, fakeProtector, migrations);
-    expect(through15.schemaVersion).toBe(15);
+    const throughLatest = openLocalStore(dir, fakeProtector, migrations);
+    expect(throughLatest.schemaVersion).toBe(migrations.length);
     expect(
-      through15.db
+      throughLatest.db
         .prepare(
           "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'offline_journal_state'",
         )
         .get(),
     ).toBeDefined();
-    const deviceCols = through15.db
+    const deviceCols = throughLatest.db
       .prepare("PRAGMA table_info(device_identity)")
       .all() as { name: string }[];
     expect(deviceCols.map((c) => c.name)).toEqual(
@@ -280,6 +280,6 @@ describe("openLocalStore", () => {
         "enrollment_status_enrollment_id",
       ]),
     );
-    through15.db.close();
+    throughLatest.db.close();
   });
 });

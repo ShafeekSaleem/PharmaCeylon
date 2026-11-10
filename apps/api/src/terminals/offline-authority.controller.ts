@@ -10,8 +10,8 @@ import { RequireBranchId } from "../security/decorators/require-branch.decorator
 import { RequirePermission } from "../security/decorators/require-permission.decorator";
 import type { RequestUser } from "../security/interfaces/authenticated-request.interface";
 import {
-  emptyJournalState,
-  hasAcceptedOfflineJournal,
+  acceptedJournalState,
+  assertJournalNotStuck,
   isNominated,
   issueOfflineAuthority,
 } from "./offline-authority-issuance";
@@ -53,14 +53,15 @@ export class OfflineAuthorityController {
       // Only the branch's offline counter gets authority. Refusing here, before the counter spends
       // an attendance proof, rolls the challenge back with the transaction.
       if (!(await isNominated(tx, command.identity))) denied("IDENTITY_MISMATCH");
-      // Likewise a counter whose offline journal needs reconciling, unless this request ID was
-      // already issued: a lost response must stay recoverable.
+      // Likewise a counter whose offline journal is stuck on an entry that needs review (P5 #51),
+      // unless this request ID was already issued: a lost response must stay recoverable. An
+      // accepted journal is not a refusal: the pair is rebased over it.
       const { tenantId, branchId: scopeBranchId, enrollmentId } = command.identity;
       const issued = await tx.offlineAuthorityIssuance.findUnique({
         where: { tenantId_branchId_enrollmentId_commandId: { tenantId, branchId: scopeBranchId, enrollmentId, commandId: requestId } },
         select: { snapshotId: true },
       });
-      if (!issued && (await hasAcceptedOfflineJournal(tx, command.identity))) denied("RECONCILIATION_REQUIRED");
+      if (!issued) await assertJournalNotStuck(tx, command.identity);
       return command;
     });
   }
@@ -83,7 +84,7 @@ export class OfflineAuthorityController {
         const { command } = await this.trust.verifyCommand(tx, user, branchId, descriptor, body.envelope, proofId);
         return { identity: command.identity, commandId: command.body.requestId };
       },
-      readState: emptyJournalState,
+      readState: acceptedJournalState,
     });
   }
 }

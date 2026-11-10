@@ -14,8 +14,8 @@ import type { SecretProtector } from "../db/key-store";
 import { migrations } from "../db/migrations";
 import { DeviceKey } from "../device/device-key";
 import { openLocalStore, type LocalStore } from "../local-store";
-import { installOfflineAuthority, type OfflineAuthority } from "./offline-authority";
-import { hasLocalOfflineUsage } from "./offline-journal";
+import { installedPairCoversJournal, installOfflineAuthority, type OfflineAuthority } from "./offline-authority";
+import { activeOutage } from "./offline-journal";
 import { OfflineJournalWriter } from "./offline-journal-writer";
 
 const protector: SecretProtector = {
@@ -153,7 +153,7 @@ describe("offline authority install with journal consumption", () => {
       [{ batchId: batchV1, qty: 11 }],
       new Date(NOW).toISOString(),
     );
-    expect(hasLocalOfflineUsage(local.db, identity.enrollmentId)).toBe(false);
+    expect(installedPairCoversJournal(local.db, identity.enrollmentId)).toBe(true);
 
     const second = authority(2, NOW - 50_000);
     expect(installOfflineAuthority(local.db, second, expected)).toBe("installed");
@@ -172,7 +172,7 @@ describe("offline authority install with journal consumption", () => {
       key: deviceKey,
       confirmedPinVersion: 1,
     });
-    expect(hasLocalOfflineUsage(local.db, identity.enrollmentId)).toBe(false);
+    expect(installedPairCoversJournal(local.db, identity.enrollmentId)).toBe(true);
 
     const second = authority(2, NOW - 50_000);
     expect(installOfflineAuthority(local.db, second, expected)).toBe("installed");
@@ -247,17 +247,36 @@ describe("offline authority install with journal consumption", () => {
         ) VALUES (?, ?, 1, NULL, ?, '{}', 'pending', ?)`,
       )
       .run(randomUUID(), identity.enrollmentId, "a".repeat(64), new Date(NOW).toISOString());
-    expect(hasLocalOfflineUsage(local.db, identity.enrollmentId)).toBe(true);
+    expect(installedPairCoversJournal(local.db, identity.enrollmentId)).toBe(false);
 
     const second = authority(2, NOW - 50_000);
     expect(installOfflineAuthority(local.db, second, expected)).toBe("local_usage");
   });
 
-  it("blocks renewal while an offline outage session is active", () => {
+  it("finishes an outage's drain by installing a fresh pair that covers the journal (P5 #51)", () => {
     const first = authority(1, NOW - 60_000);
     installOfflineAuthority(local.db, first, expected);
     writer.ensureOfflineOutageSession(identity.enrollmentId, NOW + 30_000);
-    expect(hasLocalOfflineUsage(local.db, identity.enrollmentId)).toBe(true);
-    expect(installOfflineAuthority(local.db, authority(2, NOW - 50_000), expected)).toBe("local_usage");
+    expect(installedPairCoversJournal(local.db, identity.enrollmentId)).toBe(false);
+    // Nothing was sold during the outage, so a pair at watermark 0 covers the whole journal.
+    expect(installOfflineAuthority(local.db, authority(2, NOW - 50_000), expected)).toBe("installed");
+    expect(activeOutage(local.db, identity.enrollmentId)).toBeNull();
+    expect(installedPairCoversJournal(local.db, identity.enrollmentId)).toBe(true);
+  });
+
+  it("keeps the outage and the installed pair while an online sale sent from here is unconfirmed", () => {
+    const first = authority(1, NOW - 60_000);
+    installOfflineAuthority(local.db, first, expected);
+    writer.ensureOfflineOutageSession(identity.enrollmentId, NOW + 30_000);
+    local.db
+      .prepare(
+        `INSERT INTO checkout_draft (id, work_session_id, staff_user_id, request_json, total_minor, status, enrollment_id, created_at, updated_at)
+         VALUES (?, ?, ?, '{"items":[]}', 100, 'submitted', ?, 'x', 'x')`,
+      )
+      .run(randomUUID(), randomUUID(), staffUserId, identity.enrollmentId);
+    expect(installOfflineAuthority(local.db, authority(2, NOW - 50_000), expected)).toBe("drain_incomplete");
+    expect(activeOutage(local.db, identity.enrollmentId)).not.toBeNull();
+    expect(local.db.prepare("SELECT version FROM offline_authority WHERE enrollment_id = ?").get(identity.enrollmentId))
+      .toEqual({ version: 1 });
   });
 });

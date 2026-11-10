@@ -476,3 +476,10 @@ test('a domain refusal code, or anything else unlisted, is never retryable', () 
   for (const code of ['COST_CONFLICT', 'APPROVER_NOT_QUALIFIED', '', 'constructor', '__proto__', 'toString', 'hasOwnProperty'])
     assert.equal(c.terminalErrorRetryable(code), false, code);
 });
+
+test('an offline journal entry hashes to the golden vector the desktop and the API check (P5 #51)', () => {
+  const vector = require('./journal-command-hash.json');
+  const { createHash } = require('node:crypto');
+  assert.deepEqual(vector.payload, JSON.parse(JSON.stringify(fixtures.sale)));
+  assert.equal(createHash('sha256').update(c.terminalSigningText('command', vector.payload), 'utf8').digest('hex'), vector.hash);
+});

@@ -7,7 +7,7 @@ import {
   ids,
   renderWithKeys,
 } from "../test/harness";
-import { TitleBar } from "./Shell";
+import { SyncBlock, TitleBar } from "./Shell";
 
 afterEach(cleanup);
 
@@ -55,5 +55,50 @@ describe("TitleBar till label", () => {
     const where = screen.getByText("Kollupitiya").parentElement;
     expect(where?.textContent).toContain("00000000");
     expect(where?.textContent).not.toContain("Counter");
+  });
+});
+
+describe("SyncBlock (P5 #51)", () => {
+  const sync = {
+    recorded: 3, accepted: 1, waiting: 2, refused: 0, syncing: true, lastSuccessAt: null,
+    issue: null, lastDrainAt: null,
+    pause: {
+      reason: "draining" as const, waiting: 2, outageStartedAt: "2026-11-10T09:00:00.000Z",
+      unconfirmed: { sales: 0, actions: 0 },
+    },
+  };
+
+  it("says new sales wait while the offline records upload, and that the sale on screen is kept", () => {
+    renderWithKeys(<SyncBlock sync={sync} />);
+    expect(screen.getByRole("heading", { name: "Synchronising offline sales" })).toBeTruthy();
+    expect(screen.getByRole("status").textContent).toContain("2 offline records are on the way to the server.");
+    expect(screen.getByRole("status").textContent).toContain("The sale on screen is kept.");
+  });
+
+  it("waits for fresh stock once every record is on the server", () => {
+    renderWithKeys(<SyncBlock sync={{ ...sync, accepted: 3, waiting: 0, pause: { ...sync.pause, waiting: 0 } }} />);
+    expect(screen.getByRole("status").textContent).toContain("fresh stock is on its way");
+  });
+
+  it("says what sent from here still needs confirming, and holds the unconfirmed sales so they can be", () => {
+    renderWithKeys(
+      <SyncBlock sync={{ ...sync, accepted: 3, waiting: 0, pause: { ...sync.pause, waiting: 0, unconfirmed: { sales: 2, actions: 1 } } }}>
+        <button type="button">Confirm with server</button>
+      </SyncBlock>,
+    );
+    const text = screen.getByRole("status").textContent ?? "";
+    expect(text).toContain("The offline sales are on the server. New sales");
+    expect(text).not.toContain("fresh stock is on its way");
+    expect(text).toContain("The 2 sales below were sent but not confirmed: synchronisation finishes once they are.");
+    expect(text).toContain("An action sent from here waits in Counter work for the person who sent it to confirm it.");
+    expect(screen.getByRole("button", { name: "Confirm with server" })).toBeTruthy();
+  });
+
+  it("asks for attention when a record is refused, with the server's reason", () => {
+    renderWithKeys(
+      <SyncBlock sync={{ ...sync, refused: 1, issue: { code: "LOCAL_STOCK_EXHAUSTED", message: "A manager reviews it in the back office." } }} />,
+    );
+    expect(screen.getByRole("heading", { name: "Synchronisation needs attention" })).toBeTruthy();
+    expect(screen.getByText("A manager reviews it in the back office.")).toBeTruthy();
   });
 });

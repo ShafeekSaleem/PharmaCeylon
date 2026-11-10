@@ -24,9 +24,9 @@ afterEach(() => {
 });
 
 describe("offline journal migrations with PR #136", () => {
-  it("applies a fresh database through v15 with device-enrollment-display at 13", () => {
+  it("applies a fresh database through the latest version with device-enrollment-display at 13", () => {
     const store = openLocalStore(dir, protector, migrations);
-    expect(store.schemaVersion).toBe(15);
+    expect(store.schemaVersion).toBe(migrations.length);
     expect(
       store.db
         .prepare(
@@ -40,6 +40,7 @@ describe("offline journal migrations with PR #136", () => {
       "offline_journal_online_sale_record",
       "offline_journal_staff_sign_in",
       "offline_journal_state",
+      "offline_journal_sync",
     ]);
     const cols = store.db
       .prepare("PRAGMA table_info(offline_journal_batch_usage)")
@@ -50,7 +51,7 @@ describe("offline journal migrations with PR #136", () => {
     store.db.close();
   });
 
-  it("upgrades from PR #136 schema v13 to journal v14 only", () => {
+  it("upgrades from PR #136 schema v13 through the journal migrations", () => {
     const first = openLocalStore(dir, protector, migrationsThroughPr136);
     expect(first.schemaVersion).toBe(13);
     expect(
@@ -61,8 +62,32 @@ describe("offline journal migrations with PR #136", () => {
     first.db.close();
 
     const second = openLocalStore(dir, protector, migrations);
-    expect(second.schemaVersion).toBe(15);
-    expect(currentSchemaVersion(second.db)).toBe(15);
+    expect(second.schemaVersion).toBe(migrations.length);
+    expect(currentSchemaVersion(second.db)).toBe(migrations.length);
+    second.db.close();
+  });
+
+  it("upgrades a v15 journal through the sync migration (v16) with its entries still waiting to upload (P5 #51)", () => {
+    const first = openLocalStore(dir, protector, migrations.filter((m) => m.version <= 15));
+    first.db
+      .prepare(
+        `INSERT INTO offline_journal_command (
+          command_id, enrollment_id, sequence, previous_hash, payload_hash, envelope_json, sync_status, created_at
+        ) VALUES ('c1', 'e1', 1, NULL, ?, '{}', 'pending', '2026-11-10T00:00:00.000Z')`,
+      )
+      .run("a".repeat(64));
+    first.db.close();
+
+    const second = openLocalStore(dir, protector, migrations);
+    expect(second.schemaVersion).toBe(migrations.length);
+    expect(second.db.prepare("SELECT sync_status, acknowledgement_json, last_error_code FROM offline_journal_command").get())
+      .toEqual({ sync_status: "pending", acknowledgement_json: null, last_error_code: null });
+    // The watermark and its hash are set together, or not at all.
+    expect(() =>
+      second.db
+        .prepare("INSERT INTO offline_journal_sync (enrollment_id, accepted_through_sequence, updated_at) VALUES ('e1', 3, 'x')")
+        .run(),
+    ).toThrow(/CHECK/);
     second.db.close();
   });
 });

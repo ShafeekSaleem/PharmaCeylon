@@ -1,5 +1,5 @@
 import { generateKeyPairSync, randomUUID, sign } from "node:crypto";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -212,6 +212,15 @@ beforeEach(() => {
 afterEach(() => {
   local.db.close();
   rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+});
+
+describe("journalCommandHash (P5 #51)", () => {
+  it("hashes an entry exactly as the server does: the shared golden vector", () => {
+    const vector = JSON.parse(
+      readFileSync(join(__dirname, "../../../../../packages/shared/test/journal-command-hash.json"), "utf8"),
+    ) as { payload: unknown; hash: string };
+    expect(journalCommandHash(vector.payload)).toBe(vector.hash);
+  });
 });
 
 describe("OfflineJournalWriter", () => {

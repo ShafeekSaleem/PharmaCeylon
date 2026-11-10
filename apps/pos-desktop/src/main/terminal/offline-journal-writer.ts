@@ -18,6 +18,7 @@ import {
 import type { PosDatabase } from "../db/database";
 import { readInstalledOfflineAuthority } from "./offline-authority";
 import { verifyDeviceCommandSignature } from "./device-signature";
+import { journalNeedsRecovery } from "./reconnect-drain";
 
 export function journalCommandHash(payload: unknown): string {
   return createHash("sha256")
@@ -282,6 +283,9 @@ export class OfflineJournalWriter {
     }
     const installed = readInstalledOfflineAuthority(this.deps.db, enrollmentId);
     if (!installed) throw new Error("NO_OFFLINE_AUTHORITY");
+    // P5 #51: a journal the server says differs from its own (a restored backup, damage) must be
+    // recovered online before another outage starts on it.
+    if (journalNeedsRecovery(this.deps.db, enrollmentId)) throw new Error("RECONCILIATION_REQUIRED");
     const snapshot = installed.snapshot.payload;
     const grant = installed.grant.payload;
     // #50: exactly maxSnapshotAgeAtOutageMs is accepted at outage start (strict > would reject 15:00).

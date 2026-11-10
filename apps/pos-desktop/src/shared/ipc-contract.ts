@@ -53,6 +53,41 @@ export const offlineBackupSchema = z.object({
 });
 export type OfflineBackup = z.infer<typeof offlineBackupSchema>;
 
+/**
+ * The offline journal's upload and the reconnect drain (P5 #51), for the Sell page and This
+ * counter. From the main process's encrypted store; it answers while locked or offline.
+ */
+export const journalSyncSchema = z.object({
+  /** Offline journal entries recorded on this counter, and how many the server has accepted. */
+  recorded: z.number().int().min(0),
+  accepted: z.number().int().min(0),
+  waiting: z.number().int().min(0),
+  /** Refused for good: they need review before anything after them can be accepted. */
+  refused: z.number().int().min(0),
+  syncing: z.boolean(),
+  /** When the server last confirmed every entry recorded here, ISO. */
+  lastSuccessAt: z.string().nullable(),
+  /** What stops the journal from being confirmed, in plain words. */
+  issue: z.object({ code: z.string(), message: z.string() }).nullable(),
+  /** New sales wait while this is set: the counter is finishing its synchronisation. */
+  pause: z
+    .object({
+      reason: z.enum(["draining", "unsynced"]),
+      waiting: z.number().int().min(0),
+      /** When the outage being synchronised began, ISO. */
+      outageStartedAt: z.string().nullable(),
+      /** Sent from here with no confirmed outcome: the drain finishes once they are confirmed. */
+      unconfirmed: z.object({
+        sales: z.number().int().min(0),
+        actions: z.number().int().min(0),
+      }),
+    })
+    .nullable(),
+  /** When the last outage's synchronisation finished, ISO. */
+  lastDrainAt: z.string().nullable(),
+});
+export type JournalSync = z.infer<typeof journalSyncSchema>;
+
 export const readinessReportSchema = z.object({
   ready: z.boolean(),
   checkedAt: z.string(),
@@ -1056,6 +1091,8 @@ export const ipcContract = {
   },
   /** This counter's copy of its till shifts. Local only: it answers while locked or offline. */
   getShift: { channel: "pos:shift:get", input: noInput, output: shiftStateSchema },
+  /** The offline journal's upload and the reconnect pause (P5 #51). Local only. */
+  getJournalSync: { channel: "pos:journal-sync:get", input: noInput, output: journalSyncSchema },
   /** Asks the server, adopts what it says, and resends a saved close that wasn't confirmed. */
   refreshShift: { channel: "pos:shift:refresh", input: noInput, output: result(shiftStateSchema) },
   openShift: {

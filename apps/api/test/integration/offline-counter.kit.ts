@@ -32,7 +32,7 @@ import { OfflineJournalService } from "../../src/terminals/journal/offline-journ
 import { LocalAttendanceVerifier } from "../../src/terminals/local-attendance.verifier";
 import { OfflineActivationClearance, OfflineActivationService } from "../../src/terminals/offline-activation.service";
 import { OfflineAssignmentService } from "../../src/terminals/offline-assignment.service";
-import { emptyJournalState, issueOfflineAuthority } from "../../src/terminals/offline-authority-issuance";
+import { acceptedJournalState, issueOfflineAuthority } from "../../src/terminals/offline-authority-issuance";
 import { OfflineSupportRecords } from "../../src/terminals/offline-support-records.service";
 import { OperatingHoursEvidence } from "../../src/terminals/operating-hours.evidence";
 import { TillShiftsService } from "../../src/terminals/shifts/till-shifts.service";
@@ -186,7 +186,7 @@ export async function counter(stockByBatch: Record<string, number> = { main: 40 
   const issued = await issueOfflineAuthority(prisma as never, access, {
     signer, defaultVatRatePercent: 18,
     authenticate: async () => ({ identity, commandId: randomUUID() }),
-    readState: emptyJournalState,
+    readState: acceptedJournalState,
   });
   return { fx, owner, manager, cashier, device, identity, grant: issued.grant.payload, snapshot: issued.snapshot.payload, batches };
 }

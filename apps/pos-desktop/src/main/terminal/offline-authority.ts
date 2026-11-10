@@ -3,6 +3,7 @@ import {
   assertOfflineGrantBounds,
   assertSafeInteger,
   assertStockSnapshotBounds,
+  mayResumeOnlineCheckout,
   terminalSigningText,
   type BranchStockSnapshot,
   type OfflineGrant,
@@ -11,8 +12,9 @@ import {
 } from "@pharmaceylon/shared";
 
 import type { PosDatabase } from "../db/database";
-import { hasLocalOfflineUsage } from "./offline-journal";
+import { activeOutage, journalCoverage } from "./offline-journal";
 import { resetJournalUsageForEnrollment } from "./offline-journal-writer";
+import { drainResumeEvidence, endOutage, recordAcceptedWatermark } from "./reconnect-drain";
 
 export type OfflineAuthority = {
   grant: Signed<OfflineGrant>;
@@ -71,10 +73,12 @@ export type InstallResult =
   | "superseded"
   /** Failed verification, or a different pair claiming the installed version. Never stored. */
   | "invalid"
-  /** Offline use is recorded here against the installed pair; P5 must reconcile it first. */
+  /** Journal entries recorded here that the pair's watermark doesn't include: upload them first. */
   | "local_usage"
-  /** The server rebased over an accepted journal (watermark above 0): P5's installer. */
-  | "reconciliation_required";
+  /** The pair's watermark names journal entries this computer doesn't have: never installed. */
+  | "journal_mismatch"
+  /** It would finish an outage's drain, but a sale or action sent from here is still unconfirmed. */
+  | "drain_incomplete";
 
 type InstalledRow = { version: number; grant_envelope: string; snapshot_envelope: string };
 
@@ -95,20 +99,48 @@ export function readInstalledOfflineAuthority(
 }
 
 /**
- * The rebasing installer. Verifies the pair, then, in one immediate transaction, stores it as
- * this counter's only installed pair. A newer version replaces the installed one only while
- * nothing has unreconciled offline journal evidence here (`hasLocalOfflineUsage`): appended
- * offline commands and an active outage block renewal; online sale watermarks and sign-in rows do not. A pair the server rebased over an accepted journal is P5's to install too.
+ * Whether the installed pair includes everything this computer's journal holds (P5 #51): no
+ * outage whose drain is unfinished, and a snapshot watermark that is exactly the local journal
+ * head. Accepted entries the snapshot was rebased over stay on this computer as evidence; they
+ * don't count against it. False when no pair is installed.
+ */
+export function installedPairCoversJournal(db: PosDatabase, enrollmentId: string): boolean {
+  const installed = readInstalledOfflineAuthority(db, enrollmentId);
+  if (!installed || activeOutage(db, enrollmentId)) return false;
+  const { includedThroughSequence: sequence, includedThroughHash: hash } = installed.snapshot.payload;
+  return journalCoverage(db, enrollmentId, { sequence, hash }) === "covered";
+}
+
+/**
+ * The rebasing installer (P3 #49, rebasing over a journal P5 #51). Verifies the pair, then, in one
+ * immediate transaction, stores it as this counter's only installed pair.
  *
- * Earlier pairs are not kept on the counter: one that was replaced was never used here (that is
- * the condition for replacing it), and the server keeps every issued version as immutable
+ * The snapshot's watermark (`includedThroughSequence` / `includedThroughHash`) says which of this
+ * enrollment's journal entries the server had accepted when it read the stock: every posted
+ * offline sale through it is already out of the snapshot's balances, and every sale still pending
+ * reconciliation holds its batches as `stockReviewRequired`. So a newer pair is installed only when
+ * that watermark is exactly this computer's journal head (`journalCoverage`):
+ *
+ * - entries recorded here past the watermark are not in its stock yet: `local_usage` (upload them);
+ * - a watermark naming entries this computer doesn't have: `journal_mismatch`, never installed.
+ *
+ * Installing resets the consumption counted against the replaced snapshot (`resetJournalUsageFor
+ * Enrollment`): the new snapshot already includes it. The watermark itself is server-signed
+ * evidence of acceptance and is recorded as such. While an outage is waiting for its drain, this
+ * install is the drain's last step (approved D12): it happens only once `mayResumeOnlineCheckout`
+ * holds with this pair as the fresh snapshot — otherwise `drain_incomplete` — and it ends the
+ * outage in the same transaction, so checkout resumes on fresh stock and review blocks or not at
+ * all. `usage` is an extra veto for callers that know of local use this store doesn't record.
+ *
+ * Earlier pairs are not kept on the counter: one that was replaced has nothing recorded against it
+ * that the new one doesn't include, and the server keeps every issued version as immutable
  * evidence. A pair that fails verification is never stored.
  */
 export function installOfflineAuthority(
   db: PosDatabase,
   response: OfflineAuthority,
   expected: Parameters<typeof verifyOfflineAuthority>[1],
-  usage: (db: PosDatabase, enrollmentId: string) => boolean = hasLocalOfflineUsage,
+  usage?: (db: PosDatabase, enrollmentId: string) => boolean,
 ): InstallResult {
   if (!verifyOfflineAuthority(response, expected)) return "invalid";
   const enrollmentId = expected.identity.enrollmentId;
@@ -122,9 +154,23 @@ export function installOfflineAuthority(
     // A newer version must be newer evidence, never an older view under a higher number.
     if (previous && (response.snapshot.payload.generatedAt < previous.snapshot.payload.generatedAt ||
         response.grant.payload.issuedAt < previous.grant.payload.issuedAt)) return "invalid";
-    if (response.snapshot.payload.includedThroughSequence !== 0 || response.snapshot.payload.includedThroughHash !== null)
-      return "reconciliation_required";
-    if (usage(db, enrollmentId)) return "local_usage";
+    const watermark = {
+      sequence: response.snapshot.payload.includedThroughSequence,
+      hash: response.snapshot.payload.includedThroughHash,
+    };
+    const coverage = journalCoverage(db, enrollmentId, watermark);
+    if (coverage === "mismatch") return "journal_mismatch";
+    if (coverage === "behind") return "local_usage";
+    if (usage?.(db, enrollmentId)) return "local_usage";
+    const at = new Date(expected.trustedNow).toISOString();
+    // Recorded even when the drain can't finish yet (`drain_incomplete` below commits, it doesn't
+    // throw): the watermark is the server's signed acceptance of the journal, true whatever this
+    // install makes of the pair, and it only moves forward. After a lost upload reply it is the
+    // only evidence the journal arrived, so the upload isn't repeated while a sale is confirmed.
+    recordAcceptedWatermark(db, enrollmentId, watermark, at);
+    const outage = activeOutage(db, enrollmentId);
+    if (outage && !mayResumeOnlineCheckout(drainResumeEvidence(db, enrollmentId, { snapshotCoversJournal: true })))
+      return "drain_incomplete";
     const values = [version, JSON.stringify(response.grant), JSON.stringify(response.snapshot), enrollmentId];
     if (previous) {
       const replaced = db.prepare(`
@@ -139,6 +185,7 @@ export function installOfflineAuthority(
       `).run(...values);
     }
     resetJournalUsageForEnrollment(db, enrollmentId);
+    if (outage) endOutage(db, enrollmentId, at);
     return "installed";
   });
   return install.immediate();
