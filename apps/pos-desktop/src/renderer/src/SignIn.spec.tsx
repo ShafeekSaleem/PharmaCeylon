@@ -10,25 +10,30 @@ import {
   stubPos,
 } from "../test/harness";
 import { SignInScreen } from "./SignIn";
+import { tillDisplayName } from "./this-counter-display";
 
 afterEach(cleanup);
 
+const enrollmentBase = {
+  status: "active" as const,
+  branchId: ids.branch,
+  branchName: "Colombo 03",
+  branchCode: "C03",
+  registerId: ids.register,
+  tillId: ids.till,
+  label: "Front desk PC",
+  terminalId: ids.till,
+  enrollmentId: ids.register,
+  enrolledAt: null,
+  enrolledByUserId: ids.ana,
+  enrolledByName: "Branch enroller",
+  offlineBackup: emptyEnrollmentOfflineBackup,
+};
+
 const state = deviceState({
   enrollment: {
-    status: "active",
-    branchId: ids.branch,
-    branchName: "Colombo 03",
-    branchCode: "C03",
-    registerId: ids.register,
-    tillId: ids.till,
+    ...enrollmentBase,
     counterLabel: "Counter 1",
-    label: "Front desk PC",
-    terminalId: ids.till,
-    enrollmentId: ids.register,
-    enrolledAt: null,
-    enrolledByUserId: ids.ana,
-    enrolledByName: "Branch enroller",
-    offlineBackup: emptyEnrollmentOfflineBackup,
   },
   counterStaff: [
     {
@@ -58,6 +63,40 @@ const digits = () =>
   screen
     .getByRole("status", { name: /digits entered/ })
     .getAttribute("aria-label");
+
+describe("sign-in screen till name in the header", () => {
+  it("shows the counter label when the server sends one", () => {
+    stubPos();
+    renderWithKeys(
+      <SignInScreen
+        state={state}
+        onState={() => undefined}
+        api={null}
+        printer={null}
+      />,
+    );
+    expect(screen.getByText(/Colombo 03 · Counter 1/)).toBeTruthy();
+    expect(screen.queryByText(/\bnull\b/)).toBeNull();
+  });
+
+  it("falls back to the till id prefix when counterLabel is null", () => {
+    stubPos();
+    const fallback = tillDisplayName(null, ids.till);
+    renderWithKeys(
+      <SignInScreen
+        state={deviceState({
+          ...state,
+          enrollment: { ...enrollmentBase, counterLabel: null },
+        })}
+        onState={() => undefined}
+        api={null}
+        printer={null}
+      />,
+    );
+    expect(screen.getByText(new RegExp(`Colombo 03 · ${fallback}`))).toBeTruthy();
+    expect(screen.queryByText(/\bnull\b/)).toBeNull();
+  });
+});
 
 describe("the PIN pad's keys, now on the key map", () => {
   it("types digits, deletes with Backspace and signs in with Enter", () => {

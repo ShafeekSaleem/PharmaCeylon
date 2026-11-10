@@ -14,6 +14,7 @@ import { SignInForm } from "./Setup";
 import { atTheComputer, Avatar } from "./Shell";
 import styles from "./SignIn.module.css";
 import ui from "./ui.module.css";
+import { tillDisplayName } from "./this-counter-display";
 import { cx, ErrorLine, useAction } from "./useAction";
 
 type Props = { state: DeviceState; onState: (state: DeviceState) => void };
@@ -371,7 +372,10 @@ export function SignInScreen({
           <div className={full.date}>
             {longDay(now)}
             {enrollment &&
-              ` · ${enrollment.branchName} · ${enrollment.counterLabel}`}
+              ` · ${enrollment.branchName} · ${tillDisplayName(
+                enrollment.counterLabel,
+                enrollment.tillId,
+              )}`}
           </div>
         </div>
 
