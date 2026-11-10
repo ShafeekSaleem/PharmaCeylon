@@ -1,7 +1,7 @@
 /** @jest-environment jsdom */
 import { afterEach, beforeEach, describe, expect, it, jest } from "@jest/globals";
 import { act, cleanup, fireEvent, screen } from "@testing-library/react";
-import type { CheckoutDraftView } from "../../shared/ipc-contract";
+import type { CheckoutDraftView, JournalSync } from "../../shared/ipc-contract";
 import { ids, renderWithKeys, stubPos } from "../test/harness";
 import { KeyScope } from "./keymap";
 import { Sell } from "./Sell";
@@ -30,10 +30,10 @@ function stub(drafts: CheckoutDraftView[], retry: () => unknown) {
   });
 }
 
-async function renderSell() {
+async function renderSell(syncPause: JournalSync | null = null) {
   renderWithKeys(
     <KeyScope active>
-      <Sell />
+      <Sell syncPause={syncPause} />
     </KeyScope>,
   );
   await act(async () => undefined);
@@ -85,5 +85,27 @@ describe("Sell's unconfirmed sales", () => {
     stub([draft({ staffName: null })], async () => new Promise(() => undefined));
     await renderSell();
     expect(screen.getByText(/started by someone who has signed out/)).toBeTruthy();
+  });
+
+  it("keeps an unconfirmed sale confirmable while synchronisation covers the page (P5 #51)", async () => {
+    // The drain waits for this sale, so the block over Sell must not hide its confirm button.
+    stub([draft()], async () => ({
+      ok: false,
+      error: { code: "CHECKOUT_NEVER_LANDED", message: "That sale never went through, and now it can't." },
+    }));
+    await renderSell({
+      recorded: 2, accepted: 2, waiting: 0, refused: 0, syncing: false, lastSuccessAt: null,
+      issue: null, lastDrainAt: null,
+      pause: { reason: "draining", waiting: 0, outageStartedAt: null, unconfirmed: { sales: 1, actions: 0 } },
+    });
+    const block = screen.getAllByRole("status").find((el) => el.textContent?.includes("Synchronising offline sales"));
+    expect(block?.textContent).toContain("The sale below was sent but not confirmed");
+    const buttons = screen.getAllByRole("button", { name: "Confirm with server" });
+    expect(buttons).toHaveLength(1);
+    expect(block?.contains(buttons[0]!)).toBe(true);
+    await act(async () => {
+      fireEvent.click(buttons[0]!);
+    });
+    expect(pos.retryCheckout).toHaveBeenCalledWith({ draftId: draft().draftId });
   });
 });

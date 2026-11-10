@@ -70,6 +70,8 @@ type Refusal = Readonly<{
 }>;
 const held = (code: TerminalErrorCode, message: string): Refusal => ({ status: "held", code, message });
 const rejected = (code: TerminalErrorCode, message: string): Refusal => ({ status: "rejected", code, message });
+/** How final a retained refusal is; one of the same content only ever escalates (held < rejected < conflict). */
+const REVIEW_SEVERITY: Readonly<Record<string, number>> = { held: 1, rejected: 2, conflict: 3 };
 
 type Device = { publicKeyHex: string };
 
@@ -582,12 +584,46 @@ export class OfflineJournalService {
         recordHash: review.hash,
       },
     };
-    const existing = await tx.offlineJournalReview.findUnique({ where, select: { id: true } });
+    const existing = await tx.offlineJournalReview.findUnique({
+      where,
+      select: { id: true, outcome: true, errorCode: true },
+    });
     if (existing) {
+      // The same content refused again. A later refusal can make it final — held for a sign-in,
+      // then judged and rejected — but never undo that: issuance, the counter's sync status and the
+      // review queue read `outcome`, so it says the worst refusal so far (the table enforces it).
+      const change = REVIEW_SEVERITY[review.outcome] - (REVIEW_SEVERITY[existing.outcome] ?? 0);
       await tx.offlineJournalReview.update({
         where: { id: existing.id, tenantId: identity.tenantId },
-        data: { attempts: { increment: 1 }, lastReceivedAt: new Date(), errorCode: review.code },
+        data: {
+          attempts: { increment: 1 },
+          lastReceivedAt: new Date(),
+          ...(change > 0 ? { outcome: review.outcome } : {}),
+          // The code explains the outcome, so a milder refusal doesn't replace it.
+          ...(change >= 0 ? { errorCode: review.code } : {}),
+        },
       });
+      if (change > 0)
+        await this.audit.log(
+          {
+            tenantId: identity.tenantId,
+            branchId: identity.branchId,
+            actorUserId: user.userId,
+            eventName: "terminal.offline_journal_escalated",
+            entityName: "offline_journal_review",
+            entityId: existing.id,
+            payload: {
+              recordKind: review.kind,
+              recordId: review.recordId,
+              sequence: review.sequence,
+              recordHash: review.hash,
+              from: { outcome: existing.outcome, errorCode: existing.errorCode },
+              to: { outcome: review.outcome, errorCode: review.code },
+              enrollmentId: identity.enrollmentId,
+            },
+          },
+          tx,
+        );
       return;
     }
     const row = await tx.offlineJournalReview.create({

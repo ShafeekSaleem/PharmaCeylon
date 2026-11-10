@@ -3,12 +3,13 @@ import type { OnlineTerminalCommand } from "@pharmaceylon/shared";
 import { ApiError, type ApiSession } from "../api/api-client";
 import type { PosDatabase } from "../db/database";
 import {
+  installedPairCoversJournal,
   installOfflineAuthority,
   readInstalledOfflineAuthority,
   type InstallResult,
   type OfflineAuthority,
 } from "./offline-authority";
-import { activeOutage, journalCoverage, localJournalHead } from "./offline-journal";
+import { localJournalHead } from "./offline-journal";
 import { readAcceptedWatermark } from "./reconnect-drain";
 import type { TerminalService } from "./terminal-service";
 
@@ -46,6 +47,8 @@ export class OfflineAuthorityInstallError extends Error {
 export type OfflineAuthorityRefreshStatus = {
   /** False once the server said this isn't the branch's offline counter; null until it answers. */
   nominated: boolean | null;
+  /** When the server last answered that (P5 #51: the drain trusts only an answer given since it asked). */
+  nominatedAt: number | null;
   lastSuccessAt: number | null;
   consecutiveFailures: number;
   /** An API error code, an install result (`invalid`, `local_usage` …), or `NETWORK`. */
@@ -91,7 +94,7 @@ export function createOfflineAuthorityRefresh(deps: OfflineAuthorityRefreshDeps)
   const localUsage = deps.localUsage;
   let inFlight = false;
   const status: OfflineAuthorityRefreshStatus = {
-    nominated: null, lastSuccessAt: null, consecutiveFailures: 0, lastFailure: null, nextAttemptAt: null,
+    nominated: null, nominatedAt: null, lastSuccessAt: null, consecutiveFailures: 0, lastFailure: null, nextAttemptAt: null,
   };
 
   function due(enrollmentId: string): boolean {
@@ -99,14 +102,13 @@ export function createOfflineAuthorityRefresh(deps: OfflineAuthorityRefreshDeps)
     if (!installed || now() - installed.snapshot.payload.generatedAt >= OFFLINE_AUTHORITY_REFRESH_MS) return true;
     // P5 #51: a drain waits for a pair rebased over the journal, and an installed pair that
     // doesn't include the journal is stale however young it is.
-    const { includedThroughSequence: sequence, includedThroughHash: hash } = installed.snapshot.payload;
-    return activeOutage(deps.db, enrollmentId) !== null ||
-      journalCoverage(deps.db, enrollmentId, { sequence, hash }) !== "covered";
+    return !installedPairCoversJournal(deps.db, enrollmentId);
   }
 
   /** P5 #51: journal entries recorded here that the server has not confirmed accepting. A pair
    * issued now could not include them, so asking for one would only mint a version this counter
-   * refuses to install: the journal upload goes first. */
+   * refuses to install: the journal upload goes first. That is a wait, not a failure — nothing is
+   * asked, nothing backs off, and the next tick after the upload is accepted asks. */
   function journalWaiting(enrollmentId: string): boolean {
     return readAcceptedWatermark(deps.db, enrollmentId).sequence < localJournalHead(deps.db, enrollmentId).sequence;
   }
@@ -128,7 +130,7 @@ export function createOfflineAuthorityRefresh(deps: OfflineAuthorityRefreshDeps)
     if (!current || !device) return "skipped";
     const { identity, key, staff } = current;
     if (!due(identity.enrollmentId)) return "skipped";
-    if (journalWaiting(identity.enrollmentId)) throw new OfflineAuthorityInstallError("local_usage");
+    if (journalWaiting(identity.enrollmentId)) return "skipped";
     const requestId = requestIdFor(identity.enrollmentId);
     const branchId = identity.branchId;
     const command = await deps.api.request<OnlineTerminalCommand<{ requestId: string }>>(
@@ -167,6 +169,7 @@ export function createOfflineAuthorityRefresh(deps: OfflineAuthorityRefreshDeps)
       try {
         if ((await attempt()) === "installed") {
           status.nominated = true;
+          status.nominatedAt = now();
           status.lastSuccessAt = now();
           status.consecutiveFailures = 0;
           status.lastFailure = null;
@@ -176,6 +179,7 @@ export function createOfflineAuthorityRefresh(deps: OfflineAuthorityRefreshDeps)
         if (error instanceof ApiError && error.code === "IDENTITY_MISMATCH") {
           // Not (or no longer) the branch's offline counter: nothing is wrong, check again later.
           status.nominated = false;
+          status.nominatedAt = now();
           status.consecutiveFailures = 0;
           status.lastFailure = null;
           status.nextAttemptAt = now() + NOT_NOMINATED_RECHECK_MS;

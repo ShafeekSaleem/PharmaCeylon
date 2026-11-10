@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { commandText, sha256 } from "../terminal-wire";
 import { journalHash, parseCommandEnvelope, parseJournalCommand, parseSyncRequest, MAX_SYNC_COMMANDS } from "./offline-journal-wire";
 
@@ -33,6 +35,13 @@ const sale = (overrides: Record<string, unknown> = {}) => ({
 const envelope = (payload: unknown) => ({ algorithm: "Ed25519", keyId: "key-1", payload, signature: "A".repeat(86) });
 
 describe("offline journal wire (P5 #51)", () => {
+  it("hashes an entry exactly as the desktop does: the shared golden vector", () => {
+    const vector = JSON.parse(
+      readFileSync(join(__dirname, "../../../../../packages/shared/test/journal-command-hash.json"), "utf8"),
+    ) as { payload: unknown; hash: string };
+    expect(journalHash(vector.payload)).toBe(vector.hash);
+  });
+
   it("parses the three command kinds with their exact keys", () => {
     expect(parseJournalCommand(sale()).kind).toBe("ordinary_sale");
     expect(parseJournalCommand({ ...context(), kind: "shift_open", currency: "LKR", openingCashMinor: 0, previousClosedWorkSessionId: null }).kind).toBe("shift_open");

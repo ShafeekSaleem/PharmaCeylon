@@ -10,11 +10,10 @@ import { RequireBranchId } from "../security/decorators/require-branch.decorator
 import { RequirePermission } from "../security/decorators/require-permission.decorator";
 import type { RequestUser } from "../security/interfaces/authenticated-request.interface";
 import {
-  acceptedJournalHead,
   acceptedJournalState,
+  assertJournalNotStuck,
   isNominated,
   issueOfflineAuthority,
-  journalAwaitingReview,
 } from "./offline-authority-issuance";
 import { TerminalErrorFilter } from "./terminal-error.filter";
 import { TerminalTrustService } from "./terminal-trust.service";
@@ -62,10 +61,7 @@ export class OfflineAuthorityController {
         where: { tenantId_branchId_enrollmentId_commandId: { tenantId, branchId: scopeBranchId, enrollmentId, commandId: requestId } },
         select: { snapshotId: true },
       });
-      if (!issued) {
-        const head = await acceptedJournalHead(tx, command.identity);
-        if (await journalAwaitingReview(tx, command.identity, head.sequence)) denied("RECONCILIATION_REQUIRED");
-      }
+      if (!issued) await assertJournalNotStuck(tx, command.identity);
       return command;
     });
   }

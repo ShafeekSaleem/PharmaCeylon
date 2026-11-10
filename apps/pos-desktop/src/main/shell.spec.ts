@@ -4,6 +4,7 @@ import { checkApi } from "./api-check";
 import { renderTestReceiptHtml } from "./printing/receipt-html";
 import { buildReadinessReport, clockTime, explainRefreshFailure } from "./readiness";
 import { isAppUrl, resolveRendererFile } from "./renderer-path";
+import type { CheckoutSyncPause } from "./terminal/reconnect-drain";
 
 describe("resolveRendererFile", () => {
   const root = resolve("/app/dist/renderer");
@@ -161,7 +162,7 @@ describe("offline backup readiness (P3 #49)", () => {
     databaseOpen: true, schemaVersion: 1, latestSchemaVersion: 1, credentialStoreAvailable: true,
     enrollmentStatus: "active" as const, preparedStaff: 5,
   };
-  const healthyRefresh = { nominated: true, lastSuccessAt: t - 60_000, consecutiveFailures: 0, lastFailure: null, nextAttemptAt: null };
+  const healthyRefresh = { nominated: true, nominatedAt: t - 60_000, lastSuccessAt: t - 60_000, consecutiveFailures: 0, lastFailure: null, nextAttemptAt: null };
   const installed = { grantExpiresAt: t + 86_340_000, snapshotGeneratedAt: t - 120_000, authorizedStaff: 4, lines: 412 };
   const check = (report: ReturnType<typeof buildReadinessReport>, id: string) => report.checks.find((c) => c.id === id)!;
 
@@ -232,7 +233,7 @@ describe("synchronisation readiness (P5 #51)", () => {
     recorded: 0, accepted: 0, waiting: 0, refused: 0, syncing: false, lastSuccessAt: null as string | null,
     issue: null as { code: string; message: string; sequence: number | null; at: string } | null,
     outage: null, lastDrain: null as { outageId: string; startedAt: number; drainedAt: string } | null,
-    pause: null as { reason: "draining" | "unsynced"; waiting: number; outageStartedAt: number | null } | null,
+    pause: null as CheckoutSyncPause | null,
   };
   const sync = (over: Partial<typeof view>, configured = true) =>
     buildReadinessReport({ ...active, journalSync: { configured, view: { ...view, ...over } } }, now).checks.find((c) => c.id === "sync")!;
@@ -251,19 +252,31 @@ describe("synchronisation readiness (P5 #51)", () => {
   });
 
   it("warns while a drain pauses new sales, and says what it is waiting for", () => {
-    expect(sync({ recorded: 3, waiting: 3, pause: { reason: "draining", waiting: 3, outageStartedAt: t - 600_000 } })).toMatchObject({
+    const none = { sales: 0, actions: 0 };
+    expect(sync({ recorded: 3, waiting: 3, pause: { reason: "draining", waiting: 3, outageStartedAt: t - 600_000, unconfirmed: none } })).toMatchObject({
       status: "warning",
       detail: "Synchronising offline sales: new sales wait until it finishes. 3 offline records waiting to reach the server.",
     });
-    expect(sync({ recorded: 3, accepted: 3, pause: { reason: "draining", waiting: 0, outageStartedAt: t - 600_000 } }).detail)
+    expect(sync({ recorded: 3, accepted: 3, pause: { reason: "draining", waiting: 0, outageStartedAt: t - 600_000, unconfirmed: none } }).detail)
       .toContain("Waiting for fresh stock from the server.");
+    // The drain also waits for what was sent from here without a confirmed outcome: say so.
+    expect(sync({
+      recorded: 3, accepted: 3,
+      pause: { reason: "draining", waiting: 0, outageStartedAt: t - 600_000, unconfirmed: { sales: 1, actions: 2 } },
+    }).detail).toBe(
+      "Synchronising offline sales: new sales wait until it finishes. The offline sales are on the server. It finishes once 1 sale and 2 actions sent from here are confirmed.",
+    );
+    expect(sync({
+      recorded: 3, waiting: 3,
+      pause: { reason: "draining", waiting: 3, outageStartedAt: t - 600_000, unconfirmed: { sales: 1, actions: 0 } },
+    }).detail).toContain("3 offline records waiting to reach the server. It finishes once 1 sale sent from here is confirmed.");
   });
 
   it("fails on a refused record or a journal the server doesn't recognise", () => {
     const refused = sync({
       recorded: 5, accepted: 3, waiting: 2, refused: 1,
       issue: { code: "LOCAL_STOCK_EXHAUSTED", message: "A manager reviews it in the back office.", sequence: 4, at: "" },
-      pause: { reason: "draining", waiting: 2, outageStartedAt: t },
+      pause: { reason: "draining", waiting: 2, outageStartedAt: t, unconfirmed: { sales: 0, actions: 0 } },
     });
     expect(refused).toMatchObject({ status: "failed", detail: "A manager reviews it in the back office. 2 offline records waiting to reach the server." });
     expect(sync({ issue: { code: "JOURNAL_MISMATCH", message: "Contact support.", sequence: 3, at: "" } }).status).toBe("failed");
