@@ -14,8 +14,8 @@ import type { SecretProtector } from "../db/key-store";
 import { migrations } from "../db/migrations";
 import { DeviceKey } from "../device/device-key";
 import { openLocalStore, type LocalStore } from "../local-store";
-import { installOfflineAuthority, type OfflineAuthority } from "./offline-authority";
-import { activeOutage, hasLocalOfflineUsage } from "./offline-journal";
+import { installedPairCoversJournal, installOfflineAuthority, type OfflineAuthority } from "./offline-authority";
+import { activeOutage } from "./offline-journal";
 import { OfflineJournalWriter } from "./offline-journal-writer";
 
 const protector: SecretProtector = {
@@ -153,7 +153,7 @@ describe("offline authority install with journal consumption", () => {
       [{ batchId: batchV1, qty: 11 }],
       new Date(NOW).toISOString(),
     );
-    expect(hasLocalOfflineUsage(local.db, identity.enrollmentId)).toBe(false);
+    expect(installedPairCoversJournal(local.db, identity.enrollmentId)).toBe(true);
 
     const second = authority(2, NOW - 50_000);
     expect(installOfflineAuthority(local.db, second, expected)).toBe("installed");
@@ -172,7 +172,7 @@ describe("offline authority install with journal consumption", () => {
       key: deviceKey,
       confirmedPinVersion: 1,
     });
-    expect(hasLocalOfflineUsage(local.db, identity.enrollmentId)).toBe(false);
+    expect(installedPairCoversJournal(local.db, identity.enrollmentId)).toBe(true);
 
     const second = authority(2, NOW - 50_000);
     expect(installOfflineAuthority(local.db, second, expected)).toBe("installed");
@@ -247,7 +247,7 @@ describe("offline authority install with journal consumption", () => {
         ) VALUES (?, ?, 1, NULL, ?, '{}', 'pending', ?)`,
       )
       .run(randomUUID(), identity.enrollmentId, "a".repeat(64), new Date(NOW).toISOString());
-    expect(hasLocalOfflineUsage(local.db, identity.enrollmentId)).toBe(true);
+    expect(installedPairCoversJournal(local.db, identity.enrollmentId)).toBe(false);
 
     const second = authority(2, NOW - 50_000);
     expect(installOfflineAuthority(local.db, second, expected)).toBe("local_usage");
@@ -257,11 +257,11 @@ describe("offline authority install with journal consumption", () => {
     const first = authority(1, NOW - 60_000);
     installOfflineAuthority(local.db, first, expected);
     writer.ensureOfflineOutageSession(identity.enrollmentId, NOW + 30_000);
-    expect(hasLocalOfflineUsage(local.db, identity.enrollmentId)).toBe(true);
+    expect(installedPairCoversJournal(local.db, identity.enrollmentId)).toBe(false);
     // Nothing was sold during the outage, so a pair at watermark 0 covers the whole journal.
     expect(installOfflineAuthority(local.db, authority(2, NOW - 50_000), expected)).toBe("installed");
     expect(activeOutage(local.db, identity.enrollmentId)).toBeNull();
-    expect(hasLocalOfflineUsage(local.db, identity.enrollmentId)).toBe(false);
+    expect(installedPairCoversJournal(local.db, identity.enrollmentId)).toBe(true);
   });
 
   it("keeps the outage and the installed pair while an online sale sent from here is unconfirmed", () => {

@@ -18,7 +18,7 @@ import { Returns } from "./Returns";
 import { Sell } from "./Sell";
 import { Stock } from "./Stock";
 import { SetupScreen } from "./Setup";
-import { Rail, ServerBlock, StatusBar, SyncBlock, TitleBar, type Page } from "./Shell";
+import { Rail, ServerBlock, StatusBar, TitleBar, type Page } from "./Shell";
 import shell from "./Shell.module.css";
 import { SignInScreen } from "./SignIn";
 import { ThisCounterPage } from "./ThisCounter";
@@ -284,6 +284,7 @@ export function App() {
                       onActivity={refreshReadiness}
                       onCommandSent={onCommandSent}
                       online={api?.reachable !== false}
+                      syncPause={syncPaused ? journal : null}
                     />
                   </div>
                 </KeyScope>
@@ -341,7 +342,6 @@ export function App() {
                     />
                   </div>
                 </KeyScope>
-                {page === "sell" && syncPaused && journal && <SyncBlock sync={journal} />}
                 {page === "sell" && shift && sellGated && !syncPaused && (
                   <ShiftGate
                     device={device}

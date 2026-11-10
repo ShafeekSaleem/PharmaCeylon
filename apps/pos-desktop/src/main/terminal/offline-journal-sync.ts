@@ -25,12 +25,14 @@ import {
   type JournalRecovery,
 } from "./journal-recovery";
 import {
-  checkoutSyncPause,
   drainAwaitsFreshSnapshot,
   ensureSyncRow,
   finishDrainWithoutRenewal,
+  NOTHING_UNCONFIRMED,
   readAcceptedWatermark,
   recordAcceptedWatermark,
+  syncPauseFrom,
+  unresolvedSubmissions,
   type CheckoutSyncPause,
 } from "./reconnect-drain";
 import type { TerminalService } from "./terminal-service";
@@ -342,6 +344,23 @@ export function createOfflineJournalSync(deps: OfflineJournalSyncDeps) {
       );
   }
 
+  /**
+   * A cycle that failed without a verified reply (no answer, a refused request, a reply that failed
+   * its checks) says nothing about the server's journal, so it never replaces a recorded
+   * `JOURNAL_MISMATCH`. Only a verified reply sets or clears that (`apply`), because P4's outage
+   * guard reads it: a dropped connection must not let a restored journal start an outage.
+   */
+  function recordFailure(enrollmentId: string, code: string) {
+    const at = iso();
+    ensureSyncRow(deps.db, enrollmentId, at);
+    deps.db
+      .prepare(
+        `UPDATE offline_journal_sync SET issue_code = ?, issue_message = ?, issue_sequence = NULL, issue_at = ?, updated_at = ?
+       WHERE enrollment_id = ? AND (issue_code IS NULL OR issue_code <> 'JOURNAL_MISMATCH')`,
+      )
+      .run(code, explainSyncIssue(code), at, at, enrollmentId);
+  }
+
   function unsynced(enrollmentId: string): CommandRow[] {
     return deps.db
       .prepare(
@@ -530,11 +549,40 @@ export function createOfflineJournalSync(deps: OfflineJournalSyncDeps) {
   }
 
   /** `issue`: the server answered, but something it said stops the journal being confirmed. */
+  /**
+   * The last-sync time in `app_meta` (read by the title and status bars, #138) is one key for the
+   * computer, so it follows the enrollment signed in now: after a re-enrollment, the previous
+   * counter's last confirmation must not show as this one's until its first.
+   */
+  function alignLastSync(enrollmentId: string): void {
+    const mine =
+      (
+        deps.db
+          .prepare(
+            "SELECT last_success_at FROM offline_journal_sync WHERE enrollment_id = ?",
+          )
+          .get(enrollmentId) as { last_success_at: string | null } | undefined
+      )?.last_success_at ?? null;
+    const shown =
+      (
+        deps.db
+          .prepare("SELECT value FROM app_meta WHERE key = ?")
+          .get(LAST_SUCCESSFUL_SYNC_KEY) as { value: string } | undefined
+      )?.value ?? null;
+    if (shown === mine) return;
+    if (mine) setMeta(deps.db, LAST_SUCCESSFUL_SYNC_KEY, mine, iso());
+    else
+      deps.db
+        .prepare("DELETE FROM app_meta WHERE key = ?")
+        .run(LAST_SUCCESSFUL_SYNC_KEY);
+  }
+
   async function cycle(force: boolean): Promise<"done" | "issue" | "skipped"> {
     const current = deps.terminal.current();
     if (!current) return "skipped";
     const { identity } = current;
     const enrollmentId = identity.enrollmentId;
+    alignLastSync(enrollmentId);
     let rows = unsynced(enrollmentId);
     // A refused entry blocks the chain until it is reviewed; resending it changes nothing.
     if (rows[0]?.sync_status === "failed") return "skipped";
@@ -590,7 +638,7 @@ export function createOfflineJournalSync(deps: OfflineJournalSyncDeps) {
         const code = failureCode(error);
         if (current) {
           try {
-            setIssue(current.identity.enrollmentId, { code });
+            recordFailure(current.identity.enrollmentId, code);
           } catch (recordError) {
             deps.report(recordError);
           }
@@ -685,7 +733,12 @@ export function readJournalSyncView(
             drainedAt: row.drained_at,
           }
         : null,
-    pause: checkoutSyncPause(db, enrollmentId),
+    pause: syncPauseFrom(
+      outage,
+      head,
+      accepted,
+      outage ? unresolvedSubmissions(db, enrollmentId) : NOTHING_UNCONFIRMED,
+    ),
   };
 }
 
@@ -710,7 +763,7 @@ export function createSyncCoordinator(deps: {
 }) {
   const now = deps.now ?? Date.now;
   /** One immediate renewal per outage and journal head; after that, the refresh's own back-off. */
-  let renewalAskedFor: string | null = null;
+  let renewalAskedFor: { key: string; at: number } | null = null;
   return async function cycle(): Promise<void> {
     await deps.sync.tick();
     if (deps.recovery && (await deps.recovery.tick()) === "recovered")
@@ -718,17 +771,30 @@ export function createSyncCoordinator(deps: {
     const current = deps.terminal.current();
     if (!current || !deps.refresh) return;
     const enrollmentId = current.identity.enrollmentId;
-    if (!drainAwaitsFreshSnapshot(deps.db, enrollmentId)) return;
+    if (!drainAwaitsFreshSnapshot(deps.db, enrollmentId)) {
+      // Ask afresh once it does. A sale left unconfirmed when the pair arrived (`drain_incomplete`,
+      // which backs the refresh off) is confirmed by a person: the drain then finishes at once
+      // rather than after that back-off.
+      renewalAskedFor = null;
+      return;
+    }
     const key = `${activeOutage(deps.db, enrollmentId)?.offlineSessionId}:${localJournalHead(deps.db, enrollmentId).sequence}`;
-    if (renewalAskedFor !== key) {
-      renewalAskedFor = key;
+    if (renewalAskedFor?.key !== key) {
+      renewalAskedFor = { key, at: now() };
       deps.refresh.renewNow();
       await deps.refresh.tick();
     }
+    // Only an answer given since the drain asked ends it without a pair. One recorded earlier (a
+    // refusal from before the outage, say, while the refresh's own request is still in flight so
+    // this tick returned at once) is stale: the server may be about to issue the pair that finishes
+    // the drain properly.
+    const askedAt = renewalAskedFor.at;
     const status = deps.refresh.status();
     if (
-      status.nominated === false ||
-      (status.lastFailure && NO_OFFLINE_AUTHORITY.has(status.lastFailure.code))
+      (status.nominated === false && (status.nominatedAt ?? -Infinity) >= askedAt) ||
+      (status.lastFailure &&
+        status.lastFailure.at >= askedAt &&
+        NO_OFFLINE_AUTHORITY.has(status.lastFailure.code))
     )
       finishDrainWithoutRenewal(
         deps.db,
@@ -790,6 +856,7 @@ export function journalSyncState(view: JournalSyncView | null): JournalSync {
         view.pause.outageStartedAt === null
           ? null
           : new Date(view.pause.outageStartedAt).toISOString(),
+      unconfirmed: { ...view.pause.unconfirmed },
     },
     lastDrainAt: view.lastDrain?.drainedAt ?? null,
   };

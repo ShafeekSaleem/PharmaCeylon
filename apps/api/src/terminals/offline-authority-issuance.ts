@@ -47,6 +47,21 @@ export async function journalAwaitingReview(
 }
 
 /**
+ * The accepted head, refusing `RECONCILIATION_REQUIRED` while the journal is stuck past it on an
+ * entry that needs review (`journalAwaitingReview`). The challenge and issuance both decide it
+ * here, so they can't disagree: a counter never spends an attendance proof on a request that
+ * issuance would then refuse.
+ */
+export async function assertJournalNotStuck(
+  tx: Prisma.TransactionClient,
+  identity: TerminalIdentity,
+): Promise<{ sequence: number; hash: string | null }> {
+  const head = await acceptedJournalHead(tx, identity);
+  if (await journalAwaitingReview(tx, identity, head.sequence)) denied("RECONCILIATION_REQUIRED");
+  return head;
+}
+
+/**
  * Whether this enrollment's journal recovery (D11, a restored counter) is open: reported or
  * approved but not yet completed by the counter. The counter has not yet set its unmatched
  * entries aside and removed its restored grant, so no new authority is issued to it meanwhile.
@@ -92,8 +107,7 @@ export async function acceptedJournalState(
   tx: Prisma.TransactionClient,
   identity: TerminalIdentity,
 ): Promise<SnapshotState> {
-  const head = await acceptedJournalHead(tx, identity);
-  if (await journalAwaitingReview(tx, identity, head.sequence)) denied("RECONCILIATION_REQUIRED");
+  const head = await assertJournalNotStuck(tx, identity);
   if (await journalRecoveryOpen(tx, identity)) denied("RECONCILIATION_REQUIRED");
   return {
     includedThroughSequence: head.sequence,

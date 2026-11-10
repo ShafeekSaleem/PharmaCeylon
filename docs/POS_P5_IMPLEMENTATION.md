@@ -50,6 +50,13 @@ until each slice and P4's real journals (#50) are in.
   sign-in `SESSION_INVALID`, missing `BUSINESS_HOURS_ACK_REQUIRED`) or awaiting review
   (`TERMINAL_REVOKED`). `rejected`: that content will never be accepted (`REPLAY_CONFLICT`,
   policy codes).
+- **A retained refusal only escalates** (migration `20261109000000_offline_journal_review_escalation`).
+  The same content can be refused more than once, e.g. held for its sign-in and then, once
+  judged, rejected. Its row's `outcome` is the worst refusal so far (held < rejected < conflict),
+  with that refusal's `error_code`. A milder refusal later, such as `TERMINAL_REVOKED` after
+  revocation, only counts as an attempt. The table's trigger enforces this, and an escalation is
+  audited (`terminal.offline_journal_escalated`). Issuance, sync status and review all read
+  `outcome`, so a held-then-rejected entry has to count as stuck.
 - **Shared contracts unchanged.** `OfflineStockDiscrepancy` maps to one case line (case ID +
   batch); nothing needed adding.
 
@@ -72,7 +79,8 @@ chain (`REPLAY_CONFLICT`, retained), concurrent identical retries, the contract'
 (10 / 7 online / 5 offline → 2-unit case, batch blocked, other batch sells, retry returns the
 case, later sale into the blocked batch pending), a sale with one short batch, recovery after
 grant expiry, revoked counter recovery, unsigned/malformed uploads, snapshot pricing and a late
-sign-in, support records and a wrong counter login.
+sign-in, support records and a wrong counter login. Also a held entry that is rejected once
+judged, which escalates, blocks issuance and is never softened by a later `TERMINAL_REVOKED`.
 
 ## Slice 2 — manager review and resolution of discrepancy cases (built)
 
@@ -180,13 +188,27 @@ and only then sells again.
   also ends the outage, in one SQLite transaction, so checkout resumes on fresh stock or not at
   all.
 - **No wasted grant versions.** Renewal is skipped while entries wait for the server (a pair
-  issued then could not include them), and a pair that is `behind` is not installed. The
-  coordinator asks for one immediate renewal per outage and journal head, then the refresh's own
-  back-off applies.
+  issued then could not include them), and a pair that is `behind` is not installed. Waiting is
+  not a failure: nothing is asked, nothing backs off, and the next minute's check after the
+  upload is accepted asks. The coordinator asks for one immediate renewal per outage and journal
+  head, then the refresh's own back-off applies — except that it asks afresh each time the drain
+  becomes ready again, so a sale confirmed after a `drain_incomplete` refusal doesn't wait out
+  that refusal's back-off.
+- **The drain waits only for what this enrollment can confirm.** Unconfirmed online sales and
+  signed actions count when this enrollment sent them (a signed action by the enrollment its
+  envelope names; a draft from before drafts recorded one still counts, since it can be resent).
+  An earlier enrollment's leftovers can't be resent from here, so they never hold the drain. The
+  pause carries the counts: Sell's block names them and holds the unconfirmed sales, which are
+  confirmable only on Sell, and readiness says what the drain is waiting for.
+- **A `drain_incomplete` install still records the pair's watermark.** It is the server's signed
+  acceptance of the journal whatever the install makes of the pair, and it only moves forward;
+  after a lost upload reply it is the only evidence the journal arrived.
 - **Finishing without a pair.** A counter that is no longer the offline counter, or whose branch
   no longer allows offline selling, will never get a rebased pair. Its drain ends once the
-  journal is accepted and nothing sent is uncertain. Its old pair stays installed, unrenewed, and
-  is soon too old to start another outage on.
+  journal is accepted and nothing sent is uncertain (the same `mayResumeOnlineCheckout` rule the
+  installer applies, less the fresh snapshot). Only an answer given since the drain asked counts:
+  a refusal from before the outage is stale. Its old pair stays installed, unrenewed, and is soon
+  too old to start another outage on.
 - **A journal the server doesn't recognise is a recovery issue, not a sync error.** It fails the
   readiness row and refuses new outages until the D11 journal recovery (below) completes.
 - **Held entries back off, rejected ones stop.** Held ones are resent after 60 s, because the
@@ -209,14 +231,23 @@ Desktop:
 - `offline-journal-sync.spec.ts`, against a real encrypted store, the real P4 writer and a fake
   signing server: upload order and sign-ins, acknowledgements and the `app_meta` keys, a lost
   reply recovered as duplicates, held / rejected handling and back-off, batching, the empty
-  confirmation, replies with a bad signature or wrong content, a restored-backup mismatch, the
+  confirmation, replies with a bad signature or wrong content, a restored-backup mismatch (kept
+  through a dropped connection or a bad reply, and cleared only by a verified reply), the
   drain's install ending the outage, `drain_incomplete`, a `behind` pair, and the coordinator
-  (immediate renewal, finishing without a pair, never finishing with entries waiting).
+  (immediate renewal, finishing without a pair, ignoring a refusal from before it asked, never
+  finishing with entries waiting, asking again once the last unconfirmed sale is confirmed), the
+  watermark a `drain_incomplete` install records, the drain waiting only for this enrollment's
+  unconfirmed sales and actions, and the last-sync key following the enrollment signed in.
+- `offline-journal-writer.spec.ts` (desktop), `offline-journal-wire.spec.ts` (API) and the shared
+  package's tests all check `packages/shared/test/journal-command-hash.json`: the desktop's
+  `journalCommandHash` and the API's `journalHash` give the same hash for the same entry.
 - `checkout-service.spec.ts` covers `SYNC_PAUSED` with retry still working.
 - `shell.spec.ts` covers the Synchronisation readiness row.
-- `Shell.spec.tsx` covers `SyncBlock`.
-- `migrations.integration.spec.ts` covers the upgrade from 14 to 15.
-- `offline-authority*.spec.ts` covers the installer's new results.
+- `Shell.spec.tsx` covers `SyncBlock`; `Sell.pending.spec.tsx` covers confirming an
+  unconfirmed sale under it.
+- `migrations.integration.spec.ts` covers the upgrade from 15 to 16.
+- `offline-authority*.spec.ts` covers the installer's new results, and the refresh: waiting for
+  the upload without a request or a back-off, due at once during an outage, and `renewNow`.
 
 ## D11 — journal recovery and replacing the offline counter (built)
 
@@ -302,5 +333,9 @@ dialog). Shared: `offline-journal-recovery.test.cjs`.
   until P4 writes them.
 - Sync lag visible centrally (server and web).
 - The desktop producer (P4 #50): outage entry and offline selling. This slice's upload and drain
-  are exercised with journals written by P4's writer in tests.
+  are exercised with journals written by P4's writer in tests. P4 must also quiesce before the
+  drain ends an outage: today one renewal that gets through can install a pair and end the outage
+  at once, which is harmless while nothing sells offline. Once offline tender exists, the
+  installer has to refuse (`drain_incomplete`) while an offline tender is open, and a flapping
+  connection must not split one outage into two (epic: "a single probe cannot interrupt tender").
 - A concrete retention policy for journal evidence (nothing is deleted today).

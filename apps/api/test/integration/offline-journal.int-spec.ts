@@ -429,4 +429,35 @@ describe("offline journal intake (P5 #51)", () => {
     expect((await sync(c, { staffSignIns: [stranger], commands: [waiting] })).payload.acknowledgements[0])
       .toMatchObject({ status: "committed" });
   });
+
+  it("escalates a held entry once it is judged and rejected, and never softens a refusal", async () => {
+    const c = await counter({ main: 20 });
+    const j = offlineJournal(c);
+    const cashierIn = j.signIn(c.cashier.userId, randomUUID());
+    // No shift was opened. Without its sign-in the sale waits for it.
+    const sale = j.sale(cashierIn, [[c.batches.main, 1]]);
+    expect((await sync(c, { commands: [sale] })).payload.acknowledgements[0])
+      .toMatchObject({ status: "held", error: { code: "SESSION_INVALID" } });
+    const kept = () => prisma.offlineJournalReview.findFirstOrThrow({ where: { tenantId: c.fx.tenantId, recordId: sale.payload.commandId } });
+    expect(await kept()).toMatchObject({ outcome: "held", attempts: 1 });
+
+    // With the sign-in it is judged, and refused for good: there is no open shift to sell on.
+    expect((await sync(c, { staffSignIns: [cashierIn], commands: [sale] })).payload.acknowledgements[0])
+      .toMatchObject({ status: "rejected", error: { code: "SESSION_INVALID" } });
+    expect(await kept()).toMatchObject({ outcome: "rejected", errorCode: "SESSION_INVALID", attempts: 2 });
+    // So the journal is stuck past its head, and no authority is rebased over it.
+    await expect(prisma.$transaction((tx) => acceptedJournalState(tx, c.identity)))
+      .rejects.toMatchObject({ response: { code: "RECONCILIATION_REQUIRED" } });
+    expect(await prisma.auditEvent.count({ where: { tenantId: c.fx.tenantId, eventName: "terminal.offline_journal_escalated" } })).toBe(1);
+
+    // A milder refusal of the same content later doesn't soften it.
+    await prisma.$transaction((tx) => trust.revokeEnrollment(tx, c.owner, c.fx.mainBranchId, c.identity.enrollmentId, "Stolen"));
+    const revoked = await journal.sync(c.owner, c.fx.mainBranchId, request(c, { commands: [sale] }));
+    expect(revoked.payload.acknowledgements[0]).toMatchObject({ status: "held", error: { code: "TERMINAL_REVOKED" } });
+    const row = await kept();
+    expect(row).toMatchObject({ outcome: "rejected", errorCode: "SESSION_INVALID", attempts: 3 });
+    // Nor can anything else: the table only lets an outcome escalate.
+    await expect(prisma.offlineJournalReview.update({ where: { id: row.id }, data: { outcome: "held" } }))
+      .rejects.toThrow(/only escalates/);
+  });
 });

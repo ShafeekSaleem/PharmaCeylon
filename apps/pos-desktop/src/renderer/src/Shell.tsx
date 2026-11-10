@@ -6,6 +6,7 @@ import type {
   LocalShift,
   Printer,
 } from "../../shared/ipc-contract";
+import type { ReactNode } from "react";
 import { initials, shortDay, shortName, time, timeWithSeconds, useNow } from "./format";
 import { money } from "./sell-model";
 import { Icon, type IconName } from "./Icon";
@@ -307,10 +308,14 @@ export function StatusBar({
 /**
  * P5 #51 (approved D12): after an outage, new sales wait on this counter while it sends its
  * offline sales to the server and takes fresh stock. It resumes by itself; nothing here can skip
- * it. Unconfirmed sales can still be confirmed from Counter work — that is part of finishing.
+ * it. Finishing also waits for every sale and action sent from here to be confirmed, so the Sell
+ * page puts its unconfirmed sales inside the block (`children`), where they can still be confirmed;
+ * actions are confirmed in Counter work, which the block doesn't cover.
  */
-export function SyncBlock({ sync }: { sync: JournalSync }) {
+export function SyncBlock({ sync, children }: { sync: JournalSync; children?: ReactNode }) {
   const waiting = sync.pause?.waiting ?? sync.waiting;
+  const sales = sync.pause?.unconfirmed.sales ?? 0;
+  const actions = sync.pause?.unconfirmed.actions ?? 0;
   const stuck = sync.refused > 0 || sync.issue?.code === "JOURNAL_MISMATCH";
   return (
     <div className={styles.block} role="status" aria-live="polite">
@@ -322,10 +327,27 @@ export function SyncBlock({ sync }: { sync: JournalSync }) {
         <p>
           {waiting > 0
             ? `${waiting} offline ${waiting === 1 ? "record is" : "records are"} on the way to the server. `
-            : "The offline sales are on the server; fresh stock is on its way. "}
+            : sales + actions > 0
+              ? "The offline sales are on the server. "
+              : "The offline sales are on the server; fresh stock is on its way. "}
           New sales start again as soon as it finishes. The sale on screen is kept.
         </p>
+        {sales > 0 && (
+          <p>
+            {sales === 1
+              ? "The sale below was sent but not confirmed: synchronisation finishes once it is."
+              : `The ${sales} sales below were sent but not confirmed: synchronisation finishes once they are.`}
+          </p>
+        )}
+        {actions > 0 && (
+          <p>
+            {actions === 1
+              ? "An action sent from here waits in Counter work for the person who sent it to confirm it."
+              : `${actions} actions sent from here wait in Counter work for the people who sent them to confirm them.`}
+          </p>
+        )}
         {sync.issue && <p>{sync.issue.message}</p>}
+        {children}
       </div>
     </div>
   );
