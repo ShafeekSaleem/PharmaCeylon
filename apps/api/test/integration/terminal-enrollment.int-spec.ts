@@ -1346,10 +1346,18 @@ describe("go-live evidence from counters", () => {
 });
 
 describe("GET enrollment status for This counter", () => {
+  const branchNominationVersion = async (): Promise<number> => {
+    const row = await prisma.offlineTerminalNomination.findUnique({
+      where: { tenantId_branchId: { tenantId: fx.tenantId, branchId: fx.mainBranchId } },
+      select: { version: true },
+    });
+    return row?.version ?? 0;
+  };
+
   const resetOfflineAssignment = async () => {
     // Assignment authorizations are retained (immutable evidence); revoke outstanding rows only.
-    // Nomination rows can still be deleted — no retention trigger yet — but tests that need a
-    // clean branch nomination use upsert below instead of depending on deleteMany here.
+    // Nomination rows are not cleared here; each test arranges branch nomination state (upsert or
+    // read branchNominationVersion before authorize).
     await prisma.offlineTerminalAssignmentAuthorization.updateMany({
       where: { tenantId: fx.tenantId, branchId: fx.mainBranchId, status: "authorized" },
       data: {
@@ -1534,11 +1542,12 @@ describe("GET enrollment status for This counter", () => {
   it("does not surface a revoked outstanding authorization on enrollment status", async () => {
     const { identity } = await enroll();
     const authorizationId = randomUUID();
+    const nominationVersion = await branchNominationVersion();
     await offlineAssignments.authorize(owner, fx.mainBranchId, {
       authorizationId,
       targetTerminalId: identity.terminalId,
       targetEnrollmentId: identity.enrollmentId,
-      expectedNominationVersion: 0,
+      expectedNominationVersion: nominationVersion,
       reason: "Will revoke",
     });
     await offlineAssignments.revokeAuthorization(owner, fx.mainBranchId, authorizationId, "No longer needed");
