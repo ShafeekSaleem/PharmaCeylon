@@ -332,7 +332,18 @@ function PrinterTest() {
   );
 }
 
-/** Shown to people who can manage the branch; others get a refusal and see nothing. */
+/** When offline-assignment is refused, derive nomination state from enrollment status only. */
+function offlineCounterViewFromEnrollment(
+  backup: EnrollmentOfflineBackup,
+): OfflineCounterView {
+  return {
+    thisCounterNominated: backup.activatedAt != null,
+    otherCounterNominated: false,
+    nominationVersion: 0,
+    authorization: null,
+  };
+}
+
 function OfflineCounterPanel({
   branchName,
   backup,
@@ -343,17 +354,30 @@ function OfflineCounterPanel({
   enrollmentBackup: EnrollmentOfflineBackup;
 }) {
   const [view, setView] = useState<OfflineCounterView | null>(null);
-  const [hidden, setHidden] = useState(false);
   const { busy, error, run } = useAction();
   useEffect(() => {
     void window.pos
       .offlineCounter()
-      .then((result) => (result.ok ? setView(result.value) : setHidden(true)))
-      .catch(() => setHidden(true));
-  }, []);
-  if (hidden || !view) return null;
+      .then((result) =>
+        setView(
+          result.ok
+            ? result.value
+            : offlineCounterViewFromEnrollment(enrollmentBackup),
+        ),
+      )
+      .catch(() =>
+        setView(offlineCounterViewFromEnrollment(enrollmentBackup)),
+      );
+  }, [enrollmentBackup]);
+  if (!view) return null;
 
   const authorization = view.authorization;
+  const enrollmentAuthorizedWaiting =
+    enrollmentBackup.authorizedAt != null && enrollmentBackup.activatedAt == null;
+  const showEnrollmentAuthorizedWaiting =
+    enrollmentAuthorizedWaiting &&
+    !view.thisCounterNominated &&
+    authorization == null;
   const authorizedLine = formatOfflineAuthorized(enrollmentBackup);
   const activatedLine = formatOfflineActivated(enrollmentBackup);
   const expiresAt = backup?.grantExpiresAt
@@ -367,7 +391,7 @@ function OfflineCounterPanel({
           ? `Ready until ${relativeTime(expiresAt)}`
           : "Not ready for an outage",
       ]
-    : authorization
+    : authorization || showEnrollmentAuthorizedWaiting
       ? [
           "The owner chose this counter as the offline backup",
           ui.warn,
@@ -459,6 +483,21 @@ function OfflineCounterPanel({
             </p>
           </>
         )}
+        {showEnrollmentAuthorizedWaiting && (
+          <>
+            <div className={ui.kvs}>
+              {authorizedLine && (
+                <div className={ui.kv}>
+                  Authorized<b>{authorizedLine}</b>
+                </div>
+              )}
+            </div>
+            <p className={styles.text}>
+              The owner authorized this counter to keep selling during internet
+              outages. Someone allowed to activate confirms here while online.
+            </p>
+          </>
+        )}
         {authorization && !view.thisCounterNominated && (
           <>
             <div className={ui.kvs}>
@@ -500,11 +539,13 @@ function OfflineCounterPanel({
             </div>
           </>
         )}
-        {!authorization && !view.thisCounterNominated && (
-          <p className={styles.text}>
-            The owner authorizes one from the back office.
-          </p>
-        )}
+        {!authorization &&
+          !view.thisCounterNominated &&
+          !showEnrollmentAuthorizedWaiting && (
+            <p className={styles.text}>
+              The owner authorizes one from the back office.
+            </p>
+          )}
         <ErrorLine error={error} />
         <div className={styles.offl}>
           <Icon name="info" />

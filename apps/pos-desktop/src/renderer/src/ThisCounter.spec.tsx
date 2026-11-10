@@ -47,14 +47,21 @@ function offlineView(backup: EnrollmentOfflineBackup) {
   };
 }
 
+type OfflineCounterStub =
+  | { ok: true; value: ReturnType<typeof offlineView> }
+  | { ok: false; error: { code: string; message: string } };
+
 async function renderCounter(
   counterLabel: string | null,
   offlineBackup: EnrollmentOfflineBackup,
+  offlineCounterResult?: OfflineCounterStub,
 ) {
+  const offlineCounter =
+    offlineCounterResult ??
+    ({ ok: true, value: offlineView(offlineBackup) } satisfies OfflineCounterStub);
   stubPos({
     listPrinters: () => Promise.resolve([]),
-    offlineCounter: () =>
-      Promise.resolve({ ok: true, value: offlineView(offlineBackup) }),
+    offlineCounter: () => Promise.resolve(offlineCounter),
   });
   renderWithKeys(
     <ThisCounterPage
@@ -154,5 +161,84 @@ describe("offline backup enrollment facts", () => {
     const panel = await offlinePanel();
     expect(within(panel).getByText("On the web · 13 Oct 2026")).toBeTruthy();
     expect(within(panel).getByText("Here · 14 Oct 2026")).toBeTruthy();
+  });
+});
+
+const offlineAssignmentForbidden: OfflineCounterStub = {
+  ok: false,
+  error: { code: "FORBIDDEN", message: "You may not do that." },
+};
+
+describe("offline backup when offline-assignment is refused", () => {
+  it("still shows the panel and not-chosen copy when not nominated", async () => {
+    await renderCounter(
+      "Counter 2",
+      emptyEnrollmentOfflineBackup,
+      offlineAssignmentForbidden,
+    );
+    const panel = await offlinePanel();
+    expect(within(panel).getByText("No offline backup counter yet")).toBeTruthy();
+    expect(within(panel).getByText("The owner authorizes one from the back office.")).toBeTruthy();
+  });
+
+  it("shows Authorized from enrollment when authorized but not activated", async () => {
+    const backup: EnrollmentOfflineBackup = {
+      ...emptyEnrollmentOfflineBackup,
+      authorizedAt: Date.UTC(2026, 9, 13, 12),
+      authorizedByUserId: ids.ana,
+      authorizedByFullName: "Dilini Fernando",
+    };
+    await renderCounter("Counter 2", backup, offlineAssignmentForbidden);
+    const panel = await offlinePanel();
+    expect(
+      within(panel).getByText("On the web by Dilini Fernando · 13 Oct 2026"),
+    ).toBeTruthy();
+    expect(within(panel).queryByText(/^Activated$/)).toBeNull();
+    expect(
+      within(panel).queryByRole("button", {
+        name: "Activate as the offline backup",
+      }),
+    ).toBeNull();
+  });
+
+  it("shows Authorized and Activated from enrollment when activated", async () => {
+    const backup: EnrollmentOfflineBackup = {
+      authorizedAt: Date.UTC(2026, 9, 13, 12),
+      authorizedByUserId: ids.ben,
+      authorizedByFullName: "Branch Owner",
+      activatedAt: Date.UTC(2026, 9, 14, 12),
+      activatedByUserId: ids.ana,
+      activatedByFullName: "Dilini Fernando",
+    };
+    await renderCounter("Counter 2", backup, offlineAssignmentForbidden);
+    const panel = await offlinePanel();
+    expect(
+      within(panel).getByText("On the web by Branch Owner · 13 Oct 2026"),
+    ).toBeTruthy();
+    expect(
+      within(panel).getByText("Here by Dilini Fernando · 14 Oct 2026"),
+    ).toBeTruthy();
+    expect(
+      within(panel).queryByRole("button", {
+        name: "Activate as the offline backup",
+      }),
+    ).toBeNull();
+  });
+});
+
+describe("offline backup activation control", () => {
+  it("shows Activate when offline-assignment returns a waiting authorization", async () => {
+    const backup: EnrollmentOfflineBackup = {
+      ...emptyEnrollmentOfflineBackup,
+      authorizedAt: Date.UTC(2026, 9, 13, 12),
+      authorizedByUserId: ids.ana,
+      authorizedByFullName: "Dilini Fernando",
+    };
+    await renderCounter("Counter 2", backup);
+    expect(
+      await screen.findByRole("button", {
+        name: "Activate as the offline backup",
+      }),
+    ).toBeTruthy();
   });
 });
