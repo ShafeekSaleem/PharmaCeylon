@@ -15,6 +15,7 @@ import type { PosDatabase } from "../db/database";
 import { activeOutage, journalCoverage } from "./offline-journal";
 import { resetJournalUsageForEnrollment } from "./offline-journal-writer";
 import { drainResumeEvidence, endOutage, recordAcceptedWatermark } from "./reconnect-drain";
+import { clearAcknowledgedRestores, restoredGrantFloor, restoresAwaitingAcknowledgement } from "./store-restore-sync";
 
 export type OfflineAuthority = {
   grant: Signed<OfflineGrant>;
@@ -78,7 +79,12 @@ export type InstallResult =
   /** The pair's watermark names journal entries this computer doesn't have: never installed. */
   | "journal_mismatch"
   /** It would finish an outage's drain, but a sale or action sent from here is still unconfirmed. */
-  | "drain_incomplete";
+  | "drain_incomplete"
+  /**
+   * P5 #51: this store was restored from a backup and the back office has not acknowledged that
+   * yet. Never installed meanwhile (the server refuses to issue one too).
+   */
+  | "restore_unacknowledged";
 
 type InstalledRow = { version: number; grant_envelope: string; snapshot_envelope: string };
 
@@ -138,6 +144,10 @@ export function installOfflineAuthority(
       return previous.grant.signature === response.grant.signature &&
         previous.snapshot.signature === response.snapshot.signature ? "already_installed" : "invalid";
     if (previous && previous.version > version) return "superseded";
+    // P5 #51, store restore: nothing at or below the highest version the server had issued when it
+    // answered the restore. Such a pair was superseded while the backup was all this computer had.
+    if (restoresAwaitingAcknowledgement(db, enrollmentId).length > 0) return "restore_unacknowledged";
+    if (version <= restoredGrantFloor(db, enrollmentId)) return "superseded";
     // A newer version must be newer evidence, never an older view under a higher number.
     if (previous && (response.snapshot.payload.generatedAt < previous.snapshot.payload.generatedAt ||
         response.grant.payload.issuedAt < previous.grant.payload.issuedAt)) return "invalid";
@@ -169,6 +179,8 @@ export function installOfflineAuthority(
     }
     resetJournalUsageForEnrollment(db, enrollmentId);
     if (outage) endOutage(db, enrollmentId, at);
+    // A pair issued after the restore was acknowledged: the restore no longer stops offline selling.
+    clearAcknowledgedRestores(db, enrollmentId, at);
     return "installed";
   });
   return install.immediate();

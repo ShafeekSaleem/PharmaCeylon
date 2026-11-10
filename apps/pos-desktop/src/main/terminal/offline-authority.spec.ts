@@ -325,6 +325,21 @@ describe("refreshing in the background", () => {
     expect([...r.issued.keys()][1]).not.toBe(lostRequest);
   });
 
+  it("does not ask while a store restore waits for the back office (P5 #51)", async () => {
+    const r = refresh();
+    local.db
+      .prepare(
+        `INSERT INTO store_restore (restore_id, enrollment_id, backup_id, backup_taken_at, restored_at,
+           journal_head_sequence, accepted_sequence, outage_active, report_envelope, status, latest_grant_version, updated_at)
+         VALUES (?, ?, 'b', ?, ?, 0, 0, 0, '{}', 'awaiting_acknowledgement', 0, 'x')`,
+      )
+      .run(randomUUID(), identity.enrollmentId, NOW - 60_000, NOW);
+    await r.loop.tick();
+    expect(r.requests).toEqual([]);
+    expect(r.attendCommand).not.toHaveBeenCalled();
+    expect(r.loop.status().lastFailure?.code).toBe("restore_unacknowledged");
+  });
+
   it("leaves the installed pair alone while offline use is recorded, and says so", async () => {
     let used = false;
     const r = refresh(undefined, { usage: () => used });

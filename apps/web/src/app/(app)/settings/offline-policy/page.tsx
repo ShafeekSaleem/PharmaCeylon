@@ -7,6 +7,7 @@ import { OfflineManagersCard } from "./offline-managers-card";
 import { OfflinePolicyCard } from "./offline-policy-card";
 import { AssignmentDelegationsCard } from "./assignment-delegations-card";
 import { JournalRecoveryCard } from "./journal-recovery-card";
+import { CounterRestoreCard } from "./counter-restore-card";
 
 export default function OfflinePolicySettingsPage() {
   // Bumped after the policy saves, so the managers card re-reads the branch's offline state.
@@ -22,6 +23,7 @@ export default function OfflinePolicySettingsPage() {
         <OfflineManagersCard refreshKey={saves} />
         <AssignmentDelegationsCard />
         <JournalRecoveryCard />
+        <CounterRestoreCard />
       </div>
     </div>
   );

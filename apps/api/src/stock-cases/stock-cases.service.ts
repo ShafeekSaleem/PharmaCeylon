@@ -30,6 +30,7 @@ import {
   offlineStockResolutionFactsFor,
 } from "../security/offline-stock-resolution-approval-material";
 import type { CommandProvenance } from "../terminals/command-provenance";
+import { countsAfterSale } from "../inventory/stock/counts-after-sale";
 import { denied } from "../terminals/terminal-wire";
 import {
   allocateMovementLinks,
@@ -413,7 +414,7 @@ export class StockCasesService {
       const links = normalizeLinks(kind, input.links, lines.map((line) => line.batchId));
       const sale = await tx.sale.findFirstOrThrow({ where: { tenantId, branchId, id: found.saleId }, select: { soldAt: true } });
       if (links.length) await this.checkLinks(tx, tenantId, branchId, links, lines, sale.soldAt);
-      if (kind === "post_now") await this.refuseIfCountedAfterSale(tx, tenantId, branchId, lines.map((line) => line.batchId), sale.soldAt);
+      if (kind === "post_now") await this.refuseIfCountedAfterSale(tx, tenantId, branchId, lines.map((line) => line.batchId), sale.soldAt, found.openedAt);
       const row = await tx.offlineStockResolution.create({
         data: {
           id: randomUUID(), tenantId, branchId, caseId, kind,
@@ -635,7 +636,7 @@ export class StockCasesService {
       ? await this.checkLinks(tx, tenantId, branchId, links, lines, sale.soldAt)
       : new Map<string, Array<{ ledgerEntryId: string; quantity: number }>>();
     // Under the batch locks: a stocktake posted since approval may have taken the units off already.
-    if (kind === "post_now") await this.refuseIfCountedAfterSale(tx, tenantId, branchId, batchIds, sale.soldAt);
+    if (kind === "post_now") await this.refuseIfCountedAfterSale(tx, tenantId, branchId, batchIds, sale.soldAt, found.openedAt);
 
     const saleCtx = { tenantId, branchId, userId: sale.soldBy, referenceType: "sale", referenceId: sale.id, occurredAt: sale.soldAt };
     const correctionCtx = { tenantId, branchId, userId: user.userId, referenceType: RESOLUTION_REFERENCE, referenceId: resolutionId, occurredAt: now };
@@ -828,22 +829,19 @@ export class StockCasesService {
   }
 
   /**
-   * Post a sale's units only if no posted stocktake counted one of its batches after the sale:
-   * that count already took them off, so posting would deduct them twice.
+   * Post a sale's units only if nothing counted one of its batches after the sale and so already
+   * took them off (`countsAfterSale`): a posted stocktake, or another case's count made before
+   * this case opened. Posting would deduct them twice.
    */
-  private async refuseIfCountedAfterSale(tx: Tx, tenantId: string, branchId: string, batchIds: string[], soldAt: Date) {
-    const counted = await tx.stocktakeLine.findFirst({
-      where: {
-        tenantId, batchId: { in: batchIds }, countedAt: { gt: soldAt }, postedAt: { not: null },
-        stocktake: { tenantId, branchId, status: { in: POSTED_STOCKTAKE } },
-      },
-      select: { stocktake: { select: { stocktakeNumber: true } } },
+  private async refuseIfCountedAfterSale(tx: Tx, tenantId: string, branchId: string, batchIds: string[], soldAt: Date, caseOpenedAt: Date) {
+    const [counted] = await countsAfterSale(tx, { tenantId, branchId }, batchIds, soldAt, caseOpenedAt);
+    if (!counted) return;
+    throw new ConflictException({
+      code: "SETTLEMENT_ALREADY_COUNTED",
+      message: counted.source === "stocktake"
+        ? `Stocktake ${counted.stocktakeNumber} counted a batch of this sale after it was made, so its units are already off. Link that stocktake or count the batches instead.`
+        : "Another offline stock case counted a batch of this sale after it was made, so its units are already off. Count the batches instead.",
     });
-    if (counted)
-      throw new ConflictException({
-        code: "SETTLEMENT_ALREADY_COUNTED",
-        message: `Stocktake ${counted.stocktake.stocktakeNumber} counted a batch of this sale after it was made, so its units are already off. Link that stocktake or count the batches instead.`,
-      });
   }
 
   /**

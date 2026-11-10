@@ -1595,8 +1595,10 @@ with the provider reference. Under the batch locks, if every batch has the units
 posted through `StockService.issue` (no bypass), dated `occurredAt`. Otherwise **nothing** is
 posted: the sale and payments stand with `stockPosting: pending_reconciliation`, and one
 `offline_stock_discrepancy` case is opened with a line per batch (`soldQuantity`,
-`availableQuantityAtSync`, `shortfallQuantity`, and why: `shortfall`, `batch_under_review` or
-`sale_pending`) and a `batch_sale_block` on each of the sale's batches. The ack carries
+`availableQuantityAtSync`, `shortfallQuantity`, and why: `shortfall`, `counted_after_sale`,
+`batch_under_review` or `sale_pending`) and a `batch_sale_block` on each of the sale's batches.
+A batch counted after the sale was made (a posted stocktake line, or another case's count) is
+never posted into (`counted_after_sale`): that count already took the sale's units off. The ack carries
 `stockPosting` and `reconciliationCaseId`; a retry returns the same, case included. The shared
 `OfflineStockDiscrepancy` is one line of a case (case ID + batch).
 
@@ -1706,6 +1708,55 @@ refuse `RECONCILIATION_REQUIRED`. Unmatched entries are kept as evidence and nev
 Audit: `terminal.journal_recovery_reported`, `_approved`, `_completed`,
 `terminal.offline_journal_signed_off`.
 
+## Counter store restore (P5 #51)
+
+Decisions of 2026-11-10. The POS desktop backs up its encrypted store on the computer that runs it
+and can restore one of those backups onto a store that cannot be opened or holds no counter, never
+over a working one. Anything the counter recorded after the backup and never uploaded is gone from
+it, and the backup's offline authority pair may have been superseded since. So the desktop removes
+that pair, its renewal requests and every PIN verifier at restore, and the server issues the
+counter no offline authority until the restore is acknowledged in the back office.
+
+Counter routes (`@CounterRoute`, `terminal.execute`, the journal uploader rule of
+`POST /terminals/offline-journal/sync`; `TerminalErrorFilter` bodies):
+
+- `POST /terminals/offline-journal/restore/report` — `{ report }`: one device-signed (purpose
+  `command`) `OfflineCounterRestoreReport`: `restoreId`, `identity`, `reportedAt`, `backupId`,
+  `backupTakenAt` ≤ `restoredAt`, `journalHead`, `acceptedWatermark` (never past the journal
+  head), `outageActive`, `removedGrantVersion` (≥ 1 or null). The envelope's key must be the
+  report's own. The server stores it as received beside its own facts (accepted head, latest
+  issued version, last contact with the counter before the restore) and answers
+  `CounterStoreRestore` `{ restoreId, status, acknowledgedAt, latestGrantVersion }`. Resending
+  the same report returns the same restore; other content under its `restoreId` is 409
+  `STORE_RESTORE_INVALID`.
+- `POST /terminals/offline-journal/restore/status` — `{ identity, restoreId }` → the same
+  `CounterStoreRestore`, or `null` if the server has none by that ID (the counter then resends
+  its report). `latestGrantVersion` is the highest version issued to the enrollment: the
+  restored counter never installs a pair at or below it.
+
+While a restore is `awaiting_acknowledgement`, issuance, the challenge **and replays of an
+already-issued request** are refused 403 `RECONCILIATION_REQUIRED` (`counterRestoreOpen`). A
+restored counter has no lost response to recover; outside a restore a request still replays its
+own version, as before.
+
+Back office (`tenant.management`; acknowledging also needs revised D13 authority, an owner or a
+manager with a live delegation, else 403 `OFFLINE_ASSIGNMENT_NOT_DELEGATED`):
+
+- `GET /offline-counter-restores` → `OfflineCounterRestoresView`: restores awaiting
+  acknowledgement, then the newest 20 others, each with the backup and restore times (the
+  counter's clock), the restored journal head beside the server's accepted head, `outageActive`,
+  `removedGrantVersion`, `latestGrantVersion`, `lastContactAt` and the acknowledgement.
+- `POST /offline-counter-restores/:id/acknowledge` — `{ reason }` (1–1000 characters: how
+  receipts, cash and stock since the backup were checked). Once only: 409
+  `STORE_RESTORE_NOT_AWAITING` after.
+
+Online selling is not held back, unless the backup was taken during an outage: that outage's
+reconnect drain (D12) then pauses online checkout until a fresh pair installs. The journal
+reconciles as any other — upload, rebase, and D11 recovery when the restored journal is no longer
+the server's. Records are kept for good (`offline_counter_restore`: a trigger refuses deletion and
+any change but the one acknowledgement). Audit: `terminal.store_restore_reported`,
+`terminal.store_restore_acknowledged`.
+
 ## Offline stock case resolution (P5 #51)
 
 Approved D1 and revised D10: an offline sale whose stock could not post at sync waits on an
@@ -1744,7 +1795,9 @@ the `approvalReview` to approve; a resolved case lists one settlement per batch.
   availability check; if it no longer covers, 409 `STOCK_NOT_COVERED` and nothing moves. If a
   posted stocktake counted one of the batches after the sale, the count already took the units
   off, so posting them again is refused 409 `SETTLEMENT_ALREADY_COUNTED` (at preparation and at
-  execution): link that stocktake or count instead.
+  execution): link that stocktake or count instead. So is another case's count of one of the
+  batches made after the sale and before this case opened (a count made while this case was open
+  kept its units pending).
 - `count_and_correct` — the counter counts every batch of the case (all units of the batch at the
   branch, sellable or held, after the sale left the shelf). Each batch is corrected once
   (`adjustment_in` / `adjustment_out`, reference `offline_stock_resolution`) to

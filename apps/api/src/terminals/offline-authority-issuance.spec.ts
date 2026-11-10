@@ -16,6 +16,8 @@ it("authenticates before replaying the original pair without recomputing authori
     offlineTerminalNomination: { findFirst: jest.fn().mockResolvedValue({ id: "nomination" }) },
     offlineAuthorityIssuance: { findUnique: jest.fn().mockResolvedValue({ snapshotId: "snapshot", grant }) },
     offlineStockSnapshot: { findFirstOrThrow: jest.fn().mockResolvedValue({ envelope: snapshot }) },
+    // No store restore awaits acknowledgement (P5 #51): a replay is still answered.
+    offlineCounterRestore: { findFirst: jest.fn().mockResolvedValue(null) },
   };
   const prisma = {
     $transaction: (run: (client: typeof tx) => unknown) => run(tx),
@@ -30,6 +32,10 @@ it("authenticates before replaying the original pair without recomputing authori
   await expect(run()).resolves.toEqual({ grant, snapshot });
   expect(authenticate).toHaveBeenCalledWith(tx);
   expect(readState).not.toHaveBeenCalled();
+
+  // While a store restore awaits acknowledgement, not even a replay is answered.
+  tx.offlineCounterRestore.findFirst.mockResolvedValueOnce({ id: "restore" });
+  await expect(run()).rejects.toMatchObject({ response: { code: "RECONCILIATION_REQUIRED" } });
 
   tx.offlineAuthorityIssuance.findUnique.mockClear();
   authenticate.mockRejectedValueOnce(new Error("Device authentication expired"));

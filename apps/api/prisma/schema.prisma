@@ -671,6 +671,7 @@ model TerminalEnrollment {
   offlineJournalReviews           OfflineJournalReview[]
   offlineStockDiscrepancies       OfflineStockDiscrepancy[]
   offlineJournalRecoveries        OfflineJournalRecovery[]
+  offlineCounterRestores          OfflineCounterRestore[]
 
   @@unique([tenantId, keyId])
   @@unique([tenantId, branchId, terminalId, id, keyId])
@@ -3530,7 +3531,7 @@ model OfflineStockDiscrepancyLine {
   soldQuantity            Int                     @map("sold_quantity")
   availableQuantityAtSync Int                     @map("available_quantity_at_sync")
   shortfallQuantity       Int                     @map("shortfall_quantity")
-  /// "shortfall" | "batch_under_review" | "sale_pending"
+  /// "shortfall" | "batch_under_review" | "sale_pending" | "counted_after_sale"
   reason                  String                  @db.VarChar(24)
   createdAt               DateTime                @default(now()) @map("created_at")
   case                    OfflineStockDiscrepancy @relation(fields: [tenantId, branchId, caseId], references: [tenantId, branchId, id], onDelete: Restrict, onUpdate: Restrict)
@@ -3726,4 +3727,56 @@ model OfflineJournalRecoveryEntry {
   @@unique([recoveryId, recordKind, recordHash])
   @@index([tenantId, recoveryId])
   @@map("offline_journal_recovery_entry")
+}
+
+/// P5 #51 (decisions of 2026-11-10): a counter restored its encrypted store from one of its own
+/// backups. Anything it recorded after the backup and never uploaded is gone from it, so it gets no
+/// offline authority until the owner or a delegated manager (revised D13) acknowledges the restore.
+enum OfflineCounterRestoreStatus {
+  awaiting_acknowledgement
+  acknowledged
+}
+
+/// The counter's device-signed restore report, kept exactly as received, beside what the server
+/// itself held when it arrived. Never deleted; only the acknowledgement is ever added.
+model OfflineCounterRestore {
+  id                          String                      @id @db.Uuid
+  tenantId                    String                      @map("tenant_id") @db.Uuid
+  branchId                    String                      @map("branch_id") @db.Uuid
+  terminalId                  String                      @map("terminal_id") @db.Uuid
+  enrollmentId                String                      @map("enrollment_id") @db.Uuid
+  keyId                       String                      @map("key_id") @db.VarChar(128)
+  restoreId                   String                      @map("restore_id") @db.Uuid
+  status                      OfflineCounterRestoreStatus
+  envelope                    Json
+  backupId                    String                      @map("backup_id") @db.VarChar(64)
+  /// The counter's own clock.
+  backupTakenAt               DateTime                    @map("backup_taken_at")
+  restoredAt                  DateTime                    @map("restored_at")
+  journalHeadSequence         BigInt                      @map("journal_head_sequence")
+  journalHeadHash             String?                     @map("journal_head_hash") @db.Char(64)
+  acceptedSequence            BigInt                      @map("accepted_sequence")
+  acceptedHash                String?                     @map("accepted_hash") @db.Char(64)
+  outageActive                Boolean                     @map("outage_active")
+  removedGrantVersion         Int?                        @map("removed_grant_version")
+  /// The server's own facts when the report arrived.
+  serverHeadSequence          BigInt                      @map("server_head_sequence")
+  serverHeadHash              String?                     @map("server_head_hash") @db.Char(64)
+  latestGrantVersion          Int                         @map("latest_grant_version")
+  lastContactAt               DateTime?                   @map("last_contact_at")
+  createdAt                   DateTime                    @default(now()) @map("created_at")
+  createdByUserId             String                      @map("created_by_user_id") @db.Uuid
+  acknowledgedByUserId        String?                     @map("acknowledged_by_user_id") @db.Uuid
+  acknowledgedAt              DateTime?                   @map("acknowledged_at")
+  acknowledgementReason       String?                     @map("acknowledgement_reason")
+  /// "owner" | "delegated_manager" (revised D13)
+  acknowledgementAuthority    String?                     @map("acknowledgement_authority") @db.VarChar(24)
+  acknowledgementDelegationId String?                     @map("acknowledgement_delegation_id") @db.Uuid
+  enrollment                  TerminalEnrollment          @relation(fields: [tenantId, branchId, terminalId, enrollmentId, keyId], references: [tenantId, branchId, terminalId, id, keyId], onDelete: Restrict, onUpdate: Restrict, map: "offline_counter_restore_enrollment_fkey")
+
+  @@unique([tenantId, branchId, id])
+  @@unique([tenantId, enrollmentId, restoreId])
+  @@index([tenantId, branchId, status])
+  @@index([tenantId, enrollmentId, status])
+  @@map("offline_counter_restore")
 }

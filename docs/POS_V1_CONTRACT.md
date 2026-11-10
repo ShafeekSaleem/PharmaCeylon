@@ -201,6 +201,13 @@ even when the evidence shows nothing is missing; the missing-journal sign-off wa
 counter's last issued grant even when it was revoked or retired; local entries the server never
 accepted are kept as evidence on the counter and the server, never posted as sales, and the
 approver records how their stock and cash were settled (`docs/POS_P5_IMPLEMENTATION.md`).
+Store backup and restore decisions (2026-11-10): backups stay on the counter computer, each under
+its own key only that Windows user there can unlock, with PIN verifiers removed; anyone at the
+computer may restore, but only onto a store that cannot be opened or holds no counter; the
+restored counter removes its offline pair and renewal requests and gets no offline authority until
+the owner or a delegated manager acknowledges the restore in the back office; online selling
+continues meanwhile unless the backup was taken mid-outage. A late sale over a count made after it
+waits on its case (`counted_after_sale`) instead of deducting twice (`docs/POS_P5_IMPLEMENTATION.md`).
 
 Revised D13 (2026-10-21) separates authorization from activation. Owner control and explicit
 per-user/per-branch manager delegation remain; manager role alone is insufficient and managers

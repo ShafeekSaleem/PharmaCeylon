@@ -191,6 +191,16 @@ manager approves a recovery, or signs off the offline counter's journal so anoth
 be activated, from anywhere; neither changes a counter. Contract:
 [API_CONTRACT.md](API_CONTRACT.md#offline-journal-recovery-p5-51-d11).
 
+## P5 counter store restore
+
+`POST /terminals/offline-journal/restore/report` and `…/status` are `local_record`: a counter
+that restored its encrypted store from one of its own backups reports the restore, device-signed,
+and asks whether it was acknowledged. Neither accepts a journal entry, moves stock or cash, or
+issues a grant. `POST /offline-counter-restores/:id/acknowledge` is `management`: an owner or
+delegated manager acknowledges the restore after checking receipts, cash and stock since the
+backup, from anywhere; until then the counter is issued no offline authority. Contract:
+[API_CONTRACT.md](API_CONTRACT.md#counter-store-restore-p5-51).
+
 ## P5 offline stock case resolution
 
 `POST /offline-stock-cases/:id/resolutions`, `resolutions/:id/approve` and `resolutions/:id/cancel`

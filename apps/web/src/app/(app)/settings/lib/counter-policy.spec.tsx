@@ -141,6 +141,8 @@ describe("offline policy", () => {
       // The page's journal card (D11) reads its own list.
       if (path === "/offline-journal-recoveries")
         return Promise.resolve({ branchId: "branch-a", recoveries: [], offlineCounter: null });
+      // And its restored-counters card (P5 #51) reads its own.
+      if (path === "/offline-counter-restores") return Promise.resolve({ branchId: "branch-a", restores: [] });
       if (init?.method === "PUT") {
         enabled = true;
         return Promise.resolve({ ...view, version: 5, policy: { ...defaultCounterPolicy(), offlineEnabled: true } });

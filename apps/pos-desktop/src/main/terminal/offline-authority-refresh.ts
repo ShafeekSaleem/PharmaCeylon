@@ -10,6 +10,7 @@ import {
 } from "./offline-authority";
 import { activeOutage, journalCoverage, localJournalHead } from "./offline-journal";
 import { readAcceptedWatermark } from "./reconnect-drain";
+import { restoresAwaitingAcknowledgement } from "./store-restore-sync";
 import type { TerminalService } from "./terminal-service";
 
 const operation = "POST /api/v1/terminals/offline-authority";
@@ -129,6 +130,10 @@ export function createOfflineAuthorityRefresh(deps: OfflineAuthorityRefreshDeps)
     const { identity, key, staff } = current;
     if (!due(identity.enrollmentId)) return "skipped";
     if (journalWaiting(identity.enrollmentId)) throw new OfflineAuthorityInstallError("local_usage");
+    // P5 #51: a restored store waits for the back office; the server would refuse anyway, and
+    // asking would only spend an attendance proof. The coordinator renews at once when it clears.
+    if (restoresAwaitingAcknowledgement(deps.db, identity.enrollmentId).length > 0)
+      throw new OfflineAuthorityInstallError("restore_unacknowledged");
     const requestId = requestIdFor(identity.enrollmentId);
     const branchId = identity.branchId;
     const command = await deps.api.request<OnlineTerminalCommand<{ requestId: string }>>(

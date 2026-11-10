@@ -19,6 +19,7 @@ import type { PosDatabase } from "../db/database";
 import { readInstalledOfflineAuthority } from "./offline-authority";
 import { verifyDeviceCommandSignature } from "./device-signature";
 import { journalNeedsRecovery } from "./reconnect-drain";
+import { storeRestoreBlocksOffline } from "./store-restore-sync";
 
 export function journalCommandHash(payload: unknown): string {
   return createHash("sha256")
@@ -277,6 +278,10 @@ export class OfflineJournalWriter {
     enrollmentId: string,
     trustedNowMs: number,
   ): { offlineSessionId: string; offlineStartedAt: number } {
+    // P5 #51: a store restored from a backup sells offline again only once the restore is
+    // acknowledged and a pair issued after that is installed — not even in an outage the backup
+    // was taken in: anything recorded after the backup is gone from this computer.
+    if (storeRestoreBlocksOffline(this.deps.db, enrollmentId)) throw new Error("RECONCILIATION_REQUIRED");
     const row = readState(this.deps.db, enrollmentId);
     if (row?.offline_session_id && row.offline_started_at != null) {
       return { offlineSessionId: row.offline_session_id, offlineStartedAt: row.offline_started_at };
@@ -321,6 +326,7 @@ export class OfflineJournalWriter {
     if (envelope.keyId !== command.identity.keyId) throw new Error("INVALID_SIGNATURE");
     if (!sameTerminalIdentity(command.identity, device)) throw new Error("IDENTITY_MISMATCH");
 
+    if (storeRestoreBlocksOffline(this.deps.db, command.identity.enrollmentId)) throw new Error("RECONCILIATION_REQUIRED");
     const installed = readInstalledOfflineAuthority(this.deps.db, command.identity.enrollmentId);
     if (!installed) throw new Error("NO_OFFLINE_AUTHORITY");
     const grant = installed.grant.payload;

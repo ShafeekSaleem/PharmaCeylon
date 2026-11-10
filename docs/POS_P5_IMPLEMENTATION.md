@@ -25,7 +25,8 @@ until each slice and P4's real journals (#50) are in.
 - **A sale is posted whole or not at all.** If any batch is short, every batch of the sale waits
   on one case and is blocked: the unposted units of the batches that were not short are also
   physically gone, so leaving them sellable centrally would create the next shortfall. Each case
-  line says why it waits (`shortfall`, `batch_under_review`, `sale_pending`).
+  line says why it waits (`shortfall`, `counted_after_sale`, `batch_under_review`,
+  `sale_pending`).
 - **A blocked batch takes no further offline posting.** A later offline sale from a batch an
   open case holds is pending too (`batch_under_review`), even if units remain: that batch's count
   is under review and the case has unposted claims on it.
@@ -103,8 +104,8 @@ Revised D10: approve remotely online, execute physically at the enrolled counter
   the sellable bucket takes the remainder of the correction (`correctionBuckets`). The sale
   always posts from sellable stock.
 - **post_now never re-deducts a count.** If a posted stocktake counted a batch after the sale,
-  post_now is refused `SETTLEMENT_ALREADY_COUNTED` at preparation and execution; link the
-  stocktake or count instead.
+  or another case counted it after the sale and before this case opened, post_now is refused
+  `SETTLEMENT_ALREADY_COUNTED` at preparation and execution; link the stocktake or count instead.
 - **Another open case on a batch is material.** It changes what a count must account for, so a
   case opened after approval makes the approval stale; approve again. A case that resolves after
   the plan was prepared stays in the material, so one case settling never stales another's
@@ -289,12 +290,76 @@ Web: `journal-recovery-card.spec.tsx` (sign-off waiting for the grant, the exact
 a stale sign-off, reviewing and approving exactly the unmatched records, a refusal kept in the
 dialog). Shared: `offline-journal-recovery.test.cjs`.
 
+## Backing up and restoring the counter's store (built)
+
+Decisions of 2026-11-10. The counter's encrypted store holds everything P5 depends on: the
+enrollment and its device key, the journal and its watermark, the installed pair, PIN verifiers,
+the local side of stock cases, cash evidence and receipts. A failed disk or a damaged store used
+to mean a new enrollment. Now the counter keeps its own backups and can restore one, and the
+server makes sure a restore never revives superseded authority, resets the journal or hides what
+was lost.
+
+| Area | What exists |
+| --- | --- |
+| Backups (desktop) | `main/backup/store-backup.ts`: `VACUUM INTO` a copy, open it, delete every `staff_credential` row with `secure_delete` on and `VACUUM` so no PIN verifier survives in any page, `PRAGMA rekey` to a fresh random key, `quick_check`, then write that key wrapped by DPAPI (`SecretProtector`: this Windows user on this computer) and a manifest (`backup.json`: id, time, reason, app and schema version, enrollment, counter and branch, journal head and accepted watermark, outage, SHA-256). Written to `.partial-<id>` and renamed whole, under the app's `backups` folder and nowhere else |
+| Schedule | Checked every 5 minutes once the store holds a counter: at start, whenever the journal head or watermark moved, and hourly if anything else changed; also before a schema upgrade. Keeps the newest 12 and the last of each of the past 7 days. A failed backup is reported, never fatal |
+| Restore (desktop) | `main/backup/store-restore.ts`, offered at start-up only when the store cannot be opened or holds no counter (`liveStoreState`: never over a working store, nor over one a newer app wrote). Verifies the SHA-256, the key and `quick_check`; copies the backup to staging under a new store key and migrates it; then, in one transaction (`applyRestoreGuards`), deletes every PIN verifier, closes open staff sessions, deletes the installed pair and pending renewal requests, resets batch usage and records a device-signed restore report in `store_restore`. The broken store is moved to `set-aside/<time>`, never deleted. A `restore.json` intent makes an interrupted swap finish (or a half-staged one drop) at the next start |
+| Journal | Untouched: the restored chain continues from its own head. If the server has moved past it (the backup is older than the last upload) or the chains diverged, `JOURNAL_MISMATCH` and D11 recovery take over as for any restored counter |
+| Report (counter route) | `POST /terminals/offline-journal/restore/report` and `…/status` (`store-restore-sync.ts`, run by the sync coordinator): the report is resent until answered; the answer gives the server's `latestGrantVersion` |
+| While unacknowledged | Desktop: no offline outage, no journal entry, no install (`restore_unacknowledged`), no renewal request; the Synchronisation row shows `STORE_RESTORED`. Server: issuance, the challenge and replays refused `RECONCILIATION_REQUIRED` (`counterRestoreOpen`). Online selling continues, except that a backup taken mid-outage restores that outage, whose drain pauses online checkout until a fresh pair installs |
+| Acknowledgement (web) | Settings → Offline policy → Restored counters (`counter-restore-card.tsx`): what may be missing (since the later of the backup and the server's last contact), the outage, the restored journal against the server's, and the acknowledgement with a reason. `POST /offline-counter-restores/:id/acknowledge`, owner or delegated manager |
+| After | The counter learns of the acknowledgement on its next status poll and asks for a pair at once. It installs only a version above the server's `latestGrantVersion`; that install clears the restore and, if an outage was restored, ends it |
+| Late counts | A late offline sale's batch that a posted stocktake (or another case's count) counted after the sale waits on its case as `counted_after_sale` instead of posting: that count already took the units off. Restores make late uploads likelier, but this held before them too |
+| Schema | API migrations `20261110200000_offline_counter_restore` (table, shape checks, the progress trigger, and the widened `offline_stock_discrepancy_line_shape`, NOT VALID) and `20261110200100_offline_counter_restore_validate`. Desktop migration 18: `store_restore` (rows kept; what was reported cannot change) |
+
+### Decisions taken in this slice (2026-11-10)
+
+- **Backups stay on this computer**, each under its own key that only this Windows user here can
+  unlock (DPAPI), with every PIN verifier removed. The device signing key is inside the encrypted
+  copy and is never usable without that key; a backup copied elsewhere gives nothing.
+- **Anyone at the computer may restore, but only onto a broken or empty store**, never over a
+  working one.
+- **The back office acknowledges before offline selling resumes.** The owner or a delegated
+  manager (revised D13) says how receipts, cash and stock since the backup were checked. Online
+  selling continues meanwhile, unless the backup was taken mid-outage.
+- **A restore never revives authority.** The pair and renewal requests go at restore; nothing is
+  issued or replayed while the restore waits; the counter refuses any pair at or below the
+  server's latest version. Outside a restore a request still replays its own version (P3).
+- **The journal is never reset.** The restored chain keeps its sequence; where it and the
+  server's disagree, the server's wins through D11.
+
+### Tests
+
+Desktop (real SQLCipher stores): `store-backup.spec.ts` (a backup under its own key with no PIN
+verifier and no plain text, unreadable to another Windows user; partial and broken backups
+skipped; retention; the schedule; a failed backup reported). `store-restore.spec.ts` (no restore
+over a working store, from a tampered backup, with another user's key or from a newer app;
+restoring an older store against a server that moved on: the journal kept, the pair, requests,
+usage and PINs gone, sessions closed, the signed report verified, no outage and online checkout
+paused by the restored outage, installs refused until acknowledged, the report, poll and
+acknowledgement flow, v1–v3 refused as superseded and a rebased v4 left to D11; clearing after
+acknowledgement with the chain continuing; start-up after a failure, an emptied data folder, a
+working store the app cannot open, and interrupted restores). `offline-authority.spec.ts`: no
+renewal request while a restore waits. `migrations.integration.spec.ts`: the upgrade from 17 to
+18.
+
+API: `counter-restore.spec.ts` (wire), `offline-sale-commit.spec.ts` (`counted_after_sale`).
+PostgreSQL: `offline-counter-restore.int-spec.ts` covers a counter restored from an older backup
+after two renewals (report and resend, other content and a foreign signature refused, issuance
+and replays refused while it waits, D13 authority, one acknowledgement, the version floor, the
+next pair above it and rebased, the record immutable, audit), and a late sale over a later
+stocktake waiting as `counted_after_sale` with nothing deducted twice.
+
+Web: `counter-restore-card.spec.tsx` (what may be missing, the exact acknowledgement, a refusal
+kept in the dialog).
+
 ## Later slices (not built)
 
 - Review of a rejected journal entry, so a counter stuck on one can finish synchronising
   (today issuance stays `RECONCILIATION_REQUIRED` and the counter's drain waits).
-- Making and restoring backups of the counter's store. D11 recovers whatever a restore brings
-  back; nothing takes or restores a backup yet.
+- Backups somewhere other than the counter's own disk (another computer, removable media or the
+  server). Today a computer that is lost or replaced has no backup to restore: it is enrolled
+  anew, and D11's missing-journal sign-off covers its journal.
 - Settling a recovery's unmatched entries in place (today the approver records how stock and
   cash were settled; the adjustment itself is a separate document).
 - Support-record gating of dependent commands (held support records do not yet hold a sale), and

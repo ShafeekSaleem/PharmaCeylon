@@ -67,7 +67,7 @@ export type CaseBatch = {
   productId: string;
   productName: string | null;
   sku: string | null;
-  reason: "shortfall" | "batch_under_review" | "sale_pending";
+  reason: "shortfall" | "counted_after_sale" | "batch_under_review" | "sale_pending";
   soldQuantity: number;
   availableQuantityAtSync: number;
   shortfallQuantity: number;

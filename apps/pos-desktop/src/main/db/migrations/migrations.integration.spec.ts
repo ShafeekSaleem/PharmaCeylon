@@ -128,4 +128,29 @@ describe("offline journal migrations with PR #136", () => {
     ).toThrow(/CHECK/);
     second.db.close();
   });
+
+  it("upgrades a v17 store through the store-restore migration (v18): no restore recorded, records kept (P5 #51)", () => {
+    const first = openLocalStore(dir, protector, migrations.filter((m) => m.version <= 17));
+    first.db.close();
+
+    const second = openLocalStore(dir, protector, migrations);
+    expect(second.schemaVersion).toBe(18);
+    expect(second.db.prepare("SELECT COUNT(*) AS n FROM store_restore").get()).toEqual({ n: 0 });
+    const insert = (status: string, acknowledged: boolean) =>
+      second.db
+        .prepare(
+          `INSERT INTO store_restore (restore_id, enrollment_id, backup_id, backup_taken_at, restored_at,
+             journal_head_sequence, accepted_sequence, outage_active, report_envelope, status, updated_at,
+             latest_grant_version, acknowledged_at)
+           VALUES (?, 'e1', 'b1', 1, 2, 0, 0, 0, '{}', ?, 'x', ?, ?)`,
+        )
+        .run(`r-${status}-${acknowledged}`, status, acknowledged ? 3 : null, acknowledged ? "x" : null);
+    // Acknowledged needs the server's latest version and the time; reporting needs neither.
+    expect(() => insert("acknowledged", false)).toThrow(/CHECK/);
+    insert("reporting", false);
+    insert("acknowledged", true);
+    expect(() => second.db.prepare("DELETE FROM store_restore").run()).toThrow(/kept/);
+    expect(() => second.db.prepare("UPDATE store_restore SET report_envelope = 'other'").run()).toThrow(/keeps/);
+    second.db.close();
+  });
 });

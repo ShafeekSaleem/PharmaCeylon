@@ -16,6 +16,7 @@ import {
   issueOfflineAuthority,
   journalAwaitingReview,
   journalRecoveryOpen,
+  counterRestoreOpen,
 } from "./offline-authority-issuance";
 import { TerminalErrorFilter } from "./terminal-error.filter";
 import { TerminalTrustService } from "./terminal-trust.service";
@@ -68,6 +69,8 @@ export class OfflineAuthorityController {
         if (await journalAwaitingReview(tx, command.identity, head.sequence)) denied("RECONCILIATION_REQUIRED");
         if (await journalRecoveryOpen(tx, command.identity)) denied("RECONCILIATION_REQUIRED");
       }
+      // Nothing at all while a store restore awaits acknowledgement, not even a replay (P5 #51).
+      if (await counterRestoreOpen(tx, command.identity)) denied("RECONCILIATION_REQUIRED");
       return command;
     });
   }
