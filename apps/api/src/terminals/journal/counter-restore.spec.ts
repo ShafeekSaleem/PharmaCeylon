@@ -68,6 +68,16 @@ describe("counter restore wire", () => {
     expect(parseCounterRestoreReport(fresh)).toEqual(fresh);
   });
 
+  it("takes a report whose backup is dated after its restore: the counter's clock, not an impossibility", () => {
+    // A reset CMOS clock: restored "in 2000" from a backup taken today. Refusing would block the
+    // restore, and offline selling, for good; the back office is shown the skew instead.
+    const reset = report({
+      restoredAt: 946_684_800_000,
+      backupTakenAt: 1_762_768_800_000,
+    });
+    expect(parseCounterRestoreReport(reset)).toEqual(reset);
+  });
+
   it("refuses a report that is malformed or says something impossible", () => {
     for (const bad of [
       report({ kind: "offline_journal_recovery_report" }),
@@ -79,7 +89,7 @@ describe("counter restore wire", () => {
       report({ outageActive: "yes" }),
       report({ removedGrantVersion: 0 }),
       report({ removedGrantVersion: 1.5 }),
-      report({ backupTakenAt: 2_001 }),
+      report({ backupTakenAt: -1 }),
       report({ reportedAt: -1 }),
       // The server never confirmed past the journal the counter holds.
       report({ acceptedWatermark: { sequence: 5, hash: hash("b") } }),

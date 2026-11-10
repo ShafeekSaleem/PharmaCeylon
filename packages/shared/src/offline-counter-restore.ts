@@ -67,6 +67,30 @@ export type CounterRestoreStatusRequest = Readonly<{
   restoreId: string;
 }>;
 
+/** How far ahead of the server a counter's clock may run before a restore view flags it. */
+export const COUNTER_CLOCK_TOLERANCE_MS = 5 * 60_000;
+
+/**
+ * `clockSkew` of a restore view: both times are the counter's own clock, `reportedAt` the server's.
+ * A restore happens before its report, so a counter time after `reportedAt` is a fast clock.
+ */
+export function counterRestoreClockSkew(times: {
+  backupTakenAt: number;
+  restoredAt: number;
+  reportedAt: number;
+}): OfflineCounterRestoreView["clockSkew"] {
+  const backupAfterRestoreMs = Math.max(
+    0,
+    times.backupTakenAt - times.restoredAt,
+  );
+  const ahead =
+    Math.max(times.backupTakenAt, times.restoredAt) - times.reportedAt;
+  const aheadOfServerMs = ahead > COUNTER_CLOCK_TOLERANCE_MS ? ahead : 0;
+  return backupAfterRestoreMs || aheadOfServerMs
+    ? { backupAfterRestoreMs, aheadOfServerMs }
+    : null;
+}
+
 /** `GET /offline-counter-restores`, one restore. Times are epoch milliseconds. */
 export type OfflineCounterRestoreView = Readonly<{
   id: string;
@@ -88,10 +112,22 @@ export type OfflineCounterRestoreView = Readonly<{
   latestGrantVersion: number;
   /**
    * The last time the server heard from this counter before the report (a sign-in, a signed
-   * command, a journal upload or an offline authority issuance), or null. Offline sales made after
-   * the later of this and `backupTakenAt`, and never uploaded, are lost from the counter.
+   * command, a journal upload or an offline authority issuance), or null. It does not prove the
+   * offline journal had been uploaded up to then: a sign-in during an unfinished drain counts. So
+   * what may be missing is reckoned from `backupTakenAt`, never from this.
    */
   lastContactAt: number | null;
+  /**
+   * The counter's own clock disagreed, or null (P5 #51). `backupAfterRestoreMs`: its backup is
+   * dated after its restore (a reset CMOS clock, or a fast clock corrected since the backup).
+   * `aheadOfServerMs`: it dated the backup or the restore later than the server received the
+   * report, beyond `COUNTER_CLOCK_TOLERANCE_MS`. The counter's times above are then unreliable,
+   * and so is any window reckoned from them. Derived from the recorded report, which never changes.
+   */
+  clockSkew: Readonly<{
+    backupAfterRestoreMs: number;
+    aheadOfServerMs: number;
+  }> | null;
   acknowledgement: Readonly<{
     acknowledgedByUserId: string;
     acknowledgedByFullName: string | null;

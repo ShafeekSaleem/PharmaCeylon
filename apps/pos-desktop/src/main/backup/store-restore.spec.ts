@@ -579,7 +579,12 @@ describe("restoring at start-up", () => {
     });
     expect(() =>
       restoreStoreBackup({ dataDir, backup, protector: thisUser, migrations }),
-    ).toThrow("power cut");
+    ).toThrow(
+      expect.objectContaining({
+        code: "RESTORE_INTERRUPTED",
+        cause: expect.objectContaining({ message: "power cut" }),
+      }),
+    );
     expect(existsSync(join(dataDir, "pos.db"))).toBe(false);
     jest.restoreAllMocks();
     expect(finishInterruptedRestore(dataDir)).toBe("finished");
@@ -597,6 +602,247 @@ describe("restoring at start-up", () => {
     expect(finishInterruptedRestore(dataDir)).toBe("discarded");
     expect(liveStoreState(dataDir, thisUser)).toBe("working");
     reopen();
+  });
+
+  it("drops an intent cut off before it was committed: the swap never started", () => {
+    local.db.close();
+    mkdirSync(join(dataDir, "restore-staging"));
+    writeFileSync(join(dataDir, "restore-staging", "pos.db"), "staged");
+    // The power went while the intent's temporary file was being written.
+    writeFileSync(join(dataDir, "restore.json.tmp"), '{"restoreId":"a1');
+    expect(finishInterruptedRestore(dataDir)).toBe("discarded");
+    expect(readdirSync(dataDir).sort()).toEqual(["pos.db", "pos.db.key"]);
+    expect(liveStoreState(dataDir, thisUser)).toBe("working");
+    reopen();
+  });
+
+  it("shows an error, and opens nothing, when an interrupted restore's record is damaged", () => {
+    takeBackup(NOW);
+    local.db.close();
+    writeFileSync(join(dataDir, "restore.json"), '{"restoreId":"a1b2c3d4-');
+    const p = prompt();
+    const outcome = start(p);
+    expect(outcome).toMatchObject({
+      kind: "failed",
+      error: expect.objectContaining({ code: "RESTORE_INTERRUPTED" }),
+    });
+    expect(p.afterFailure).not.toHaveBeenCalled();
+    expect(p.forEmptyStore).not.toHaveBeenCalled();
+    expect(() => finishInterruptedRestore(dataDir)).toThrow(
+      expect.objectContaining({ code: "RESTORE_INTERRUPTED" }),
+    );
+    // Nothing was moved or opened on a guess.
+    expect(readdirSync(dataDir).sort()).toEqual(
+      ["pos.db", "pos.db.key", "restore.json"].sort(),
+    );
+    rmSync(join(dataDir, "restore.json"));
+    reopen();
+  });
+
+  const busy = () =>
+    Object.assign(new Error("EBUSY: resource busy or locked, rename"), {
+      code: "EBUSY",
+    });
+
+  it("waits out a file held for a moment while it replaces the store", () => {
+    const backup = takeBackup(NOW);
+    breakStore();
+    const real = fs.renameSync;
+    let held = 2;
+    jest.spyOn(fs, "renameSync").mockImplementation((from, to) => {
+      // Antivirus scans the restored file just written, twice.
+      if (
+        String(from).endsWith(join("restore-staging", "pos.db")) &&
+        held-- > 0
+      )
+        throw busy();
+      real(from, to);
+    });
+    restoreStoreBackup({ dataDir, backup, protector: thisUser, migrations });
+    expect(held).toBe(-1);
+    jest.restoreAllMocks();
+    const { db } = reopen();
+    expect(
+      restoresAwaitingAcknowledgement(db, identity.enrollmentId),
+    ).toHaveLength(1);
+  });
+
+  it("opens nothing when a held file stops the swap, and finishes it at the next start", () => {
+    const backup = takeBackup(NOW);
+    local.db.close();
+    // The data folder was emptied; the person restores at start-up.
+    rmSync(dataDir, { recursive: true, force: true });
+    const real = fs.renameSync;
+    jest.spyOn(fs, "renameSync").mockImplementation((from, to) => {
+      if (String(from).endsWith(join("restore-staging", "pos.db")))
+        throw busy();
+      real(from, to);
+    });
+    const report = jest.fn();
+    const outcome = openStoreAtStartup({
+      dataDir,
+      backupsDir,
+      protector: thisUser,
+      migrations,
+      appVersion: "1",
+      prompt: prompt(),
+      report,
+    });
+    expect(outcome).toMatchObject({
+      kind: "failed",
+      error: expect.objectContaining({ code: "RESTORE_INTERRUPTED" }),
+    });
+    expect(report).toHaveBeenCalledWith(
+      "store_restore.failed",
+      expect.anything(),
+    );
+    // No new store was created under the restored key: the intent and the staged store wait.
+    expect(existsSync(join(dataDir, "pos.db"))).toBe(false);
+    expect(existsSync(join(dataDir, "restore.json"))).toBe(true);
+    expect(existsSync(join(dataDir, "restore-staging", "pos.db"))).toBe(true);
+
+    // Next start, the file is free: the restore finishes before anything opens the store.
+    jest.restoreAllMocks();
+    const next = start(prompt("none"));
+    expect(next.kind).toBe("open");
+    if (next.kind === "open") {
+      local = next.store;
+      expect(
+        restoresAwaitingAcknowledgement(local.db, identity.enrollmentId),
+      ).toHaveLength(1);
+      expect(localJournalHead(local.db, identity.enrollmentId)).toEqual(
+        backup.manifest.journalHead,
+      );
+    }
+  });
+
+  it("never restores over a store that is only busy, and says why it cannot start", () => {
+    takeBackup(NOW);
+    local.db.close();
+    const real = fs.readFileSync;
+    jest.spyOn(fs, "readFileSync").mockImplementation(((
+      path: fs.PathOrFileDescriptor,
+      options?: unknown,
+    ) => {
+      // Roaming-profile sync holds the key file at logon.
+      if (String(path).endsWith("pos.db.key")) throw busy();
+      return real(path, options as never);
+    }) as typeof fs.readFileSync);
+    expect(() => liveStoreState(dataDir, thisUser)).toThrow(/EBUSY/);
+    const p = prompt();
+    expect(start(p)).toMatchObject({ kind: "failed" });
+    expect(p.afterFailure).not.toHaveBeenCalled();
+    jest.restoreAllMocks();
+    expect(liveStoreState(dataDir, thisUser)).toBe("working");
+    expect(existsSync(join(dataDir, "set-aside"))).toBe(false);
+    reopen();
+  });
+});
+
+describe("a computer whose clock is wrong", () => {
+  it("still restores when its clock is behind the backup, and reports both times as they are", () => {
+    const backup = takeBackup(NOW);
+    breakStore();
+    // A dead CMOS battery: the computer believes it is 1 January 2000.
+    const resetClock = Date.UTC(2000, 0, 1);
+    restoreStoreBackup({
+      dataDir,
+      backup,
+      protector: thisUser,
+      migrations,
+      now: () => resetClock,
+    });
+    const { db } = reopen();
+    const { report_envelope } = db
+      .prepare("SELECT report_envelope FROM store_restore")
+      .get() as { report_envelope: string };
+    const signed = JSON.parse(
+      report_envelope,
+    ) as Signed<OfflineCounterRestoreReport>;
+    // The server records the disagreement and shows it; the counter never hides it.
+    expect(signed.payload).toMatchObject({
+      backupTakenAt: NOW,
+      restoredAt: resetClock,
+    });
+    expect(signed.payload.backupTakenAt).toBeGreaterThan(
+      signed.payload.restoredAt,
+    );
+    expect(storeRestoreBlocksOffline(db, identity.enrollmentId)).toBe(true);
+
+    // Restored again at the very same (reset) time: each restore sets its store aside in a folder
+    // of its own, so the first one set aside is never moved over.
+    db.close();
+    rmSync(join(dataDir, "pos.db.key"));
+    restoreStoreBackup({
+      dataDir,
+      backup,
+      protector: thisUser,
+      migrations,
+      now: () => resetClock,
+    });
+    const asides = readdirSync(join(dataDir, "set-aside"));
+    expect(asides).toHaveLength(2);
+    for (const aside of asides)
+      expect(readdirSync(join(dataDir, "set-aside", aside))).toContain(
+        "pos.db",
+      );
+    reopen();
+  });
+});
+
+describe("asking the server about a restore it has no record of", () => {
+  it("reports again when the status answer is empty, as the server's null arrives", async () => {
+    const backup = takeBackup(NOW);
+    breakStore();
+    restoreStoreBackup({
+      dataDir,
+      backup,
+      protector: thisUser,
+      migrations,
+      now: () => NOW + 60_000,
+    });
+    const { db } = reopen();
+    let clock = NOW + 61_000;
+    const paths: string[] = [];
+    const report = jest.fn();
+    const api = {
+      request: jest.fn(
+        async (
+          _method: string,
+          path: string,
+          init: { body: Record<string, unknown> },
+        ) => {
+          paths.push(path);
+          if (path.endsWith("/status")) return undefined;
+          const sent = init.body.report as Signed<OfflineCounterRestoreReport>;
+          return {
+            restoreId: sent.payload.restoreId,
+            status: "awaiting_acknowledgement",
+            acknowledgedAt: null,
+            latestGrantVersion: 1,
+          };
+        },
+      ),
+    };
+    const sync = createStoreRestoreSync({
+      db,
+      api: api as never,
+      terminal: {
+        current: () => ({ identity, staff, key: deviceKey }),
+      } as never,
+      report,
+      now: () => clock,
+    });
+    expect(await sync.tick()).toBe("waiting");
+    clock += RESTORE_POLL_MS;
+    // The server lost it: an empty body, never an "unexpected reply" and a back-off.
+    expect(await sync.tick()).toBe("waiting");
+    expect(paths).toEqual([
+      "/terminals/offline-journal/restore/report",
+      "/terminals/offline-journal/restore/status",
+      "/terminals/offline-journal/restore/report",
+    ]);
+    expect(report).not.toHaveBeenCalled();
   });
 });
 

@@ -10,6 +10,7 @@ import {
 import {
   finishInterruptedRestore,
   liveStoreState,
+  restoreInProgress,
   restoreStoreBackup,
   type AppliedRestore,
 } from "./store-restore";
@@ -40,8 +41,20 @@ const withCounter = (backups: readonly StoreBackup[]) =>
  * schema upgrade; and offers a restore only where one is allowed — the store cannot be opened, or
  * it opens with no counter in it — never over a working store. `restoreStoreBackup` checks that
  * again for itself.
+ *
+ * Never throws: anything that goes wrong comes back as `failed`, so start-up shows it and exits.
+ * An exception escaping here would leave the app running with no window and no error, holding the
+ * single-instance lock, so that starting it again does nothing.
  */
-export function openStoreAtStartup(options: {
+export function openStoreAtStartup(options: StartupOptions): StartupOutcome {
+  try {
+    return openOrRestore(options);
+  } catch (error) {
+    return { kind: "failed", error };
+  }
+}
+
+type StartupOptions = {
   dataDir: string;
   backupsDir: string;
   protector: SecretProtector;
@@ -50,7 +63,10 @@ export function openStoreAtStartup(options: {
   prompt: RestorePrompt;
   report: (event: string, detail: Record<string, unknown>) => void;
   now?: () => number;
-}): StartupOutcome {
+};
+
+function openOrRestore(options: StartupOptions): StartupOutcome {
+  // Before anything opens the store. If a swap cannot finish, nothing opens it at all.
   const interrupted = finishInterruptedRestore(options.dataDir);
   if (interrupted !== "none")
     options.report("store_restore.interrupted", { outcome: interrupted });
@@ -117,7 +133,11 @@ export function openStoreAtStartup(options: {
         return restore(chosen);
       } catch (error) {
         options.report("store_restore.failed", { error });
-        // The empty store is still there and still empty: carry on with it.
+        // Once the restore began replacing the store, it is finished at the next start, before
+        // anything opens it. Opening now would create a new store under the restored key.
+        if (restoreInProgress(options.dataDir))
+          return { kind: "failed", error };
+        // It failed before touching the store: the empty store is still there and still empty.
         return {
           kind: "open",
           store: openLocalStore(

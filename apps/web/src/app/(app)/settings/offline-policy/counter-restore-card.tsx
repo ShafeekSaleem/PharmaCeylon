@@ -24,17 +24,51 @@ const message = (error: unknown) =>
     : "Couldn't load restored counters. Try again.";
 const when = (at: number) => new Date(at).toLocaleString();
 
-/** Since when anything the counter recorded may be missing: the later of the backup and last contact. */
-export function lostSince(restore: OfflineCounterRestoreView): number {
-  return Math.max(restore.backupTakenAt, restore.lastContactAt ?? 0);
+/** A rough length of time, for a clock that was off. */
+export function span(ms: number): string {
+  const plural = (n: number, unit: string) =>
+    `${n} ${unit}${n === 1 ? "" : "s"}`;
+  const minutes = Math.max(1, Math.round(ms / 60_000));
+  if (minutes < 90) return plural(minutes, "minute");
+  const hours = Math.round(ms / 3_600_000);
+  if (hours < 48) return plural(hours, "hour");
+  const days = Math.round(ms / 86_400_000);
+  return days < 730
+    ? plural(days, "day")
+    : plural(Math.round(days / 365), "year");
+}
+
+/**
+ * What the counter's own clock got wrong, or null. Its times (the backup's, the restore's) then
+ * can't anchor the check.
+ */
+function clockWarning(r: OfflineCounterRestoreView): string | null {
+  if (!r.clockSkew) return null;
+  const { backupAfterRestoreMs, aheadOfServerMs } = r.clockSkew;
+  const wrong = [
+    backupAfterRestoreMs
+      ? `its backup is dated ${span(backupAfterRestoreMs)} after its restore`
+      : null,
+    aheadOfServerMs
+      ? `it was ${span(aheadOfServerMs)} ahead of the server`
+      : null,
+  ].filter(Boolean);
+  return `This counter's clock was wrong (${wrong.join(", and ")}), so the times it gave can't be trusted. Check receipts, cash and stock from the last sale you know reached the server.`;
 }
 
 function whatMayBeMissing(r: OfflineCounterRestoreView): string {
   const records = r.serverHead.sequence;
+  const clock = clockWarning(r);
+  // Counted from the backup: contact since then (a sign-in) doesn't mean its sales were uploaded.
   const parts = [
     `Restored ${when(r.restoredAt)} from a backup taken ${when(r.backupTakenAt)}.`,
-    `Anything it recorded after ${when(lostSince(r))} and never uploaded is gone from it.`,
+    clock ??
+      `Anything it recorded after the backup and never uploaded is gone from it: check receipts, cash and stock from ${when(r.backupTakenAt)}.`,
   ];
+  if (r.lastContactAt !== null)
+    parts.push(
+      `The server last heard from it ${when(r.lastContactAt)}; that doesn't mean every sale before then reached the server.`,
+    );
   if (r.outageActive)
     parts.push(
       "The backup was taken during an internet outage, so offline sales after it may be missing, and the counter cannot sell until you acknowledge.",
@@ -254,9 +288,12 @@ function AcknowledgeDialog({
       </p>
       <p>
         Check the receipts printed, the cash in the drawer and the stock on the
-        shelf since {when(lostSince(restore))} against the sales the server has.
-        Record anything missing (a stock adjustment, a cash count) before you
-        acknowledge.
+        shelf since{" "}
+        {restore.clockSkew
+          ? "the last sale you know reached the server"
+          : when(restore.backupTakenAt)}{" "}
+        against the sales the server has. Record anything missing (a stock
+        adjustment, a cash count) before you acknowledge.
       </p>
       {error ? <Alert variant="error">{error}</Alert> : null}
       <FormField

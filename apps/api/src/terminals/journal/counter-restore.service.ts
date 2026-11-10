@@ -6,13 +6,14 @@ import {
 } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import { Prisma, type OfflineCounterRestore } from "@prisma/client";
-import type {
-  CounterStoreRestore,
-  JournalPosition,
-  OfflineCounterRestoresView,
-  OfflineCounterRestoreView,
-  Signed,
-  TerminalIdentity,
+import {
+  counterRestoreClockSkew,
+  type CounterStoreRestore,
+  type JournalPosition,
+  type OfflineCounterRestoresView,
+  type OfflineCounterRestoreView,
+  type Signed,
+  type TerminalIdentity,
 } from "@pharmaceylon/shared";
 import { AuditService } from "../../audit/audit.service";
 import { PrismaService } from "../../prisma/prisma.service";
@@ -159,6 +160,12 @@ export class OfflineCounterRestoreService {
             outageActive: report.outageActive,
             removedGrantVersion: report.removedGrantVersion,
             latestGrantVersion,
+            // Recorded, never refused: both times are the counter's own clock.
+            clockSkew: counterRestoreClockSkew({
+              backupTakenAt: report.backupTakenAt,
+              restoredAt: report.restoredAt,
+              reportedAt: row.createdAt.getTime(),
+            }),
           },
         },
         tx,
@@ -443,6 +450,11 @@ function view(
     removedGrantVersion: row.removedGrantVersion,
     latestGrantVersion: row.latestGrantVersion,
     lastContactAt: row.lastContactAt?.getTime() ?? null,
+    clockSkew: counterRestoreClockSkew({
+      backupTakenAt: row.backupTakenAt.getTime(),
+      restoredAt: row.restoredAt.getTime(),
+      reportedAt: row.createdAt.getTime(),
+    }),
     acknowledgement:
       row.acknowledgedAt &&
       row.acknowledgedByUserId &&

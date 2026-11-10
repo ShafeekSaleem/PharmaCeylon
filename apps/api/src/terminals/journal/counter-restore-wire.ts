@@ -65,8 +65,10 @@ export function parseCounterRestoreReport(
     removedGrantVersion:
       r.removedGrantVersion === null ? null : safe(r.removedGrantVersion, 1),
   };
-  // A backup is taken before it is restored, and the server confirms nothing past the journal.
-  if (report.backupTakenAt > report.restoredAt) invalid();
+  // The server confirms nothing past the journal. The two times are not compared: both are the
+  // counter's own clock, which a computer back from repair often has wrong (a reset CMOS clock, or a
+  // fast one corrected since the backup). Refusing would block the restore, and offline selling,
+  // for good; the back office is shown the disagreement instead (`clockSkew`).
   if (report.acceptedWatermark.sequence > report.journalHead.sequence)
     invalid();
   // Parsing validates; it must not have changed a signed value.

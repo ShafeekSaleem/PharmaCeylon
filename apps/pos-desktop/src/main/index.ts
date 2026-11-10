@@ -490,6 +490,27 @@ function registerIpc(schemaVersion: number, logger: ReturnType<typeof createLogg
   );
 }
 
+function showStartupError(error: unknown): void {
+  dialog.showErrorBox(
+    "PharmaCeylon POS cannot start",
+    `${error instanceof Error ? error.message : "The local database could not be opened."}\n\n` +
+      "Do not delete or move any files. Contact support.",
+  );
+}
+
+/**
+ * Anything `start` throws ends in an error box and an exit. Left alone, the process would keep the
+ * single-instance lock with no window, so that starting the app again does nothing (P5 #51).
+ */
+function failStartup(error: unknown): void {
+  console.error("startup.failed", error);
+  try {
+    showStartupError(error);
+  } finally {
+    app.exit(1);
+  }
+}
+
 async function start(): Promise<void> {
   const logger = createLogger(join(app.getPath("userData"), "logs"));
   const dataDir = join(app.getPath("userData"), "data");
@@ -529,11 +550,7 @@ async function start(): Promise<void> {
     // against a database that is missing, unreadable or half-upgraded.
     logger.error("startup.local_store_failed", { error });
     await logger.flush();
-    dialog.showErrorBox(
-      "PharmaCeylon POS cannot start",
-      `${error instanceof Error ? error.message : "The local database could not be opened."}\n\n` +
-        "Do not delete or move any files. Contact support.",
-    );
+    showStartupError(error);
     app.exit(1);
     return;
   }
@@ -629,5 +646,5 @@ if (!smokeMode && !app.requestSingleInstanceLock()) {
   app.on("window-all-closed", () => app.quit());
   app.on("will-quit", () => store?.db.close());
 
-  void app.whenReady().then(start);
+  void app.whenReady().then(start).catch(failStartup);
 }

@@ -1,12 +1,15 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import {
+  closeSync,
   copyFileSync,
   existsSync,
+  fsyncSync,
   mkdirSync,
+  openSync,
   readFileSync,
   renameSync,
   rmSync,
-  writeFileSync,
+  writeSync,
 } from "node:fs";
 import { join, relative } from "node:path";
 import type { OfflineCounterRestoreReport } from "@pharmaceylon/shared";
@@ -73,7 +76,9 @@ export class StoreRestoreError extends Error {
       | "BACKUP_UNREADABLE"
       | "BACKUP_NEWER_THAN_APP"
       | "BACKUP_HAS_NO_COUNTER"
-      | "KEY_UNREADABLE",
+      | "KEY_UNREADABLE"
+      /** It began replacing the store and could not finish: nothing may open the store until it does. */
+      | "RESTORE_INTERRUPTED",
     message: string,
     options?: { cause?: unknown },
   ) {
@@ -85,8 +90,73 @@ export class StoreRestoreError extends Error {
 const LIVE_FILES = ["pos.db", "pos.db-wal", "pos.db-shm"] as const;
 const STAGING = "restore-staging";
 const INTENT = "restore.json";
+const SET_ASIDE = /^set-aside[\\/]\d{8}T\d{9}Z-[0-9a-f]{8}$/;
 
 type RestoreIntent = { restoreId: string; setAside: string; startedAt: number };
+
+/** Windows refuses a move while antivirus or indexing holds the file just written: wait it out. */
+const BUSY_CODES = new Set(["EBUSY", "EPERM", "EACCES"]);
+const RENAME_WAITS_MS = [100, 200, 400, 800];
+const pause = (ms: number) =>
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+
+function errorCode(error: unknown): unknown {
+  return typeof error === "object" && error !== null
+    ? (error as { code?: unknown }).code
+    : undefined;
+}
+
+function renameRetrying(from: string, to: string): void {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      renameSync(from, to);
+      return;
+    } catch (error) {
+      const wait = RENAME_WAITS_MS[attempt];
+      if (wait === undefined || !BUSY_CODES.has(String(errorCode(error))))
+        throw error;
+      pause(wait);
+    }
+  }
+}
+
+/**
+ * Writes `path` whole or not at all: a temporary file, flushed to disk, then renamed over it. A
+ * power cut can leave the temporary file, never a truncated `path`.
+ */
+function writeDurably(path: string, data: string | Buffer): void {
+  const temp = `${path}.tmp`;
+  const fd = openSync(temp, "w");
+  try {
+    writeSync(fd, typeof data === "string" ? Buffer.from(data, "utf8") : data);
+    fsyncSync(fd);
+  } finally {
+    closeSync(fd);
+  }
+  renameRetrying(temp, path);
+}
+
+/**
+ * Only these say the store itself cannot be read: no SQLite database under this key, damaged
+ * pages, or a key this Windows user cannot unwrap. A file that is only busy or locked (antivirus,
+ * roaming-profile sync at logon, a disk error) is not a broken store, and must never lead to a
+ * restore over it: that error (the one that says what happened) is thrown for start-up to show.
+ */
+function unreadableOrThrow(error: unknown): "unusable" {
+  let unreadable = false;
+  let e: unknown = error;
+  for (let depth = 0; e && depth < 8; depth += 1) {
+    const code = String(errorCode(e) ?? "");
+    if (/^SQLITE_(NOTADB|CORRUPT)/.test(code)) unreadable = true;
+    // Any other SQLite or file-system code: busy, locked, cannot open, an I/O error.
+    else if (/^SQLITE_|^E[A-Z]+$/.test(code)) throw e;
+    // The key or the database could not be read, for a reason its cause (if any) says.
+    else if (e instanceof StoreBackupError) unreadable = true;
+    e = (e as { cause?: unknown }).cause;
+  }
+  if (unreadable) return "unusable";
+  throw error;
+}
 
 function holdsCounter(db: PosDatabase): boolean {
   const has = (table: string) =>
@@ -108,7 +178,8 @@ function holdsCounter(db: PosDatabase): boolean {
 /**
  * What is in `dataDir` now. Opens the store (read-write, as the app would: a read-only open of a
  * WAL database can fail where the app's own would not, and must never make a working store look
- * broken), reads it and closes it again without writing.
+ * broken), reads it and closes it again without writing. Throws, rather than answer "unusable",
+ * when the store could not be read for a reason that is not the store's (`unreadableOrThrow`).
  */
 export function liveStoreState(
   dataDir: string,
@@ -124,8 +195,8 @@ export function liveStoreState(
     db = openCipherFile(databasePath, key);
     if (db.pragma("quick_check", { simple: true }) !== "ok") return "unusable";
     return holdsCounter(db) ? "working" : "empty";
-  } catch {
-    return "unusable";
+  } catch (error) {
+    return unreadableOrThrow(error);
   } finally {
     db?.close();
   }
@@ -279,7 +350,7 @@ export function applyRestoreGuards(
 }
 
 function moveIfPresent(from: string, to: string): void {
-  if (existsSync(from)) renameSync(from, to);
+  if (existsSync(from)) renameRetrying(from, to);
 }
 
 /**
@@ -298,33 +369,79 @@ function finishMoves(dataDir: string, intent: RestoreIntent): void {
       moveIfPresent(join(dataDir, name), join(setAside, name));
   if (existsSync(stagedKey)) {
     moveIfPresent(join(dataDir, "pos.db.key"), join(setAside, "pos.db.key"));
-    renameSync(stagedKey, join(dataDir, "pos.db.key"));
+    renameRetrying(stagedKey, join(dataDir, "pos.db.key"));
   }
-  if (existsSync(stagedDb)) renameSync(stagedDb, join(dataDir, "pos.db"));
+  if (existsSync(stagedDb)) renameRetrying(stagedDb, join(dataDir, "pos.db"));
   rmSync(join(dataDir, INTENT), { force: true });
   rmSync(staging, { recursive: true, force: true });
 }
 
 /**
+ * Finishes the moves, or says plainly that it could not. Until it does, the store is half moved
+ * and nothing may open it: opening would create a new, empty store under the restored key, which
+ * the next start would then move aside without its own key.
+ */
+function completeMoves(dataDir: string, intent: RestoreIntent): void {
+  try {
+    finishMoves(dataDir, intent);
+  } catch (cause) {
+    throw new StoreRestoreError(
+      "RESTORE_INTERRUPTED",
+      "The restore could not finish replacing this computer's store, because a file was in use. Restart the computer and open PharmaCeylon POS again: it finishes the restore before anything else. Do not delete or move any files.",
+      { cause },
+    );
+  }
+}
+
+function readIntent(intentPath: string): RestoreIntent {
+  let intent: Partial<RestoreIntent> | null = null;
+  try {
+    intent = JSON.parse(
+      readFileSync(intentPath, "utf8"),
+    ) as Partial<RestoreIntent>;
+  } catch {
+    // Damaged: refused below.
+  }
+  if (
+    !intent ||
+    typeof intent.restoreId !== "string" ||
+    typeof intent.startedAt !== "number" ||
+    typeof intent.setAside !== "string" ||
+    !SET_ASIDE.test(intent.setAside)
+  )
+    throw new StoreRestoreError(
+      "RESTORE_INTERRUPTED",
+      "A restore of this computer's store was interrupted, and its record of what to move is damaged. Do not delete or move any files in the app's data folder. Contact support.",
+    );
+  return intent as RestoreIntent;
+}
+
+/** A restore began replacing the store and has not finished: the store must not be opened. */
+export function restoreInProgress(dataDir: string): boolean {
+  return existsSync(join(dataDir, INTENT));
+}
+
+/**
  * Run before the store is opened at start-up. Finishes a restore that was interrupted after it
  * decided to replace the store, or drops one interrupted before (the live store untouched).
+ * Throws `RESTORE_INTERRUPTED` when it can do neither; the store must then stay closed.
  */
 export function finishInterruptedRestore(
   dataDir: string,
 ): "finished" | "discarded" | "none" {
   const intentPath = join(dataDir, INTENT);
   if (existsSync(intentPath)) {
-    finishMoves(
-      dataDir,
-      JSON.parse(readFileSync(intentPath, "utf8")) as RestoreIntent,
-    );
+    completeMoves(dataDir, readIntent(intentPath));
     return "finished";
   }
+  // An intent never committed (cut off before its rename) moved nothing.
+  const uncommitted = existsSync(`${intentPath}.tmp`);
+  rmSync(`${intentPath}.tmp`, { force: true });
   if (existsSync(join(dataDir, STAGING))) {
     rmSync(join(dataDir, STAGING), { recursive: true, force: true });
     return "discarded";
   }
-  return "none";
+  return uncommitted ? "discarded" : "none";
 }
 
 /**
@@ -375,12 +492,15 @@ export function restoreStoreBackup(options: {
   } finally {
     rekey.close();
   }
-  writeFileSync(join(staging, "pos.db.key"), protector.protect(storeKey));
+  // On disk before the intent is: once the swap starts, this key is the only way into the store.
+  writeDurably(join(staging, "pos.db.key"), protector.protect(storeKey));
 
+  // The restore's own ID beside the time: a clock set back must never land on an earlier
+  // restore's folder and move this store over the one set aside there.
   const stamp = new Date(restoredAt).toISOString().replace(/[-:.]/g, "");
   const intent: RestoreIntent = {
     restoreId,
-    setAside: join("set-aside", stamp),
+    setAside: join("set-aside", `${stamp}-${restoreId.slice(0, 8)}`),
     startedAt: restoredAt,
   };
   let applied: AppliedRestore | null;
@@ -400,8 +520,9 @@ export function restoreStoreBackup(options: {
   } finally {
     db.close();
   }
-  writeFileSync(join(dataDir, INTENT), JSON.stringify(intent));
-  finishMoves(dataDir, intent);
+  // Whole or absent (a power cut leaves only its temporary file): from here the swap is decided.
+  writeDurably(join(dataDir, INTENT), JSON.stringify(intent));
+  completeMoves(dataDir, intent);
   return applied;
 }
 

@@ -185,6 +185,7 @@ describe("a counter restored from an older backup (P5 #51)", () => {
       outageActive: false,
       removedGrantVersion: 1,
       latestGrantVersion: 3,
+      clockSkew: null,
       acknowledgement: null,
     });
     // The server last heard from the counter at its renewals, before the restore.
@@ -271,6 +272,77 @@ describe("a counter restored from an older backup (P5 #51)", () => {
       "terminal.store_restore_reported",
       "terminal.store_restore_acknowledged",
     ]);
+  });
+});
+
+describe("a counter whose clock is wrong (P5 #51)", () => {
+  it("is still recorded, with the skew shown to the back office, and is acknowledged as usual", async () => {
+    const c = await counter({ main: 5 });
+    const now = Date.now();
+    // A computer back from repair with a reset CMOS clock: it restored "in 2000" from a backup it
+    // took an hour ago. Both times are its own clock, so the server records rather than refuses.
+    const reset = restoreReport(c, {
+      backupTakenAt: now - 3_600_000,
+      restoredAt: Date.UTC(2000, 0, 1),
+      reportedAt: Date.UTC(2000, 0, 1),
+      removedGrantVersion: null,
+    });
+    expect(
+      await restores.report(c.cashier, c.fx.mainBranchId, {
+        report: c.device.sign(reset, c.identity.keyId),
+      }),
+    ).toMatchObject({
+      restoreId: reset.restoreId,
+      status: "awaiting_acknowledgement",
+    });
+    const [shown] = (await restores.list(c.owner, c.fx.mainBranchId)).restores;
+    expect(shown).toMatchObject({
+      restoreId: reset.restoreId,
+      backupTakenAt: reset.backupTakenAt,
+      restoredAt: reset.restoredAt,
+      clockSkew: {
+        backupAfterRestoreMs: reset.backupTakenAt - reset.restoredAt,
+        aheadOfServerMs: 0,
+      },
+    });
+    // Seen at report time, in the audit trail too.
+    const reported = await prisma.auditEvent.findFirstOrThrow({
+      where: {
+        tenantId: c.fx.tenantId,
+        entityId: shown!.id,
+        eventName: "terminal.store_restore_reported",
+      },
+      select: { payload: true },
+    });
+    expect(reported.payload).toMatchObject({
+      clockSkew: {
+        backupAfterRestoreMs: reset.backupTakenAt - reset.restoredAt,
+      },
+    });
+
+    // Still no offline authority until it is acknowledged, then as usual.
+    expect(await code(renew(c))).toBe("RECONCILIATION_REQUIRED");
+    await restores.acknowledge(c.owner, c.fx.mainBranchId, shown!.id, {
+      reason:
+        "Clock was reset; checked receipts against the server from the last upload.",
+    });
+    expect((await renew(c)).grant.payload.grantVersion).toBeGreaterThan(0);
+
+    // A clock that runs fast instead dates the restore after the server received its report.
+    const fast = restoreReport(c, {
+      backupTakenAt: now - 60_000,
+      restoredAt: now + 2 * 3_600_000,
+      reportedAt: now + 2 * 3_600_000,
+      removedGrantVersion: null,
+    });
+    await restores.report(c.cashier, c.fx.mainBranchId, {
+      report: c.device.sign(fast, c.identity.keyId),
+    });
+    const ahead = (
+      await restores.list(c.owner, c.fx.mainBranchId)
+    ).restores.find((r) => r.restoreId === fast.restoreId);
+    expect(ahead!.clockSkew!.backupAfterRestoreMs).toBe(0);
+    expect(ahead!.clockSkew!.aheadOfServerMs).toBeGreaterThan(3_600_000);
   });
 });
 

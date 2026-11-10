@@ -1722,8 +1722,11 @@ Counter routes (`@CounterRoute`, `terminal.execute`, the journal uploader rule o
 
 - `POST /terminals/offline-journal/restore/report` — `{ report }`: one device-signed (purpose
   `command`) `OfflineCounterRestoreReport`: `restoreId`, `identity`, `reportedAt`, `backupId`,
-  `backupTakenAt` ≤ `restoredAt`, `journalHead`, `acceptedWatermark` (never past the journal
-  head), `outageActive`, `removedGrantVersion` (≥ 1 or null). The envelope's key must be the
+  `backupTakenAt`, `restoredAt`, `journalHead`, `acceptedWatermark` (never past the journal
+  head), `outageActive`, `removedGrantVersion` (≥ 1 or null). The two times are the counter's own
+  clock and are never compared: a computer back from repair often has its clock wrong, and
+  refusing would block the restore for good, so a backup dated after its restore is recorded and
+  shown to the back office (`clockSkew`). The envelope's key must be the
   report's own. The server stores it as received beside its own facts (accepted head, latest
   issued version, last contact with the counter before the restore) and answers
   `CounterStoreRestore` `{ restoreId, status, acknowledgedAt, latestGrantVersion }`. Resending
@@ -1745,7 +1748,10 @@ manager with a live delegation, else 403 `OFFLINE_ASSIGNMENT_NOT_DELEGATED`):
 - `GET /offline-counter-restores` → `OfflineCounterRestoresView`: restores awaiting
   acknowledgement, then the newest 20 others, each with the backup and restore times (the
   counter's clock), the restored journal head beside the server's accepted head, `outageActive`,
-  `removedGrantVersion`, `latestGrantVersion`, `lastContactAt` and the acknowledgement.
+  `removedGrantVersion`, `latestGrantVersion`, `lastContactAt` (a sign-in counts, so it proves no
+  upload: what may be missing is reckoned from the backup), `clockSkew` (null, or how far the
+  backup is dated after the restore and how far the counter's times ran ahead of the server's
+  receipt of the report, beyond five minutes) and the acknowledgement.
 - `POST /offline-counter-restores/:id/acknowledge` — `{ reason }` (1–1000 characters: how
   receipts, cash and stock since the backup were checked). Once only: 409
   `STORE_RESTORE_NOT_AWAITING` after.

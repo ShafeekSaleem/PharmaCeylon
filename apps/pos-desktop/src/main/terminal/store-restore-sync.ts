@@ -213,8 +213,9 @@ export function createStoreRestoreSync(deps: {
           restoreId: row.restore_id,
         },
       });
-      // The server has no record of it (or lost it): report again, unchanged.
-      if (answer === null)
+      // The server has no record of it (or lost it): report again, unchanged. Its `null` arrives
+      // as an empty body, which the API client reads as `undefined`.
+      if (answer == null)
         answer = await deps.api.request("POST", REPORT_PATH, {
           branchId,
           body: { report: envelope },

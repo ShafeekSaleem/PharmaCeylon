@@ -4,7 +4,7 @@ import type {
   OfflineCounterRestoreView,
 } from "@pharmaceylon/shared";
 import { apiJson } from "@/lib/auth-client";
-import { CounterRestoreCard, lostSince } from "./counter-restore-card";
+import { CounterRestoreCard, span } from "./counter-restore-card";
 
 jest.mock("@/lib/auth-client", () => ({ apiJson: jest.fn() }));
 jest.mock("@/lib/use-auth", () => ({
@@ -35,9 +35,11 @@ const restore = (
   removedGrantVersion: 3,
   latestGrantVersion: 5,
   lastContactAt: NOW - 3 * HOUR,
+  clockSkew: null,
   acknowledgement: null,
   ...over,
 });
+const when = (at: number) => new Date(at).toLocaleString();
 const list = (
   restores: OfflineCounterRestoreView[],
 ): OfflineCounterRestoresView => ({
@@ -48,22 +50,55 @@ const list = (
 beforeEach(() => api.mockReset());
 
 describe("CounterRestoreCard (P5 #51)", () => {
-  it("says what a restored counter may have lost since its backup or last contact", async () => {
+  it("says what a restored counter may have lost since its backup, whatever contact came after", async () => {
+    // Backup 5 h ago, then an outage whose sales were never accepted, then a sign-in 3 h ago
+    // while the drain was unfinished. The check starts at the backup, not at that sign-in.
     const r = restore();
     api.mockResolvedValueOnce(list([r]));
     render(<CounterRestoreCard />);
     const rows = await screen.findByLabelText("Restores waiting for you");
-    expect(within(rows).getByText(/during an internet outage/)).toBeTruthy();
+    const hint = within(rows).getByText(/during an internet outage/);
+    expect(hint.textContent).toContain(
+      `check receipts, cash and stock from ${when(r.backupTakenAt)}.`,
+    );
+    expect(hint.textContent).toContain(
+      `The server last heard from it ${when(r.lastContactAt!)}; that doesn't mean every sale before then reached the server.`,
+    );
+    expect(hint.textContent).not.toContain("clock");
     expect(
       within(rows).getByText(
         /server has 9 offline records from it; the backup had 4/,
       ),
     ).toBeTruthy();
-    expect(lostSince(r)).toBe(r.lastContactAt);
-    expect(lostSince(restore({ lastContactAt: null }))).toBe(r.backupTakenAt);
     expect(api).toHaveBeenCalledWith("/offline-counter-restores", {
       headers: { "x-branch-id": "branch-a" },
     });
+  });
+
+  it("warns when the counter's clock was wrong, instead of counting from its times", async () => {
+    // A reset clock: the restore is dated years before the backup.
+    const r = restore({
+      restoredAt: Date.UTC(2000, 0, 1),
+      lastContactAt: null,
+      clockSkew: {
+        backupAfterRestoreMs: 27 * 365 * 24 * HOUR,
+        aheadOfServerMs: 0,
+      },
+    });
+    api.mockResolvedValueOnce(list([r]));
+    render(<CounterRestoreCard />);
+    const rows = await screen.findByLabelText("Restores waiting for you");
+    const hint = within(rows).getByText(/clock was wrong/);
+    expect(hint.textContent).toContain(
+      "This counter's clock was wrong (its backup is dated 27 years after its restore), so the times it gave can't be trusted. Check receipts, cash and stock from the last sale you know reached the server.",
+    );
+    expect(hint.textContent).not.toContain(
+      "check receipts, cash and stock from ",
+    );
+    expect(hint.textContent).not.toContain("last heard");
+    expect(span(2 * HOUR)).toBe("2 hours");
+    expect(span(30_000)).toBe("1 minute");
+    expect(span(3 * 24 * HOUR)).toBe("3 days");
   });
 
   it("acknowledges a restore with how receipts, cash and stock were checked", async () => {

@@ -303,14 +303,14 @@ was lost.
 | --- | --- |
 | Backups (desktop) | `main/backup/store-backup.ts`: `VACUUM INTO` a copy, open it, delete every `staff_credential` row with `secure_delete` on and `VACUUM` so no PIN verifier survives in any page, `PRAGMA rekey` to a fresh random key, `quick_check`, then write that key wrapped by DPAPI (`SecretProtector`: this Windows user on this computer) and a manifest (`backup.json`: id, time, reason, app and schema version, enrollment, counter and branch, journal head and accepted watermark, outage, SHA-256). Written to `.partial-<id>` and renamed whole, under the app's `backups` folder and nowhere else |
 | Schedule | Checked every 5 minutes once the store holds a counter: at start, whenever the journal head or watermark moved, and hourly if anything else changed; also before a schema upgrade. Keeps the newest 12 and the last of each of the past 7 days. A failed backup is reported, never fatal |
-| Restore (desktop) | `main/backup/store-restore.ts`, offered at start-up only when the store cannot be opened or holds no counter (`liveStoreState`: never over a working store, nor over one a newer app wrote). Verifies the SHA-256, the key and `quick_check`; copies the backup to staging under a new store key and migrates it; then, in one transaction (`applyRestoreGuards`), deletes every PIN verifier, closes open staff sessions, deletes the installed pair and pending renewal requests, resets batch usage and records a device-signed restore report in `store_restore`. The broken store is moved to `set-aside/<time>`, never deleted. A `restore.json` intent makes an interrupted swap finish (or a half-staged one drop) at the next start |
+| Restore (desktop) | `main/backup/store-restore.ts`, offered at start-up only when the store cannot be opened or holds no counter (`liveStoreState`: never over a working store, nor over one a newer app wrote). Verifies the SHA-256, the key and `quick_check`; copies the backup to staging under a new store key and migrates it; then, in one transaction (`applyRestoreGuards`), deletes every PIN verifier, closes open staff sessions, deletes the installed pair and pending renewal requests, resets batch usage and records a device-signed restore report in `store_restore`. The broken store is moved to `set-aside/<time>-<restore>`, never deleted. A `restore.json` intent, written whole (a temporary file, flushed, then renamed; the staged key likewise), makes an interrupted swap finish (or a half-staged one drop) at the next start. A move refused while antivirus holds the file is retried; a swap that still cannot finish, or a damaged intent, ends start-up with an error box and opens nothing (opening would create a new store under the restored key). Only a store that cannot be decrypted, is corrupt or has an unreadable key counts as broken: a busy or locked file is shown as an error, never restored over. Nothing at start-up can leave the app with no window: `openStoreAtStartup` returns every failure, `start()` has a catch, and the backup schedule reports instead of throwing |
 | Journal | Untouched: the restored chain continues from its own head. If the server has moved past it (the backup is older than the last upload) or the chains diverged, `JOURNAL_MISMATCH` and D11 recovery take over as for any restored counter |
 | Report (counter route) | `POST /terminals/offline-journal/restore/report` and `…/status` (`store-restore-sync.ts`, run by the sync coordinator): the report is resent until answered; the answer gives the server's `latestGrantVersion` |
 | While unacknowledged | Desktop: no offline outage, no journal entry, no install (`restore_unacknowledged`), no renewal request; the Synchronisation row shows `STORE_RESTORED`. Server: issuance, the challenge and replays refused `RECONCILIATION_REQUIRED` (`counterRestoreOpen`). Online selling continues, except that a backup taken mid-outage restores that outage, whose drain pauses online checkout until a fresh pair installs |
-| Acknowledgement (web) | Settings → Offline policy → Restored counters (`counter-restore-card.tsx`): what may be missing (since the later of the backup and the server's last contact), the outage, the restored journal against the server's, and the acknowledgement with a reason. `POST /offline-counter-restores/:id/acknowledge`, owner or delegated manager |
+| Acknowledgement (web) | Settings → Offline policy → Restored counters (`counter-restore-card.tsx`): what may be missing (since the backup; the server's last contact is shown beside it, because a sign-in during an unfinished drain proves no upload), a warning instead when the counter's clock disagreed (`clockSkew`: a backup dated after its restore, or times ahead of the server), the outage, the restored journal against the server's, and the acknowledgement with a reason. `POST /offline-counter-restores/:id/acknowledge`, owner or delegated manager |
 | After | The counter learns of the acknowledgement on its next status poll and asks for a pair at once. It installs only a version above the server's `latestGrantVersion`; that install clears the restore and, if an outage was restored, ends it |
 | Late counts | A late offline sale's batch that a posted stocktake (or another case's count) counted after the sale waits on its case as `counted_after_sale` instead of posting: that count already took the units off. Restores make late uploads likelier, but this held before them too |
-| Schema | API migrations `20261110200000_offline_counter_restore` (table, shape checks, the progress trigger, and the widened `offline_stock_discrepancy_line_shape`, NOT VALID) and `20261110200100_offline_counter_restore_validate`. Desktop migration 18: `store_restore` (rows kept; what was reported cannot change) |
+| Schema | API migrations `20261110200000_offline_counter_restore` (table, shape checks, the progress trigger, and the widened `offline_stock_discrepancy_line_shape`, NOT VALID) and `20261110200100_offline_counter_restore_validate`; `20261110200200_offline_counter_restore_clock` drops the shape's `backup_taken_at <= restored_at`. Desktop migration 18: `store_restore` (rows kept; what was reported cannot change) |
 
 ### Decisions taken in this slice (2026-11-10)
 
@@ -327,6 +327,12 @@ was lost.
   server's latest version. Outside a restore a request still replays its own version (P3).
 - **The journal is never reset.** The restored chain keeps its sequence; where it and the
   server's disagree, the server's wins through D11.
+- **A wrong clock is recorded, not refused** (review of #156). Both times in the report are the
+  counter's own clock. A restore whose backup is dated after it (a reset CMOS clock, or a fast
+  clock corrected since) used to be refused for good, and with it offline selling; now the
+  server records it and the card tells the acknowledging manager the counter's times can't be
+  trusted. Refusing to restore until the clock is fixed was the alternative, but when the
+  backup's own time was the wrong one there is no clock to fix.
 
 ### Tests
 
@@ -339,7 +345,12 @@ usage and PINs gone, sessions closed, the signed report verified, no outage and 
 paused by the restored outage, installs refused until acknowledged, the report, poll and
 acknowledgement flow, v1–v3 refused as superseded and a rebased v4 left to D11; clearing after
 acknowledgement with the chain continuing; start-up after a failure, an emptied data folder, a
-working store the app cannot open, and interrupted restores). `offline-authority.spec.ts`: no
+working store the app cannot open, and interrupted restores: a damaged intent and a held file
+both stop start-up without opening anything and the swap finishes at the next start, an
+uncommitted intent drops, a file held for a moment is waited out, and a store that is only busy is
+never restored over; a clock behind the backup still restores, each restore in its own set-aside
+folder; an empty status answer resends the report). `store-backup.spec.ts` also: a store that
+cannot be read is reported, never thrown. `offline-authority.spec.ts`: no
 renewal request while a restore waits. `migrations.integration.spec.ts`: the upgrade from 17 to
 18.
 
@@ -347,11 +358,13 @@ API: `counter-restore.spec.ts` (wire), `offline-sale-commit.spec.ts` (`counted_a
 PostgreSQL: `offline-counter-restore.int-spec.ts` covers a counter restored from an older backup
 after two renewals (report and resend, other content and a foreign signature refused, issuance
 and replays refused while it waits, D13 authority, one acknowledgement, the version floor, the
-next pair above it and rebased, the record immutable, audit), and a late sale over a later
-stocktake waiting as `counted_after_sale` with nothing deducted twice.
+next pair above it and rebased, the record immutable, audit), a counter whose clock was set back
+or runs fast recorded with its skew (in the view and the audit) and acknowledged as usual, and a
+late sale over a later stocktake waiting as `counted_after_sale` with nothing deducted twice.
 
-Web: `counter-restore-card.spec.tsx` (what may be missing, the exact acknowledgement, a refusal
-kept in the dialog).
+Web: `counter-restore-card.spec.tsx` (what may be missing, counted from the backup whatever
+contact came after; the clock warning; the exact acknowledgement; a refusal kept in the dialog).
+Shared: `offline-counter-restore.test.cjs` (`counterRestoreClockSkew`).
 
 ## Later slices (not built)
 

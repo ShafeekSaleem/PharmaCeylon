@@ -241,4 +241,33 @@ describe("the backup schedule", () => {
     expect(report).toHaveBeenCalled();
     expect(listStoreBackups(backupsDir)).toEqual([]);
   });
+
+  it("reports a store it cannot even read, at start and on every check, and never throws", () => {
+    seedDevice(local.db);
+    const report = jest.fn();
+    // A failing disk: reading what the store holds throws before any backup starts.
+    const failing = {
+      prepare: () => {
+        throw Object.assign(new Error("disk I/O error"), {
+          code: "SQLITE_IOERR",
+        });
+      },
+    } as unknown as LocalStore["db"];
+    let schedule: ReturnType<typeof startStoreBackups> | undefined;
+    expect(() => {
+      schedule = startStoreBackups({
+        db: failing,
+        keyPath: local.keyPath,
+        backupsDir,
+        protector: thisUser,
+        appVersion: "1",
+        report,
+        timer: false,
+      });
+    }).not.toThrow();
+    expect(report).toHaveBeenCalledTimes(1);
+    expect(schedule!.tick()).toBeNull();
+    expect(report).toHaveBeenCalledTimes(2);
+    expect(report.mock.calls[1]![0]).toMatchObject({ code: "SQLITE_IOERR" });
+  });
 });

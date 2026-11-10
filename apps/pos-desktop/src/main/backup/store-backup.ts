@@ -445,20 +445,33 @@ export function startStoreBackups(options: {
     }
   }
 
-  function tick(): StoreBackup | null {
+  function due(): BackupReason | null {
     const facts = readStoreFacts(options.db);
     // A store with no counter is not backed up: it has nothing to restore, and its backups would
     // push the real ones (of the counter this computer had before) out of the retention.
     if (!facts.enrollmentId) return null;
-    if (!last) return take("startup");
+    if (!last) return "startup";
     if (journalFingerprint(facts) !== last.fingerprint)
-      return take("journal_changed");
+      return "journal_changed";
     const changes = (
       options.db.prepare("SELECT total_changes() AS n").get() as { n: number }
     ).n;
     if (changes !== last.changes && now() - last.at >= BACKUP_MAX_AGE_MS)
-      return take("scheduled");
+      return "scheduled";
     return null;
+  }
+
+  function tick(): StoreBackup | null {
+    let reason: BackupReason | null;
+    try {
+      reason = due();
+    } catch (error) {
+      // A failing disk is what backups exist for: report it, never throw out of a timer or into
+      // start-up.
+      options.report(error);
+      return null;
+    }
+    return reason ? take(reason) : null;
   }
 
   tick();
