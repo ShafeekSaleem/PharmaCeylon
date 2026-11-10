@@ -161,7 +161,7 @@ describe("offline backup readiness (P3 #49)", () => {
     databaseOpen: true, schemaVersion: 1, latestSchemaVersion: 1, credentialStoreAvailable: true,
     enrollmentStatus: "active" as const, preparedStaff: 5,
   };
-  const healthyRefresh = { nominated: true, lastSuccessAt: t - 60_000, consecutiveFailures: 0, lastFailure: null, nextAttemptAt: null };
+  const healthyRefresh = { nominated: true, nominatedAt: t - 60_000, lastSuccessAt: t - 60_000, consecutiveFailures: 0, lastFailure: null, nextAttemptAt: null };
   const installed = { grantExpiresAt: t + 86_340_000, snapshotGeneratedAt: t - 120_000, authorizedStaff: 4, lines: 412 };
   const check = (report: ReturnType<typeof buildReadinessReport>, id: string) => report.checks.find((c) => c.id === id)!;
 

@@ -188,13 +188,16 @@ and only then sells again.
   also ends the outage, in one SQLite transaction, so checkout resumes on fresh stock or not at
   all.
 - **No wasted grant versions.** Renewal is skipped while entries wait for the server (a pair
-  issued then could not include them), and a pair that is `behind` is not installed. The
-  coordinator asks for one immediate renewal per outage and journal head, then the refresh's own
-  back-off applies.
+  issued then could not include them), and a pair that is `behind` is not installed. Waiting is
+  not a failure: nothing is asked, nothing backs off, and the next minute's check after the
+  upload is accepted asks. The coordinator asks for one immediate renewal per outage and journal
+  head, then the refresh's own back-off applies.
 - **Finishing without a pair.** A counter that is no longer the offline counter, or whose branch
   no longer allows offline selling, will never get a rebased pair. Its drain ends once the
-  journal is accepted and nothing sent is uncertain. Its old pair stays installed, unrenewed, and
-  is soon too old to start another outage on.
+  journal is accepted and nothing sent is uncertain (the same `mayResumeOnlineCheckout` rule the
+  installer applies, less the fresh snapshot). Only an answer given since the drain asked counts:
+  a refusal from before the outage is stale. Its old pair stays installed, unrenewed, and is soon
+  too old to start another outage on.
 - **A journal the server doesn't recognise is a recovery issue, not a sync error.** It fails the
   readiness row, refuses new outages, and needs support (D11 missing-journal review, later).
 - **Held entries back off, rejected ones stop.** Held ones are resent after 60 s, because the
@@ -220,12 +223,14 @@ Desktop:
   confirmation, replies with a bad signature or wrong content, a restored-backup mismatch (kept
   through a dropped connection or a bad reply, and cleared only by a verified reply), the
   drain's install ending the outage, `drain_incomplete`, a `behind` pair, and the coordinator
-  (immediate renewal, finishing without a pair, never finishing with entries waiting).
+  (immediate renewal, finishing without a pair, ignoring a refusal from before it asked, never
+  finishing with entries waiting), and the last-sync key following the enrollment signed in.
 - `checkout-service.spec.ts` covers `SYNC_PAUSED` with retry still working.
 - `shell.spec.ts` covers the Synchronisation readiness row.
 - `Shell.spec.tsx` covers `SyncBlock`.
-- `migrations.integration.spec.ts` covers the upgrade from 14 to 15.
-- `offline-authority*.spec.ts` covers the installer's new results.
+- `migrations.integration.spec.ts` covers the upgrade from 15 to 16.
+- `offline-authority*.spec.ts` covers the installer's new results, and the refresh: waiting for
+  the upload without a request or a back-off, due at once during an outage, and `renewNow`.
 
 ## Later slices (not built)
 
@@ -239,5 +244,9 @@ Desktop:
   until P4 writes them.
 - Sync lag visible centrally (server and web).
 - The desktop producer (P4 #50): outage entry and offline selling. This slice's upload and drain
-  are exercised with journals written by P4's writer in tests.
+  are exercised with journals written by P4's writer in tests. P4 must also quiesce before the
+  drain ends an outage: today one renewal that gets through can install a pair and end the outage
+  at once, which is harmless while nothing sells offline. Once offline tender exists, the
+  installer has to refuse (`drain_incomplete`) while an offline tender is open, and a flapping
+  connection must not split one outage into two (epic: "a single probe cannot interrupt tender").
 - A concrete retention policy for journal evidence (nothing is deleted today).

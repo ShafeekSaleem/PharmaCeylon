@@ -47,6 +47,21 @@ export async function journalAwaitingReview(
 }
 
 /**
+ * The accepted head, refusing `RECONCILIATION_REQUIRED` while the journal is stuck past it on an
+ * entry that needs review (`journalAwaitingReview`). The challenge and issuance both decide it
+ * here, so they can't disagree: a counter never spends an attendance proof on a request that
+ * issuance would then refuse.
+ */
+export async function assertJournalNotStuck(
+  tx: Prisma.TransactionClient,
+  identity: TerminalIdentity,
+): Promise<{ sequence: number; hash: string | null }> {
+  const head = await acceptedJournalHead(tx, identity);
+  if (await journalAwaitingReview(tx, identity, head.sequence)) denied("RECONCILIATION_REQUIRED");
+  return head;
+}
+
+/**
  * The journal baseline for a new issuance or renewal, read in the issuance's own repeatable-read
  * view, together with the stock it signs (P5 #51, the rebase). Each offline command an
  * enrollment uploads is accepted as a `terminal_command_receipt` with its `offline_sequence`, in
@@ -69,8 +84,7 @@ export async function acceptedJournalState(
   tx: Prisma.TransactionClient,
   identity: TerminalIdentity,
 ): Promise<SnapshotState> {
-  const head = await acceptedJournalHead(tx, identity);
-  if (await journalAwaitingReview(tx, identity, head.sequence)) denied("RECONCILIATION_REQUIRED");
+  const head = await assertJournalNotStuck(tx, identity);
   return {
     includedThroughSequence: head.sequence,
     includedThroughHash: head.hash,

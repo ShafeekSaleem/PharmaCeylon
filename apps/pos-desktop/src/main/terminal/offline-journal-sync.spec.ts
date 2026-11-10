@@ -591,6 +591,22 @@ describe("uploading the offline journal", () => {
     });
   });
 
+  it("shows only this enrollment's last sync: a re-enrolled counter has none until its first confirmation", async () => {
+    // The previous enrollment's last confirmation is still in app_meta.
+    local.db
+      .prepare("INSERT INTO app_meta (key, value, updated_at) VALUES (?, ?, ?)")
+      .run(LAST_SUCCESSFUL_SYNC_KEY, "2026-10-01T08:00:00.000Z", "x");
+    const u = uploader();
+    u.srv.lose();
+    await u.sync.tick();
+    expect(u.meta(LAST_SUCCESSFUL_SYNC_KEY)).toBeUndefined();
+    u.advance(15_000);
+    await u.sync.tick();
+    expect(u.meta(LAST_SUCCESSFUL_SYNC_KEY)).toBe(
+      new Date(NOW + 15_000).toISOString(),
+    );
+  });
+
   it("confirms an empty journal every five minutes, and sends nothing while nobody is signed in", async () => {
     let signedIn = false;
     const u = uploader(fakeServer(), { signedIn: () => signedIn });
@@ -900,6 +916,7 @@ describe("finishing the reconnect drain (approved D12)", () => {
     const sync = { tick: jest.fn(async () => undefined) };
     let status = {
       nominated: true as boolean | null,
+      nominatedAt: null as number | null,
       lastFailure: null as { at: number; code: string } | null,
     };
     const refresh = {
@@ -933,10 +950,21 @@ describe("finishing the reconnect drain (approved D12)", () => {
     expect(refresh.tick).toHaveBeenCalledTimes(1);
     expect(activeOutage(local.db, identity.enrollmentId)).not.toBeNull();
 
+    // Answers recorded before the drain asked (from before the outage, while the refresh's own
+    // request is still in flight) are stale: the server may be about to issue the pair.
+    status = {
+      nominated: false,
+      nominatedAt: NOW - 60_000,
+      lastFailure: { at: NOW - 60_000, code: "GRANT_INVALID" },
+    };
+    await cycle();
+    expect(activeOutage(local.db, identity.enrollmentId)).not.toBeNull();
+
     // Offline selling was switched off for the branch: no pair will come. Online checkout checks
     // stock centrally, so the drain ends without one.
     status = {
       nominated: true,
+      nominatedAt: NOW,
       lastFailure: { at: NOW, code: "GRANT_INVALID" },
     };
     await cycle();
@@ -954,6 +982,7 @@ describe("finishing the reconnect drain (approved D12)", () => {
       tick: jest.fn(async () => undefined),
       status: () => ({
         nominated: false,
+        nominatedAt: NOW,
         lastFailure: null,
         lastSuccessAt: null,
         consecutiveFailures: 0,

@@ -181,17 +181,9 @@ export function finishDrainWithoutRenewal(
 ): boolean {
   return db
     .transaction((): boolean => {
-      if (!activeOutage(db, enrollmentId)) return false;
-      const evidence = drainResumeEvidence(db, enrollmentId, {
-        snapshotCoversJournal: true,
-      });
-      if (
-        !evidence.journalAcceptedThroughLastLocalCommand ||
-        !evidence.uncertainCommandsResolved ||
-        !evidence.paymentAttemptsResolved ||
-        !evidence.supportRecordsAccepted
-      )
-        return false;
+      // Everything D12 asks for but the fresh snapshot, which online checkout doesn't need: the
+      // same rule the installer applies, so a condition P4 adds to it applies here too.
+      if (!drainAwaitsFreshSnapshot(db, enrollmentId)) return false;
       endOutage(db, enrollmentId, at);
       return true;
     })
@@ -220,9 +212,19 @@ export function checkoutSyncPause(
   db: PosDatabase,
   enrollmentId: string,
 ): CheckoutSyncPause | null {
-  const outage = activeOutage(db, enrollmentId);
-  const head = localJournalHead(db, enrollmentId);
-  const accepted = readAcceptedWatermark(db, enrollmentId);
+  return syncPauseFrom(
+    activeOutage(db, enrollmentId),
+    localJournalHead(db, enrollmentId),
+    readAcceptedWatermark(db, enrollmentId),
+  );
+}
+
+/** `checkoutSyncPause` from facts the caller has already read (the sync view polls every 3 s). */
+export function syncPauseFrom(
+  outage: { offlineStartedAt: number } | null,
+  head: JournalPosition,
+  accepted: JournalPosition,
+): CheckoutSyncPause | null {
   const waiting = Math.max(0, head.sequence - accepted.sequence);
   if (!outage && waiting === 0) return null;
   return {

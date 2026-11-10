@@ -19,12 +19,12 @@ import {
 } from "./offline-journal";
 import type { OfflineAuthorityRefresh } from "./offline-authority-refresh";
 import {
-  checkoutSyncPause,
   drainAwaitsFreshSnapshot,
   ensureSyncRow,
   finishDrainWithoutRenewal,
   readAcceptedWatermark,
   recordAcceptedWatermark,
+  syncPauseFrom,
   type CheckoutSyncPause,
 } from "./reconnect-drain";
 import type { TerminalService } from "./terminal-service";
@@ -541,11 +541,40 @@ export function createOfflineJournalSync(deps: OfflineJournalSyncDeps) {
   }
 
   /** `issue`: the server answered, but something it said stops the journal being confirmed. */
+  /**
+   * The last-sync time in `app_meta` (read by the title and status bars, #138) is one key for the
+   * computer, so it follows the enrollment signed in now: after a re-enrollment, the previous
+   * counter's last confirmation must not show as this one's until its first.
+   */
+  function alignLastSync(enrollmentId: string): void {
+    const mine =
+      (
+        deps.db
+          .prepare(
+            "SELECT last_success_at FROM offline_journal_sync WHERE enrollment_id = ?",
+          )
+          .get(enrollmentId) as { last_success_at: string | null } | undefined
+      )?.last_success_at ?? null;
+    const shown =
+      (
+        deps.db
+          .prepare("SELECT value FROM app_meta WHERE key = ?")
+          .get(LAST_SUCCESSFUL_SYNC_KEY) as { value: string } | undefined
+      )?.value ?? null;
+    if (shown === mine) return;
+    if (mine) setMeta(deps.db, LAST_SUCCESSFUL_SYNC_KEY, mine, iso());
+    else
+      deps.db
+        .prepare("DELETE FROM app_meta WHERE key = ?")
+        .run(LAST_SUCCESSFUL_SYNC_KEY);
+  }
+
   async function cycle(force: boolean): Promise<"done" | "issue" | "skipped"> {
     const current = deps.terminal.current();
     if (!current) return "skipped";
     const { identity } = current;
     const enrollmentId = identity.enrollmentId;
+    alignLastSync(enrollmentId);
     let rows = unsynced(enrollmentId);
     // A refused entry blocks the chain until it is reviewed; resending it changes nothing.
     if (rows[0]?.sync_status === "failed") return "skipped";
@@ -690,7 +719,7 @@ export function readJournalSyncView(
             drainedAt: row.drained_at,
           }
         : null,
-    pause: checkoutSyncPause(db, enrollmentId),
+    pause: syncPauseFrom(outage, head, accepted),
   };
 }
 
@@ -712,7 +741,7 @@ export function createSyncCoordinator(deps: {
 }) {
   const now = deps.now ?? Date.now;
   /** One immediate renewal per outage and journal head; after that, the refresh's own back-off. */
-  let renewalAskedFor: string | null = null;
+  let renewalAskedFor: { key: string; at: number } | null = null;
   return async function cycle(): Promise<void> {
     await deps.sync.tick();
     const current = deps.terminal.current();
@@ -720,15 +749,22 @@ export function createSyncCoordinator(deps: {
     const enrollmentId = current.identity.enrollmentId;
     if (!drainAwaitsFreshSnapshot(deps.db, enrollmentId)) return;
     const key = `${activeOutage(deps.db, enrollmentId)?.offlineSessionId}:${localJournalHead(deps.db, enrollmentId).sequence}`;
-    if (renewalAskedFor !== key) {
-      renewalAskedFor = key;
+    if (renewalAskedFor?.key !== key) {
+      renewalAskedFor = { key, at: now() };
       deps.refresh.renewNow();
       await deps.refresh.tick();
     }
+    // Only an answer given since the drain asked ends it without a pair. One recorded earlier (a
+    // refusal from before the outage, say, while the refresh's own request is still in flight so
+    // this tick returned at once) is stale: the server may be about to issue the pair that finishes
+    // the drain properly.
+    const askedAt = renewalAskedFor.at;
     const status = deps.refresh.status();
     if (
-      status.nominated === false ||
-      (status.lastFailure && NO_OFFLINE_AUTHORITY.has(status.lastFailure.code))
+      (status.nominated === false && (status.nominatedAt ?? -Infinity) >= askedAt) ||
+      (status.lastFailure &&
+        status.lastFailure.at >= askedAt &&
+        NO_OFFLINE_AUTHORITY.has(status.lastFailure.code))
     )
       finishDrainWithoutRenewal(
         deps.db,

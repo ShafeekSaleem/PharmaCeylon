@@ -99,6 +99,19 @@ export function readInstalledOfflineAuthority(
 }
 
 /**
+ * Whether the installed pair includes everything this computer's journal holds (P5 #51): no
+ * outage whose drain is unfinished, and a snapshot watermark that is exactly the local journal
+ * head. Accepted entries the snapshot was rebased over stay on this computer as evidence; they
+ * don't count against it. False when no pair is installed.
+ */
+export function installedPairCoversJournal(db: PosDatabase, enrollmentId: string): boolean {
+  const installed = readInstalledOfflineAuthority(db, enrollmentId);
+  if (!installed || activeOutage(db, enrollmentId)) return false;
+  const { includedThroughSequence: sequence, includedThroughHash: hash } = installed.snapshot.payload;
+  return journalCoverage(db, enrollmentId, { sequence, hash }) === "covered";
+}
+
+/**
  * The rebasing installer (P3 #49, rebasing over a journal P5 #51). Verifies the pair, then, in one
  * immediate transaction, stores it as this counter's only installed pair.
  *
