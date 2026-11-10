@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type {
+  ActionError,
   AppInfo,
   CheckStatus,
   DeviceState,
@@ -332,15 +333,25 @@ function PrinterTest() {
   );
 }
 
+/** GET offline-assignment returns 403 FORBIDDEN for counter roles; only then fall back to enrollment. */
+function isOfflineAssignmentForbidden(error: ActionError): boolean {
+  return error.code === "FORBIDDEN" || error.code === "PERMISSION_DENIED";
+}
+
+const emptyOfflineCounterView: OfflineCounterView = {
+  thisCounterNominated: false,
+  otherCounterNominated: false,
+  nominationVersion: 0,
+  authorization: null,
+};
+
 /** When offline-assignment is refused, derive nomination state from enrollment status only. */
 function offlineCounterViewFromEnrollment(
-  backup: EnrollmentOfflineBackup,
+  activatedAt: number | null,
 ): OfflineCounterView {
   return {
-    thisCounterNominated: backup.activatedAt != null,
-    otherCounterNominated: false,
-    nominationVersion: 0,
-    authorization: null,
+    ...emptyOfflineCounterView,
+    thisCounterNominated: activatedAt != null,
   };
 }
 
@@ -354,30 +365,57 @@ function OfflineCounterPanel({
   enrollmentBackup: EnrollmentOfflineBackup;
 }) {
   const [view, setView] = useState<OfflineCounterView | null>(null);
+  const [viewFromEnrollment, setViewFromEnrollment] = useState(false);
+  const [offlineLoadError, setOfflineLoadError] = useState<string | null>(null);
   const { busy, error, run } = useAction();
+  const enrollmentActivatedAt = enrollmentBackup.activatedAt;
+  const enrollmentAuthorizedAt = enrollmentBackup.authorizedAt;
   useEffect(() => {
+    let alive = true;
     void window.pos
       .offlineCounter()
-      .then((result) =>
-        setView(
-          result.ok
-            ? result.value
-            : offlineCounterViewFromEnrollment(enrollmentBackup),
-        ),
-      )
-      .catch(() =>
-        setView(offlineCounterViewFromEnrollment(enrollmentBackup)),
-      );
-  }, [enrollmentBackup]);
+      .then((result) => {
+        if (!alive) return;
+        if (result.ok) {
+          setView(result.value);
+          setViewFromEnrollment(false);
+          setOfflineLoadError(null);
+          return;
+        }
+        if (isOfflineAssignmentForbidden(result.error)) {
+          setView(offlineCounterViewFromEnrollment(enrollmentActivatedAt));
+          setViewFromEnrollment(true);
+          setOfflineLoadError(null);
+          return;
+        }
+        setView(emptyOfflineCounterView);
+        setViewFromEnrollment(false);
+        setOfflineLoadError(result.error.message);
+      })
+      .catch(() => {
+        if (!alive) return;
+        setView(emptyOfflineCounterView);
+        setViewFromEnrollment(false);
+        setOfflineLoadError("Something went wrong. Please try again.");
+      });
+    return () => {
+      alive = false;
+    };
+  }, [enrollmentActivatedAt, enrollmentAuthorizedAt]);
   if (!view) return null;
 
   const authorization = view.authorization;
   const enrollmentAuthorizedWaiting =
-    enrollmentBackup.authorizedAt != null && enrollmentBackup.activatedAt == null;
+    enrollmentAuthorizedAt != null && enrollmentActivatedAt == null;
   const showEnrollmentAuthorizedWaiting =
+    viewFromEnrollment &&
     enrollmentAuthorizedWaiting &&
     !view.thisCounterNominated &&
     authorization == null;
+  const showEnrollmentNotThisCounter =
+    viewFromEnrollment &&
+    !view.thisCounterNominated &&
+    !showEnrollmentAuthorizedWaiting;
   const authorizedLine = formatOfflineAuthorized(enrollmentBackup);
   const activatedLine = formatOfflineActivated(enrollmentBackup);
   const expiresAt = backup?.grantExpiresAt
@@ -403,7 +441,13 @@ function OfflineCounterPanel({
             ui.neutral,
             "Not this counter",
           ]
-        : ["No offline backup counter yet", ui.neutral, "Not chosen"];
+        : showEnrollmentNotThisCounter
+          ? [
+              "This counter isn't the offline backup",
+              ui.neutral,
+              "Not this counter",
+            ]
+          : ["No offline backup counter yet", ui.neutral, "Not chosen"];
 
   return (
     <div className={cx(ui.panel, styles.grow)}>
@@ -541,12 +585,13 @@ function OfflineCounterPanel({
         )}
         {!authorization &&
           !view.thisCounterNominated &&
-          !showEnrollmentAuthorizedWaiting && (
+          !showEnrollmentAuthorizedWaiting &&
+          !showEnrollmentNotThisCounter && (
             <p className={styles.text}>
               The owner authorizes one from the back office.
             </p>
           )}
-        <ErrorLine error={error} />
+        <ErrorLine error={error ?? offlineLoadError} />
         <div className={styles.offl}>
           <Icon name="info" />
           <span>

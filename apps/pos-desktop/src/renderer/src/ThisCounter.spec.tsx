@@ -170,15 +170,21 @@ const offlineAssignmentForbidden: OfflineCounterStub = {
 };
 
 describe("offline backup when offline-assignment is refused", () => {
-  it("still shows the panel and not-chosen copy when not nominated", async () => {
+  it("shows a neutral not-this-counter presentation when not nominated", async () => {
     await renderCounter(
       "Counter 2",
       emptyEnrollmentOfflineBackup,
       offlineAssignmentForbidden,
     );
     const panel = await offlinePanel();
-    expect(within(panel).getByText("No offline backup counter yet")).toBeTruthy();
-    expect(within(panel).getByText("The owner authorizes one from the back office.")).toBeTruthy();
+    expect(
+      within(panel).getByText("This counter isn't the offline backup"),
+    ).toBeTruthy();
+    expect(within(panel).getByText("Not this counter")).toBeTruthy();
+    expect(within(panel).queryByText("No offline backup counter yet")).toBeNull();
+    expect(
+      within(panel).queryByText("The owner authorizes one from the back office."),
+    ).toBeNull();
   });
 
   it("shows Authorized from enrollment when authorized but not activated", async () => {
@@ -223,6 +229,21 @@ describe("offline backup when offline-assignment is refused", () => {
         name: "Activate as the offline backup",
       }),
     ).toBeNull();
+  });
+});
+
+describe("offline backup when offline-assignment fails for other reasons", () => {
+  it("shows the refusal instead of enrollment fallback", async () => {
+    await renderCounter("Counter 2", emptyEnrollmentOfflineBackup, {
+      ok: false,
+      error: { code: "NETWORK", message: "Could not reach the server." },
+    });
+    const panel = await offlinePanel();
+    expect(within(panel).getByText("Could not reach the server.")).toBeTruthy();
+    expect(
+      within(panel).queryByText("This counter isn't the offline backup"),
+    ).toBeNull();
+    expect(within(panel).getByText("No offline backup counter yet")).toBeTruthy();
   });
 });
 
