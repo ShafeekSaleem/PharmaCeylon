@@ -9,6 +9,7 @@ import { businessToday, safeTimeZone } from "../common/business-date.util";
 import { PrismaService } from "../prisma/prisma.service";
 import { AccessService } from "../security/access.service";
 import { RequestUser } from "../security/interfaces/authenticated-request.interface";
+import { acceptedHeadSql, needsReviewPastHeadSql } from "../terminals/journal/counter-journal-status";
 import { POS_ROLLOUT_SELECT, resolvePosRollout } from "../tenant/pos-rollout";
 import { counterKinds } from "./daily-work-kinds";
 import { DailyWorkQueryDto } from "./dto/daily-work-query.dto";
@@ -217,6 +218,24 @@ export class DailyWorkService {
           AND ((${actor.has("inventory.resolve_stock_cases")} AND NOT ${ready})
             OR (${actor.has("inventory.manage")} AND ${ready}))`);
     }
+    // P5 #51: a counter's offline journal stopped past its accepted head on an entry the server
+    // rejected or that conflicts with what it accepted. Nothing after it can be accepted, so the
+    // counter's later offline sales stay off the server until someone reviews it. One item per
+    // stuck enrollment, revoked or retired ones included: their sales are just as missing.
+    if (actor.has("tenant.management"))
+      sources.push(Prisma.sql`
+        SELECT 'journal:' || e.id, 'offline_journal.review', 'counter', 'Offline sales stuck at a counter',
+          concat(COALESCE(k.label, t.label), ' · entry ', x.sequence,
+            CASE WHEN x.outcome = 'conflict' THEN ' conflicts with the server''s copy' ELSE ' was refused' END),
+          t.label, x.outcome, '/settings/counters', 'Open counters', x.first_received_at, NULL::timestamp,
+          'Branch managers', false, false, false, 1
+        FROM terminal_enrollment e
+          JOIN operational_terminal t ON t.tenant_id = e.tenant_id AND t.branch_id = e.branch_id AND t.id = e.terminal_id
+          LEFT JOIN terminal_counter k ON k.tenant_id = t.tenant_id AND k.branch_id = t.branch_id AND k.id = t.register_id
+          JOIN LATERAL (SELECT v.sequence, v.outcome, v.first_received_at FROM offline_journal_review v
+            WHERE ${needsReviewPastHeadSql(acceptedHeadSql)}
+            ORDER BY v.sequence, v.first_received_at LIMIT 1) x ON true
+        WHERE e.tenant_id = ${tenant}::uuid AND e.branch_id = ${branchId}::uuid`);
     // Held bills live in the web POS. At a live branch it is hidden, so they leave the web (W9);
     // during a fallback the web POS is back and so are its holds.
     if (allowed("sales.pos_use") && rollout !== "live") {

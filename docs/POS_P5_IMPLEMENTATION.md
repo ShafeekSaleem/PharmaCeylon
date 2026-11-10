@@ -157,3 +157,42 @@ permission, wrong counts and the immutable plan. The slice 1 harness moved to
 - Replacement and missing-journal review (D11 `journalRecoveryEvidence`), backup and restore.
 - The desktop producer (P4 #50); this slice is exercised with signed fixtures only.
 - A concrete retention policy for journal evidence (nothing is deleted today).
+
+## Counter sync status for managers (built)
+
+Until now only the counter knew how far its journal had reached the server (its readiness
+Synchronisation row). Managers now see it per counter, from the server's own records.
+
+| Area | What exists |
+| --- | --- |
+| Read | `GET /terminals/offline-journal/sync-status` (`tenant.management`, live at the branch): per enrollment the accepted head and when it was accepted, the last upload, entries waiting past the head (held) and needing review (rejected or conflicting), the first stuck entry, and open stock cases. One repeatable-read statement over `terminal_command_receipt`, `offline_journal_review`, `offline_staff_sign_in` and `offline_stock_discrepancy`, every table scoped by tenant and branch (`journal/counter-journal-status.ts`) |
+| Counters page | Settings → Counters has an "Offline sales" column: "All on the server, last sync 14:02", "3 waiting / 1 needs review" with where the journal stopped, a link to Inventory → Stock cases for open cases, and an earlier revoked key or retired computer of the same counter while its entries still wait. A failed status read leaves the counters list working ("Couldn't check") |
+| Daily work | `offline_journal.review`, "Offline sales stuck at a counter": one item per enrollment stuck past its head on a rejected or conflicting entry, for `tenant.management`, linking to Counters |
+
+### Decisions
+
+- **The server's records, not the counter's word.** Nothing here is reported by the counter; it
+  is what the server accepted and retained. So "all on the server" means every entry the counter
+  has sent was accepted: a counter that is offline now may hold sales it hasn't sent yet, and the
+  page says so.
+- **Last sync is the last upload that brought something.** An empty confirmation upload (slice 3
+  sends one every 5 minutes) writes nothing, so it can't be seen; the status stays read-only
+  rather than writing on every upload.
+- **Counted per sequence, past the head only.** A sequence with any rejected or conflicting copy
+  needs review; otherwise a held one waits (the counter repairs it by sending what it lacks, or it
+  waits for D11 review on a revoked key). Refusals at or below the head are kept as evidence but
+  are not status: a conflict on an accepted entry leaves the accepted one standing.
+- **Existing permission.** `tenant.management` is what the Counters page already requires; no
+  new key.
+- This covers "sync lag visible centrally" from the later slices list.
+
+### Tests
+
+Unit: `journal/counter-journal-status.spec.ts` (row mapping, which enrollments are listed,
+tenant/branch scoping of every table, the service's permission and snapshot),
+`terminal-routes.spec.ts`, `daily-work-kinds.spec.ts`. PostgreSQL:
+`test/integration/counter-journal-status.int-spec.ts` — head and last upload, a held entry
+waiting until it is accepted, a rejected entry and a fork past the head stopping the journal (and
+the Daily work item, only with `tenant.management`), a conflict at the head not counted, open
+stock cases, a revoked counter listed only while entries wait, other tenants and branches, and
+refusal without the permission. Web: `settings/counters/page.spec.tsx`, `offline-sync.spec.tsx`.

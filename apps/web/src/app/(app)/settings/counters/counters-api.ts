@@ -1,4 +1,5 @@
 import type {
+  CounterJournalSyncView,
   TerminalCounterView,
   TerminalEnrollmentCodeIssued,
   TerminalEnrollmentCodeView,
@@ -14,6 +15,8 @@ const json = (body: unknown): RequestInit => ({
 /** Every call is scoped to the selected branch by the `x-branch-id` header `apiJson` adds. */
 export const countersApi = {
   counters: () => apiJson<TerminalCounterView[]>("/terminals/counters"),
+  /** P5 #51: how far each counter's offline journal has reached the server. */
+  journalStatus: () => apiJson<CounterJournalSyncView[]>("/terminals/offline-journal/sync-status"),
   createCounter: (label: string) =>
     apiJson<TerminalCounterView>("/terminals/counters", json({ label })),
   codes: () => apiJson<TerminalEnrollmentCodeView[]>("/terminals/enrollment-codes"),

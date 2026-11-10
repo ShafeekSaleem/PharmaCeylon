@@ -1599,6 +1599,21 @@ beside it (`counterExpectedCashMinor`); an assisted close records the manager's 
 reason. Each is replayed once: a resend is a `duplicate`, and a second close of a closed shift is
 `rejected` `SESSION_INVALID`, never a reopen.
 
+**Sync status for managers.** `GET /api/v1/terminals/offline-journal/sync-status`
+(`tenant.management`, live at the branch; `x-branch-id`; not a counter route) returns
+`CounterJournalSyncView[]`, read in one repeatable-read snapshot from the server's own tables
+and scoped by tenant and branch: each counter's current enrollment, plus any earlier one (revoked
+key, retired computer) that still has entries waiting or stock cases open. Per enrollment:
+`head` (the highest accepted `offline_sequence` and its receipt's `recordedAt`), `lastUploadAt`
+(the latest accepted entry, retained refusal or staff sign-in; an upload that brought nothing new
+leaves no trace), `waiting` (sequences past the head retained only as `held`), `needsReview`
+(sequences past the head with a `rejected` or `conflict` copy — the issuance's
+`RECONCILIATION_REQUIRED` rule), `stuck` (the first of those: sequence, outcome, error code,
+first received) and `openStockCases`. Refusals at or below the head are history and are not
+counted. The server sees only what a counter has sent; a counter offline now may hold more.
+Daily work lists each enrollment with a `stuck` entry as `offline_journal.review` ("Offline
+sales stuck at a counter", for `tenant.management`).
+
 **Support acknowledgements.** `accepted` / `duplicate` for an accepted record; otherwise the
 record is stored but still `held`, acknowledged `held` with `RECONCILIATION_REQUIRED` (its held
 reason in the message), or `REPLAY_CONFLICT` for changed content under a used record ID. Gating

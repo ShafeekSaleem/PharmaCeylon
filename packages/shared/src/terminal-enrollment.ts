@@ -25,6 +25,45 @@ export type TerminalCounterView = Readonly<{
   }> | null;
 }>;
 
+/**
+ * P5 #51: GET `/terminals/offline-journal/sync-status`. How far one enrollment's offline journal
+ * has reached the server, read from the server's own tables only. The server sees what a counter
+ * has sent, never what it still holds: a counter cut off right now may have entries it has not
+ * uploaded yet.
+ */
+export type CounterJournalSyncView = Readonly<{
+  enrollmentId: string;
+  terminalId: string;
+  terminalLabel: string;
+  /** The counter the computer is (or was) on. */
+  registerId: string | null;
+  /** The counter's enrollment now: key not revoked and computer not retired. */
+  current: boolean;
+  revokedAt: number | null;
+  retiredAt: number | null;
+  /** The highest accepted journal entry, and when the server accepted it. Null: none yet. */
+  head: Readonly<{ sequence: number; acceptedAt: number }> | null;
+  /** The last upload that brought the server something: an entry, accepted or not, or a staff
+   * sign-in. An upload with nothing new leaves no trace, so this can be older than the counter's
+   * own "confirmed" time. */
+  lastUploadAt: number | null;
+  /** Entries past the head held back until the counter sends what they wait on (a gap, a staff
+   * sign-in, a manager's after-hours approval), or because the key was revoked. */
+  waiting: number;
+  /** Entries past the head that were rejected or conflict with the accepted journal. Nothing
+   * after them can be accepted until someone reviews them. */
+  needsReview: number;
+  /** The first entry past the head that needs review: where this journal stops. */
+  stuck: Readonly<{
+    sequence: number;
+    outcome: "rejected" | "conflict";
+    errorCode: string;
+    since: number;
+  }> | null;
+  /** Accepted offline sales from this enrollment whose stock waits on an open stock case. */
+  openStockCases: number;
+}>;
+
 /** POST `/terminals/enrollments/challenge`. The desktop generates the Ed25519 key and keeps the
  * private half in its main process; `publicKeyHex` is the raw 32-byte key, lowercase hex. */
 export type TerminalEnrollmentChallengeRequest = Readonly<{
