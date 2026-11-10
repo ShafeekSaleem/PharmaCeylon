@@ -233,17 +233,27 @@ describe("offline backup when offline-assignment is refused", () => {
 });
 
 describe("offline backup when offline-assignment fails for other reasons", () => {
-  it("shows the refusal instead of enrollment fallback", async () => {
+  it("shows a neutral unchecked state and the refusal instead of enrollment fallback", async () => {
     await renderCounter("Counter 2", emptyEnrollmentOfflineBackup, {
       ok: false,
       error: { code: "NETWORK", message: "Could not reach the server." },
     });
     const panel = await offlinePanel();
+    expect(within(panel).getByText("Couldn't check right now")).toBeTruthy();
     expect(within(panel).getByText("Could not reach the server.")).toBeTruthy();
     expect(
       within(panel).queryByText("This counter isn't the offline backup"),
     ).toBeNull();
-    expect(within(panel).getByText("No offline backup counter yet")).toBeTruthy();
+    expect(within(panel).queryByText("No offline backup counter yet")).toBeNull();
+    expect(within(panel).queryByText("Not chosen")).toBeNull();
+    expect(
+      within(panel).queryByText("The owner authorizes one from the back office."),
+    ).toBeNull();
+    expect(
+      within(panel).queryByRole("button", {
+        name: "Activate as the offline backup",
+      }),
+    ).toBeNull();
   });
 });
 

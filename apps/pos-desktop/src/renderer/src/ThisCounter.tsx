@@ -416,6 +416,7 @@ function OfflineCounterPanel({
     viewFromEnrollment &&
     !view.thisCounterNominated &&
     !showEnrollmentAuthorizedWaiting;
+  const showOfflineStatusUnchecked = offlineLoadError != null;
   const authorizedLine = formatOfflineAuthorized(enrollmentBackup);
   const activatedLine = formatOfflineActivated(enrollmentBackup);
   const expiresAt = backup?.grantExpiresAt
@@ -447,7 +448,9 @@ function OfflineCounterPanel({
               ui.neutral,
               "Not this counter",
             ]
-          : ["No offline backup counter yet", ui.neutral, "Not chosen"];
+          : showOfflineStatusUnchecked
+            ? ["Couldn't check right now", ui.neutral, "Couldn't check"]
+            : ["No offline backup counter yet", ui.neutral, "Not chosen"];
 
   return (
     <div className={cx(ui.panel, styles.grow)}>
@@ -586,7 +589,8 @@ function OfflineCounterPanel({
         {!authorization &&
           !view.thisCounterNominated &&
           !showEnrollmentAuthorizedWaiting &&
-          !showEnrollmentNotThisCounter && (
+          !showEnrollmentNotThisCounter &&
+          !showOfflineStatusUnchecked && (
             <p className={styles.text}>
               The owner authorizes one from the back office.
             </p>
