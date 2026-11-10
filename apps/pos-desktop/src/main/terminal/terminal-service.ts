@@ -702,8 +702,6 @@ export class TerminalService {
     counterLabel: string;
     label: string;
   }): Promise<DeviceState> {
-    this.clearEnrollmentStatusMemory();
-    this.deps.store.clearEnrollmentStatusCache();
     const { key, challenge, user, branch, apiBaseUrl } = input;
     if (
       challenge.publicKeyHex !== key.publicKeyHex ||
@@ -722,6 +720,8 @@ export class TerminalService {
     );
 
     // Saved before finishing, so the key survives a crash or a lost response.
+    this.clearEnrollmentStatusMemory();
+    this.deps.store.clearEnrollmentStatusCache();
     this.deps.store.savePending({
       apiBaseUrl,
       identity: challenge.identity,
@@ -789,6 +789,8 @@ export class TerminalService {
 
   /** Caches till name and offline-backup facts for the renderer; persists a non-null till name. */
   private syncEnrollmentStatus(status: TerminalEnrollmentStatusView): void {
+    const device = this.deps.store.read();
+    if (!device) return;
     const fetchedAt = this.now().toISOString();
     this.enrollmentFromServer = {
       counterLabel: status.counterLabel,
@@ -796,7 +798,7 @@ export class TerminalService {
     };
     this.enrollmentStatusLive = true;
     this.enrollmentStatusFetchedAt = fetchedAt;
-    this.deps.store.saveEnrollmentStatusCache({
+    this.deps.store.saveEnrollmentStatusCache(device.identity.enrollmentId, {
       fetchedAt,
       counterLabel: status.counterLabel,
       offlineBackup: status.offlineBackup,

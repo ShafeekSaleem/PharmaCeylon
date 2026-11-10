@@ -1069,6 +1069,77 @@ describe("TerminalService enrollment status cache", () => {
     expect(terminal.state().enrollment?.enrollmentFactsLive).toBe(false);
     expect(new DeviceStore(local.db).readEnrollmentStatusCache()).toBeNull();
   });
+
+  it("returns null from disk when offline-backup JSON is corrupt", async () => {
+    const terminal = service();
+    await enrolled(terminal);
+    server.enrollmentOfflineBackup = {
+      authorizedAt: Date.UTC(2026, 9, 13, 12),
+      authorizedByUserId: manager.id,
+      authorizedByFullName: "Branch Owner",
+      activatedAt: null,
+      activatedByUserId: null,
+      activatedByFullName: null,
+    };
+    await terminal.signIn(manager.email, "password");
+    await terminal.refreshStatus();
+    local.db
+      .prepare(
+        `UPDATE device_identity SET enrollment_offline_backup_json = ? WHERE id = 1`,
+      )
+      .run("{not valid json");
+    expect(new DeviceStore(local.db).readEnrollmentStatusCache()).toBeNull();
+  });
+
+  it("returns null from disk when the cache enrollment id does not match the row", async () => {
+    const terminal = service();
+    await enrolled(terminal);
+    server.enrollmentOfflineBackup = {
+      authorizedAt: Date.UTC(2026, 9, 13, 12),
+      authorizedByUserId: manager.id,
+      authorizedByFullName: "Branch Owner",
+      activatedAt: null,
+      activatedByUserId: null,
+      activatedByFullName: null,
+    };
+    await terminal.signIn(manager.email, "password");
+    await terminal.refreshStatus();
+    local.db
+      .prepare(
+        `UPDATE device_identity SET enrollment_status_enrollment_id = ? WHERE id = 1`,
+      )
+      .run(randomUUID());
+    expect(new DeviceStore(local.db).readEnrollmentStatusCache()).toBeNull();
+  });
+
+  it("keeps disk cache when enrollment fails before pending is saved", async () => {
+    const terminal = service();
+    await enrolled(terminal);
+    server.enrollmentOfflineBackup = {
+      authorizedAt: Date.UTC(2026, 9, 13, 12),
+      authorizedByUserId: manager.id,
+      authorizedByFullName: "Branch Owner",
+      activatedAt: null,
+      activatedByUserId: null,
+      activatedByFullName: null,
+    };
+    await terminal.signIn(manager.email, "password");
+    await terminal.refreshStatus();
+    const before = new DeviceStore(local.db).readEnrollmentStatusCache();
+    expect(before).not.toBeNull();
+
+    server.releaseCounter();
+    local.db
+      .prepare("UPDATE device_identity SET status = 'retired' WHERE id = 1")
+      .run();
+    await terminal.signIn(manager.email, "password");
+    windowsSession = { sessionId: 3, protocol: "rdp", remoteSession: true };
+    await expect(
+      terminal.enroll({ branchId, registerId, label: "Replacement PC" }),
+    ).rejects.toMatchObject({ code: "REMOTE_SESSION_DENIED" });
+    windowsSession = CONSOLE;
+    expect(new DeviceStore(local.db).readEnrollmentStatusCache()).toEqual(before);
+  });
 });
 
 describe("TerminalService enrollment display backfill", () => {

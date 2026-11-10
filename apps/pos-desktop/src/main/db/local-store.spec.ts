@@ -277,6 +277,7 @@ describe("openLocalStore", () => {
         "enrollment_status_fetched_at",
         "enrollment_status_counter_label",
         "enrollment_offline_backup_json",
+        "enrollment_status_enrollment_id",
       ]),
     );
     through15.db.close();

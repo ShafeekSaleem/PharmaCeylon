@@ -58,6 +58,7 @@ type Row = {
   enrollment_status_fetched_at: string | null;
   enrollment_status_counter_label: string | null;
   enrollment_offline_backup_json: string | null;
+  enrollment_status_enrollment_id: string | null;
 };
 
 const toIdentity = (row: Row): DeviceIdentity => ({
@@ -211,7 +212,12 @@ export class DeviceStore {
   /** Last server enrollment status for offline restarts (scoped to the current enrollment row). */
   readEnrollmentStatusCache(): EnrollmentStatusCache | null {
     const row = this.row();
-    if (!row?.enrollment_offline_backup_json || !row.enrollment_status_fetched_at)
+    if (
+      !row?.enrollment_offline_backup_json ||
+      !row.enrollment_status_fetched_at ||
+      !row.enrollment_status_enrollment_id ||
+      row.enrollment_status_enrollment_id !== row.enrollment_id
+    )
       return null;
     let offlineBackup: EnrollmentOfflineBackup;
     try {
@@ -228,19 +234,25 @@ export class DeviceStore {
     };
   }
 
-  saveEnrollmentStatusCache(input: EnrollmentStatusCache): void {
+  saveEnrollmentStatusCache(
+    enrollmentId: string,
+    input: EnrollmentStatusCache,
+  ): void {
     this.db
       .prepare(
         `UPDATE device_identity SET
            enrollment_status_fetched_at = ?,
            enrollment_status_counter_label = ?,
-           enrollment_offline_backup_json = ?
-         WHERE id = 1`,
+           enrollment_offline_backup_json = ?,
+           enrollment_status_enrollment_id = ?
+         WHERE id = 1 AND enrollment_id = ?`,
       )
       .run(
         input.fetchedAt,
         input.counterLabel,
         JSON.stringify(input.offlineBackup),
+        enrollmentId,
+        enrollmentId,
       );
   }
 
@@ -250,7 +262,8 @@ export class DeviceStore {
         `UPDATE device_identity SET
            enrollment_status_fetched_at = NULL,
            enrollment_status_counter_label = NULL,
-           enrollment_offline_backup_json = NULL
+           enrollment_offline_backup_json = NULL,
+           enrollment_status_enrollment_id = NULL
          WHERE id = 1`,
       )
       .run();

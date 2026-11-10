@@ -9,6 +9,7 @@ export const enrollmentStatusCache: Migration = {
       ALTER TABLE device_identity ADD COLUMN enrollment_status_fetched_at TEXT;
       ALTER TABLE device_identity ADD COLUMN enrollment_status_counter_label TEXT;
       ALTER TABLE device_identity ADD COLUMN enrollment_offline_backup_json TEXT;
+      ALTER TABLE device_identity ADD COLUMN enrollment_status_enrollment_id TEXT;
     `);
   },
 };
