@@ -179,6 +179,18 @@ the replayed shift; `shift_open` / `shift_close` replay D7b's offline shift reco
 retired counter may upload to recover old evidence, which is kept for review and writes no
 effect. Contract: [API_CONTRACT.md](API_CONTRACT.md#offline-journal-sync-p5-51).
 
+## P5 offline journal recovery (D11)
+
+`POST /terminals/offline-journal/recovery/chain`, `…/report`, `…/status` and
+`…/:recoveryId/complete` are `local_record`: a counter whose journal is not the server's reads
+the accepted chain back, reports the difference with its unmatched entries as device-signed
+evidence, and confirms it applied an approved recovery. None posts a sale, moves stock or cash,
+or issues a grant; unmatched entries are evidence only. `POST /offline-journal-recoveries/:id/approve`
+and `POST /offline-journal-recoveries/missing-journal` are `management`: an owner or delegated
+manager approves a recovery, or signs off the offline counter's journal so another counter can
+be activated, from anywhere; neither changes a counter. Contract:
+[API_CONTRACT.md](API_CONTRACT.md#offline-journal-recovery-p5-51-d11).
+
 ## P5 offline stock case resolution
 
 `POST /offline-stock-cases/:id/resolutions`, `resolutions/:id/approve` and `resolutions/:id/cancel`

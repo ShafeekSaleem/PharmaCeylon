@@ -58,6 +58,8 @@ export const MUTATION_ACTIONS = Object.freeze({
   "POST /api/v1/inventory/held-adjustments/:id/post": "stock",
   "POST /api/v1/inventory/held-adjustments/:id/reject": "management",
   "POST /api/v1/inventory/quarantine-expired": "stock",
+  "POST /api/v1/offline-journal-recoveries/:id/approve": "management",
+  "POST /api/v1/offline-journal-recoveries/missing-journal": "management",
   "POST /api/v1/offline-stock-cases/:id/resolutions": "management",
   "POST /api/v1/offline-stock-cases/resolutions/:id/approve": "management",
   "POST /api/v1/offline-stock-cases/resolutions/:id/cancel": "management",
@@ -250,6 +252,10 @@ export const MUTATION_ACTIONS = Object.freeze({
   // enrolled counter (physical stock, branch cash, never clinical: D2); shift entries are local
   // records. Device-signed per command; recovery from a revoked counter writes no effect.
   "POST /api/v1/terminals/offline-journal/sync": "checkout",
+  "POST /api/v1/terminals/offline-journal/recovery/chain": "local_record",
+  "POST /api/v1/terminals/offline-journal/recovery/report": "local_record",
+  "POST /api/v1/terminals/offline-journal/recovery/status": "local_record",
+  "POST /api/v1/terminals/offline-journal/recovery/:recoveryId/complete": "local_record",
   "POST /api/v1/terminals/offline-assignment/activate": "local_record",
   "POST /api/v1/terminals/offline-assignment/activate/challenge": "identity",
   "POST /api/v1/terminals/offline-assignment/authorizations": "management",

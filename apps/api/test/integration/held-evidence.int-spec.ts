@@ -438,7 +438,7 @@ describe("support records against the issued grant", () => {
 describe("D11: P3's authority cutoff", () => {
   class P5Supplied extends OfflineActivationClearance {
     protected override async journalRecoveryEvidence() {
-      return true;
+      return { signOffId: null };
     }
   }
   const clearance = new OfflineActivationClearance();

@@ -33,7 +33,7 @@ export const OFFLINE_ASSIGNMENT_ERRORS = {
   notCurrent: "OFFLINE_AUTHORIZATION_NOT_CURRENT",
 } as const;
 
-type Authority =
+export type OfflineAssignmentAuthority =
   | Readonly<{ kind: "owner" }>
   | Readonly<{ kind: "delegated_manager"; delegationId: string }>;
 
@@ -358,7 +358,12 @@ export class OfflineAssignmentService {
       throw this.forbidden(OFFLINE_ASSIGNMENT_ERRORS.ownerOnly, "Only an owner can delegate offline-counter assignment.");
   }
 
-  private async authorityOf(tx: Tx, user: RequestUser, branchId: string): Promise<Authority> {
+  /**
+   * Revised D13 authority over the branch's offline counter, live: an owner, or a manager with
+   * branch management and the owner's live delegation for this branch. P5's D11 journal recovery
+   * approvals and missing-journal sign-offs use the same rule (decision of 2026-11-10).
+   */
+  async authorityOf(tx: Tx, user: RequestUser, branchId: string): Promise<OfflineAssignmentAuthority> {
     const actor = await this.access.resolveLive(user, branchId, tx);
     if (isOwner(actor)) return { kind: "owner" };
     const delegation = actor.has(OFFLINE_ASSIGNMENT_MANAGER_PERMISSION)

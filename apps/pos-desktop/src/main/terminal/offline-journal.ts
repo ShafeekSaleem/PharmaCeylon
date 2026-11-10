@@ -14,11 +14,18 @@ export const OFFLINE_USAGE_TABLES: readonly string[] = [
 ];
 
 /**
- * Tables whose names say "offline" but record no offline use: authority itself, and P5's upload
+ * Tables whose names say "offline" but record no offline use: authority itself, P5's upload
  * bookkeeping (the server-confirmed watermark and the last drain), which only ever describes the
- * journal tables above.
+ * journal tables above, and D11's journal recovery: its state, and the entries a recovery set
+ * aside, which the server already holds as evidence and which never become journal entries again.
  */
-export const NOT_OFFLINE_USAGE = ["offline_authority", "offline_authority_request", "offline_journal_sync"] as const;
+export const NOT_OFFLINE_USAGE = [
+  "offline_authority",
+  "offline_authority_request",
+  "offline_journal_sync",
+  "offline_journal_recovery",
+  "offline_journal_set_aside",
+] as const;
 
 function hasRowInTable(db: PosDatabase, table: string, enrollmentId: string): boolean {
   if (!/^[a-z_][a-z0-9_]*$/.test(table)) throw new Error(`Invalid offline usage table: ${table}`);

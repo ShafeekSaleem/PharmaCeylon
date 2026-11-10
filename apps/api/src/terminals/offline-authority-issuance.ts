@@ -47,6 +47,27 @@ export async function journalAwaitingReview(
 }
 
 /**
+ * Whether this enrollment's journal recovery (D11, a restored counter) is open: reported or
+ * approved but not yet completed by the counter. The counter has not yet set its unmatched
+ * entries aside and removed its restored grant, so no new authority is issued to it meanwhile.
+ */
+export async function journalRecoveryOpen(
+  tx: Prisma.TransactionClient,
+  identity: TerminalIdentity,
+): Promise<boolean> {
+  const open = await tx.offlineJournalRecovery.findFirst({
+    where: {
+      tenantId: identity.tenantId,
+      enrollmentId: identity.enrollmentId,
+      kind: "counter_restore",
+      status: { in: ["awaiting_approval", "approved"] },
+    },
+    select: { id: true },
+  });
+  return open !== null;
+}
+
+/**
  * The journal baseline for a new issuance or renewal, read in the issuance's own repeatable-read
  * view, together with the stock it signs (P5 #51, the rebase). Each offline command an
  * enrollment uploads is accepted as a `terminal_command_receipt` with its `offline_sequence`, in
@@ -60,7 +81,9 @@ export async function journalAwaitingReview(
  * counter installs the pair only if that head is its own last journal entry, so a pair issued
  * while the counter still has entries to upload is simply not installed. A journal stuck on an
  * entry that needs review is refused (`RECONCILIATION_REQUIRED`): the counter cannot rebase onto
- * it, and minting versions it will never install would only hide the problem.
+ * it, and minting versions it will never install would only hide the problem. So is a counter
+ * whose journal recovery is open (`journalRecoveryOpen`): it gets a pair only once it has
+ * completed the recovery.
  *
  * The review blocks are the branch's open batch sale blocks, whichever counter's journal opened
  * them (e.g. the counter this one replaced): those batches are never sellable offline either.
@@ -71,6 +94,7 @@ export async function acceptedJournalState(
 ): Promise<SnapshotState> {
   const head = await acceptedJournalHead(tx, identity);
   if (await journalAwaitingReview(tx, identity, head.sequence)) denied("RECONCILIATION_REQUIRED");
+  if (await journalRecoveryOpen(tx, identity)) denied("RECONCILIATION_REQUIRED");
   return {
     includedThroughSequence: head.sequence,
     includedThroughHash: head.hash,

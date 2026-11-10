@@ -188,7 +188,7 @@ and only then sells again.
   journal is accepted and nothing sent is uncertain. Its old pair stays installed, unrenewed, and
   is soon too old to start another outage on.
 - **A journal the server doesn't recognise is a recovery issue, not a sync error.** It fails the
-  readiness row, refuses new outages, and needs support (D11 missing-journal review, later).
+  readiness row and refuses new outages until the D11 journal recovery (below) completes.
 - **Held entries back off, rejected ones stop.** Held ones are resent after 60 s, because the
   server may be waiting for something else (a sign-in, a manager's after-hours approval).
   Rejected ones wait for review. The server refuses renewal on them too, so the counter does not
@@ -218,13 +218,85 @@ Desktop:
 - `migrations.integration.spec.ts` covers the upgrade from 14 to 15.
 - `offline-authority*.spec.ts` covers the installer's new results.
 
+## D11 — journal recovery and replacing the offline counter (built)
+
+Approved D11, P5's half (`journalRecoveryEvidence`), with the policy decided on 2026-11-10. Two
+supervised online procedures, both approved by a person in the back office:
+
+1. **A restored counter** (`JOURNAL_MISMATCH`: its journal is not the server's — an old backup, a
+   damaged store) recovers onto the server's chain. It never writes at a sequence the server
+   accepted and never sells again on authority it held before.
+2. **Replacing the offline counter** while its journal is missing or unsynced needs a
+   missing-journal sign-off, possible only once the old counter's last issued grant has expired.
+
+| Area | What exists |
+| --- | --- |
+| Chain (counter route) | `POST /terminals/offline-journal/recovery/chain`: accepted entries after a sequence (≤ 100), the sign-ins they cite, and the head. Every entry is the counter's own signed envelope, so it verifies each against its own key and the chain from a position it already holds: the server can withhold entries, never invent them |
+| Report (counter route) | `POST …/recovery/report`: a device-signed `offline_journal_recovery_report` (server head, common prefix, local head) with the unmatched local entries in pages of ≤ 25 (the 100 kB body limit), oldest first, each continuing from the last received; re-pages are idempotent, and nothing past the local head or already accepted is taken. A new report supersedes any open one; resending the same `reportId` is the same recovery. Refused `JOURNAL_RECOVERY_STALE` if the head moved, `_INVALID` if the common prefix is not the server's, `_NOT_NEEDED` if the counter has the whole server chain (it is only behind) |
+| While open | Issuance and the challenge refuse `RECONCILIATION_REQUIRED` (`journalRecoveryOpen`) until the recovery is `recovered`. Nothing is posted: unmatched entries are evidence (`offline_journal_recovery_entry`), never sales or stock |
+| Approval (web) | `GET /offline-journal-recoveries` (+ `/:id`) and `POST /:id/approve`, `tenant.management` plus revised D13 authority (owner, or a manager with a live delegation; else 403 `OFFLINE_ASSIGNMENT_NOT_DELEGATED`). The approver sees the unmatched entries (who, when, total, lines) and approves exactly them (`expectedServerHeadSequence`, `expectedUnmatched`) with a reason saying how their stock and cash were settled. Refused `_EVIDENCE_INCOMPLETE` until every page arrived |
+| Apply (desktop) | `main/terminal/journal-recovery.ts`, run by the sync coordinator after each upload while `JOURNAL_MISMATCH` stands. In one SQLite transaction: unmatched entries move to `offline_journal_set_aside` (kept for good; delete and update abort), the server's entries after the common prefix are inserted as `synced`, the journal state and accepted watermark move to the server head, the installed pair and any pending renewal request are deleted, batch usage is reset and the issue cleared. Then a device-signed `offline_journal_recovery_completion` goes to `POST …/recovery/:id/complete`; the coordinator asks for a fresh pair at once |
+| Stale | If the server's journal moves after the report (the original computer is still alive), approve, status and complete supersede the recovery and commit that before refusing `JOURNAL_RECOVERY_STALE`; the counter reports again by itself. If the counter recorded more offline sales since reporting, it reports again too |
+| Sign-off (web) | `POST /offline-journal-recoveries/missing-journal`: owner or delegated manager, bound to the nomination version and accepted head shown (`expectedNominationVersion`, `expectedServerHeadSequence`), refused `JOURNAL_SIGN_OFF_TOO_EARLY` (with `availableAt`) before the last issued grant's `expiresAt`. A later sign-off supersedes the earlier one |
+| Clearance | `OfflineActivationClearance.journalRecoveryEvidence` → `missingJournalEvidence`: a live sign-off for this nomination version whose head is still the accepted head and that was made at or after the last grant's expiry (so a renewal issued after it makes it stale). `D11_CLEARANCE_REQUIRED` carries `journalSignOffAvailableAt`; the activation audit records `journalSignOffId` |
+| Schema | Migration `20261110000000_offline_journal_recovery`: `offline_journal_recovery` (shape checks per kind, approval whole or absent, one open restore per enrollment, a trigger allowing only forward transitions with content fixed) and `offline_journal_recovery_entry` (immutable). Desktop migration 17: `offline_journal_recovery` (the counter's current recovery, its stored signed report and completion) and `offline_journal_set_aside` |
+| Back office | Settings → Offline policy → Offline counter journal (`journal-recovery-card.tsx`): the offline counter's accepted records, cutoff, retained refusals and sign-off state (and when a sign-off becomes possible), the sign-off form, restored counters waiting for approval with a review dialog, and earlier recoveries |
+| Counter copy | While a recovery runs, the Synchronisation issue says where it stands (sending for review, waiting for approval in Settings → Offline policy, finishing) |
+
+### Decisions taken in this slice (2026-11-10)
+
+- **Who approves: the owner, or a manager the owner delegated for the branch** (revised D13,
+  `OfflineAssignmentService.authorityOf`) — the same authority that assigns the offline counter.
+- **Always a person.** Even when the evidence shows nothing is missing (a restored backup that
+  is only a prefix of the server's chain, a counter that never had a grant), a recovery or a
+  sign-off is approved by someone, with a reason. A never-issued counter's sign-off is available
+  at once.
+- **Wait out the last grant.** The missing-journal sign-off is possible only once the old
+  counter's last issued grant has expired, even if it was revoked or retired: a disconnected
+  device can sell on a grant it already holds whatever the server says.
+- **Unmatched entries are evidence, never sales.** They stay on the counter
+  (`offline_journal_set_aside`) and on the server (`offline_journal_recovery_entry`); the
+  approver records in the reason how their stock and cash were settled (a stock adjustment, a
+  cash count).
+- **The server's chain wins.** The restored counter adopts the accepted entries rather than
+  re-uploading its own, and continues at the server head + 1. Its restored grant is deleted
+  before it confirms, and issuance stays refused until it has confirmed.
+- **Stale is final.** A recovery or sign-off is bound to the server head (and, for a sign-off,
+  the nomination version and the grants) it was made over; anything that moves them supersedes
+  it and asks again, rather than approving something nobody looked at.
+
+### Tests
+
+API: `journal-recovery.spec.ts` (wire parsers, chain links, sign-off timing and staleness).
+PostgreSQL: `offline-journal-recovery.int-spec.ts` covers the prefix restore end to end
+(chain, report, refused issuance while open, D13 authority, completion and its replay, the
+rebased pair, audit), the forked restore (paged evidence, contiguity, incomplete and stale
+approvals, no sale or stock posted, immutable rows), report refusals and supersede on a moving
+journal (including after approval), the revoked counter's sign-off waiting for its grant then
+the replacement activating with `journalSignOffId`, and a sign-off going stale on new journal or
+a renewal. `offline-activation.int-spec.ts` now clears a never-issued counter with a real
+sign-off.
+
+Desktop: `journal-recovery.spec.ts`, against a real encrypted store and a fake recovery server:
+a prefix restore (waiting, approval, adopting the server entries, the grant removed, the drain
+still waiting for a fresh pair), a forked restore with paged evidence and set-aside rows that
+cannot be changed, a lost report reply and a lost completion resent unchanged, a moving server
+journal reported again, withheld and forged chains refused, a journal that is only behind left to
+the upload, and the coordinator renewing after completion. `migrations.integration.spec.ts`
+covers the upgrade from 16 to 17.
+
+Web: `journal-recovery-card.spec.tsx` (sign-off waiting for the grant, the exact sign-off body,
+a stale sign-off, reviewing and approving exactly the unmatched records, a refusal kept in the
+dialog). Shared: `offline-journal-recovery.test.cjs`.
+
 ## Later slices (not built)
 
 - Review of a rejected journal entry, so a counter stuck on one can finish synchronising
   (today issuance stays `RECONCILIATION_REQUIRED` and the counter's drain waits).
-- Replacement and missing-journal review (D11 `journalRecoveryEvidence`): recovering a
-  `JOURNAL_MISMATCH` counter, and enabling a replacement while the old counter's journal is
-  missing. Backup and restore.
+- Making and restoring backups of the counter's store. D11 recovers whatever a restore brings
+  back; nothing takes or restores a backup yet.
+- Settling a recovery's unmatched entries in place (today the approver records how stock and
+  cash were settled; the adjustment itself is a separate document).
 - Support-record gating of dependent commands (held support records do not yet hold a sale), and
   the desktop's support records and external-card attempts. The drain treats both as resolved
   until P4 writes them.

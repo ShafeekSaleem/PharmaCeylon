@@ -271,6 +271,16 @@
   },
   {
     "method": "POST",
+    "path": "/api/v1/offline-journal-recoveries/:id/approve",
+    "source": "apps/api/src/terminals/journal/journal-recoveries.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/offline-journal-recoveries/missing-journal",
+    "source": "apps/api/src/terminals/journal/journal-recoveries.controller.ts"
+  },
+  {
+    "method": "POST",
     "path": "/api/v1/offline-stock-cases/:id/resolutions",
     "source": "apps/api/src/stock-cases/stock-cases.controller.ts"
   },
@@ -1073,6 +1083,26 @@
     "method": "POST",
     "path": "/api/v1/terminals/offline-authority/challenge",
     "source": "apps/api/src/terminals/offline-authority.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/terminals/offline-journal/recovery/:recoveryId/complete",
+    "source": "apps/api/src/terminals/journal/journal-recovery.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/terminals/offline-journal/recovery/chain",
+    "source": "apps/api/src/terminals/journal/journal-recovery.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/terminals/offline-journal/recovery/report",
+    "source": "apps/api/src/terminals/journal/journal-recovery.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/terminals/offline-journal/recovery/status",
+    "source": "apps/api/src/terminals/journal/journal-recovery.controller.ts"
   },
   {
     "method": "POST",

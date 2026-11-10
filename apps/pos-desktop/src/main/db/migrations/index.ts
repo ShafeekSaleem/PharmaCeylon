@@ -15,6 +15,7 @@ import { deviceEnrollmentDisplay } from "./0013-device-enrollment-display";
 import { offlineJournal } from "./0014-offline-journal";
 import { enrollmentStatusCache } from "./0015-enrollment-status-cache";
 import { offlineJournalSync } from "./0016-offline-journal-sync";
+import { offlineJournalRecovery } from "./0017-offline-journal-recovery";
 
 /** Append only. A released migration is never edited or reordered. */
 export const migrations: readonly Migration[] = [
@@ -34,4 +35,5 @@ export const migrations: readonly Migration[] = [
   offlineJournal,
   enrollmentStatusCache,
   offlineJournalSync,
+  offlineJournalRecovery,
 ];

@@ -15,6 +15,7 @@ import {
   isNominated,
   issueOfflineAuthority,
   journalAwaitingReview,
+  journalRecoveryOpen,
 } from "./offline-authority-issuance";
 import { TerminalErrorFilter } from "./terminal-error.filter";
 import { TerminalTrustService } from "./terminal-trust.service";
@@ -65,6 +66,7 @@ export class OfflineAuthorityController {
       if (!issued) {
         const head = await acceptedJournalHead(tx, command.identity);
         if (await journalAwaitingReview(tx, command.identity, head.sequence)) denied("RECONCILIATION_REQUIRED");
+        if (await journalRecoveryOpen(tx, command.identity)) denied("RECONCILIATION_REQUIRED");
       }
       return command;
     });

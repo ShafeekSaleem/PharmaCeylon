@@ -334,6 +334,16 @@
       "reason": "Locks the tenant/branch-scoped supplier return before exact approval and dispatch; evidence, StockService effects, debit note and audit share the caller transaction."
     },
     {
+      "path": "src/terminals/journal/journal-uploader.ts",
+      "mode": "scoped-domain-lock",
+      "reason": "Transaction-scoped advisory lock on the caller's tenant + signed enrollment id only, shared by journal intake and D11 journal recovery so one enrollment's journal and its recovery serialize; no data is read or written by raw SQL."
+    },
+    {
+      "path": "src/terminals/journal/journal-recovery.service.ts",
+      "mode": "scoped-domain-lock",
+      "reason": "D11 missing-journal sign-off locks the branch's offline_terminal_nomination row (FOR UPDATE) by the caller's tenant_id and the bound branch_id, the same row D11 clearance locks and issuance share-locks, so no grant is issued to the old counter while it is signed off; no data is written by raw SQL."
+    },
+    {
       "path": "src/terminals/journal/offline-journal.service.ts",
       "mode": "scoped-domain-lock",
       "reason": "Transaction-scoped advisory lock on the caller's tenant + signed enrollment id only, so one enrollment's journal commands (and concurrent identical retries) serialize and the second finds the first's receipt; share-locks one till shift by the bound tenant, branch and the signed work-session id (FOR SHARE) while an offline sale joins it. No data is read or written by raw SQL."

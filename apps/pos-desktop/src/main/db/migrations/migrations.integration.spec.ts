@@ -38,6 +38,8 @@ describe("offline journal migrations with PR #136", () => {
       "offline_journal_batch_usage",
       "offline_journal_command",
       "offline_journal_online_sale_record",
+      "offline_journal_recovery",
+      "offline_journal_set_aside",
       "offline_journal_staff_sign_in",
       "offline_journal_state",
       "offline_journal_sync",
@@ -86,6 +88,42 @@ describe("offline journal migrations with PR #136", () => {
     expect(() =>
       second.db
         .prepare("INSERT INTO offline_journal_sync (enrollment_id, accepted_through_sequence, updated_at) VALUES ('e1', 3, 'x')")
+        .run(),
+    ).toThrow(/CHECK/);
+    second.db.close();
+  });
+
+  it("upgrades a v16 journal through the recovery migration (v17), nothing set aside (P5 #51, D11)", () => {
+    const first = openLocalStore(dir, protector, migrations.filter((m) => m.version <= 16));
+    first.db
+      .prepare(
+        `INSERT INTO offline_journal_command (
+          command_id, enrollment_id, sequence, previous_hash, payload_hash, envelope_json, sync_status, created_at
+        ) VALUES ('c1', 'e1', 1, NULL, ?, '{}', 'synced', '2026-11-10T00:00:00.000Z')`,
+      )
+      .run("a".repeat(64));
+    first.db.close();
+
+    const second = openLocalStore(dir, protector, migrations);
+    expect(second.schemaVersion).toBe(migrations.length);
+    expect(second.db.prepare("SELECT COUNT(*) AS n FROM offline_journal_command").get()).toEqual({ n: 1 });
+    expect(second.db.prepare("SELECT COUNT(*) AS n FROM offline_journal_set_aside").get()).toEqual({ n: 0 });
+    // A recovery the server has not answered has no server ID; an applied one has its completion.
+    expect(() =>
+      second.db
+        .prepare(
+          `INSERT INTO offline_journal_recovery (enrollment_id, report_id, report_envelope, status, server_head_sequence,
+             common_sequence, local_head_sequence, updated_at) VALUES ('e1', 'r1', '{}', 'awaiting_approval', 2, 1, 1, 'x')`,
+        )
+        .run(),
+    ).toThrow(/CHECK/);
+    expect(() =>
+      second.db
+        .prepare(
+          `INSERT INTO offline_journal_recovery (enrollment_id, report_id, report_envelope, recovery_id, status,
+             server_head_sequence, common_sequence, local_head_sequence, updated_at)
+           VALUES ('e1', 'r1', '{}', 'x', 'applied', 2, 1, 1, 'x')`,
+        )
         .run(),
     ).toThrow(/CHECK/);
     second.db.close();

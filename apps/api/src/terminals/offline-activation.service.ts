@@ -8,6 +8,7 @@ import { AuditService } from "../audit/audit.service";
 import { PrismaService } from "../prisma/prisma.service";
 import type { RequestUser } from "../security/interfaces/authenticated-request.interface";
 import { cutoffPassed, offlineAuthorityCutoff, type AuthorityCutoff } from "./grant-cutoff";
+import { missingJournalEvidence, signOffAvailableAt } from "./journal/journal-recovery-evidence";
 import { OfflineAssignmentService } from "./offline-assignment.service";
 import { TerminalTrustService } from "./terminal-trust.service";
 import { invalid, object, text, uuid } from "./terminal-wire";
@@ -44,6 +45,8 @@ export type ClearanceDecision =
       cleared: true;
       basis: "initial_nomination" | "recovery_evidence";
       cutoff: AuthorityCutoff | null;
+      /** The missing-journal sign-off that cleared the journal half (recovery evidence). */
+      journalSignOffId: string | null;
     }>
   | Readonly<{
       cleared: false;
@@ -58,9 +61,10 @@ export type ClearanceDecision =
  *    because it is confirmed disabled (enrollment revoked or terminal retired) or the latest grant
  *    the server issued it has expired (or it was never issued one). Otherwise
  *    `PREVIOUS_STILL_ACTIVE`.
- * 2. P5, missing-journal recovery and review: the old counter's offline sales are recovered or
- *    their loss reviewed. P5 has not supplied this yet, so `journalRecoveryEvidence` returns
- *    false and replacement fails closed with `OFFLINE_RECOVERY_EVIDENCE_REQUIRED`.
+ * 2. P5, missing-journal review (`journal/journal-recovery-evidence.ts`): the owner or a delegated
+ *    manager signed off the old counter's journal after its last issued grant expired, for this
+ *    nomination version, and the accepted journal and latest grant have not moved since.
+ *    Otherwise `OFFLINE_RECOVERY_EVIDENCE_REQUIRED`.
  *
  * The branch's nomination row is locked first. Issuance takes a share lock on the same row
  * (`isNominated`), so a grant cannot be issued to the old counter between this cutoff read and
@@ -69,7 +73,7 @@ export type ClearanceDecision =
 @Injectable()
 export class OfflineActivationClearance {
   async check(tx: Tx, previous: Nomination | null, now = Date.now()): Promise<ClearanceDecision> {
-    if (!previous) return { cleared: true, basis: "initial_nomination", cutoff: null };
+    if (!previous) return { cleared: true, basis: "initial_nomination", cutoff: null, journalSignOffId: null };
     await tx.$queryRaw`
       SELECT id FROM offline_terminal_nomination
       WHERE tenant_id = ${previous.tenantId}::uuid AND branch_id = ${previous.branchId}::uuid
@@ -77,21 +81,20 @@ export class OfflineActivationClearance {
     const cutoff = await offlineAuthorityCutoff(tx, previous);
     if (!cutoffPassed(cutoff, now))
       return { cleared: false, reason: "PREVIOUS_STILL_ACTIVE", cutoff };
-    return (await this.journalRecoveryEvidence(tx, previous, cutoff))
-      ? { cleared: true, basis: "recovery_evidence", cutoff }
+    const evidence = await this.journalRecoveryEvidence(tx, previous, cutoff);
+    return evidence
+      ? { cleared: true, basis: "recovery_evidence", cutoff, journalSignOffId: evidence.signOffId }
       : { cleared: false, reason: "OFFLINE_RECOVERY_EVIDENCE_REQUIRED", cutoff };
   }
 
-  /**
-   * P5's half, not supplied yet: the old counter's journal is recovered through its cutoff, or
-   * the missing part reviewed. Fails closed until P5 replaces it.
-   */
+  /** P5's half: a missing-journal sign-off that still covers the old counter's journal. */
   protected async journalRecoveryEvidence(
-    _tx: Tx,
-    _previous: Nomination,
-    _cutoff: AuthorityCutoff,
-  ): Promise<boolean> {
-    return false;
+    tx: Tx,
+    previous: Nomination,
+    cutoff: AuthorityCutoff,
+  ): Promise<{ signOffId: string | null } | null> {
+    const signOff = await missingJournalEvidence(tx, previous, cutoff);
+    return signOff && { signOffId: signOff.recoveryId };
   }
 }
 
@@ -183,10 +186,12 @@ export class OfflineActivationService {
           reason: decision.reason,
           // When the old counter's offline authority ends (null: it never had any).
           authorityCutoffAt: decision.cutoff.at,
+          // When its journal may be signed off: its last grant's expiry (null: now).
+          journalSignOffAvailableAt: signOffAvailableAt(decision.cutoff),
           message:
             decision.reason === "PREVIOUS_STILL_ACTIVE"
               ? "The current offline counter can still sell offline. Disable it in the back office, or wait until its offline permission expires."
-              : "The previous offline counter's sales must be recovered or reviewed before another can take over.",
+              : "The previous offline counter's journal must be signed off in the back office (Settings → Offline policy) before another counter can take over.",
         });
 
       const now = new Date();
@@ -256,6 +261,7 @@ export class OfflineActivationService {
             previousEnrollmentId: previous?.enrollmentId ?? null,
             clearance: decision.basis,
             authorityCutoff: decision.cutoff,
+            journalSignOffId: decision.journalSignOffId,
             terminalId: identity.terminalId,
             commandId: command.commandId,
             workSessionId: command.session.workSessionId,
