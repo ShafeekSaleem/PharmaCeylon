@@ -7,6 +7,7 @@ import { blockedBatchIds } from "../inventory/stock/sale-blocks";
 import { signOfflineGrant } from "./offline-grant";
 import { recordSignedStockSnapshot, type SnapshotState } from "./stock-snapshot";
 import { denied } from "./terminal-wire";
+import { refuseWhileRestoredCounterWaits, restoreRecoveryHolds } from "./journal/journal-recovery-gate";
 
 /** The highest accepted offline journal entry (a sequenced command receipt), or sequence 0. */
 export async function acceptedJournalHead(
@@ -62,27 +63,6 @@ export async function assertJournalNotStuck(
 }
 
 /**
- * Whether this enrollment's journal recovery (D11, a restored counter) is open: reported or
- * approved but not yet completed by the counter. The counter has not yet set its unmatched
- * entries aside and removed its restored grant, so no new authority is issued to it meanwhile.
- */
-export async function journalRecoveryOpen(
-  tx: Prisma.TransactionClient,
-  identity: TerminalIdentity,
-): Promise<boolean> {
-  const open = await tx.offlineJournalRecovery.findFirst({
-    where: {
-      tenantId: identity.tenantId,
-      enrollmentId: identity.enrollmentId,
-      kind: "counter_restore",
-      status: { in: ["awaiting_approval", "approved"] },
-    },
-    select: { id: true },
-  });
-  return open !== null;
-}
-
-/**
  * The journal baseline for a new issuance or renewal, read in the issuance's own repeatable-read
  * view, together with the stock it signs (P5 #51, the rebase). Each offline command an
  * enrollment uploads is accepted as a `terminal_command_receipt` with its `offline_sequence`, in
@@ -97,8 +77,10 @@ export async function journalRecoveryOpen(
  * while the counter still has entries to upload is simply not installed. A journal stuck on an
  * entry that needs review is refused (`RECONCILIATION_REQUIRED`): the counter cannot rebase onto
  * it, and minting versions it will never install would only hide the problem. So is a counter
- * whose journal recovery is open (`journalRecoveryOpen`): it gets a pair only once it has
- * completed the recovery.
+ * whose journal recovery (D11) still describes the journal (`restoreRecoveryHolds`, which
+ * supersedes one that no longer does): it gets a pair only once it has completed the recovery,
+ * and then only once the grants issued before the restore have expired
+ * (`RESTORED_COUNTER_WAIT`).
  *
  * The review blocks are the branch's open batch sale blocks, whichever counter's journal opened
  * them (e.g. the counter this one replaced): those batches are never sellable offline either.
@@ -106,14 +88,31 @@ export async function journalRecoveryOpen(
 export async function acceptedJournalState(
   tx: Prisma.TransactionClient,
   identity: TerminalIdentity,
+  now = Date.now(),
 ): Promise<SnapshotState> {
-  const head = await assertJournalNotStuck(tx, identity);
-  if (await journalRecoveryOpen(tx, identity)) denied("RECONCILIATION_REQUIRED");
+  const head = await refuseUnsettledJournal(tx, identity, now);
   return {
     includedThroughSequence: head.sequence,
     includedThroughHash: head.hash,
     reviewRequiredBatchIds: await blockedBatchIds(tx, identity.tenantId, identity.branchId),
   };
+}
+
+/**
+ * The accepted head, unless the journal is not settled enough to issue against: stuck on an
+ * entry that needs review (`assertJournalNotStuck`), held by a restored counter's open recovery,
+ * or waiting out the grants issued before a restore (D11, `journal-recovery-gate.ts`). Shared by
+ * the challenge and the issuance, so they can't disagree.
+ */
+export async function refuseUnsettledJournal(
+  tx: Prisma.TransactionClient,
+  identity: TerminalIdentity,
+  now = Date.now(),
+): Promise<{ sequence: number; hash: string | null }> {
+  const head = await assertJournalNotStuck(tx, identity);
+  if (await restoreRecoveryHolds(tx, identity, head)) denied("RECONCILIATION_REQUIRED");
+  await refuseWhileRestoredCounterWaits(tx, identity, now);
+  return head;
 }
 
 /** Whether this exact enrollment is the branch's current, unrevoked offline counter. */

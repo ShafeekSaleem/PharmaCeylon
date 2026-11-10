@@ -1677,36 +1677,54 @@ owner, or a manager with the owner's live delegation for the branch); otherwise 
   server's now), `JOURNAL_RECOVERY_INVALID` (the common prefix is not the server's, a page that
   doesn't continue, goes past the local head or names an accepted entry), `JOURNAL_RECOVERY_NOT_NEEDED`
   (the common prefix is the server head: the counter is only behind and uploads instead).
-- `POST …/recovery/status` `{ identity }` → the counter's latest restore, or `null`. An open one
-  whose server head moved is superseded first.
+- `POST …/recovery/status` `{ identity, localHead }` → the counter's latest restore, or `null`.
+  An open one whose server head moved, or that was reported from another local head than
+  `localHead` (the counter was restored again, or its journal moved), is superseded first. The
+  counter keeps asking while it holds an open recovery, even after its mismatch clears; `closed`
+  and `superseded` mean it is over.
 - `POST …/recovery/:id/complete` `{ completion }`: a device-signed
   `offline_journal_recovery_completion` stating exactly the approved positions (`journalHead` = the
   server head, `setAsideThrough` = the report's local head, `offlineAuthorityRemoved: true`). The
   same completion again returns the recovery; another is `JOURNAL_RECOVERY_INVALID`. Not approved:
   `JOURNAL_RECOVERY_NOT_APPROVED`. Head moved: the recovery is superseded, then `JOURNAL_RECOVERY_STALE`.
 
-While a restore is `awaiting_approval` or `approved`, offline authority issuance and its challenge
-refuse `RECONCILIATION_REQUIRED`. Unmatched entries are kept as evidence and never posted.
+While a restore is `awaiting_approval` or `approved` and names the current accepted head, offline
+authority issuance and its challenge refuse 403 `RECONCILIATION_REQUIRED`; one whose head the
+journal has moved past is superseded there instead. Once an approved restore has finished
+(`recovered`, or `closed` after approval), they refuse 403 `RESTORED_COUNTER_WAIT` with
+`availableAt` (epoch ms) until every grant issued before it finished has expired, because the
+computer the copy was made from may still hold one; online selling is not held. Unmatched entries
+are kept as evidence and never posted.
 
 **Back office** (`x-branch-id`):
 
 - `GET /api/v1/offline-journal-recoveries` → open restores, the newest 20 others, and
   `offlineCounter` (the nominated counter's cutoff, accepted head, retained refusals,
   `signOffAvailableAt`, current sign-off and `journalCleared`). `GET …/:id` → one recovery with
-  its unmatched entries (who, when, total, lines) and `stale`.
+  its unmatched entries received so far (who, when, total, lines; the report names
+  `localHead.sequence − commonPrefix.sequence`), `closure`, `offlineResumesAt` (when offline
+  authority can be issued again after this restore, or `null`) and `stale`.
 - `POST …/:id/approve` `{ reason, expectedServerHeadSequence, expectedUnmatched }`: approves
-  exactly what was shown; `JOURNAL_RECOVERY_STALE` if it changed (or the server's journal moved,
-  which supersedes it), `JOURNAL_RECOVERY_EVIDENCE_INCOMPLETE` until every page arrived,
-  `JOURNAL_RECOVERY_NOT_APPROVED` if it is not awaiting approval. The reason says how the
-  unmatched entries' stock and cash were settled.
+  exactly what was shown, `expectedUnmatched` being every record the report names. Checked in
+  order: `JOURNAL_RECOVERY_NOT_APPROVED` if it is not awaiting approval; `JOURNAL_RECOVERY_STALE`
+  if the server's journal moved (which supersedes it); `JOURNAL_RECOVERY_EVIDENCE_INCOMPLETE` with
+  `received` and `unmatched` until every page arrived; `JOURNAL_RECOVERY_STALE` if the count
+  differs from what was shown. The reason says how the unmatched entries' stock and cash were
+  settled.
+- `POST …/:id/close` `{ reason }`: closes an open restore that will never complete (the restored
+  computer was wiped, or is not coming back). `JOURNAL_RECOVERY_NOT_OPEN` unless it is a restore
+  awaiting approval or approved. A later approve or complete is `JOURNAL_RECOVERY_NOT_APPROVED`;
+  closed after approval, the restore wait above applies.
 - `POST …/missing-journal` `{ enrollmentId, expectedNominationVersion, expectedServerHeadSequence,
   reason }`: signs off the branch's offline counter's journal. `JOURNAL_SIGN_OFF_TOO_EARLY` with
   `availableAt` until its last issued grant has expired (even if revoked or retired);
   `NOMINATION_VERSION_CHANGED`, `JOURNAL_RECOVERY_STALE` (more journal arrived),
-  `NO_OFFLINE_COUNTER`. A later sign-off supersedes the earlier one; one goes stale when the
-  accepted head moves or the counter is issued another grant.
+  `NO_OFFLINE_COUNTER`, `JOURNAL_RECOVERY_OPEN` with `recoveryId` while a restore of that counter
+  is open (approve or close it first). A later sign-off supersedes the earlier one; one goes stale
+  when the accepted head moves, the counter is issued another grant, or new evidence arrives
+  (a retained refusal or a restore report, counted when it was signed off).
 
-Audit: `terminal.journal_recovery_reported`, `_approved`, `_completed`,
+Audit: `terminal.journal_recovery_reported`, `_approved`, `_completed`, `_closed`,
 `terminal.offline_journal_signed_off`.
 
 ## Offline stock case resolution (P5 #51)

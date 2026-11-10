@@ -33,16 +33,18 @@ import {
 } from "../offline-assignment.service";
 import { denied, verifySignature } from "../terminal-wire";
 import {
+  evidenceMark,
   liveSignOff,
   maySignOff,
   signOffAvailableAt,
   signOffCurrent,
 } from "./journal-recovery-evidence";
+import { restoredCounterResumesAt } from "./journal-recovery-gate";
 import {
   parseChainRequest,
-  parseIdentityRequest,
   parseRecoveryCompletionEnvelope,
   parseRecoveryUpload,
+  parseStatusRequest,
 } from "./journal-recovery-wire";
 import {
   authenticateJournalUploader,
@@ -79,6 +81,8 @@ export const JOURNAL_RECOVERY_ERRORS = {
   notNeeded: "JOURNAL_RECOVERY_NOT_NEEDED",
   notApproved: "JOURNAL_RECOVERY_NOT_APPROVED",
   incomplete: "JOURNAL_RECOVERY_EVIDENCE_INCOMPLETE",
+  open: "JOURNAL_RECOVERY_OPEN",
+  notOpen: "JOURNAL_RECOVERY_NOT_OPEN",
   tooEarly: "JOURNAL_SIGN_OFF_TOO_EARLY",
   notDelegated: "OFFLINE_ASSIGNMENT_NOT_DELEGATED",
   noCounter: "NO_OFFLINE_COUNTER",
@@ -155,10 +159,16 @@ export class OfflineJournalRecoveryService {
         tenantId: request.identity.tenantId,
         enrollmentId: request.identity.enrollmentId,
       };
+      // The head first, and nothing past it: an entry accepted meanwhile is left for the next
+      // page instead of arriving with a head that names it but a page that lacks it.
+      const head = await acceptedJournalHead(tx, request.identity);
       const receipts = await tx.terminalCommandReceipt.findMany({
         where: {
           ...scope,
-          offlineSequence: { gt: BigInt(request.afterSequence) },
+          offlineSequence: {
+            gt: BigInt(request.afterSequence),
+            lte: BigInt(head.sequence),
+          },
         },
         orderBy: { offlineSequence: "asc" },
         take: request.limit,
@@ -175,7 +185,7 @@ export class OfflineJournalRecoveryService {
         select: { envelope: true },
       });
       return {
-        head: await acceptedJournalHead(tx, request.identity),
+        head,
         entries,
         staffSignIns: signIns.map(
           (s) => s.envelope as unknown as Signed<OfflineStaffSignIn>,
@@ -291,13 +301,18 @@ export class OfflineJournalRecoveryService {
     }, TX);
   }
 
-  /** The counter's latest restore recovery, if any (a superseded one tells it to report again). */
+  /**
+   * The counter's latest restore recovery, if any (a superseded one tells it to report again).
+   * The counter says where its journal is now: an open recovery whose local head is no longer
+   * the counter's (the computer was restored again, or its journal now matches the server's) is
+   * moot, and is superseded.
+   */
   async status(
     user: RequestUser,
     branchId: string,
     raw: unknown,
   ): Promise<CounterJournalRecovery | null> {
-    const identity = parseIdentityRequest(raw);
+    const { identity, localHead } = parseStatusRequest(raw);
     return this.prisma.$transaction(async (tx) => {
       await authenticateJournalUploader(
         tx,
@@ -316,8 +331,13 @@ export class OfflineJournalRecoveryService {
         orderBy: { createdAt: "desc" },
       });
       if (!row) return null;
-      // The server's journal moved on since the report: tell the counter to report again.
-      if (await this.stale(tx, row))
+      // The server's journal moved on since the report, or this computer's did: tell the counter
+      // to report again if it still needs to.
+      if (
+        (await this.stale(tx, row)) ||
+        (OPEN.includes(row.status) &&
+          !samePosition(localHead, localHeadOf(row)))
+      )
         return this.counterView(tx, await this.supersede(tx, row));
       return this.counterView(tx, row);
     }, TX);
@@ -515,10 +535,7 @@ export class OfflineJournalRecoveryService {
           );
         const unmatched =
           Number(row.localHeadSequence) - Number(row.commonSequence);
-        if (
-          Number(row.serverHeadSequence) !== input.expectedServerHeadSequence ||
-          unmatched !== input.expectedUnmatched
-        )
+        if (Number(row.serverHeadSequence) !== input.expectedServerHeadSequence)
           throw conflict(
             JOURNAL_RECOVERY_ERRORS.stale,
             "This recovery changed since you opened it. Review it again.",
@@ -529,10 +546,18 @@ export class OfflineJournalRecoveryService {
           await this.supersede(tx, row);
           return SUPERSEDED;
         }
-        if ((await this.received(tx, row)) !== unmatched)
+        // Before the count shown: while pages are still arriving, say so rather than "changed".
+        const received = await this.received(tx, row);
+        if (received !== unmatched)
           throw conflict(
             JOURNAL_RECOVERY_ERRORS.incomplete,
             "The counter has not uploaded all of its unmatched entries yet.",
+            { received, unmatched },
+          );
+        if (unmatched !== input.expectedUnmatched)
+          throw conflict(
+            JOURNAL_RECOVERY_ERRORS.stale,
+            "This recovery changed since you opened it. Review it again.",
           );
         const approved = await tx.offlineJournalRecovery.update({
           where: { id: row.id, tenantId: row.tenantId },
@@ -572,6 +597,79 @@ export class OfflineJournalRecoveryService {
         "The server's journal for this counter changed. The counter reports again by itself.",
       );
     return result;
+  }
+
+  /**
+   * Close a restored counter's recovery that will not complete — the computer was wiped,
+   * restored again, or will never send what is missing — with the reason recorded. Open ones
+   * only, stale or not. The evidence stays; a counter that still needs recovering reports again.
+   * Closing an approved recovery still makes issuance wait out the grants issued before it
+   * (`restoredCounterResumesAt`): the computer may have applied it.
+   */
+  async close(
+    user: RequestUser,
+    branchId: string,
+    id: string,
+    input: { reason: string },
+  ): Promise<OfflineJournalRecoveryView> {
+    const reason = input.reason.trim();
+    return this.prisma.$transaction(async (tx) => {
+      const authority = await this.requireAuthority(tx, user, branchId);
+      const found = await this.find(tx, user.tenantId, branchId, id);
+      await lockEnrollmentJournal(tx, found.tenantId, found.enrollmentId);
+      const row = await this.find(tx, user.tenantId, branchId, id);
+      if (row.kind !== "counter_restore" || !OPEN.includes(row.status))
+        throw conflict(
+          JOURNAL_RECOVERY_ERRORS.notOpen,
+          "This recovery is no longer open.",
+          { status: row.status },
+        );
+      const at = new Date();
+      const closed = await tx.offlineJournalRecovery.update({
+        where: { id: row.id, tenantId: row.tenantId },
+        data: {
+          status: "closed",
+          closedByUserId: user.userId,
+          closedAt: at,
+          closeReason: reason,
+          closeAuthority: authority.kind,
+          closeDelegationId:
+            authority.kind === "delegated_manager"
+              ? authority.delegationId
+              : null,
+        },
+      });
+      await this.audit.log(
+        {
+          tenantId: user.tenantId,
+          branchId,
+          actorUserId: user.userId,
+          eventName: "terminal.journal_recovery_closed",
+          entityName: "offline_journal_recovery",
+          entityId: row.id,
+          payload: {
+            enrollmentId: row.enrollmentId,
+            previousStatus: row.status,
+            serverHead: serverHeadOf(row),
+            stale: !samePosition(
+              await acceptedJournalHead(tx, row),
+              serverHeadOf(row),
+            ),
+            unmatched:
+              Number(row.localHeadSequence) - Number(row.commonSequence),
+            received: await this.received(tx, row),
+            reason,
+            authority: authority.kind,
+            delegationId:
+              authority.kind === "delegated_manager"
+                ? authority.delegationId
+                : null,
+          },
+        },
+        tx,
+      );
+      return this.view(tx, closed);
+    }, TX);
   }
 
   /**
@@ -625,6 +723,24 @@ export class OfflineJournalRecoveryService {
           JOURNAL_RECOVERY_ERRORS.stale,
           "More of this counter's journal arrived. Review it again.",
         );
+      // A restored copy of this counter reported records the server never received: decide that
+      // recovery (approve or close it) first, so this sign-off is not made around it.
+      const restoring = await tx.offlineJournalRecovery.findFirst({
+        where: {
+          tenantId: user.tenantId,
+          enrollmentId: nomination.enrollmentId,
+          kind: "counter_restore",
+          status: { in: OPEN },
+        },
+        select: { id: true },
+      });
+      if (restoring)
+        throw conflict(
+          JOURNAL_RECOVERY_ERRORS.open,
+          "This counter has an open journal recovery. Close it, or let it finish, before signing off its journal.",
+          { recoveryId: restoring.id },
+        );
+      const seen = await evidenceMark(tx, nomination);
       await tx.offlineJournalRecovery.updateMany({
         where: {
           tenantId: user.tenantId,
@@ -657,6 +773,8 @@ export class OfflineJournalRecoveryService {
           serverHeadHash: head.hash,
           nominationVersion: nomination.version,
           cutoff: cutoff as unknown as Prisma.InputJsonValue,
+          refusalsSeen: seen.refusals,
+          restoresSeen: seen.restores,
           createdAt: at,
           createdByUserId: user.userId,
           ...approval(user, authority, reason, at),
@@ -675,6 +793,7 @@ export class OfflineJournalRecoveryService {
             nominationVersion: nomination.version,
             serverHead: head,
             cutoff,
+            evidenceSeen: seen,
             reason,
             authority: authority.kind,
             delegationId:
@@ -931,8 +1050,17 @@ export class OfflineJournalRecoveryService {
         nominationVersion: row.nominationVersion!,
         head: serverHeadOf(row),
         approvedAt: row.approvedAt!.getTime(),
+        evidence:
+          row.refusalsSeen === null || row.restoresSeen === null
+            ? null
+            : { refusals: row.refusalsSeen, restores: row.restoresSeen },
       },
-      { nominationVersion: nomination.version, head, cutoff },
+      {
+        nominationVersion: nomination.version,
+        head,
+        cutoff,
+        evidence: await evidenceMark(tx, row),
+      },
     );
   }
 
@@ -945,6 +1073,12 @@ export class OfflineJournalRecoveryService {
     const approver = row.approvedByUserId
       ? await tx.appUser.findFirst({
           where: { id: row.approvedByUserId, tenantId: row.tenantId },
+          select: { fullName: true },
+        })
+      : null;
+    const closer = row.closedByUserId
+      ? await tx.appUser.findFirst({
+          where: { id: row.closedByUserId, tenantId: row.tenantId },
           select: { fullName: true },
         })
       : null;
@@ -983,8 +1117,39 @@ export class OfflineJournalRecoveryService {
           : null,
       completedAt: row.completedAt?.getTime() ?? null,
       supersededAt: row.supersededAt?.getTime() ?? null,
+      closure:
+        row.closedAt &&
+        row.closedByUserId &&
+        row.closeReason &&
+        row.closeAuthority
+          ? {
+              closedByUserId: row.closedByUserId,
+              closedByFullName: closer?.fullName ?? null,
+              closedAt: row.closedAt.getTime(),
+              reason: row.closeReason,
+              authority: row.closeAuthority as "owner" | "delegated_manager",
+            }
+          : null,
+      offlineResumesAt: restore ? await this.resumesAt(tx, row) : null,
       stale: await this.stale(tx, row),
     };
+  }
+
+  /**
+   * When this counter can be issued offline authority again because of this restore: once the
+   * grants issued before it finish have expired (D11). While it is open that is the latest grant
+   * there is (none is issued meanwhile); once it is finished, the gate's own answer. Null when
+   * nothing waits, or this restore never reached approval and so has no effect.
+   */
+  private async resumesAt(tx: Tx, row: Recovery): Promise<number | null> {
+    const now = Date.now();
+    if (OPEN.includes(row.status)) {
+      const cutoff = await offlineAuthorityCutoff(tx, row);
+      const last = cutoff.lastGrantExpiresAt;
+      return last !== null && last > now ? last : null;
+    }
+    if (!row.approvedAt || row.status === "superseded") return null;
+    return restoredCounterResumesAt(tx, row, now);
   }
 
   /** The unmatched entries, with who made them from the sign-in each cites. */
@@ -1128,6 +1293,7 @@ export class OfflineJournalRecoveryService {
         nominationVersion: nomination.version,
         head,
         cutoff,
+        evidence: await evidenceMark(tx, nomination),
       });
     const approver = signOff
       ? await tx.appUser.findFirst({

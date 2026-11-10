@@ -37,7 +37,10 @@ const STATUS: Record<
   approved: { label: "Approved, finishing at the counter", variant: "info" },
   recovered: { label: "Recovered", variant: "success" },
   superseded: { label: "Replaced", variant: "default" },
+  closed: { label: "Closed", variant: "default" },
 };
+
+type OpenRecovery = OfflineJournalRecoveriesView["recoveries"][number];
 
 function cutoffText(cutoff: JournalRecoveryCutoff): string {
   if (cutoff.kind === "never_issued")
@@ -54,8 +57,9 @@ function cutoffText(cutoff: JournalRecoveryCutoff): string {
 /**
  * P5 #51, approved D11 (decisions of 2026-11-10): the branch's offline counter journal. The owner
  * or a delegated manager signs off the offline counter's journal so another counter can take over
- * (possible once its last offline permission has expired), and approves a restored counter's
- * journal recovery. The API enforces both; this card only explains.
+ * (possible once its last offline permission has expired), approves a restored counter's
+ * journal recovery, and closes one that will never complete. The API enforces all three; this
+ * card only explains.
  */
 export function JournalRecoveryCard() {
   const { user, branchId } = useAuth();
@@ -73,6 +77,7 @@ function JournalRecovery({ branchId }: { branchId: string }) {
   const [reload, setReload] = useState(0);
   const [signingOff, setSigningOff] = useState(false);
   const [reviewing, setReviewing] = useState<string | null>(null);
+  const [closing, setClosing] = useState<OpenRecovery | null>(null);
   useEffect(() => {
     let cancelled = false;
     setError(null);
@@ -90,6 +95,7 @@ function JournalRecovery({ branchId }: { branchId: string }) {
   const done = (text: string) => {
     setSigningOff(false);
     setReviewing(null);
+    setClosing(null);
     setNotice(text);
     setReload((n) => n + 1);
   };
@@ -161,6 +167,13 @@ function JournalRecovery({ branchId }: { branchId: string }) {
                       </span>
                     </ModalButton>
                   ) : null}
+                  <ModalButton onClick={() => setClosing(r)}>
+                    Close
+                    <span className="pc-sr-only">
+                      {" "}
+                      {r.terminalLabel ?? "counter"} recovery
+                    </span>
+                  </ModalButton>
                 </div>
               </li>
             ))}
@@ -214,6 +227,18 @@ function JournalRecovery({ branchId }: { branchId: string }) {
           onDone={() =>
             done(
               "Journal signed off. Another counter can now take over offline selling.",
+            )
+          }
+        />
+      ) : null}
+      {closing ? (
+        <CloseDialog
+          branchId={branchId}
+          recovery={closing}
+          onClose={() => setClosing(null)}
+          onDone={() =>
+            done(
+              "Recovery closed. If the counter comes back, it reports again by itself.",
             )
           }
         />
@@ -295,8 +320,15 @@ function useSubmit() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inFlight = useRef(false);
-  const mounted = useRef(true);
-  useEffect(() => () => void (mounted.current = false), []);
+  // Set in the effect, not the initial value: StrictMode runs the cleanup and then the effect
+  // again, and a flag only cleared would stay false and swallow every result.
+  const mounted = useRef(false);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   async function submit(action: () => Promise<unknown>, onDone: () => void) {
     if (inFlight.current) return;
     inFlight.current = true;
@@ -385,6 +417,79 @@ function SignOffDialog({
   );
 }
 
+function CloseDialog({
+  branchId,
+  recovery,
+  onClose,
+  onDone,
+}: {
+  branchId: string;
+  recovery: OpenRecovery;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [reason, setReason] = useState("");
+  const { busy, error, submit } = useSubmit();
+  return (
+    <Modal
+      open
+      title="Close this journal recovery"
+      size="sm"
+      canDismiss={!busy}
+      onClose={onClose}
+      footer={
+        <ModalFooter>
+          <ModalButton disabled={busy} onClick={onClose}>
+            Cancel
+          </ModalButton>
+          <ModalButton
+            variant="primary"
+            disabled={busy || !reason.trim()}
+            loading={busy}
+            onClick={() =>
+              void submit(
+                () =>
+                  journalRecoveryApi(branchId).close(recovery.recoveryId, {
+                    reason: reason.trim(),
+                  }),
+                onDone,
+              )
+            }
+          >
+            Close recovery
+          </ModalButton>
+        </ModalFooter>
+      }
+    >
+      <p>
+        Close the recovery {recovery.terminalLabel ?? "this counter"} reported
+        if it will never finish: the restored computer was wiped, or will not be
+        used again. While it is open, this counter is not given offline
+        permission. If the restored computer comes back, it reports again by
+        itself.
+      </p>
+      {recovery.status === "approved" ? (
+        <Alert variant="warning">
+          It was already approved, so the restored computer may have applied it.
+          Offline selling on this counter resumes once the offline permission
+          issued before the restore has expired; online selling carries on
+          meanwhile.
+        </Alert>
+      ) : null}
+      {error ? <Alert variant="error">{error}</Alert> : null}
+      <FormField
+        as="textarea"
+        label="Why it will not finish"
+        value={reason}
+        onChange={(e) => setReason(e.target.value)}
+        maxLength={1000}
+        required
+        disabled={busy}
+      />
+    </Modal>
+  );
+}
+
 function ReviewDialog({
   branchId,
   recoveryId,
@@ -413,7 +518,15 @@ function ReviewDialog({
     };
   }, [branchId, recoveryId]);
   const unmatched = detail?.unmatched ?? [];
-  const approvable = detail?.status === "awaiting_approval" && !detail.stale;
+  // The report names how many records it set aside; the counter uploads them in pages, and the
+  // recovery can be approved only once every one of them has arrived.
+  const total =
+    detail?.localHead && detail.commonPrefix
+      ? detail.localHead.sequence - detail.commonPrefix.sequence
+      : unmatched.length;
+  const complete = unmatched.length >= total;
+  const approvable =
+    detail?.status === "awaiting_approval" && !detail.stale && complete;
   return (
     <Modal
       open
@@ -437,7 +550,7 @@ function ReviewDialog({
                   journalRecoveryApi(branchId).approve(recoveryId, {
                     reason: reason.trim(),
                     expectedServerHeadSequence: detail.serverHead.sequence,
-                    expectedUnmatched: unmatched.length,
+                    expectedUnmatched: total,
                   }),
                 onDone,
               )
@@ -463,7 +576,22 @@ function ReviewDialog({
             {detail.restoredEntries} it lost. Its offline permission is removed
             until it is issued a new one.
           </p>
-          {unmatched.length ? (
+          {detail.offlineResumesAt !== null ? (
+            <p>
+              The computer it was copied from may still hold offline permission,
+              so this counter can sell offline again from{" "}
+              {when(detail.offlineResumesAt)}, once that has expired. Online
+              selling carries on meanwhile.
+            </p>
+          ) : null}
+          {!complete ? (
+            <Alert variant="info">
+              Still receiving the restored computer&apos;s records:{" "}
+              {unmatched.length} of {total} have arrived. You can approve once
+              all of them are here; they arrive the next times it is online.
+            </Alert>
+          ) : null}
+          {total ? (
             <>
               <p>
                 These were recorded on the restored computer and never reached
@@ -523,11 +651,7 @@ function ReviewDialog({
           {error ? <Alert variant="error">{error}</Alert> : null}
           <FormField
             as="textarea"
-            label={
-              unmatched.length
-                ? "How the stock and cash were settled"
-                : "Reason"
-            }
+            label={total ? "How the stock and cash were settled" : "Reason"}
             value={reason}
             onChange={(e) => setReason(e.target.value)}
             maxLength={1000}

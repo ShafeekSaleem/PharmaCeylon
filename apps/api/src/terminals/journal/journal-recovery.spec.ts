@@ -204,13 +204,15 @@ describe("D11 missing-journal sign-off (decisions of 2026-11-10)", () => {
         nominationVersion: 1,
         head: { sequence: 0, hash: null },
         cutoff: never,
+        evidence: { refusals: 0, restores: 0 },
       }),
     ).toBe(false);
   });
 
-  it("covers exactly the nomination, accepted head and grants it saw", () => {
-    const signOff = { nominationVersion: 2, head, approvedAt: 6_000 };
-    const now = { nominationVersion: 2, head, cutoff: expired };
+  it("covers exactly the nomination, accepted head, grants and evidence it saw", () => {
+    const evidence = { refusals: 3, restores: 1 };
+    const signOff = { nominationVersion: 2, head, approvedAt: 6_000, evidence };
+    const now = { nominationVersion: 2, head, cutoff: expired, evidence };
     expect(signOffCurrent(signOff, now)).toBe(true);
     expect(journalHalfCleared(signOff, now)).toBe(true);
     expect(signOffCurrent(signOff, { ...now, nominationVersion: 3 })).toBe(
@@ -235,5 +237,21 @@ describe("D11 missing-journal sign-off (decisions of 2026-11-10)", () => {
         cutoff: { kind: "grants_expire", at: 9_000, lastGrantExpiresAt: 9_000 },
       }),
     ).toBe(false);
+    // A revoked counter's head is frozen: what it uploads later is retained as refusals, and a
+    // restored copy's report is a new recovery. Either makes the sign-off stale.
+    expect(
+      signOffCurrent(signOff, {
+        ...now,
+        evidence: { refusals: 4, restores: 1 },
+      }),
+    ).toBe(false);
+    expect(
+      signOffCurrent(signOff, {
+        ...now,
+        evidence: { refusals: 3, restores: 2 },
+      }),
+    ).toBe(false);
+    // A sign-off recorded before the evidence it saw was kept never counts.
+    expect(signOffCurrent({ ...signOff, evidence: null }, now)).toBe(false);
   });
 });

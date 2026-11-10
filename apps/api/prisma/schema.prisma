@@ -3662,6 +3662,8 @@ enum OfflineJournalRecoveryStatus {
   approved
   recovered
   superseded
+  /// A counter restore the owner or a delegated manager closed with a reason (abandoned).
+  closed
 }
 
 model OfflineJournalRecovery {
@@ -3697,6 +3699,16 @@ model OfflineJournalRecovery {
   completedAt          DateTime?                    @map("completed_at")
   completion           Json?
   supersededAt         DateTime?                    @map("superseded_at")
+  /// Counter restore closed without completing: by whom, why, and on what authority (D13).
+  closedByUserId       String?                      @map("closed_by_user_id") @db.Uuid
+  closedAt             DateTime?                    @map("closed_at")
+  closeReason          String?                      @map("close_reason")
+  closeAuthority       String?                      @map("close_authority") @db.VarChar(24)
+  closeDelegationId    String?                      @map("close_delegation_id") @db.Uuid
+  /// Missing journal: the evidence the sign-off saw — retained refusals and restore reports for
+  /// the enrollment. Either growing makes the sign-off stale. Null on a counter restore.
+  refusalsSeen         Int?                         @map("refusals_seen")
+  restoresSeen         Int?                         @map("restores_seen")
   enrollment           TerminalEnrollment           @relation(fields: [tenantId, branchId, terminalId, enrollmentId, keyId], references: [tenantId, branchId, terminalId, id, keyId], onDelete: Restrict, onUpdate: Restrict, map: "offline_journal_recovery_enrollment_fkey")
   entries              OfflineJournalRecoveryEntry[]
 

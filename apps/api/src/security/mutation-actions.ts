@@ -59,6 +59,7 @@ export const MUTATION_ACTIONS = Object.freeze({
   "POST /api/v1/inventory/held-adjustments/:id/reject": "management",
   "POST /api/v1/inventory/quarantine-expired": "stock",
   "POST /api/v1/offline-journal-recoveries/:id/approve": "management",
+  "POST /api/v1/offline-journal-recoveries/:id/close": "management",
   "POST /api/v1/offline-journal-recoveries/missing-journal": "management",
   "POST /api/v1/offline-stock-cases/:id/resolutions": "management",
   "POST /api/v1/offline-stock-cases/resolutions/:id/approve": "management",

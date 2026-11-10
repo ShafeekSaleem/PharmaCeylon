@@ -215,7 +215,7 @@ describe("offline backup readiness (P3 #49)", () => {
   it("words every failure as something to do", () => {
     for (const code of [
       "GRANT_INVALID", "BRANCH_HOURS_NOT_CONFIGURED", "RECONCILIATION_REQUIRED", "local_usage", "journal_mismatch",
-      "drain_incomplete", "invalid", "NETWORK", "HTTP_502", "WEIRD",
+      "drain_incomplete", "invalid", "RESTORED_COUNTER_WAIT", "NETWORK", "HTTP_502", "WEIRD",
     ])
       expect(explainRefreshFailure(code).length).toBeGreaterThan(20);
     expect(clockTime(new Date(2026, 10, 6, 9, 5).getTime(), now)).toBe("6 Nov 09:05");

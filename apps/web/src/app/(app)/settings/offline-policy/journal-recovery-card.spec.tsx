@@ -1,3 +1,4 @@
+import { StrictMode } from "react";
 import {
   fireEvent,
   render,
@@ -98,8 +99,24 @@ const restore: OfflineJournalRecoveryView = {
   approval: null,
   completedAt: null,
   supersededAt: null,
+  closure: null,
+  offlineResumesAt: null,
   stale: false,
 };
+const restoreRow = (
+  over: Partial<OfflineJournalRecoveriesView["recoveries"][number]> = {},
+): OfflineJournalRecoveriesView["recoveries"][number] => ({
+  recoveryId: "recovery-a",
+  kind: "counter_restore",
+  status: "awaiting_approval",
+  terminalId: "terminal-b",
+  terminalLabel: "Back counter",
+  enrollmentId: "enrollment-b",
+  createdAt: Date.now() - HOUR,
+  stale: false,
+  unmatched: 2,
+  ...over,
+});
 
 beforeEach(() => api.mockReset());
 
@@ -136,21 +153,19 @@ describe("JournalRecoveryCard (D11)", () => {
     fireEvent.change(within(dialog).getByLabelText(/What you checked/), {
       target: { value: "Disk failed; counted the shelf." },
     });
-    api
-      .mockResolvedValueOnce({})
-      .mockResolvedValueOnce(
-        list({
-          offlineCounter: counter({
-            journalCleared: true,
-            signOff: {
-              recoveryId: "s",
-              approvedAt: Date.now(),
-              approvedByFullName: "Owner",
-              current: true,
-            },
-          }),
+    api.mockResolvedValueOnce({}).mockResolvedValueOnce(
+      list({
+        offlineCounter: counter({
+          journalCleared: true,
+          signOff: {
+            recoveryId: "s",
+            approvedAt: Date.now(),
+            approvedByFullName: "Owner",
+            current: true,
+          },
         }),
-      );
+      }),
+    );
     fireEvent.click(confirm);
     await screen.findByText(/Another counter can now take over/);
     const [path, init] = api.mock.calls[1]!;
@@ -189,22 +204,7 @@ describe("JournalRecoveryCard (D11)", () => {
 
   it("reviews a restored counter's unmatched records as evidence and approves exactly them", async () => {
     api.mockResolvedValueOnce(
-      list({
-        offlineCounter: null,
-        recoveries: [
-          {
-            recoveryId: "recovery-a",
-            kind: "counter_restore",
-            status: "awaiting_approval",
-            terminalId: "terminal-b",
-            terminalLabel: "Back counter",
-            enrollmentId: "enrollment-b",
-            createdAt: Date.now() - HOUR,
-            stale: false,
-            unmatched: 2,
-          },
-        ],
-      }),
+      list({ offlineCounter: null, recoveries: [restoreRow()] }),
     );
     render(<JournalRecoveryCard />);
     expect(
@@ -236,6 +236,85 @@ describe("JournalRecoveryCard (D11)", () => {
       expectedServerHeadSequence: 12,
       expectedUnmatched: 2,
     });
+  });
+
+  it("waits for every unmatched record before it can be approved", async () => {
+    api.mockResolvedValueOnce(
+      list({ offlineCounter: null, recoveries: [restoreRow()] }),
+    );
+    render(<JournalRecoveryCard />);
+    const resumesAt = Date.now() + 5 * HOUR;
+    api.mockResolvedValueOnce({
+      ...restore,
+      unmatched: restore.unmatched.slice(0, 1),
+      offlineResumesAt: resumesAt,
+    });
+    fireEvent.click(await screen.findByRole("button", { name: /Review/ }));
+    // One of the two records the report names has arrived so far.
+    expect(await screen.findByText(/1 of 2 have arrived/)).toBeTruthy();
+    expect(
+      within(
+        screen.getByRole("table", {
+          name: "Records the server never received",
+        }),
+      ).getAllByRole("row"),
+    ).toHaveLength(2);
+    expect(
+      screen.getByLabelText(/How the stock and cash were settled/),
+    ).toHaveProperty("disabled", true);
+    expect(
+      screen.getByRole("button", { name: "Approve recovery" }),
+    ).toHaveProperty("disabled", true);
+    expect(
+      screen.getByText(/can sell offline again from/).textContent,
+    ).toContain(new Date(resumesAt).toLocaleString());
+    expect(api).toHaveBeenCalledTimes(2);
+  });
+
+  it("closes a recovery that will never complete, with a reason, under StrictMode", async () => {
+    let rows = [restoreRow({ status: "approved", stale: true })];
+    api.mockImplementation(async (path: string, init?: { body?: string }) => {
+      if (path === "/offline-journal-recoveries")
+        return list({ offlineCounter: null, recoveries: rows });
+      if (path.endsWith("/close")) {
+        rows = [restoreRow({ status: "closed", stale: true })];
+        return { ...restore, status: "closed", body: init?.body };
+      }
+      throw new Error(`unexpected ${path}`);
+    });
+    render(
+      <StrictMode>
+        <JournalRecoveryCard />
+      </StrictMode>,
+    );
+    // Stale and approved: nothing to review, but it can still be closed.
+    const close = await screen.findByRole("button", {
+      name: "Close Back counter recovery",
+    });
+    expect(screen.queryByRole("button", { name: /Review/ })).toBeNull();
+    fireEvent.click(close);
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByText(/may have applied it/).textContent).toMatch(
+      /online selling carries on/,
+    );
+    const confirm = within(dialog).getByRole("button", {
+      name: "Close recovery",
+    });
+    expect(confirm).toHaveProperty("disabled", true);
+    fireEvent.change(within(dialog).getByLabelText(/Why it will not finish/), {
+      target: { value: "The restored PC was wiped." },
+    });
+    fireEvent.click(confirm);
+    await screen.findByText(/Recovery closed/);
+    const call = api.mock.calls.find(([path]) => path.endsWith("/close"))!;
+    expect(call[0]).toBe("/offline-journal-recoveries/recovery-a/close");
+    expect(JSON.parse(call[1].body)).toEqual({
+      reason: "The restored PC was wiped.",
+    });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(
+      await screen.findByText(/No counter is waiting to recover/),
+    ).toBeTruthy();
   });
 
   it("shows the server's refusal and keeps the dialog open", async () => {

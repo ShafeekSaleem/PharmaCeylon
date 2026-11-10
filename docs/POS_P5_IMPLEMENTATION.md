@@ -264,14 +264,16 @@ supervised online procedures, both approved by a person in the back office:
 | --- | --- |
 | Chain (counter route) | `POST /terminals/offline-journal/recovery/chain`: accepted entries after a sequence (≤ 100), the sign-ins they cite, and the head. Every entry is the counter's own signed envelope, so it verifies each against its own key and the chain from a position it already holds: the server can withhold entries, never invent them |
 | Report (counter route) | `POST …/recovery/report`: a device-signed `offline_journal_recovery_report` (server head, common prefix, local head) with the unmatched local entries in pages of ≤ 25 (the 100 kB body limit), oldest first, each continuing from the last received; re-pages are idempotent, and nothing past the local head or already accepted is taken. A new report supersedes any open one; resending the same `reportId` is the same recovery. Refused `JOURNAL_RECOVERY_STALE` if the head moved, `_INVALID` if the common prefix is not the server's, `_NOT_NEEDED` if the counter has the whole server chain (it is only behind) |
-| While open | Issuance and the challenge refuse `RECONCILIATION_REQUIRED` (`journalRecoveryOpen`) until the recovery is `recovered`. Nothing is posted: unmatched entries are evidence (`offline_journal_recovery_entry`), never sales or stock |
-| Approval (web) | `GET /offline-journal-recoveries` (+ `/:id`) and `POST /:id/approve`, `tenant.management` plus revised D13 authority (owner, or a manager with a live delegation; else 403 `OFFLINE_ASSIGNMENT_NOT_DELEGATED`). The approver sees the unmatched entries (who, when, total, lines) and approves exactly them (`expectedServerHeadSequence`, `expectedUnmatched`) with a reason saying how their stock and cash were settled. Refused `_EVIDENCE_INCOMPLETE` until every page arrived |
+| While open | Issuance and the challenge refuse `RECONCILIATION_REQUIRED` (`refuseUnsettledJournal` → `journal-recovery-gate.ts`) while an open restore names the current accepted head. One whose head the journal has moved past no longer describes it and is superseded there, so a report from a copy that was wiped cannot hold the counter for good. Nothing is posted: unmatched entries are evidence (`offline_journal_recovery_entry`), never sales or stock |
+| Approval (web) | `GET /offline-journal-recoveries` (+ `/:id`) and `POST /:id/approve`, `tenant.management` plus revised D13 authority (owner, or a manager with a live delegation; else 403 `OFFLINE_ASSIGNMENT_NOT_DELEGATED`). The approver sees the unmatched entries (who, when, total, lines) and approves exactly them (`expectedServerHeadSequence`, `expectedUnmatched` = every record the report names) with a reason saying how their stock and cash were settled. Completeness is checked before the count, so while pages are still arriving the refusal is `_EVIDENCE_INCOMPLETE` (with `received` and `unmatched`) rather than "changed"; the review shows received of total and keeps Approve off until all have arrived |
+| Close (web) | `POST /offline-journal-recoveries/:id/close`, same authority, with a reason (audited `terminal.journal_recovery_closed`): an open restore that will never complete (the restored computer was wiped, or is not coming back) becomes `closed`. Refused `JOURNAL_RECOVERY_NOT_OPEN` otherwise; a later approve or complete is `_NOT_APPROVED`, and the counter, if it comes back, is told it is over and reports afresh |
+| After a restore | Once an approved restore finishes (`recovered`, or `closed` after approval, since the copy may have applied it), issuance and the challenge refuse `RESTORED_COUNTER_WAIT` (with `availableAt`) until every grant issued before that moment has expired: the computer the copy was made from may still hold one (D11, wait out the last grant). Online selling is never held. The review and the recovery's detail show `offlineResumesAt`; a restore closed before approval restored nothing and waits for nothing |
 | Apply (desktop) | `main/terminal/journal-recovery.ts`, run by the sync coordinator after each upload while `JOURNAL_MISMATCH` stands. In one SQLite transaction: unmatched entries move to `offline_journal_set_aside` (kept for good; delete and update abort), the server's entries after the common prefix are inserted as `synced`, the journal state and accepted watermark move to the server head, the installed pair and any pending renewal request are deleted, batch usage is reset and the issue cleared. Then a device-signed `offline_journal_recovery_completion` goes to `POST …/recovery/:id/complete`; the coordinator asks for a fresh pair at once |
-| Stale | If the server's journal moves after the report (the original computer is still alive), approve, status and complete supersede the recovery and commit that before refusing `JOURNAL_RECOVERY_STALE`; the counter reports again by itself. If the counter recorded more offline sales since reporting, it reports again too |
-| Sign-off (web) | `POST /offline-journal-recoveries/missing-journal`: owner or delegated manager, bound to the nomination version and accepted head shown (`expectedNominationVersion`, `expectedServerHeadSequence`), refused `JOURNAL_SIGN_OFF_TOO_EARLY` (with `availableAt`) before the last issued grant's `expiresAt`. A later sign-off supersedes the earlier one |
-| Clearance | `OfflineActivationClearance.journalRecoveryEvidence` → `missingJournalEvidence`: a live sign-off for this nomination version whose head is still the accepted head and that was made at or after the last grant's expiry (so a renewal issued after it makes it stale). `D11_CLEARANCE_REQUIRED` carries `journalSignOffAvailableAt`; the activation audit records `journalSignOffId` |
-| Schema | Migration `20261110000000_offline_journal_recovery`: `offline_journal_recovery` (shape checks per kind, approval whole or absent, one open restore per enrollment, a trigger allowing only forward transitions with content fixed) and `offline_journal_recovery_entry` (immutable). Desktop migration 17: `offline_journal_recovery` (the counter's current recovery, its stored signed report and completion) and `offline_journal_set_aside` |
-| Back office | Settings → Offline policy → Offline counter journal (`journal-recovery-card.tsx`): the offline counter's accepted records, cutoff, retained refusals and sign-off state (and when a sign-off becomes possible), the sign-off form, restored counters waiting for approval with a review dialog, and earlier recoveries |
+| Stale | If the server's journal moves after the report (the original computer is still alive), approve, status and complete supersede the recovery and commit that before refusing `JOURNAL_RECOVERY_STALE`; the counter reports again by itself. If the counter recorded more offline sales since reporting, it reports again too. The status call carries the counter's `localHead`: an open recovery reported from another head is moot and is superseded, and the counter keeps asking about its open recovery after its mismatch clears, so a moot one does not linger |
+| Sign-off (web) | `POST /offline-journal-recoveries/missing-journal`: owner or delegated manager, bound to the nomination version and accepted head shown (`expectedNominationVersion`, `expectedServerHeadSequence`), refused `JOURNAL_SIGN_OFF_TOO_EARLY` (with `availableAt`) before the last issued grant's `expiresAt`, and `JOURNAL_RECOVERY_OPEN` while a restore of that counter is open (decide or close it first). A later sign-off supersedes the earlier one |
+| Clearance | `OfflineActivationClearance.journalRecoveryEvidence` → `missingJournalEvidence`: a live sign-off for this nomination version whose head is still the accepted head, that was made at or after the last grant's expiry (so a renewal issued after it makes it stale), and whose evidence mark (`refusals_seen`, `restores_seen`: the retained refusals and restore reports for the enrollment, rows that are only ever added) is still the evidence's. A revoked counter's accepted head cannot move, but what it uploads after the sign-off is still kept as refusals, so the sign-off goes stale on it. Activation takes the journal lock before it reads the head. `D11_CLEARANCE_REQUIRED` carries `journalSignOffAvailableAt`; the activation audit records `journalSignOffId` |
+| Schema | Migrations `20261110000000_offline_journal_recovery` and `20261110120000_offline_journal_recovery_close` (the `closed` status, the closure columns, all or none and only on a restore, and the sign-off's evidence mark): `offline_journal_recovery` (shape checks per kind, approval whole or absent, one open restore per enrollment, a trigger allowing only forward transitions with content fixed) and `offline_journal_recovery_entry` (immutable). Desktop migration 17: `offline_journal_recovery` (the counter's current recovery, its stored signed report and completion) and `offline_journal_set_aside` |
+| Back office | Settings → Offline policy → Offline counter journal (`journal-recovery-card.tsx`): the offline counter's accepted records, cutoff, retained refusals and sign-off state (and when a sign-off becomes possible), the sign-off form, restored counters waiting for approval with a review dialog (received of total, when offline selling resumes) and a close dialog, and earlier recoveries |
 | Counter copy | While a recovery runs, the Synchronisation issue says where it stands (sending for review, waiting for approval in Settings → Offline policy, finishing) |
 
 ### Decisions taken in this slice (2026-11-10)
@@ -292,33 +294,48 @@ supervised online procedures, both approved by a person in the back office:
 - **The server's chain wins.** The restored counter adopts the accepted entries rather than
   re-uploading its own, and continues at the server head + 1. Its restored grant is deleted
   before it confirms, and issuance stays refused until it has confirmed.
+- **Wait out the last grant after a restore too.** A restored copy and the computer it was
+  copied from can both hold the grant issued before the restore, so the restored counter is
+  issued offline authority again only once that grant has expired. Online selling carries on.
+- **An abandoned recovery is closed by a person.** A restore that will never complete is
+  superseded when the journal moves past it; one that still names the current head is closed by
+  the owner or a delegated manager, with a reason, never by a timer.
 - **Stale is final.** A recovery or sign-off is bound to the server head (and, for a sign-off,
   the nomination version and the grants) it was made over; anything that moves them supersedes
   it and asks again, rather than approving something nobody looked at.
 
 ### Tests
 
-API: `journal-recovery.spec.ts` (wire parsers, chain links, sign-off timing and staleness).
+API: `journal-recovery.spec.ts` (wire parsers, chain links, sign-off timing and staleness,
+including the evidence mark).
 PostgreSQL: `offline-journal-recovery.int-spec.ts` covers the prefix restore end to end
 (chain, report, refused issuance while open, D13 authority, completion and its replay, the
 rebased pair, audit), the forked restore (paged evidence, contiguity, incomplete and stale
 approvals, no sale or stock posted, immutable rows), report refusals and supersede on a moving
 journal (including after approval), the revoked counter's sign-off waiting for its grant then
 the replacement activating with `journalSignOffId`, and a sign-off going stale on new journal or
-a renewal. `offline-activation.int-spec.ts` now clears a never-issued counter with a real
-sign-off.
+a renewal. Also: the restore wait after completion (refused until the pre-restore grant's
+expiry, then issued), a stale open restore superseded at issuance and a current one closed by the
+owner (not an undelegated manager), a recovery moot by the counter's local head, an approved
+restore closed before completing still waiting, a revoked counter's later upload making its
+sign-off stale, and sign-offs refused for another nomination, a branch without an offline counter
+or around an open restore. `offline-activation.int-spec.ts` now clears a never-issued counter
+with a real sign-off.
 
 Desktop: `journal-recovery.spec.ts`, against a real encrypted store and a fake recovery server:
 a prefix restore (waiting, approval, adopting the server entries, the grant removed, the drain
 still waiting for a fresh pair), a forked restore with paged evidence and set-aside rows that
 cannot be changed, a lost report reply and a lost completion resent unchanged, a moving server
 journal reported again, withheld and forged chains refused, a journal that is only behind left to
-the upload, and the coordinator renewing after completion. `migrations.integration.spec.ts`
+the upload, the coordinator renewing after completion, a completion refused after applying
+(the server moved on, or the recovery was closed), a closed recovery reported afresh, an open
+recovery still asked about after the mismatch clears and forgotten once moot, and evidence kept
+once per record hash. `migrations.integration.spec.ts`
 covers the upgrade from 16 to 17.
 
 Web: `journal-recovery-card.spec.tsx` (sign-off waiting for the grant, the exact sign-off body,
-a stale sign-off, reviewing and approving exactly the unmatched records, a refusal kept in the
-dialog). Shared: `offline-journal-recovery.test.cjs`.
+a stale sign-off, reviewing and approving exactly the unmatched records, partial evidence
+keeping Approve off, closing under StrictMode, a refusal kept in the dialog). Shared: `offline-journal-recovery.test.cjs`.
 
 ## Later slices (not built)
 

@@ -348,6 +348,8 @@ export const TERMINAL_ERROR_RETRYABLE = {
   AUTHORIZATION_ID_CONFLICT: false,
   OFFLINE_AUTHORIZATION_NOT_CURRENT: false,
   D11_CLEARANCE_REQUIRED: false,
+  // A restored counter waits out the grants issued before its restore (D11): `availableAt`.
+  RESTORED_COUNTER_WAIT: false,
   // The API gives these, by HTTP status, to a refusal that carries no code of its own.
   // 401 is AUTHENTICATION_REQUIRED above: refresh the access token, then send again.
   BAD_REQUEST: false, // 400

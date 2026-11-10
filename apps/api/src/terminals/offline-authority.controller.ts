@@ -11,10 +11,9 @@ import { RequirePermission } from "../security/decorators/require-permission.dec
 import type { RequestUser } from "../security/interfaces/authenticated-request.interface";
 import {
   acceptedJournalState,
-  assertJournalNotStuck,
   isNominated,
   issueOfflineAuthority,
-  journalRecoveryOpen,
+  refuseUnsettledJournal,
 } from "./offline-authority-issuance";
 import { TerminalErrorFilter } from "./terminal-error.filter";
 import { TerminalTrustService } from "./terminal-trust.service";
@@ -54,7 +53,8 @@ export class OfflineAuthorityController {
       // Only the branch's offline counter gets authority. Refusing here, before the counter spends
       // an attendance proof, rolls the challenge back with the transaction.
       if (!(await isNominated(tx, command.identity))) denied("IDENTITY_MISMATCH");
-      // Likewise a counter whose offline journal is stuck on an entry that needs review (P5 #51),
+      // Likewise a counter whose offline journal is stuck on an entry that needs review, held by a
+      // restore's open recovery, or waiting out the grants issued before a restore (P5 #51, D11),
       // unless this request ID was already issued: a lost response must stay recoverable. An
       // accepted journal is not a refusal: the pair is rebased over it.
       const { tenantId, branchId: scopeBranchId, enrollmentId } = command.identity;
@@ -62,10 +62,7 @@ export class OfflineAuthorityController {
         where: { tenantId_branchId_enrollmentId_commandId: { tenantId, branchId: scopeBranchId, enrollmentId, commandId: requestId } },
         select: { snapshotId: true },
       });
-      if (!issued) {
-        await assertJournalNotStuck(tx, command.identity);
-        if (await journalRecoveryOpen(tx, command.identity)) denied("RECONCILIATION_REQUIRED");
-      }
+      if (!issued) await refuseUnsettledJournal(tx, command.identity);
       return command;
     });
   }

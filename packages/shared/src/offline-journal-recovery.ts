@@ -81,13 +81,15 @@ export type OfflineJournalRecoveryCompletion = Readonly<{
 /**
  * `awaiting_approval` → `approved` → `recovered` for a restored counter; a missing-journal
  * sign-off is created `approved`. `superseded`: replaced by a newer report or sign-off, or
- * stale because the server's journal moved.
+ * stale because the server's journal or the counter's moved. `closed`: a restore the owner or a
+ * delegated manager closed, with a reason, because it will not complete.
  */
 export type OfflineJournalRecoveryStatus =
   | "awaiting_approval"
   | "approved"
   | "recovered"
-  | "superseded";
+  | "superseded"
+  | "closed";
 export type OfflineJournalRecoveryKind = "counter_restore" | "missing_journal";
 
 /** What a counter is told about its own recovery (`POST /terminals/offline-journal/recovery/status`). */
@@ -102,6 +104,15 @@ export type CounterJournalRecovery = Readonly<{
   unmatched: number;
   received: number;
   approvedAt: number | null;
+}>;
+
+/**
+ * `POST /terminals/offline-journal/recovery/status`. `localHead` is this computer's journal head
+ * now: an open recovery reported from another head is moot, and the server supersedes it.
+ */
+export type OfflineJournalRecoveryStatusRequest = Readonly<{
+  identity: TerminalIdentity;
+  localHead: JournalPosition;
 }>;
 
 /** `POST /terminals/offline-journal/recovery/chain`: accepted entries after `afterSequence`, oldest first. */
@@ -183,6 +194,20 @@ export type OfflineJournalRecoveryView = Readonly<{
   }> | null;
   completedAt: number | null;
   supersededAt: number | null;
+  /** Counter restore closed without completing. */
+  closure: Readonly<{
+    closedByUserId: string;
+    closedByFullName: string | null;
+    closedAt: number;
+    reason: string;
+    authority: "owner" | "delegated_manager";
+  }> | null;
+  /**
+   * Counter restore: when this counter can be issued offline authority again (D11): once every
+   * grant issued before the restore finishes has expired, because the computer it was copied
+   * from may still hold one. Null when nothing waits. Online selling is never held.
+   */
+  offlineResumesAt: number | null;
   /** The server's journal moved since this was reported or signed off: report or sign off again. */
   stale: boolean;
 }>;
@@ -240,6 +265,9 @@ export type ApproveJournalRecoveryRequest = Readonly<{
   expectedServerHeadSequence: number;
   expectedUnmatched: number;
 }>;
+
+/** `POST /offline-journal-recoveries/:id/close`: close a restore that will not complete. */
+export type CloseJournalRecoveryRequest = Readonly<{ reason: string }>;
 
 /** `POST /offline-journal-recoveries/missing-journal`: sign off the offline counter's journal. */
 export type MissingJournalSignOffRequest = Readonly<{

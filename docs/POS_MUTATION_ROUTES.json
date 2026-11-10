@@ -276,6 +276,11 @@
   },
   {
     "method": "POST",
+    "path": "/api/v1/offline-journal-recoveries/:id/close",
+    "source": "apps/api/src/terminals/journal/journal-recoveries.controller.ts"
+  },
+  {
+    "method": "POST",
     "path": "/api/v1/offline-journal-recoveries/missing-journal",
     "source": "apps/api/src/terminals/journal/journal-recoveries.controller.ts"
   },

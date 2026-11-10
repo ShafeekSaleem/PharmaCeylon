@@ -1,5 +1,6 @@
 import type {
   ApproveJournalRecoveryRequest,
+  CloseJournalRecoveryRequest,
   MissingJournalSignOffRequest,
   OfflineJournalRecoveriesView,
   OfflineJournalRecoveryView,
@@ -27,6 +28,8 @@ export function journalRecoveryApi(branchId: string) {
       ),
     approve: (recoveryId: string, body: ApproveJournalRecoveryRequest) =>
       post(`${recoveryId}/approve`, body),
+    close: (recoveryId: string, body: CloseJournalRecoveryRequest) =>
+      post(`${recoveryId}/close`, body),
     signOff: (body: MissingJournalSignOffRequest) =>
       post("missing-journal", body),
   };

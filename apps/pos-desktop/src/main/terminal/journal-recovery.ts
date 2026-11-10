@@ -64,6 +64,9 @@ const BACKOFF_CAP_MS = 15 * 60_000;
 /** While waiting for approval, ask this often. */
 export const RECOVERY_POLL_MS = 60_000;
 
+const isOpen = (status: CounterJournalRecovery["status"]) =>
+  status === "awaiting_approval" || status === "approved";
+
 /** Server refusals meaning the recovery this computer holds is over: report afresh. */
 const START_OVER = new Set([
   "JOURNAL_RECOVERY_STALE",
@@ -492,8 +495,9 @@ export function createJournalRecovery(deps: JournalRecoveryDeps) {
     reply: CounterJournalRecovery,
   ): Promise<RecoveryTick> {
     const enrollmentId = identity.enrollmentId;
-    if (reply.status === "superseded" || reply.status === "recovered") {
-      // Over, without this computer applying it (a newer report, or the server's journal moved).
+    if (!isOpen(reply.status)) {
+      // Over, without this computer applying it: a newer report, the server's journal moved, or
+      // the owner closed it.
       forget(enrollmentId);
       return "waiting";
     }
@@ -685,6 +689,23 @@ export function createJournalRecovery(deps: JournalRecoveryDeps) {
     return "recovered";
   }
 
+  /** The server's view of this counter's latest recovery, told where this journal is now. */
+  function askStatus(
+    identity: TerminalIdentity,
+  ): Promise<CounterJournalRecovery | null> {
+    return deps.api.request<CounterJournalRecovery | null>(
+      "POST",
+      STATUS_PATH,
+      {
+        branchId: identity.branchId,
+        body: {
+          identity,
+          localHead: localJournalHead(deps.db, identity.enrollmentId),
+        },
+      },
+    );
+  }
+
   async function step(): Promise<RecoveryTick> {
     const current = deps.terminal.current();
     if (!current) return "idle";
@@ -692,28 +713,35 @@ export function createJournalRecovery(deps: JournalRecoveryDeps) {
     const enrollmentId = identity.enrollmentId;
     const recovery = readLocalRecovery(deps.db, enrollmentId);
     if (recovery?.status === "applied") return confirm(identity, recovery);
-    if (!journalNeedsRecovery(deps.db, enrollmentId)) return "idle";
+    if (!journalNeedsRecovery(deps.db, enrollmentId)) {
+      // Nothing to recover any more (restored again, or the journal now matches the server's).
+      // A recovery this computer reported is moot: tell the server where the journal is now, so
+      // it supersedes the recovery rather than hold this counter's offline authority with it.
+      // Matched by report, so a report whose reply was lost is asked about too.
+      if (!recovery || recovery.status === "recovered") return "idle";
+      const status = await askStatus(identity);
+      if (
+        status &&
+        status.reportId === recovery.reportId &&
+        isOpen(status.status)
+      )
+        return "waiting";
+      forget(enrollmentId);
+      return "idle";
+    }
     if (
       recovery &&
       (recovery.status === "awaiting_approval" ||
         recovery.status === "approved")
     ) {
-      const status = await deps.api.request<CounterJournalRecovery | null>(
-        "POST",
-        STATUS_PATH,
-        {
-          branchId: identity.branchId,
-          body: { identity },
-        },
-      );
+      const status = await askStatus(identity);
       if (
         status &&
         status.recoveryId === recovery.recoveryId &&
-        status.status !== "superseded" &&
-        status.status !== "recovered"
+        isOpen(status.status)
       )
         return adopt(identity, key, recovery, status);
-      // Superseded (the server's journal moved, or a newer report): report what is true now.
+      // Over (the server's journal moved, a newer report, or closed): report what is true now.
       forget(enrollmentId);
       return report(identity, key, null);
     }
