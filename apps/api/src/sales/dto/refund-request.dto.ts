@@ -11,7 +11,6 @@ import {
   Matches,
   MaxLength,
   Min,
-  Max,
   ValidateIf,
   ValidateNested,
 } from "class-validator";
@@ -95,24 +94,4 @@ export class ListSaleRefundRequestsQueryDto {
   @IsOptional()
   @IsEnum(SaleRefundRequestStatus)
   status?: SaleRefundRequestStatus;
-}
-
-export class RefundApprovalQueueQueryDto {
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  page?: number;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  @Max(100)
-  pageSize?: number;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(100)
-  q?: string;
 }

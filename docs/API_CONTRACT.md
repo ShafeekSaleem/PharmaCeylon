@@ -985,20 +985,26 @@ is locked, so a revocation that commits first refuses the sale and a later one w
     goods return's `approvedBy` is `null` and the `sale.refunded` audit carries `approvalWaived: true`. `GET /sales/refund-requests?saleId=&status=`
     and `GET /sales/refund-requests/:id` (`sales.refund`) return `status`, `readyAtCounter`,
     `approvalRequired`, `approvalReview` and requester/approver/executor.
-  - **Refund approval inbox (W4).** `GET /sales/refund-approval-queue?page=1&pageSize=25&q=`
-    and `GET /sales/refund-approval-queue/:id` require `returns.approve` at the active
-    `x-branch-id`; neither requires `sales.refund` or `sales.view`, and neither is a PIN-counter
-    route. The inbox returns `{ items, total, page, pageSize }`, oldest request first (stable ID
-    tie-break), with page sizes 1–100. `q` searches refund/invoice numbers case-insensitively as
-    literal text. Only open requests needing approval appear: the original or current threshold
-    applies, and revoked/missing pinned approval evidence requires fresh approval even after
-    the threshold is switched off. Rows include `selfApprovalBlocked`; blocked requests remain
-    visible. Detail returns the exact `approvalReview`, priced lines with nullable `productName`
-    and `batchNo`, disposition, reason, payment method and actor history. Display names are read
-    labels and are not added to the signed approval digest. Daily work and sales notifications
-    use the same waiting rule and deep-link to `/refund-approvals?request=<id>`; notifications
-    exclude self-blocked requests and respect sales preferences. The browser uses the existing
-    exact-version approval command; stock and money move only at separate counter execution.
+  - **Pending refund approvals (W4/W11).** Sales → Pending approvals consumes the shared
+    `GET /dashboard/work?kind=sale_refund.approve&filter=all&page=1&pageSize=25&q=` projection,
+    including self-approval blockers. `filter=approvals` instead counts/returns only decisions
+    the caller may make. `kind` accepts the shared `DAILY_WORK_KINDS` registry, `pageSize` is
+    optional (default 6, maximum 100), and `q` (maximum 100 characters) searches task reference,
+    detail and title case-insensitively as literal text. Each option only narrows the existing
+    tenant/branch/source-permission scope. Module pending lists use the same source predicates,
+    ordering and snapshot-based list/count/facet query as Daily work; no second inbox SQL/store.
+    Internal notification kind allowlists intersect client kind filters. Task search/kind scope
+    applies before category facets, totals and paging; existing requests without new fields keep
+    their behavior. This is still an active-branch API, not the planned cross-branch overview.
+    Refund tasks link to `/sales?view=pending-approvals&request=<id>`. The old `/refund-approvals`
+    web route redirects there for draft-MR bookmarks; there is no separate sidebar destination.
+    `GET /sales/refund-requests/:id` admits `sales.refund` **or** `returns.approve`, so an
+    approver need not have sale execution/history permissions. Detail includes exact approval
+    evidence, priced lines and nullable `productName`/`batchNo` display labels (outside the digest).
+    The existing approval command and separate counter execution boundary are unchanged.
+    Revoked/missing pinned evidence returns open refunds to pending review even if the threshold
+    is later switched off; notifications use the same task model and omit self-blocked decisions.
+    See `DAILY_WORK_QUEUE_PLAN.md` and W11 #145 for phased cross-app enhancement ownership.
   - **The desktop Returns page** prepares at the counter too: a PIN-opened counter login may call
     `POST /sales/:id/refund-requests` (`@CounterRoute()`), then executes the request through the
     signed operation when it is `readyAtCounter`. Over the threshold, a cashier's request waits

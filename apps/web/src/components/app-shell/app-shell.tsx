@@ -106,16 +106,10 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       {
         href: "/sales",
-        label: "Sales history",
+        label: "Sales",
         icon: <IconReceipt size={18} />,
         roles: SALES_ROLES,
-        permission: "sales.view",
-      },
-      {
-        href: "/refund-approvals",
-        label: "Refund approvals",
-        icon: <IconReceipt size={18} />,
-        permission: "returns.approve",
+        permission: ["sales.view", "returns.approve"],
       },
     ],
   },

@@ -21,7 +21,6 @@ import {
   ExecuteSaleRefundDto,
   ListSaleRefundRequestsQueryDto,
   PrepareSaleRefundDto,
-  RefundApprovalQueueQueryDto,
 } from "./dto/refund-request.dto";
 import { RefundRequestsService } from "./refund-requests.service";
 
@@ -33,30 +32,6 @@ import { RefundRequestsService } from "./refund-requests.service";
 @Controller("sales")
 export class RefundRequestsController {
   constructor(private readonly refunds: RefundRequestsService) {}
-
-  @ApiOperation({
-    summary: "Paginated branch refund approval inbox; no physical execution",
-  })
-  @RequirePermission("returns.approve")
-  @Get("refund-approval-queue")
-  approvalQueue(
-    @CurrentUser() user: RequestUser,
-    @RequireBranchId() branchId: string,
-    @Query() query: RefundApprovalQueueQueryDto,
-  ) {
-    return this.refunds.approvalQueue(user, branchId, query);
-  }
-
-  @ApiOperation({ summary: "Read exact refund lines for remote approval" })
-  @RequirePermission("returns.approve")
-  @Get("refund-approval-queue/:id")
-  approvalDetail(
-    @CurrentUser() user: RequestUser,
-    @RequireBranchId() branchId: string,
-    @Param("id", ParseUUIDPipe) id: string,
-  ) {
-    return this.refunds.getOne(user.tenantId, branchId, id);
-  }
 
   @ApiOperation({
     summary: "Refunds prepared at this branch (filter by sale or status)",
@@ -75,7 +50,7 @@ export class RefundRequestsController {
   @ApiOperation({
     summary: "One prepared refund, with its approval evidence and status",
   })
-  @RequirePermission("sales.refund")
+  @RequirePermission("sales.refund", "returns.approve")
   @Get("refund-requests/:id")
   getOne(
     @CurrentUser() user: RequestUser,

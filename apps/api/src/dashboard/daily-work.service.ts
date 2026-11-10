@@ -31,7 +31,7 @@ export class DailyWorkService {
     /** Server callers (notifications) read more than a page, or only some kinds. */
     opts: { pageSize?: number; kinds?: readonly DailyWorkKind[] } = {},
   ): Promise<DailyWorkResponse> {
-    const pageSize = opts.pageSize ?? PAGE_SIZE;
+    const pageSize = opts.pageSize ?? query.pageSize ?? PAGE_SIZE;
     const actor = await this.access.resolve(user, branchId);
     const branch = await this.prisma.branch.findFirst({
       where: { tenantId: user.tenantId, id: branchId },
@@ -179,7 +179,7 @@ export class DailyWorkService {
         SELECT 'refund:' || r.id, CASE WHEN ${needsApproval} THEN 'sale_refund.approve' ELSE 'sale_refund.execute' END, 'counter',
           CASE WHEN ${needsApproval} THEN 'Approve prepared refund' ELSE 'Refund the customer' END,
           concat(s.invoice_no, ' · LKR ', r.amount::text), r.request_number, r.status::text,
-          CASE WHEN ${needsApproval} THEN '/refund-approvals?request=' || r.id ELSE '/sales/' || r.sale_id END,
+          CASE WHEN ${needsApproval} THEN '/sales?view=pending-approvals&request=' || r.id ELSE '/sales/' || r.sale_id END,
           CASE WHEN ${needsApproval} THEN 'Review refund' ELSE 'Open sale' END,
           r.requested_at, NULL::timestamp,
           CASE WHEN ${needsApproval} THEN 'Branch approvers' ELSE 'Counter team' END,
@@ -286,15 +286,16 @@ export class DailyWorkService {
     const place = atCounter.length
       ? Prisma.sql`CASE WHEN kind IN (${Prisma.join(atCounter)}) THEN 'counter' ELSE 'web' END`
       : Prisma.sql`'web'`;
-    const category = Prisma.sql`${
-      query.category ? Prisma.sql`category = ${query.category}` : Prisma.sql`true`
-    } AND ${
+    const category = query.category ? Prisma.sql`category = ${query.category}` : Prisma.sql`true`;
+    const term = query.q?.trim() ?? "";
+    const sourceScope = Prisma.sql`${query.kind ? Prisma.sql`kind = ${query.kind}` : Prisma.sql`true`} AND ${
       opts.kinds
         ? opts.kinds.length
           ? Prisma.sql`kind IN (${Prisma.join([...opts.kinds])})`
           : Prisma.sql`false`
         : Prisma.sql`true`
-    }`;
+    } AND (${term} = '' OR strpos(lower(reference), lower(${term})) > 0
+      OR strpos(lower(detail), lower(${term})) > 0 OR strpos(lower(title), lower(${term})) > 0)`;
     // One statement: page, total and filter counts describe the same database snapshot.
     const [result] = await this.prisma.$queryRaw<
       Array<{
@@ -307,7 +308,8 @@ export class DailyWorkService {
       WITH work (id, kind, category, title, detail, reference, status, href, action, created_at, due_at, owner, mine, approval, blocked, priority)
         AS (${Prisma.join(sources, " UNION ALL ")}),
       classified AS (SELECT *, COALESCE(due_at <= ${now}::timestamp, false) AS overdue, ${place} AS place FROM work),
-      scoped AS (SELECT * FROM classified WHERE ${category}),
+      source_scope AS (SELECT * FROM classified WHERE ${sourceScope}),
+      scoped AS (SELECT * FROM source_scope WHERE ${category}),
       filtered AS (SELECT * FROM scoped WHERE ${filter}),
       page AS (SELECT * FROM filtered ORDER BY blocked ASC, overdue DESC, priority, (approval AND NOT blocked) DESC,
         mine DESC NULLS LAST, due_at ASC NULLS LAST, created_at, id LIMIT ${pageSize} OFFSET ${(query.page - 1) * pageSize})
@@ -323,7 +325,7 @@ export class DailyWorkService {
       (SELECT jsonb_build_object('all', count(*), 'mine', count(*) FILTER (WHERE mine),
         'approvals', count(*) FILTER (WHERE approval AND NOT blocked), 'overdue', count(*) FILTER (WHERE overdue),
         'counter', count(*) FILTER (WHERE place = 'counter')) FROM scoped) AS counts,
-      COALESCE((SELECT jsonb_object_agg(category, n) FROM (SELECT category, count(*)::int n FROM classified GROUP BY category) c), '{}'::jsonb) AS categories`);
+      COALESCE((SELECT jsonb_object_agg(category, n) FROM (SELECT category, count(*)::int n FROM source_scope GROUP BY category) c), '{}'::jsonb) AS categories`);
     return {
       ...result,
       page: query.page,

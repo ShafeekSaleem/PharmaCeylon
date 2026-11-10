@@ -309,12 +309,12 @@ describe("NotificationsService", () => {
 
     it("notifies actionable refund approvals and excludes self-blocked ones", async () => {
       const { prisma, service, user, work } = setup();
-      const refund = { ...waiting, id: "refund:rr-1", kind: "sale_refund.approve", where: "web", category: "counter", title: "Approve prepared refund", reference: "RFR-1", href: "/refund-approvals?request=rr-1", action: "Review refund", approval: true };
+      const refund = { ...waiting, id: "refund:rr-1", kind: "sale_refund.approve", where: "web", category: "counter", title: "Approve prepared refund", reference: "RFR-1", href: "/sales?view=pending-approvals&request=rr-1", action: "Review refund", approval: true };
       work.get.mockResolvedValue({ counterLive: true, items: [refund, { ...refund, id: "refund:rr-2", blocked: true }] });
       await service.list(user, "branch-1", {});
       expect(prisma.notification.upsert).toHaveBeenCalledTimes(1);
       expect(prisma.notification.upsert).toHaveBeenCalledWith(expect.objectContaining({ create: expect.objectContaining({
-        title: "Approve prepared refund RFR-1", actionHref: "/refund-approvals?request=rr-1", category: NotificationCategory.sales,
+        title: "Approve prepared refund RFR-1", actionHref: "/sales?view=pending-approvals&request=rr-1", category: NotificationCategory.sales,
       }) }));
     });
 

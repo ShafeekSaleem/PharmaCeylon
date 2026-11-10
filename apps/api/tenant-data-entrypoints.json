@@ -316,7 +316,7 @@
     {
       "path": "src/sales/refund-requests.service.ts",
       "mode": "scoped-domain-lock",
-      "reason": "Locks one tenant/branch refund request (after its sale) for approval, cancellation and execution; approval evidence, StockService effects and success audit share the caller transaction. Also reads the paginated refund approval inbox/count with bound tenant_id and branch_id and scoped sale/approval joins; no physical effects."
+      "reason": "Locks one tenant/branch refund request (after its sale) for approval, cancellation and execution; approval evidence, StockService effects and success audit share the caller transaction."
     },
     {
       "path": "src/purchasing/prepared-receipt.service.ts",

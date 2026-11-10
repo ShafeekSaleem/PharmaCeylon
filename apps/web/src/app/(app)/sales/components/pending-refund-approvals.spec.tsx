@@ -7,8 +7,8 @@ import {
   within,
 } from "@testing-library/react";
 import { apiJson } from "@/lib/auth-client";
-import type { SaleRefundRequest } from "../sales/types";
-import RefundApprovalsPage from "./page";
+import type { SaleRefundRequest } from "../types";
+import PendingRefundApprovals from "./pending-refund-approvals";
 
 jest.mock("@/lib/auth-client", () => ({ apiJson: jest.fn() }));
 let mockBranch = "branch-a";
@@ -75,9 +75,11 @@ const request: SaleRefundRequest = {
 let current: SaleRefundRequest;
 const queue = (items = [current], total = items.length) => ({
   items: items.map((item) => ({
-    ...item,
-    selfApprovalBlocked:
-      item.requester?.id === "manager" && !mockCanSelfApprove,
+    id: `refund:${item.id}`, reference: item.requestNumber,
+    kind: "sale_refund.approve", category: "counter", where: "web",
+    title: "Approve prepared refund", detail: `${item.invoiceNo} · LKR ${item.amount}`,
+    createdAt: item.requestedAt, status: item.status,
+    blocked: item.requester?.id === "manager" && !mockCanSelfApprove,
   })),
   total,
   page: 1,
@@ -102,7 +104,7 @@ beforeEach(() => {
           executionApprovalId: "approved-id",
           approver: { id: "manager", fullName: "Manager" },
         });
-      if (String(path).startsWith("/sales/refund-approval-queue?"))
+      if (String(path).startsWith("/dashboard/work?"))
         return queue(current.readyAtCounter ? [] : [current]);
       return current;
     });
@@ -118,7 +120,7 @@ async function openReview() {
 }
 
 it("allows an approver without sales.refund or sales.view to review exact lines and hand off, never execute", async () => {
-  render(<RefundApprovalsPage />);
+  render(<PendingRefundApprovals />);
   const dialog = await openReview();
   expect(await within(dialog).findByText("Paracetamol")).toBeInTheDocument();
   expect(within(dialog).getByText("Batch LOT-17")).toBeInTheDocument();
@@ -151,7 +153,7 @@ it("allows an approver without sales.refund or sales.view to review exact lines 
 
 it("hides approval for one's own request unless self-approval is configured", async () => {
   current = { ...current, requester: { id: "manager", fullName: "Manager" } };
-  const view = render(<RefundApprovalsPage />);
+  const view = render(<PendingRefundApprovals />);
   const dialog = await openReview();
   await within(dialog).findByText(
     "You raised this refund. Another approver must review it.",
@@ -160,14 +162,14 @@ it("hides approval for one's own request unless self-approval is configured", as
     within(dialog).queryByRole("button", { name: "Approve refund" }),
   ).not.toBeInTheDocument();
   mockCanSelfApprove = true;
-  view.rerender(<RefundApprovalsPage />);
+  view.rerender(<PendingRefundApprovals />);
   expect(
     within(dialog).getByRole("button", { name: "Approve refund" }),
   ).toBeInTheDocument();
 });
 
 it("reloads current evidence after stale approval and requires another deliberate click", async () => {
-  render(<RefundApprovalsPage />);
+  render(<PendingRefundApprovals />);
   const dialog = await openReview();
   await within(dialog).findByText("Paracetamol");
   const normal = jest.mocked(apiJson).getMockImplementation()!;
@@ -209,10 +211,10 @@ it("ignores a late old-branch response and pins the new approval to its branch",
       });
     return normal(path, init);
   });
-  const view = render(<RefundApprovalsPage />);
+  const view = render(<PendingRefundApprovals />);
   mockBranch = "branch-b";
   current = { ...current, requestNumber: "RFR-B" };
-  view.rerender(<RefundApprovalsPage />);
+  view.rerender(<PendingRefundApprovals />);
   await screen.findByText("RFR-B");
   await act(async () =>
     finishOld(queue([{ ...request, requestNumber: "RFR-OLD" }])),
@@ -234,7 +236,7 @@ it("ignores a late old-branch response and pins the new approval to its branch",
 it("opens notification deep links with fresh server data and cannot approve a cancelled request", async () => {
   mockSearchParams.set("request", request.id);
   current = { ...current, status: "cancelled", approvalReview: null };
-  render(<RefundApprovalsPage />);
+  render(<PendingRefundApprovals />);
   const dialog = await screen.findByRole("dialog");
   await within(dialog).findByText("Cancelled");
   expect(
@@ -243,7 +245,7 @@ it("opens notification deep links with fresh server data and cannot approve a ca
 });
 
 it("prevents duplicate submissions and reuses the approval ID after a lost response", async () => {
-  render(<RefundApprovalsPage />);
+  render(<PendingRefundApprovals />);
   const dialog = await openReview();
   await within(dialog).findByText("Paracetamol");
   const normal = jest.mocked(apiJson).getMockImplementation()!;
@@ -280,7 +282,7 @@ it("prevents duplicate submissions and reuses the approval ID after a lost respo
 it("shows a load failure distinctly and recovers through Refresh", async () => {
   const normal = jest.mocked(apiJson).getMockImplementation()!;
   jest.mocked(apiJson).mockRejectedValue(new Error("API unavailable"));
-  render(<RefundApprovalsPage />);
+  render(<PendingRefundApprovals />);
   await screen.findByText("API unavailable");
   jest.mocked(apiJson).mockImplementation(normal);
   fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
@@ -290,14 +292,14 @@ it("shows a load failure distinctly and recovers through Refresh", async () => {
 
 it("does not fetch the inbox without approve permission", () => {
   mockPermissions = ["sales.view", "sales.refund"];
-  render(<RefundApprovalsPage />);
+  render(<PendingRefundApprovals />);
   expect(screen.getByText("Insufficient permissions")).toBeInTheDocument();
   expect(apiJson).not.toHaveBeenCalled();
 });
 
 it("searches on the server and paginates rather than truncating to 200 requests", async () => {
   jest.mocked(apiJson).mockResolvedValue(queue([current], 250));
-  render(<RefundApprovalsPage />);
+  render(<PendingRefundApprovals />);
   await screen.findByText("250 waiting for approval");
   fireEvent.click(screen.getByRole("button", { name: "Next" }));
   await waitFor(() =>

@@ -31,11 +31,9 @@ import type {
   ExecuteSaleRefundDto,
   ListSaleRefundRequestsQueryDto,
   PrepareSaleRefundDto,
-  RefundApprovalQueueQueryDto,
 } from "./dto/refund-request.dto";
 import { ApproverCoSignService } from "./approver-cosign.service";
 import { refundReason, SalesService, type RefundPlan } from "./sales.service";
-import { refundNeedsApprovalSql } from "./refund-approval-queue";
 
 type Tx = Prisma.TransactionClient;
 /** One prepared line, priced at what the customer paid (stored as text, LKR). */
@@ -364,37 +362,6 @@ export class RefundRequestsService {
       goodsReturnId: applied.goodsReturnId,
       refundedTo: applied.refundSplit.map((part) => ({ method: part.method, amount: part.amount.toFixed(2) })),
     };
-  }
-
-  async approvalQueue(user: RequestUser, branchId: string, query: RefundApprovalQueueQueryDto) {
-    const actor = await this.access.resolveLive(user, branchId, this.prisma);
-    if (!actor.has("returns.approve")) throw new ForbiddenException("Your role can't approve refunds");
-    const page = query.page ?? 1;
-    const pageSize = query.pageSize ?? 25;
-    const term = query.q?.trim() ?? "";
-    // strpos treats %, _ and backslashes as literal receipt characters.
-    const from = Prisma.sql`FROM sale_refund_request r
-      JOIN sale s ON s.tenant_id = r.tenant_id AND s.branch_id = r.branch_id AND s.id = r.sale_id
-      LEFT JOIN tenant_settings ts ON ts.tenant_id = r.tenant_id
-      LEFT JOIN management_approval a ON a.tenant_id = r.tenant_id AND a.branch_id = r.branch_id AND a.id = r.execution_approval_id
-      WHERE r.tenant_id = ${user.tenantId}::uuid AND r.branch_id = ${branchId}::uuid
-        AND r.status IN ('prepared', 'approved') AND ${refundNeedsApprovalSql()}
-        AND (${term} = '' OR strpos(lower(r.request_number), lower(${term})) > 0
-          OR strpos(lower(s.invoice_no), lower(${term})) > 0)`;
-    const [ids, counts] = await Promise.all([
-      this.prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`SELECT r.id ${from}
-        ORDER BY r.requested_at ASC, r.id ASC LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`),
-      this.prisma.$queryRaw<Array<{ total: bigint }>>(Prisma.sql`SELECT count(*) AS total ${from}`),
-    ]);
-    const rows = ids.length ? await this.prisma.saleRefundRequest.findMany({
-      where: { tenantId: user.tenantId, branchId, id: { in: ids.map(row => row.id) } },
-    }) : [];
-    const views = await this.view(user.tenantId, branchId, rows);
-    const byId = new Map(views.map(row => [row.id, row]));
-    return { items: ids.flatMap(({ id }) => {
-      const row = byId.get(id);
-      return row ? [{ ...row, selfApprovalBlocked: row.requester?.id === user.userId && !actor.canSelfApprove }] : [];
-    }), total: Number(counts[0]?.total ?? 0), page, pageSize };
   }
 
   async list(tenantId: string, branchId: string, query: ListSaleRefundRequestsQueryDto) {
