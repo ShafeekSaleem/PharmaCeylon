@@ -359,10 +359,14 @@ function OfflineCounterPanel({
   branchName,
   backup,
   enrollmentBackup,
+  enrollmentFactsLive,
+  enrollmentStatusFetchedAt,
 }: {
   branchName: string;
   backup: OfflineBackup | null;
   enrollmentBackup: EnrollmentOfflineBackup;
+  enrollmentFactsLive: boolean;
+  enrollmentStatusFetchedAt: string | null;
 }) {
   const [view, setView] = useState<OfflineCounterView | null>(null);
   const [viewFromEnrollment, setViewFromEnrollment] = useState(false);
@@ -417,6 +421,11 @@ function OfflineCounterPanel({
     !view.thisCounterNominated &&
     !showEnrollmentAuthorizedWaiting;
   const showOfflineStatusUnchecked = offlineLoadError != null;
+  const showLastKnown =
+    !enrollmentFactsLive &&
+    enrollmentStatusFetchedAt != null &&
+    (enrollmentBackup.authorizedAt != null ||
+      enrollmentBackup.activatedAt != null);
   const authorizedLine = formatOfflineAuthorized(enrollmentBackup);
   const activatedLine = formatOfflineActivated(enrollmentBackup);
   const expiresAt = backup?.grantExpiresAt
@@ -456,6 +465,12 @@ function OfflineCounterPanel({
     <div className={cx(ui.panel, styles.grow)}>
       <div className={cx(ui.ph, styles.ph)}>
         <h2>Offline backup counter</h2>
+        {showLastKnown && (
+          <span className={styles.phNote}>
+            Last known ·{" "}
+            {dayMonthYear(new Date(enrollmentStatusFetchedAt!))}
+          </span>
+        )}
         <span className={cx(ui.pill, tone, styles.right)}>
           {view.thisCounterNominated && <Icon name="shield-check" />}
           {status}
@@ -645,6 +660,9 @@ export function ThisCounterPage({
   const local = atTheComputer(state);
   const server = host(state.serverUrl);
   const tillName = tillDisplayName(enrollment.counterLabel, enrollment.tillId);
+  const showLastKnown =
+    !enrollment.enrollmentFactsLive &&
+    enrollment.enrollmentStatusFetchedAt != null;
   const branchCodeSub = enrollment.branchCode
     ? `Branch code ${enrollment.branchCode}`
     : "Sign in online once to store it here";
@@ -681,6 +699,12 @@ export function ThisCounterPage({
             </small>
           </div>
           <div className={styles.headRight}>
+            {showLastKnown && (
+              <span className={styles.phNote}>
+                Last known ·{" "}
+                {dayMonthYear(new Date(enrollment.enrollmentStatusFetchedAt!))}
+              </span>
+            )}
             <span className={cx(ui.pill, ui.ok)}>
               <Icon name="check" />
               Enrolled
@@ -725,6 +749,8 @@ export function ThisCounterPage({
             branchName={enrollment.branchName}
             backup={readiness?.offlineBackup ?? null}
             enrollmentBackup={enrollment.offlineBackup}
+            enrollmentFactsLive={enrollment.enrollmentFactsLive}
+            enrollmentStatusFetchedAt={enrollment.enrollmentStatusFetchedAt}
           />
         </div>
       </div>

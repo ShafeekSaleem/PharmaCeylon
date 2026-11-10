@@ -27,6 +27,8 @@ const baseEnrollment = {
   enrolledByUserId: ids.ana,
   enrolledByName: "Dilini Fernando",
   offlineBackup: emptyEnrollmentOfflineBackup,
+  enrollmentFactsLive: true,
+  enrollmentStatusFetchedAt: null,
 };
 
 function offlineView(backup: EnrollmentOfflineBackup) {
@@ -254,6 +256,48 @@ describe("offline backup when offline-assignment fails for other reasons", () =>
         name: "Activate as the offline backup",
       }),
     ).toBeNull();
+  });
+});
+
+describe("cached enrollment facts", () => {
+  it("shows last known on the card and offline panel when facts are not live", async () => {
+    const backup: EnrollmentOfflineBackup = {
+      authorizedAt: Date.UTC(2026, 9, 13, 12),
+      authorizedByUserId: ids.ana,
+      authorizedByFullName: "Dilini Fernando",
+      activatedAt: null,
+      activatedByUserId: null,
+      activatedByFullName: null,
+    };
+    stubPos({
+      listPrinters: () => Promise.resolve([]),
+      offlineCounter: () =>
+        Promise.resolve(offlineAssignmentForbidden),
+    });
+    renderWithKeys(
+      <ThisCounterPage
+        state={deviceState({
+          enrollment: {
+            ...baseEnrollment,
+            counterLabel: "Counter 2",
+            offlineBackup: backup,
+            enrollmentFactsLive: false,
+            enrollmentStatusFetchedAt: "2026-10-15T10:30:00.000Z",
+          },
+        })}
+        info={{
+          appVersion: "1.0.0",
+          electronVersion: "44.7.0",
+          schemaVersion: 15,
+          packaged: false,
+        }}
+        readiness={null}
+        onCheck={() => undefined}
+      />,
+    );
+    await waitFor(() =>
+      expect(screen.getAllByText("Last known · 15 Oct 2026").length).toBe(2),
+    );
   });
 });
 

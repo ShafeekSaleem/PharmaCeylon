@@ -87,6 +87,14 @@ function verifies(
 class FakeServer {
   user: AuthUser | null = null;
   enrollmentStatus: "active" | "revoked" = "active";
+  enrollmentOfflineBackup = {
+    authorizedAt: null as number | null,
+    authorizedByUserId: null as string | null,
+    authorizedByFullName: null as string | null,
+    activatedAt: null as number | null,
+    activatedByUserId: null as string | null,
+    activatedByFullName: null as string | null,
+  };
   failFinishEnrollment: ApiError | null = null;
   pin: string | null = null;
   nominatedEnrollment: string | null = null;
@@ -114,6 +122,10 @@ class FakeServer {
     | TerminalPinSessionCommand
     | null = null;
   private occupied = false;
+
+  releaseCounter(): void {
+    this.occupied = false;
+  }
 
   readonly api = {
     get user() {
@@ -260,14 +272,7 @@ class FakeServer {
         label: "PC",
         counterLabel: "Counter 1",
         status: this.enrollmentStatus,
-        offlineBackup: {
-          authorizedAt: null,
-          authorizedByUserId: null,
-          authorizedByFullName: null,
-          activatedAt: null,
-          activatedByUserId: null,
-          activatedByFullName: null,
-        },
+        offlineBackup: this.enrollmentOfflineBackup,
       };
     if (path === "/terminals/sessions/challenge") {
       this.challenge = {
@@ -1004,6 +1009,136 @@ describe("TerminalService PIN sign-in (D-W5)", () => {
       terminal.signInWithPin(cashier.id, "4821"),
     ).rejects.toMatchObject({ code: "REMOTE_SESSION_DENIED" });
     expect(pinCalls()).toEqual([]);
+  });
+});
+
+describe("TerminalService enrollment status cache", () => {
+  it("persists till and offline-backup facts and reloads them after a restart", async () => {
+    const terminal = service();
+    await enrolled(terminal);
+    server.enrollmentOfflineBackup = {
+      authorizedAt: Date.UTC(2026, 9, 13, 12),
+      authorizedByUserId: manager.id,
+      authorizedByFullName: "Branch Owner",
+      activatedAt: null,
+      activatedByUserId: null,
+      activatedByFullName: null,
+    };
+    await terminal.signIn(manager.email, "password");
+    const live = await terminal.refreshStatus();
+    expect(live.enrollment?.enrollmentFactsLive).toBe(true);
+    expect(live.enrollment?.offlineBackup.authorizedAt).toBe(
+      server.enrollmentOfflineBackup.authorizedAt,
+    );
+    expect(new DeviceStore(local.db).readEnrollmentStatusCache()).toMatchObject({
+      counterLabel: "Counter 1",
+      offlineBackup: server.enrollmentOfflineBackup,
+    });
+
+    const restarted = service();
+    const cached = restarted.state().enrollment;
+    expect(cached?.enrollmentFactsLive).toBe(false);
+    expect(cached?.enrollmentStatusFetchedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(cached?.offlineBackup).toEqual(server.enrollmentOfflineBackup);
+  });
+
+  it("clears stale cache when enrolling again in the same session", async () => {
+    const terminal = service();
+    await enrolled(terminal);
+    server.enrollmentOfflineBackup = {
+      authorizedAt: Date.UTC(2026, 9, 13, 12),
+      authorizedByUserId: manager.id,
+      authorizedByFullName: "Branch Owner",
+      activatedAt: Date.UTC(2026, 9, 14, 12),
+      activatedByUserId: manager.id,
+      activatedByFullName: manager.fullName,
+    };
+    await terminal.signIn(manager.email, "password");
+    await terminal.refreshStatus();
+    server.releaseCounter();
+    local.db
+      .prepare("UPDATE device_identity SET status = 'retired' WHERE id = 1")
+      .run();
+    await terminal.signIn(manager.email, "password");
+    await terminal.enroll({
+      branchId,
+      registerId,
+      label: "Replacement PC",
+    });
+    expect(terminal.state().enrollment?.offlineBackup.authorizedAt).toBeNull();
+    expect(terminal.state().enrollment?.enrollmentFactsLive).toBe(false);
+    expect(new DeviceStore(local.db).readEnrollmentStatusCache()).toBeNull();
+  });
+
+  it("returns null from disk when offline-backup JSON is corrupt", async () => {
+    const terminal = service();
+    await enrolled(terminal);
+    server.enrollmentOfflineBackup = {
+      authorizedAt: Date.UTC(2026, 9, 13, 12),
+      authorizedByUserId: manager.id,
+      authorizedByFullName: "Branch Owner",
+      activatedAt: null,
+      activatedByUserId: null,
+      activatedByFullName: null,
+    };
+    await terminal.signIn(manager.email, "password");
+    await terminal.refreshStatus();
+    local.db
+      .prepare(
+        `UPDATE device_identity SET enrollment_offline_backup_json = ? WHERE id = 1`,
+      )
+      .run("{not valid json");
+    expect(new DeviceStore(local.db).readEnrollmentStatusCache()).toBeNull();
+  });
+
+  it("returns null from disk when the cache enrollment id does not match the row", async () => {
+    const terminal = service();
+    await enrolled(terminal);
+    server.enrollmentOfflineBackup = {
+      authorizedAt: Date.UTC(2026, 9, 13, 12),
+      authorizedByUserId: manager.id,
+      authorizedByFullName: "Branch Owner",
+      activatedAt: null,
+      activatedByUserId: null,
+      activatedByFullName: null,
+    };
+    await terminal.signIn(manager.email, "password");
+    await terminal.refreshStatus();
+    local.db
+      .prepare(
+        `UPDATE device_identity SET enrollment_status_enrollment_id = ? WHERE id = 1`,
+      )
+      .run(randomUUID());
+    expect(new DeviceStore(local.db).readEnrollmentStatusCache()).toBeNull();
+  });
+
+  it("keeps disk cache when enrollment fails before pending is saved", async () => {
+    const terminal = service();
+    await enrolled(terminal);
+    server.enrollmentOfflineBackup = {
+      authorizedAt: Date.UTC(2026, 9, 13, 12),
+      authorizedByUserId: manager.id,
+      authorizedByFullName: "Branch Owner",
+      activatedAt: null,
+      activatedByUserId: null,
+      activatedByFullName: null,
+    };
+    await terminal.signIn(manager.email, "password");
+    await terminal.refreshStatus();
+    const before = new DeviceStore(local.db).readEnrollmentStatusCache();
+    expect(before).not.toBeNull();
+
+    server.releaseCounter();
+    local.db
+      .prepare("UPDATE device_identity SET status = 'retired' WHERE id = 1")
+      .run();
+    await terminal.signIn(manager.email, "password");
+    windowsSession = { sessionId: 3, protocol: "rdp", remoteSession: true };
+    await expect(
+      terminal.enroll({ branchId, registerId, label: "Replacement PC" }),
+    ).rejects.toMatchObject({ code: "REMOTE_SESSION_DENIED" });
+    windowsSession = CONSOLE;
+    expect(new DeviceStore(local.db).readEnrollmentStatusCache()).toEqual(before);
   });
 });
 

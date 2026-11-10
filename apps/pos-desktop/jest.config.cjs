@@ -1,3 +1,7 @@
+// Pins UTC so date-copy tests stay deterministic in CI and late zones (e.g. Pacific/Auckland).
+// This does not prove the renderer is zone-proof at runtime outside Jest.
+process.env.TZ = "UTC";
+
 /** @type {import("jest").Config} */
 const config = {
   moduleFileExtensions: ["js", "json", "ts", "tsx"],

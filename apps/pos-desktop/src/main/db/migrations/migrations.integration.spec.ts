@@ -24,9 +24,9 @@ afterEach(() => {
 });
 
 describe("offline journal migrations with PR #136", () => {
-  it("applies a fresh database through v14 with device-enrollment-display at 13", () => {
+  it("applies a fresh database through v15 with device-enrollment-display at 13", () => {
     const store = openLocalStore(dir, protector, migrations);
-    expect(store.schemaVersion).toBe(14);
+    expect(store.schemaVersion).toBe(15);
     expect(
       store.db
         .prepare(
@@ -61,8 +61,8 @@ describe("offline journal migrations with PR #136", () => {
     first.db.close();
 
     const second = openLocalStore(dir, protector, migrations);
-    expect(second.schemaVersion).toBe(14);
-    expect(currentSchemaVersion(second.db)).toBe(14);
+    expect(second.schemaVersion).toBe(15);
+    expect(currentSchemaVersion(second.db)).toBe(15);
     second.db.close();
   });
 });
