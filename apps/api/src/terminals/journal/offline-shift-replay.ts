@@ -70,7 +70,15 @@ export async function readTillShiftState(
 export async function replayShiftOpen(
   tx: Tx,
   audit: AuditService,
-  input: { identity: TerminalIdentity; command: OfflineShiftOpenCommand; uploadedByUserId: string },
+  input: {
+    identity: TerminalIdentity;
+    command: OfflineShiftOpenCommand;
+    uploadedByUserId: string;
+    /** Slice 4: recorded by a manager's settlement of the refused entry. */
+    journalSettlementId?: string;
+    /** Slice 4: when it is dated, if not when the counter says (never after the server first saw it). */
+    at?: Date;
+  },
 ): Promise<void> {
   const { identity, command } = input;
   const { tenantId, branchId } = identity;
@@ -90,7 +98,7 @@ export async function replayShiftOpen(
       openCommandId: command.commandId,
       openedSignInId: command.staffSignInId,
       previousClosedWorkSessionId: command.previousClosedWorkSessionId,
-      openedAt: new Date(command.occurredAt),
+      openedAt: input.at ?? new Date(command.occurredAt),
       openingCashMinor: command.openingCashMinor,
       // The offline command carries the counted total, not the notes and coins.
       openingCount: [],
@@ -115,6 +123,7 @@ export async function replayShiftOpen(
         commandId: command.commandId,
         staffSignInId: command.staffSignInId,
         uploadedByUserId: input.uploadedByUserId,
+        ...(input.journalSettlementId ? { journalSettlementId: input.journalSettlementId } : {}),
       },
     },
     tx,
@@ -136,6 +145,10 @@ export async function replayShiftClose(
     signIn: OfflineStaffSignIn;
     shift: TillShift;
     uploadedByUserId: string;
+    /** Slice 4: recorded by a manager's settlement of the refused entry. */
+    journalSettlementId?: string;
+    /** Slice 4: when it is dated, if not when the counter says (never before the shift opened). */
+    at?: Date;
   },
 ): Promise<void> {
   const { identity, command, signIn, shift } = input;
@@ -149,7 +162,7 @@ export async function replayShiftClose(
   await tx.tillShift.update({
     where: { id: shift.id, tenantId, branchId },
     data: {
-      closedAt: new Date(command.occurredAt),
+      closedAt: input.at ? new Date(Math.max(input.at.getTime(), shift.openedAt.getTime())) : new Date(command.occurredAt),
       closingCashCountMinor: command.closingCashCountMinor,
       closingCount: [],
       expectedCashMinor: expected,
@@ -184,6 +197,7 @@ export async function replayShiftClose(
         commandId: command.commandId,
         staffSignInId: signIn.staffSignInId,
         uploadedByUserId: input.uploadedByUserId,
+        ...(input.journalSettlementId ? { journalSettlementId: input.journalSettlementId } : {}),
       },
     },
     tx,

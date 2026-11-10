@@ -38,6 +38,12 @@ describe("decideStockPosting", () => {
     expect(result.batches.map((b) => [b.availableQuantityAtSync, b.shortfallQuantity])).toEqual([[0, 2], [0, 1]]);
   });
 
+  it("never posts an entry a manager recorded after review (slice 4): it waits on a case", () => {
+    const result = decideStockPosting([sold("a", 1), sold("b", 4)], new Map([["a", 3], ["b", 2]]), new Set(), { entryReviewed: true });
+    expect(result.posts).toBe(false);
+    expect(result.batches.map((b) => [b.batchId, b.reason, b.shortfallQuantity])).toEqual([["a", "entry_reviewed", 0], ["b", "shortfall", 2]]);
+  });
+
   it("converts minor units exactly", () => {
     expect(fromMinor(1829).toFixed(2)).toBe("18.29");
     expect(fromMinor(1).toFixed(2)).toBe("0.01");

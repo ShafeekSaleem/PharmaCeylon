@@ -336,7 +336,12 @@
     {
       "path": "src/terminals/journal/offline-journal.service.ts",
       "mode": "scoped-domain-lock",
-      "reason": "Transaction-scoped advisory lock on the caller's tenant + signed enrollment id only, so one enrollment's journal commands (and concurrent identical retries) serialize and the second finds the first's receipt; share-locks one till shift by the bound tenant, branch and the signed work-session id (FOR SHARE) while an offline sale joins it. No data is read or written by raw SQL."
+      "reason": "Share-locks one till shift by the bound tenant, branch and the signed work-session id (FOR SHARE) while an offline sale joins it; the enrollment's journal lock is journal-chain.ts. No data is read or written by raw SQL."
+    },
+    {
+      "path": "src/terminals/journal/journal-chain.ts",
+      "mode": "scoped-domain-lock",
+      "reason": "Transaction-scoped advisory lock on the caller's tenant + enrollment id only, taken by offline journal intake and by a manager's settlement of a refused entry, so every writer of one enrollment's chain serializes (and concurrent identical retries find the first's receipt). No data is read or written by raw SQL."
     },
     {
       "path": "src/terminals/journal/offline-shift-replay.ts",
@@ -347,6 +352,11 @@
       "path": "src/security/offline-stock-resolution-approval-material.ts",
       "mode": "scoped-domain-lock",
       "reason": "The one lock order for offline stock case resolution, shared by the stock cases service and approval resolution: one discrepancy case and then one resolution plan by the bound tenant, branch and id (FOR UPDATE), before batch locks through StockService; nothing is read or written by raw SQL."
+    },
+    {
+      "path": "src/security/offline-journal-settlement-approval-material.ts",
+      "mode": "scoped-domain-lock",
+      "reason": "The first lock in settling a refused offline journal entry, shared by the journal reviews service and approval resolution: one settlement by the bound tenant, branch and id (FOR UPDATE), before the enrollment's journal lock and any till or batch locks; nothing is read or written by raw SQL."
     }
   ]
 }
