@@ -1,6 +1,16 @@
 import type { TerminalIdentity } from "@pharmaceylon/shared";
+import {
+  enrollmentOfflineBackupSchema,
+  type EnrollmentOfflineBackup,
+} from "../../shared/ipc-contract";
 import type { PosDatabase } from "../db/database";
 import { DeviceKey } from "./device-key";
+
+export type EnrollmentStatusCache = {
+  fetchedAt: string;
+  counterLabel: string | null;
+  offlineBackup: EnrollmentOfflineBackup;
+};
 
 export type EnrollmentStatus = "pending" | "active" | "revoked" | "retired";
 
@@ -45,6 +55,9 @@ type Row = {
   created_at: string;
   enrolled_at: string | null;
   status_checked_at: string | null;
+  enrollment_status_fetched_at: string | null;
+  enrollment_status_counter_label: string | null;
+  enrollment_offline_backup_json: string | null;
 };
 
 const toIdentity = (row: Row): DeviceIdentity => ({
@@ -193,6 +206,54 @@ export class DeviceStore {
         input.enrollmentId,
         input.now.toISOString(),
       );
+  }
+
+  /** Last server enrollment status for offline restarts (scoped to the current enrollment row). */
+  readEnrollmentStatusCache(): EnrollmentStatusCache | null {
+    const row = this.row();
+    if (!row?.enrollment_offline_backup_json || !row.enrollment_status_fetched_at)
+      return null;
+    let offlineBackup: EnrollmentOfflineBackup;
+    try {
+      offlineBackup = enrollmentOfflineBackupSchema.parse(
+        JSON.parse(row.enrollment_offline_backup_json),
+      );
+    } catch {
+      return null;
+    }
+    return {
+      fetchedAt: row.enrollment_status_fetched_at,
+      counterLabel: row.enrollment_status_counter_label,
+      offlineBackup,
+    };
+  }
+
+  saveEnrollmentStatusCache(input: EnrollmentStatusCache): void {
+    this.db
+      .prepare(
+        `UPDATE device_identity SET
+           enrollment_status_fetched_at = ?,
+           enrollment_status_counter_label = ?,
+           enrollment_offline_backup_json = ?
+         WHERE id = 1`,
+      )
+      .run(
+        input.fetchedAt,
+        input.counterLabel,
+        JSON.stringify(input.offlineBackup),
+      );
+  }
+
+  clearEnrollmentStatusCache(): void {
+    this.db
+      .prepare(
+        `UPDATE device_identity SET
+           enrollment_status_fetched_at = NULL,
+           enrollment_status_counter_label = NULL,
+           enrollment_offline_backup_json = NULL
+         WHERE id = 1`,
+      )
+      .run();
   }
 
   /** Fills branch code and enroller name on older rows when the app learns them (online refresh). */

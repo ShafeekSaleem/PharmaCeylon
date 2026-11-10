@@ -1,3 +1,6 @@
+// Renderer date copy (en-GB) must match CI and late zones such as Pacific/Auckland.
+process.env.TZ = "UTC";
+
 /** @type {import("jest").Config} */
 const config = {
   moduleFileExtensions: ["js", "json", "ts", "tsx"],

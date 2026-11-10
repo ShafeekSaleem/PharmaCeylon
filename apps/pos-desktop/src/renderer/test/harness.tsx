@@ -30,6 +30,9 @@ export function deviceState(overrides: Partial<DeviceState> = {}): DeviceState {
             ...enrollmentOverride,
             offlineBackup:
               enrollmentOverride.offlineBackup ?? emptyEnrollmentOfflineBackup,
+            enrollmentFactsLive: enrollmentOverride.enrollmentFactsLive ?? true,
+            enrollmentStatusFetchedAt:
+              enrollmentOverride.enrollmentStatusFetchedAt ?? null,
           };
   return {
     serverUrl: "https://pharmacy.example/api/v1",

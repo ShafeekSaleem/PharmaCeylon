@@ -13,6 +13,7 @@ import { checkoutDiscountCoSigner } from "./0011-checkout-discount-co-signer";
 import { tillShifts } from "./0012-till-shifts";
 import { deviceEnrollmentDisplay } from "./0013-device-enrollment-display";
 import { offlineJournal } from "./0014-offline-journal";
+import { enrollmentStatusCache } from "./0015-enrollment-status-cache";
 
 /** Append only. A released migration is never edited or reordered. */
 export const migrations: readonly Migration[] = [
@@ -30,4 +31,5 @@ export const migrations: readonly Migration[] = [
   tillShifts,
   deviceEnrollmentDisplay,
   offlineJournal,
+  enrollmentStatusCache,
 ];

@@ -29,6 +29,8 @@ const enrollment = {
   enrolledByUserId: ids.ana,
   enrolledByName: "Branch enroller",
   offlineBackup: emptyEnrollmentOfflineBackup,
+  enrollmentFactsLive: true,
+  enrollmentStatusFetchedAt: null,
 };
 const signedIn = (staffUserId: string, staffName: string) =>
   deviceState({

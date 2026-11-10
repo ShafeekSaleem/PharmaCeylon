@@ -144,10 +144,27 @@ export class TerminalService {
     counterLabel: string | null;
     offlineBackup: TerminalEnrollmentOfflineBackup;
   } | null = null;
+  /** True after a live enrollment-status fetch this session; false when facts come from disk. */
+  private enrollmentStatusLive = false;
+  private enrollmentStatusFetchedAt: string | null = null;
   private readonly now: () => Date;
 
   constructor(private readonly deps: TerminalServiceDeps) {
     this.now = deps.now ?? (() => new Date());
+    const cached = this.deps.store.readEnrollmentStatusCache();
+    if (cached) {
+      this.enrollmentFromServer = {
+        counterLabel: cached.counterLabel,
+        offlineBackup: cached.offlineBackup,
+      };
+      this.enrollmentStatusFetchedAt = cached.fetchedAt;
+    }
+  }
+
+  private clearEnrollmentStatusMemory(): void {
+    this.enrollmentFromServer = null;
+    this.enrollmentStatusLive = false;
+    this.enrollmentStatusFetchedAt = null;
   }
 
   state(): DeviceState {
@@ -177,6 +194,10 @@ export class TerminalService {
             offlineBackup:
               this.enrollmentFromServer?.offlineBackup ??
               emptyEnrollmentOfflineBackup,
+            enrollmentFactsLive: this.enrollmentStatusLive,
+            enrollmentStatusFetchedAt: this.enrollmentStatusLive
+              ? null
+              : this.enrollmentStatusFetchedAt,
           }
         : null,
       operator: operator
@@ -681,6 +702,8 @@ export class TerminalService {
     counterLabel: string;
     label: string;
   }): Promise<DeviceState> {
+    this.clearEnrollmentStatusMemory();
+    this.deps.store.clearEnrollmentStatusCache();
     const { key, challenge, user, branch, apiBaseUrl } = input;
     if (
       challenge.publicKeyHex !== key.publicKeyHex ||
@@ -766,10 +789,18 @@ export class TerminalService {
 
   /** Caches till name and offline-backup facts for the renderer; persists a non-null till name. */
   private syncEnrollmentStatus(status: TerminalEnrollmentStatusView): void {
+    const fetchedAt = this.now().toISOString();
     this.enrollmentFromServer = {
       counterLabel: status.counterLabel,
       offlineBackup: status.offlineBackup,
     };
+    this.enrollmentStatusLive = true;
+    this.enrollmentStatusFetchedAt = fetchedAt;
+    this.deps.store.saveEnrollmentStatusCache({
+      fetchedAt,
+      counterLabel: status.counterLabel,
+      offlineBackup: status.offlineBackup,
+    });
     if (status.counterLabel)
       this.deps.store.patchEnrollmentDisplay({ counterLabel: status.counterLabel });
   }

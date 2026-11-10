@@ -28,6 +28,8 @@ const enrollmentBase = {
   enrolledByUserId: ids.ana,
   enrolledByName: "Branch enroller",
   offlineBackup: emptyEnrollmentOfflineBackup,
+  enrollmentFactsLive: true,
+  enrollmentStatusFetchedAt: null,
 };
 
 const state = deviceState({

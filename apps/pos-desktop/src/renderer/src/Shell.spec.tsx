@@ -25,6 +25,8 @@ const enrollmentBase = {
   enrolledByUserId: ids.ana,
   enrolledByName: null,
   offlineBackup: emptyEnrollmentOfflineBackup,
+  enrollmentFactsLive: true,
+  enrollmentStatusFetchedAt: null,
 };
 
 describe("TitleBar till label", () => {

@@ -137,6 +137,10 @@ export const deviceStateSchema = z.object({
       /** Enroller display name when stored or backfilled; null when unknown. */
       enrolledByName: z.string().nullable(),
       offlineBackup: enrollmentOfflineBackupSchema,
+      /** False when till name and offline-backup facts come from the local enrollment-status cache. */
+      enrollmentFactsLive: z.boolean(),
+      /** When `enrollmentFactsLive` is false, when those facts were last fetched from the server. */
+      enrollmentStatusFetchedAt: z.string().nullable(),
     })
     .nullable(),
   operator: z
