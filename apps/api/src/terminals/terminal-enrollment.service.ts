@@ -164,8 +164,10 @@ export class TerminalEnrollmentService {
             authorizationId: true,
             activatedAt: true,
             activatedByUserId: true,
+            version: true,
           },
         });
+        const nominationVersion = nomination?.version ?? 0;
 
         const outstandingAuthorization =
           await tx.offlineTerminalAssignmentAuthorization.findFirst({
@@ -174,21 +176,24 @@ export class TerminalEnrollmentService {
               branchId,
               targetEnrollmentId: enrollment.id,
               status: "authorized",
+              expectedNominationVersion: nominationVersion,
             },
             select: { authorizedAt: true, authorizedByUserId: true },
           });
 
-        const nominationAuthorization = nomination
-          ? await tx.offlineTerminalAssignmentAuthorization.findFirst({
-              where: {
-                tenantId: user.tenantId,
-                branchId,
-                id: nomination.authorizationId,
-                status: "consumed",
-              },
-              select: { authorizedAt: true, authorizedByUserId: true },
-            })
-          : null;
+        const nominationAuthorization =
+          nomination?.enrollmentId === enrollment.id
+            ? await tx.offlineTerminalAssignmentAuthorization.findFirst({
+                where: {
+                  tenantId: user.tenantId,
+                  branchId,
+                  id: nomination.authorizationId,
+                  targetEnrollmentId: enrollment.id,
+                  status: "consumed",
+                },
+                select: { authorizedAt: true, authorizedByUserId: true },
+              })
+            : null;
 
         const actorIds = [
           nomination?.activatedByUserId,

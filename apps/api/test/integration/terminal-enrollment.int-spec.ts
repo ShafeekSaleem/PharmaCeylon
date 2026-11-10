@@ -1347,9 +1347,9 @@ describe("go-live evidence from counters", () => {
 
 describe("GET enrollment status for This counter", () => {
   const resetOfflineAssignment = async () => {
-    await prisma.offlineTerminalNomination.deleteMany({
-      where: { tenantId: fx.tenantId, branchId: fx.mainBranchId },
-    });
+    // Assignment authorizations are retained (immutable evidence); revoke outstanding rows only.
+    // Nomination rows can still be deleted — no retention trigger yet — but tests that need a
+    // clean branch nomination use upsert below instead of depending on deleteMany here.
     await prisma.offlineTerminalAssignmentAuthorization.updateMany({
       where: { tenantId: fx.tenantId, branchId: fx.mainBranchId, status: "authorized" },
       data: {
@@ -1466,10 +1466,22 @@ describe("GET enrollment status for This counter", () => {
       },
     });
 
-    await prisma.offlineTerminalNomination.create({
-      data: {
+    await prisma.offlineTerminalNomination.upsert({
+      where: {
+        tenantId_branchId: { tenantId: fx.tenantId, branchId: fx.mainBranchId },
+      },
+      create: {
         tenantId: fx.tenantId,
         branchId: fx.mainBranchId,
+        terminalId: other.identity.terminalId,
+        enrollmentId: other.identity.enrollmentId,
+        keyId: other.identity.keyId,
+        version: 1,
+        authorizationId: authId,
+        activatedAt: new Date("2020-01-01T00:00:00.000Z"),
+        activatedByUserId: fx.ownerId,
+      },
+      update: {
         terminalId: other.identity.terminalId,
         enrollmentId: other.identity.enrollmentId,
         keyId: other.identity.keyId,
@@ -1539,6 +1551,212 @@ describe("GET enrollment status for This counter", () => {
       activatedAt: null,
       activatedByUserId: null,
       activatedByFullName: null,
+    });
+  });
+
+  it("does not surface an outstanding authorization pinned to a stale nomination version", async () => {
+    const nominated = await enroll();
+    const { identity } = await enroll();
+    const consumedAuthId = randomUUID();
+
+    await prisma.offlineTerminalAssignmentAuthorization.create({
+      data: {
+        id: consumedAuthId,
+        tenantId: fx.tenantId,
+        branchId: fx.mainBranchId,
+        targetTerminalId: nominated.identity.terminalId,
+        targetEnrollmentId: nominated.identity.enrollmentId,
+        targetKeyId: nominated.identity.keyId,
+        expectedNominationVersion: 0,
+        reason: "Consumed for nomination",
+        authorizedByUserId: fx.ownerId,
+        authority: "owner",
+        authorizedAt: new Date("2019-01-01T00:00:00.000Z"),
+        status: "consumed",
+        consumedAt: new Date("2019-01-02T00:00:00.000Z"),
+        consumedByUserId: fx.ownerId,
+      },
+    });
+
+    await prisma.offlineTerminalNomination.upsert({
+      where: {
+        tenantId_branchId: { tenantId: fx.tenantId, branchId: fx.mainBranchId },
+      },
+      create: {
+        tenantId: fx.tenantId,
+        branchId: fx.mainBranchId,
+        terminalId: nominated.identity.terminalId,
+        enrollmentId: nominated.identity.enrollmentId,
+        keyId: nominated.identity.keyId,
+        version: 1,
+        authorizationId: consumedAuthId,
+        activatedAt: new Date("2019-06-01T00:00:00.000Z"),
+        activatedByUserId: fx.ownerId,
+      },
+      update: {
+        terminalId: nominated.identity.terminalId,
+        enrollmentId: nominated.identity.enrollmentId,
+        keyId: nominated.identity.keyId,
+        version: 1,
+        authorizationId: consumedAuthId,
+        activatedAt: new Date("2019-06-01T00:00:00.000Z"),
+        activatedByUserId: fx.ownerId,
+      },
+    });
+
+    const staleAuthId = randomUUID();
+    await prisma.offlineTerminalAssignmentAuthorization.create({
+      data: {
+        id: staleAuthId,
+        tenantId: fx.tenantId,
+        branchId: fx.mainBranchId,
+        targetTerminalId: identity.terminalId,
+        targetEnrollmentId: identity.enrollmentId,
+        targetKeyId: identity.keyId,
+        expectedNominationVersion: 0,
+        reason: "Stale after nomination moved",
+        authorizedByUserId: fx.ownerId,
+        authority: "owner",
+        authorizedAt: new Date("2020-01-01T00:00:00.000Z"),
+        status: "authorized",
+      },
+    });
+
+    const status = await enrollmentService.enrollmentStatus(owner, fx.mainBranchId, identity.enrollmentId);
+    expect(status.offlineBackup).toEqual({
+      authorizedAt: null,
+      authorizedByUserId: null,
+      authorizedByFullName: null,
+      activatedAt: null,
+      activatedByUserId: null,
+      activatedByFullName: null,
+    });
+  });
+
+  it("omits authorization on the nomination path when the linked row is not consumed", async () => {
+    const { identity } = await enroll();
+    const authId = randomUUID();
+
+    await prisma.offlineTerminalAssignmentAuthorization.create({
+      data: {
+        id: authId,
+        tenantId: fx.tenantId,
+        branchId: fx.mainBranchId,
+        targetTerminalId: identity.terminalId,
+        targetEnrollmentId: identity.enrollmentId,
+        targetKeyId: identity.keyId,
+        expectedNominationVersion: 0,
+        reason: "Still authorized, not consumed",
+        authorizedByUserId: fx.managerId,
+        authority: "owner",
+        authorizedAt: new Date("2018-06-01T00:00:00.000Z"),
+        status: "authorized",
+      },
+    });
+
+    await prisma.offlineTerminalNomination.upsert({
+      where: {
+        tenantId_branchId: { tenantId: fx.tenantId, branchId: fx.mainBranchId },
+      },
+      create: {
+        tenantId: fx.tenantId,
+        branchId: fx.mainBranchId,
+        terminalId: identity.terminalId,
+        enrollmentId: identity.enrollmentId,
+        keyId: identity.keyId,
+        version: 1,
+        authorizationId: authId,
+        activatedAt: new Date("2018-07-01T00:00:00.000Z"),
+        activatedByUserId: fx.ownerId,
+      },
+      update: {
+        terminalId: identity.terminalId,
+        enrollmentId: identity.enrollmentId,
+        keyId: identity.keyId,
+        version: 1,
+        authorizationId: authId,
+        activatedAt: new Date("2018-07-01T00:00:00.000Z"),
+        activatedByUserId: fx.ownerId,
+      },
+    });
+
+    const ownerRow = await prisma.appUser.findUniqueOrThrow({ where: { id: fx.ownerId } });
+
+    const status = await enrollmentService.enrollmentStatus(owner, fx.mainBranchId, identity.enrollmentId);
+    expect(status.offlineBackup).toEqual({
+      authorizedAt: null,
+      authorizedByUserId: null,
+      authorizedByFullName: null,
+      activatedAt: Date.parse("2018-07-01T00:00:00.000Z"),
+      activatedByUserId: fx.ownerId,
+      activatedByFullName: ownerRow.fullName,
+    });
+  });
+
+  it("omits authorization on the nomination path when the linked consumed row targets another enrollment", async () => {
+    const nominated = await enroll();
+    const other = await enroll();
+    const consumedForOther = randomUUID();
+
+    await prisma.offlineTerminalAssignmentAuthorization.create({
+      data: {
+        id: consumedForOther,
+        tenantId: fx.tenantId,
+        branchId: fx.mainBranchId,
+        targetTerminalId: other.identity.terminalId,
+        targetEnrollmentId: other.identity.enrollmentId,
+        targetKeyId: other.identity.keyId,
+        expectedNominationVersion: 0,
+        reason: "Belongs to another counter",
+        authorizedByUserId: fx.managerId,
+        authority: "owner",
+        authorizedAt: new Date("2017-06-01T00:00:00.000Z"),
+        status: "consumed",
+        consumedAt: new Date("2017-06-02T00:00:00.000Z"),
+        consumedByUserId: fx.ownerId,
+      },
+    });
+
+    await prisma.offlineTerminalNomination.upsert({
+      where: {
+        tenantId_branchId: { tenantId: fx.tenantId, branchId: fx.mainBranchId },
+      },
+      create: {
+        tenantId: fx.tenantId,
+        branchId: fx.mainBranchId,
+        terminalId: nominated.identity.terminalId,
+        enrollmentId: nominated.identity.enrollmentId,
+        keyId: nominated.identity.keyId,
+        version: 1,
+        authorizationId: consumedForOther,
+        activatedAt: new Date("2017-07-01T00:00:00.000Z"),
+        activatedByUserId: fx.ownerId,
+      },
+      update: {
+        terminalId: nominated.identity.terminalId,
+        enrollmentId: nominated.identity.enrollmentId,
+        keyId: nominated.identity.keyId,
+        version: 1,
+        authorizationId: consumedForOther,
+        activatedAt: new Date("2017-07-01T00:00:00.000Z"),
+        activatedByUserId: fx.ownerId,
+      },
+    });
+
+    const ownerRow = await prisma.appUser.findUniqueOrThrow({ where: { id: fx.ownerId } });
+
+    const status = await enrollmentService.enrollmentStatus(
+      owner,
+      fx.mainBranchId,
+      nominated.identity.enrollmentId,
+    );
+    expect(status.offlineBackup).toEqual({
+      authorizedAt: null,
+      authorizedByUserId: null,
+      authorizedByFullName: null,
+      activatedAt: Date.parse("2017-07-01T00:00:00.000Z"),
+      activatedByUserId: fx.ownerId,
+      activatedByFullName: ownerRow.fullName,
     });
   });
 });
