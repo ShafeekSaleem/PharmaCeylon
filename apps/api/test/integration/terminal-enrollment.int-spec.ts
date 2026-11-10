@@ -1346,18 +1346,11 @@ describe("go-live evidence from counters", () => {
 });
 
 describe("GET enrollment status for This counter", () => {
-  const branchNominationVersion = async (): Promise<number> => {
-    const row = await prisma.offlineTerminalNomination.findUnique({
-      where: { tenantId_branchId: { tenantId: fx.tenantId, branchId: fx.mainBranchId } },
-      select: { version: true },
-    });
-    return row?.version ?? 0;
-  };
-
   const resetOfflineAssignment = async () => {
     // Assignment authorizations are retained (immutable evidence); revoke outstanding rows only.
-    // Nomination rows are not cleared here; each test arranges branch nomination state (upsert or
-    // read branchNominationVersion before authorize).
+    // Nomination rows are not deleted here (no retention trigger yet, but avoid reset-time deleteMany).
+    // Each test arranges branch nomination state via upsert and reads nominationVersion from view
+    // before calling authorize.
     await prisma.offlineTerminalAssignmentAuthorization.updateMany({
       where: { tenantId: fx.tenantId, branchId: fx.mainBranchId, status: "authorized" },
       data: {
@@ -1500,11 +1493,15 @@ describe("GET enrollment status for This counter", () => {
       },
     });
 
+    const { nominationVersion: versionAfterNomination } = await offlineAssignments.view(
+      owner,
+      fx.mainBranchId,
+    );
     await offlineAssignments.authorize(owner, fx.mainBranchId, {
       authorizationId: randomUUID(),
       targetTerminalId: identity.terminalId,
       targetEnrollmentId: identity.enrollmentId,
-      expectedNominationVersion: 1,
+      expectedNominationVersion: versionAfterNomination,
       reason: "Fixture authorization",
     });
 
@@ -1542,7 +1539,7 @@ describe("GET enrollment status for This counter", () => {
   it("does not surface a revoked outstanding authorization on enrollment status", async () => {
     const { identity } = await enroll();
     const authorizationId = randomUUID();
-    const nominationVersion = await branchNominationVersion();
+    const { nominationVersion } = await offlineAssignments.view(owner, fx.mainBranchId);
     await offlineAssignments.authorize(owner, fx.mainBranchId, {
       authorizationId,
       targetTerminalId: identity.terminalId,

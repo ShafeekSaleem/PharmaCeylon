@@ -15,6 +15,8 @@ describe("TerminalEnrollmentService.enrollmentStatus offline backup lookup", () 
     branchRoles: [],
   };
 
+  type AuthSlice = Readonly<{ authorizedAt: Date; authorizedByUserId: string }>;
+
   function service(tx: object) {
     const prisma = {
       $transaction: jest.fn((run: (client: typeof tx) => Promise<unknown>) => run(tx)),
@@ -48,10 +50,10 @@ describe("TerminalEnrollmentService.enrollmentStatus offline backup lookup", () 
       activatedByUserId: string;
       version: number;
     } | null;
-    outstanding?: { authorizedAt: Date; authorizedByUserId: string } | null;
-    nominationAuthorization?: { authorizedAt: Date; authorizedByUserId: string } | null;
+    outstandingByVersion?: ReadonlyMap<number, AuthSlice>;
+    nominationAuthorization?: AuthSlice | null;
   }) {
-    const outstandingFind = jest.fn().mockResolvedValue(overrides.outstanding ?? null);
+    const outstandingByVersion = overrides.outstandingByVersion ?? new Map();
     const nominationAuthFind = jest.fn().mockResolvedValue(overrides.nominationAuthorization ?? null);
     const tx = {
       terminalEnrollment: {
@@ -66,18 +68,25 @@ describe("TerminalEnrollmentService.enrollmentStatus offline backup lookup", () 
       offlineTerminalAssignmentAuthorization: {
         findFirst: jest
           .fn()
-          .mockImplementation((args: { where: { status?: string; expectedNominationVersion?: number; targetEnrollmentId?: string } }) => {
-            if (args.where.status === "authorized") return outstandingFind();
+          .mockImplementation((args: {
+            where: { status?: string; expectedNominationVersion?: number; targetEnrollmentId?: string };
+          }) => {
+            if (args.where.status === "authorized") {
+              const version = args.where.expectedNominationVersion;
+              if (version === undefined) return Promise.resolve(null);
+              return Promise.resolve(outstandingByVersion.get(version) ?? null);
+            }
             if (args.where.status === "consumed") return nominationAuthFind();
-            return null;
+            return Promise.resolve(null);
           }),
       },
       appUser: { findMany: jest.fn().mockResolvedValue([]) },
     };
-    return { tx, outstandingFind, nominationAuthFind };
+    return { tx, nominationAuthFind };
   }
 
-  it("queries outstanding authorization at the branch nomination version so stale rows are not surfaced", async () => {
+  it("does not surface a stale outstanding authorization when nomination version moved on", async () => {
+    const staleAt = new Date("2020-01-01T00:00:00.000Z");
     const { tx } = mockTx({
       nomination: {
         enrollmentId: "other",
@@ -86,7 +95,7 @@ describe("TerminalEnrollmentService.enrollmentStatus offline backup lookup", () 
         activatedByUserId: "u-act",
         version: 2,
       },
-      outstanding: null,
+      outstandingByVersion: new Map([[0, { authorizedAt: staleAt, authorizedByUserId: "stale" }]]),
     });
     const svc = service(tx);
 
@@ -105,25 +114,17 @@ describe("TerminalEnrollmentService.enrollmentStatus offline backup lookup", () 
   });
 
   it("surfaces outstanding authorization when expectedNominationVersion matches branch nomination", async () => {
+    const currentAt = new Date("2021-01-01T00:00:00.000Z");
     const { tx } = mockTx({
       nomination: null,
-      outstanding: {
-        authorizedAt: new Date("2021-01-01T00:00:00.000Z"),
-        authorizedByUserId: "u-auth",
-      },
+      outstandingByVersion: new Map([[0, { authorizedAt: currentAt, authorizedByUserId: "u-auth" }]]),
     });
     const svc = service(tx);
 
     const status = await svc.enrollmentStatus(user, branchId, enrollmentId);
 
-    expect(tx.offlineTerminalAssignmentAuthorization.findFirst).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({
-          expectedNominationVersion: 0,
-        }),
-      }),
-    );
     expect(status.offlineBackup.authorizedAt).toBe(Date.parse("2021-01-01T00:00:00.000Z"));
+    expect(status.offlineBackup.authorizedByUserId).toBe("u-auth");
   });
 
   it("omits nomination authorization facts when the consumed row targets another enrollment", async () => {
