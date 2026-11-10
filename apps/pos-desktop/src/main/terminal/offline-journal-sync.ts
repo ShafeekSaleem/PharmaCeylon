@@ -336,6 +336,23 @@ export function createOfflineJournalSync(deps: OfflineJournalSyncDeps) {
       );
   }
 
+  /**
+   * A cycle that failed without a verified reply (no answer, a refused request, a reply that failed
+   * its checks) says nothing about the server's journal, so it never replaces a recorded
+   * `JOURNAL_MISMATCH`. Only a verified reply sets or clears that (`apply`), because P4's outage
+   * guard reads it: a dropped connection must not let a restored journal start an outage.
+   */
+  function recordFailure(enrollmentId: string, code: string) {
+    const at = iso();
+    ensureSyncRow(deps.db, enrollmentId, at);
+    deps.db
+      .prepare(
+        `UPDATE offline_journal_sync SET issue_code = ?, issue_message = ?, issue_sequence = NULL, issue_at = ?, updated_at = ?
+       WHERE enrollment_id = ? AND (issue_code IS NULL OR issue_code <> 'JOURNAL_MISMATCH')`,
+      )
+      .run(code, explainSyncIssue(code), at, at, enrollmentId);
+  }
+
   function unsynced(enrollmentId: string): CommandRow[] {
     return deps.db
       .prepare(
@@ -584,7 +601,7 @@ export function createOfflineJournalSync(deps: OfflineJournalSyncDeps) {
         const code = failureCode(error);
         if (current) {
           try {
-            setIssue(current.identity.enrollmentId, { code });
+            recordFailure(current.identity.enrollmentId, code);
           } catch (recordError) {
             deps.report(recordError);
           }

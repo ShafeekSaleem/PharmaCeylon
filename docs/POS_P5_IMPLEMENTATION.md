@@ -50,6 +50,13 @@ until each slice and P4's real journals (#50) are in.
   sign-in `SESSION_INVALID`, missing `BUSINESS_HOURS_ACK_REQUIRED`) or awaiting review
   (`TERMINAL_REVOKED`). `rejected`: that content will never be accepted (`REPLAY_CONFLICT`,
   policy codes).
+- **A retained refusal only escalates** (migration `20261109000000_offline_journal_review_escalation`).
+  The same content can be refused more than once, e.g. held for its sign-in and then, once
+  judged, rejected. Its row's `outcome` is the worst refusal so far (held < rejected < conflict),
+  with that refusal's `error_code`. A milder refusal later, such as `TERMINAL_REVOKED` after
+  revocation, only counts as an attempt. The table's trigger enforces this, and an escalation is
+  audited (`terminal.offline_journal_escalated`). Issuance, sync status and review all read
+  `outcome`, so a held-then-rejected entry has to count as stuck.
 - **Shared contracts unchanged.** `OfflineStockDiscrepancy` maps to one case line (case ID +
   batch); nothing needed adding.
 
@@ -72,7 +79,8 @@ chain (`REPLAY_CONFLICT`, retained), concurrent identical retries, the contract'
 (10 / 7 online / 5 offline → 2-unit case, batch blocked, other batch sells, retry returns the
 case, later sale into the blocked batch pending), a sale with one short batch, recovery after
 grant expiry, revoked counter recovery, unsigned/malformed uploads, snapshot pricing and a late
-sign-in, support records and a wrong counter login.
+sign-in, support records and a wrong counter login. Also a held entry that is rejected once
+judged, which escalates, blocks issuance and is never softened by a later `TERMINAL_REVOKED`.
 
 ## Slice 2 — manager review and resolution of discrepancy cases (built)
 
@@ -209,7 +217,8 @@ Desktop:
 - `offline-journal-sync.spec.ts`, against a real encrypted store, the real P4 writer and a fake
   signing server: upload order and sign-ins, acknowledgements and the `app_meta` keys, a lost
   reply recovered as duplicates, held / rejected handling and back-off, batching, the empty
-  confirmation, replies with a bad signature or wrong content, a restored-backup mismatch, the
+  confirmation, replies with a bad signature or wrong content, a restored-backup mismatch (kept
+  through a dropped connection or a bad reply, and cleared only by a verified reply), the
   drain's install ending the outage, `drain_incomplete`, a `behind` pair, and the coordinator
   (immediate renewal, finishing without a pair, never finishing with entries waiting).
 - `checkout-service.spec.ts` covers `SYNC_PAUSED` with retry still working.

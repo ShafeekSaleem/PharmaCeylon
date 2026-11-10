@@ -1578,7 +1578,9 @@ transaction under the enrollment's journal lock:
 Processing **stops at the first `held` or `rejected` command**; later commands get no
 acknowledgement and stay queued on the counter. Every refused upload (held, rejected or conflict)
 is retained, never deleted, in `offline_journal_review` (one row per distinct signed content,
-`attempts` counts repeats). `committedThroughSequence` / `committedThroughHash` are the accepted
+`attempts` counts repeats). If the same content is refused again more severely (for example held
+for its sign-in, then rejected once judged), the row's `outcome` escalates
+(held < rejected < conflict) and keeps that refusal's code. It never softens. `committedThroughSequence` / `committedThroughHash` are the accepted
 head; sequences are accepted only contiguously from 1, so it is always the highest contiguous
 point and never jumps a gap or a refused entry.
 
@@ -1631,7 +1633,8 @@ with every staff sign-in they cite. With nothing waiting, it sends an empty uplo
   recovered by resending the same entries.
 - **Watermark.** It is recorded only if it names this computer's own chain. One naming entries
   this computer doesn't have (`JOURNAL_MISMATCH`, e.g. a restored backup) is never adopted, and
-  no new outage may start until it is recovered.
+  no new outage may start until it is recovered. Only a verified reply sets or clears it: a
+  dropped connection or a reply that fails its checks leaves it in place.
 - **Pause.** After an outage, new checkouts on that counter are refused `SYNC_PAUSED` until the
   drain finishes. Confirming an unconfirmed sale still works.
 - **Finishing the drain.** The drain finishes, by `mayResumeOnlineCheckout`, when the journal is

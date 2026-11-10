@@ -709,6 +709,44 @@ describe("trusting the server's reply", () => {
     ).toBe(1);
   });
 
+  it("keeps a journal mismatch through failed cycles; only a verified reply clears it", async () => {
+    const u = uploader();
+    u.srv.alter((p) => ({
+      ...p,
+      committedThroughSequence: 3,
+      committedThroughHash: "a".repeat(64),
+    }));
+    await u.sync.tick();
+    expect(u.view().issue).toMatchObject({ code: "JOURNAL_MISMATCH" });
+
+    // The connection drops on the next attempt: the restored journal still can't start an outage.
+    u.srv.lose();
+    u.advance(ISSUE_RETRY_MS);
+    await u.sync.tick();
+    expect(u.srv.requests).toHaveLength(2);
+    expect(u.view().issue).toMatchObject({ code: "JOURNAL_MISMATCH" });
+    expect(journalNeedsRecovery(local.db, identity.enrollmentId)).toBe(true);
+    expect(() =>
+      writer.ensureOfflineOutageSession(identity.enrollmentId, NOW),
+    ).toThrow("RECONCILIATION_REQUIRED");
+
+    // Nor does a reply that fails verification.
+    u.srv.signWith(otherServer.privateKey);
+    u.advance(60_000);
+    await u.sync.tick();
+    expect(u.srv.requests).toHaveLength(3);
+    expect(u.view().issue).toMatchObject({ code: "JOURNAL_MISMATCH" });
+
+    // A verified reply naming this computer's own chain does.
+    u.srv.signWith(server.privateKey);
+    u.srv.alter(null);
+    u.advance(120_000);
+    await u.sync.tick();
+    expect(u.srv.requests).toHaveLength(4);
+    expect(u.view().issue).toBeNull();
+    expect(journalNeedsRecovery(local.db, identity.enrollmentId)).toBe(false);
+  });
+
   it("checks every acknowledgement field it relies on", () => {
     const sent = new Map([
       [

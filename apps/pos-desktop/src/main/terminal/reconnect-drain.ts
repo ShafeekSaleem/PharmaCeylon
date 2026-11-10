@@ -237,6 +237,7 @@ export function checkoutSyncPause(
  * reply): the server holds offline records from this enrollment that this computer lost or never
  * wrote, e.g. after restoring an old backup. No outage may start here until it is recovered
  * online: selling offline on a restored journal could reuse sequences or revive old authority.
+ * Only a verified reply sets or clears it; a failed cycle leaves it in place (`recordFailure`).
  */
 export function journalNeedsRecovery(
   db: PosDatabase,
