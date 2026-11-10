@@ -1,7 +1,10 @@
 import { BadRequestException } from "@nestjs/common";
 import type {
   BranchStockSnapshot,
+  OfflineJournalCommand,
   OfflineSaleCommand,
+  OfflineStaffSignIn,
+  TerminalIdentity,
 } from "@pharmaceylon/shared";
 
 /**
@@ -45,6 +48,8 @@ export type RecordBlocker =
   | "payments_differ"
   | "batch_missing"
   | "shift_not_open"
+  | "shift_not_theirs"
+  | "sign_in_mismatch"
   | "till_mismatch"
   | "till_has_open_shift"
   | "shift_id_used";
@@ -62,6 +67,10 @@ export const RECORD_BLOCKER_MESSAGES: Readonly<Record<RecordBlocker, string>> =
     payments_differ: "Its payments don't add up to its total.",
     batch_missing: "A batch it sold from is no longer at this branch.",
     shift_not_open: "The shift it belongs to is not open on the server.",
+    shift_not_theirs:
+      "The shift it names is someone else's, or was opened on another counter. A sale is recorded only on its seller's own shift.",
+    sign_in_mismatch:
+      "The staff sign-in it names is for another person, shift or counter.",
     till_mismatch:
       "It names another register or till than the counter's offline permission.",
     till_has_open_shift: "Another shift is already open on this till.",
@@ -73,6 +82,7 @@ export type SettleBlocker =
   | "not_rejected"
   | "not_next"
   | "settled"
+  | "forked"
   | "counter_revoked";
 
 export const SETTLE_BLOCKER_MESSAGES: Readonly<Record<SettleBlocker, string>> =
@@ -81,9 +91,105 @@ export const SETTLE_BLOCKER_MESSAGES: Readonly<Record<SettleBlocker, string>> =
     not_next:
       "This record no longer follows what the server accepted from the counter (another record took its place). Nothing to settle.",
     settled: "This record is already settled.",
+    forked:
+      "The counter sent a different record at this same place in its journal too (for example after a backup was restored). Its journal is recovered through journal recovery, not settled here.",
     counter_revoked:
       "This counter was revoked or retired. Its journal is recovered through journal recovery, not settled here.",
   };
+
+/**
+ * Why a refused entry can't be not honoured. A shift record the till would take is recorded: not
+ * honouring it would leave every later record in that shift unrecordable (a sale needs its shift
+ * open on the server, and the till's next shift needs this one closed).
+ */
+export type NotHonourBlocker = "shift_recordable";
+
+export const NOT_HONOUR_BLOCKER_MESSAGES: Readonly<
+  Record<NotHonourBlocker, string>
+> = {
+  shift_recordable:
+    "The till can take this shift record, so it is recorded. Not honouring it would leave every later record in that shift unrecordable.",
+};
+
+export function notHonourBlocker(
+  kind: OfflineJournalCommand["kind"],
+  recordable: boolean,
+): NotHonourBlocker | null {
+  return kind !== "ordinary_sale" && recordable ? "shift_recordable" : null;
+}
+
+/** What not honouring the entry leaves behind, in words for the manager deciding. */
+export function notHonouredEffect(
+  command: OfflineJournalCommand,
+  blocker: RecordBlocker | null,
+): string {
+  if (command.kind === "ordinary_sale") {
+    const card = command.payments.some((p) => p.method === "external_card");
+    return (
+      "No sale, payment or stock is recorded. Any cash the counter took shows as that shift's variance." +
+      (card
+        ? " The card payment was taken, so it is kept as collected, not sold, for a refund or a re-sale at the counter."
+        : "")
+    );
+  }
+  if (command.kind === "shift_open")
+    return (
+      "The shift is not opened on the server. Every later sale in it can then only be not honoured too, and the cash it took is on no shift." +
+      (blocker === "till_has_open_shift"
+        ? " To record it instead, close the shift still open on this till first."
+        : "")
+    );
+  return blocker === "shift_not_open"
+    ? "The shift is not open on the server, so nothing else waits on this record. The counter's cash count is kept as evidence."
+    : "The shift stays open on the server: close it there, or the till's next shift can't be recorded.";
+}
+
+/**
+ * Whether the staff sign-in an entry cites is the one intake would accept: this counter's, and
+ * for the entry's own person and shift. An assisted close is signed in by the manager who closed
+ * the shift for its cashier, on the same register and till.
+ */
+export function signInMatches(
+  identity: TerminalIdentity,
+  command: OfflineJournalCommand,
+  signIn: OfflineStaffSignIn,
+): boolean {
+  const identityKeys = [
+    "tenantId",
+    "branchId",
+    "terminalId",
+    "enrollmentId",
+    "keyId",
+  ] as const;
+  if (
+    signIn.staffSignInId !== command.staffSignInId ||
+    identityKeys.some((k) => signIn.identity[k] !== identity[k])
+  )
+    return false;
+  if (command.kind === "shift_close" && command.assistance)
+    return (
+      command.assistance.managerSignInId === signIn.staffSignInId &&
+      signIn.session.staffUserId !== command.session.staffUserId &&
+      signIn.session.registerId === command.session.registerId &&
+      signIn.session.tillId === command.session.tillId
+    );
+  const sessionKeys = [
+    "registerId",
+    "tillId",
+    "workSessionId",
+    "staffUserId",
+  ] as const;
+  return sessionKeys.every((k) => signIn.session[k] === command.session[k]);
+}
+
+/** A counter timestamp as ISO text, or null where it is no date at all (a broken clock). */
+export function isoOrNull(ms: number): string | null {
+  return Number.isSafeInteger(ms) && Math.abs(ms) <= MAX_DATE_MS
+    ? new Date(ms).toISOString()
+    : null;
+}
+
+const MAX_DATE_MS = 8.64e15;
 
 const isSafe = (n: unknown, min = 0): n is number =>
   typeof n === "number" && Number.isSafeInteger(n) && n >= min;
@@ -161,6 +267,8 @@ export function recordedOccurredAt(
   occurredAt: number,
   firstReceivedAt: Date,
 ): Date {
+  if (!Number.isSafeInteger(occurredAt) || Math.abs(occurredAt) > MAX_DATE_MS)
+    return firstReceivedAt;
   return new Date(Math.min(occurredAt, firstReceivedAt.getTime()));
 }
 

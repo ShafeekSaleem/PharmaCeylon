@@ -12,7 +12,8 @@ export type RefusedRecordSummary = {
   kind: EntryKind;
   sequence: number;
   counter: string | null;
-  occurredAt: string;
+  /** Null where the counter's clock gave no date at all. */
+  occurredAt: string | null;
   staff: string | null;
   totalMinor: number | null;
   refusal: { code: string; explanation: string };
@@ -23,6 +24,20 @@ export type RefusedRecordSummary = {
     decision: Decision;
     status: SettlementStatus;
   } | null;
+  /** Card money a not-honoured sale took: collected, not sold. */
+  collectedNotSoldMinor: number | null;
+};
+
+/** A not-honoured sale's card payment: the customer was charged and no sale exists. */
+export type CollectedPayment = {
+  id: string;
+  method: "external_card";
+  amountMinor: number;
+  providerReference: string;
+  approvalCode: string;
+  approvedAt: string | null;
+  shiftId: string | null;
+  collectedAt: string;
 };
 
 export type SettlementStatus = "prepared" | "settled" | "cancelled";
@@ -48,11 +63,12 @@ export type Settlement = {
     stockCaseId: string | null;
   } | null;
   workSessionId: string | null;
+  collectedPayments: CollectedPayment[];
 };
 
 type EntryBase = {
-  occurredAt: string;
-  offlineStartedAt: string;
+  occurredAt: string | null;
+  offlineStartedAt: string | null;
   staff: Person;
   signedInAs: Person;
   workSessionId: string;
@@ -122,5 +138,7 @@ export type RefusedRecordDetail = {
     blocker: string | null;
     message: string | null;
   } | null;
+  /** Whether it may be not honoured, and what that leaves behind (or why it must be recorded). */
+  notHonoured: { ok: boolean; message: string } | null;
   settlements: Settlement[];
 };

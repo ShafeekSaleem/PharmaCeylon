@@ -104,6 +104,7 @@ Send optional header **`Idempotency-Key`** (max 128 characters, trimmed). Keys a
 | Supplier payment | `supplier_payment` | `POST /api/v1/purchasing/payments`                |
 | Write-off request | `held_adjustment_request` | `POST /api/v1/inventory/adjustment-requests` |
 | Stock adjustment | `stock_adjustment` | `POST /api/v1/inventory/adjustments`              |
+| Refused-entry decision | `offline_journal_settlement_prepare` | `POST /api/v1/offline-journal-reviews/:id/settlements` |
 
 **Semantics**
 
@@ -113,7 +114,7 @@ Send optional header **`Idempotency-Key`** (max 128 characters, trimmed). Keys a
 - `checkout` keys can be sealed: `POST /sales/checkout/resolve` records scope `checkout_sealed`
   for the seller's key once nothing landed under it, and checkout then refuses that key with 409
   `CHECKOUT_SEALED` ("Desktop enrollment and staff sessions", "Unconfirmed sales").
-- `stock_adjustment` keeps the first request's body with the key (`idempotency_record.request_body`) and replays only an identical body at the same branch; any other body is the 400. `held_adjustment_request` compares against the held adjustment's saved payload.
+- `stock_adjustment` keeps the first request's body with the key (`idempotency_record.request_body`) and replays only an identical body at the same branch; any other body is the 400. `held_adjustment_request` compares against the held adjustment's saved payload. `offline_journal_settlement_prepare` keeps `{ reviewId, decision, reason }` and replays the settlement only for the same entry, decision and reason.
 
 ## Private supplier-payment evidence (P1)
 
@@ -1668,9 +1669,9 @@ accepted chain or a revoked counter's journal (D11 journal recovery).
 
 | Route | Permission | Notes |
 | --- | --- | --- |
-| `GET /offline-journal-reviews?status=open\|closed` | `sales.review_offline_entries` | The branch's rejected commands, newest first: `open` while one blocks its counter (its sequence is past the accepted head), `closed` once `settled` or `superseded` (overtaken) |
-| `GET /offline-journal-reviews/:id` | `sales.review_offline_entries` | The entry as signed, decoded (staff, shift, and for a sale its lines at the snapshot's prices with product and batch, and its payments); the refusal code with an explanation; attempts; the accepted head; `settleBlocker`; `recordable`; every settlement with its approval evidence and `approvalReview` |
-| `POST /offline-journal-reviews/:id/settlements` | `sales.review_offline_entries` | Prepare `{ decision: "recorded" \| "not_honoured", reason }` (a reason is required, up to 500 characters); one waiting per entry. A preparer who may approve their own requests settles it at once |
+| `GET /offline-journal-reviews?status=open\|closed` | `sales.review_offline_entries` | The branch's rejected commands, newest first: `open` while one blocks its counter (unsettled, its sequence past the accepted head; never capped), `closed` once `settled` or `superseded` (overtaken; the newest 200). `occurredAt` is `null` where the counter's clock gave no date; `collectedNotSoldMinor` is the card money a not-honoured sale took |
+| `GET /offline-journal-reviews/:id` | `sales.review_offline_entries` | The entry as signed, decoded (staff, shift, and for a sale its lines at the snapshot's prices with product and batch, and its payments); the refusal code with an explanation; attempts; the accepted head; `settleBlocker`; `recordable`; `notHonoured` (`{ ok, message }`: whether it may be not honoured, and what that leaves behind or why it must be recorded); every settlement with its approval evidence, `approvalReview` and `collectedPayments` |
+| `POST /offline-journal-reviews/:id/settlements` | `sales.review_offline_entries` | Prepare `{ decision: "recorded" \| "not_honoured", reason }` (a reason is required, up to 500 characters); one waiting per entry. A preparer who may approve their own requests settles it at once. Optional `Idempotency-Key` (scope `offline_journal_settlement_prepare`): a retry replays the settlement, another decision or reason under the key is 400 |
 | `POST /offline-journal-reviews/settlements/:id/approve` | `sales.review_offline_entries` | `{ approvalId, expectedVersion, expectedDigest }` from `approvalReview`. Approving settles; a retry with the same `approvalId` returns the settlement |
 | `POST /offline-journal-reviews/settlements/:id/cancel` | `sales.review_offline_entries` | A decision still waiting for approval |
 
@@ -1679,11 +1680,12 @@ accepted chain or a revoked counter's journal (D11 journal recovery).
 - `recorded` — the entry's effect is written as the counter recorded it, under the enrollment's
   journal lock, every condition checked again at approval:
   - **A sale** needs the grant and snapshot this server issued to the counter, the uploaded
-    sign-in, the grant's register and till, figures that are exactly the snapshot's (lines in it,
-    none repeated, its price, no discount, half-up tax per line, the total, cash tendered less
-    change equal to the amount, a card's provider reference, payments equal to the total), its
-    batches still at the branch, and its shift open on the server. It is created as at intake
-    (snapshot prices, seller, shift, payments, `offlineCommandId`), dated at `occurredAt` but
+    sign-in (this counter's, for the entry's own person and shift), the grant's register and
+    till, figures that are exactly the snapshot's (lines in it, none repeated, its price, no
+    discount, half-up tax per line, the total, cash tendered less change equal to the amount, a
+    card's provider reference, payments equal to the total), its batches still at the branch,
+    and its shift open on the server and the seller's own, opened on this counter. It is created
+    as at intake (snapshot prices, seller, shift, payments, `offlineCommandId`), dated at `occurredAt` but
     never after the server first received the entry, and **always** `pending_reconciliation`: an
     offline stock case opens with every batch blocked (line reason `entry_reviewed`, or
     `shortfall` / `batch_under_review` where those apply). No stock moves on a remote approval;
@@ -1692,14 +1694,26 @@ accepted chain or a revoked counter's journal (D11 journal recovery).
   - **A `shift_open`** needs no shift open on the till and its work session ID unused; it is
     replayed as at intake.
   - **A `shift_close`** needs the same shift still open (same till, register and cashier); it is
-    replayed as at intake, its variance against the server's expected cash.
-  - Shift times are dated like a sale's, and a close never before its open.
+    replayed as at intake, its variance against the server's expected cash. An assisted close is
+    signed in by the manager who closed it, on the same register and till.
+  - Shift entries also need the uploaded sign-in, matched as for a sale.
+  - Shift times are dated like a sale's, and a close never before its open. A counter time that
+    is no date at all is dated when the server first received the entry.
+  - The till is judged under intake's own locks, taken after the journal lock in intake's order
+    (the counter row, and the shift for a close, `FOR UPDATE`; a sale's shift `FOR SHARE`), so
+    a shift opened or closed by intake meanwhile is seen, not raced; a till whose shifts changed
+    under a write anyway is 409.
   - Otherwise 409 with the reason; `recordable.blocker` is one of `grant_unknown`,
     `snapshot_unknown`, `sign_in_missing`, `lines_unknown`, `prices_differ`, `totals_differ`,
-    `payments_differ`, `batch_missing`, `shift_not_open`, `till_mismatch`,
-    `till_has_open_shift` or `shift_id_used`.
-- `not_honoured` — nothing is written: no sale, payment, stock or shift change. Cash the counter
-  took for a refused sale shows in that shift's variance when it closes.
+    `payments_differ`, `batch_missing`, `shift_not_open`, `shift_not_theirs`,
+    `sign_in_mismatch`, `till_mismatch`, `till_has_open_shift` or `shift_id_used`.
+- `not_honoured` — no sale, stock or shift change is written. Cash the counter took for a
+  refused sale shows in that shift's variance when it closes. A card payment it took is kept as
+  an `offline_collected_payment` (collected, not sold: method, amount, provider reference,
+  approval code, the shift if the server has it, the seller), retained, for a refund or a
+  re-sale at the counter; the settlement lists it as `collectedPayments`. **A shift record the
+  till can take is recorded**: not honouring it is 409 (`notHonoured.ok: false`), because every
+  later record in that shift would then be unrecordable.
 
 **What every settlement writes**, in one transaction: the `terminal_command_receipt` at the
 entry's own sequence with its own digest (operation `offline_journal:<kind>`, actor the
@@ -1712,7 +1726,8 @@ still counts a recorded sale.
 
 **Nothing to settle** (`settleBlocker`, 409 on prepare or approve): `not_rejected`, `settled`,
 `not_next` (the entry no longer follows the accepted head, or its command ID was accepted with
-other content) and `counter_revoked` (a revoked or retired counter: D11).
+other content), `forked` (the counter also sent a different entry refused at the same sequence,
+as after a restored backup: D11) and `counter_revoked` (a revoked or retired counter: D11).
 
 **Approval** uses exact approval (`management_approval`, document type
 `offline_journal_settlement`, action `offline_journal_settlement.execute`). The material is the

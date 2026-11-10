@@ -316,7 +316,7 @@ export class OfflineJournalService {
       // A trusted counter clock does not run ahead of the server or backwards along its journal.
       // An entry a manager settled is not evidence of the clock (it may be the reason it was
       // refused), so the floor is the latest entry accepted on its own.
-      const previousAt = head ? await this.clockFloor(tx, identity) : 0;
+      const previousAt = head ? await this.clockFloor(tx, identity, head) : 0;
       if (command.occurredAt > now + SUPPORT_RECORD_CLOCK_SKEW_MS || command.occurredAt < previousAt)
         return this.refuse(tx, user, identity, item, rejected("CLOCK_UNTRUSTED", "The entry's time is not trustworthy."));
 
@@ -356,15 +356,20 @@ export class OfflineJournalService {
     return offlineJournalHead(client, identity);
   }
 
-  /** `occurredAt` of the latest entry accepted by intake rather than by a manager's settlement. */
-  private async clockFloor(tx: Tx, identity: TerminalIdentity): Promise<number> {
+  /**
+   * `occurredAt` of the latest entry accepted by intake rather than by a manager's settlement.
+   * Normally that is the head itself; past a settled one, earlier receipts are read a page at a time.
+   */
+  private async clockFloor(tx: Tx, identity: TerminalIdentity, head: TerminalCommandReceipt): Promise<number> {
+    if (!isReviewedReceipt(head)) return storedCommand(head)?.occurredAt ?? 0;
     const page = 20;
-    for (let skip = 0; ; skip += page) {
+    for (let skip = 1; ; skip += page) {
       const rows = await tx.terminalCommandReceipt.findMany({
         where: { tenantId: identity.tenantId, enrollmentId: identity.enrollmentId, offlineSequence: { not: null } },
         orderBy: { offlineSequence: "desc" },
         skip,
         take: page,
+        select: { command: true, result: true },
       });
       for (const row of rows) if (!isReviewedReceipt(row)) return storedCommand(row)?.occurredAt ?? 0;
       if (rows.length < page) return 0;

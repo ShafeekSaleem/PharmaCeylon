@@ -798,6 +798,8 @@ model TillShift {
   payments      SalePayment[]
   goodsReturns  GoodsReturn[]
   cashMovements TillCashMovement[]
+  /// Card money taken for offline sales that were not honoured (P5 slice 4).
+  collectedNotSold OfflineCollectedPayment[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, branchId, id])
@@ -3529,10 +3531,45 @@ model OfflineJournalSettlement {
   cancelledBy         String?                          @map("cancelled_by") @db.Uuid
   cancelledAt         DateTime?                        @map("cancelled_at")
   review              OfflineJournalReview             @relation(fields: [tenantId, branchId, reviewId], references: [tenantId, branchId, id], onDelete: Restrict, onUpdate: Restrict, map: "offline_journal_settlement_review_fkey")
+  collectedPayments   OfflineCollectedPayment[]
 
   @@index([tenantId, branchId, status])
   @@index([reviewId])
   @@map("offline_journal_settlement")
+}
+
+/// P5 #51 slice 4: a card payment of an offline sale a manager did not honour. The customer was
+/// charged and no sale exists, so the money is kept here, apart from completed sales, for a refund
+/// or a re-sale at the counter. Written with the settlement; never changed or deleted.
+model OfflineCollectedPayment {
+  id                String                   @id @db.Uuid
+  tenantId          String                   @map("tenant_id") @db.Uuid
+  branchId          String                   @map("branch_id") @db.Uuid
+  settlementId      String                   @map("settlement_id") @db.Uuid
+  enrollmentId      String                   @map("enrollment_id") @db.Uuid
+  commandId         String                   @map("command_id") @db.Uuid
+  /// The payment's place in the sale's payments.
+  paymentIndex      Int                      @map("payment_index")
+  /// "external_card"
+  method            String                   @db.VarChar(16)
+  amountMinor       BigInt                   @map("amount_minor")
+  providerReference String                   @map("provider_reference") @db.VarChar(64)
+  approvalCode      String                   @map("approval_code") @db.VarChar(32)
+  approvedAt        DateTime?                @map("approved_at")
+  /// The work session the counter sold in; `shiftId` when that shift is on the server.
+  workSessionId     String                   @map("work_session_id") @db.Uuid
+  shiftId           String?                  @map("shift_id") @db.Uuid
+  /// The seller as the counter signed it.
+  staffUserId       String                   @map("staff_user_id") @db.Uuid
+  collectedAt       DateTime                 @map("collected_at")
+  createdAt         DateTime                 @default(now()) @map("created_at")
+  settlement        OfflineJournalSettlement @relation(fields: [settlementId], references: [id], onDelete: Restrict, onUpdate: Restrict, map: "offline_collected_payment_settlement_fkey")
+  shift             TillShift?               @relation(fields: [tenantId, shiftId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict, map: "offline_collected_payment_shift_fkey")
+
+  @@unique([settlementId, paymentIndex])
+  @@index([tenantId, branchId, createdAt])
+  @@index([tenantId, shiftId])
+  @@map("offline_collected_payment")
 }
 
 /// P5 #51, approved D1: an accepted offline sale whose stock could not be posted at sync. The

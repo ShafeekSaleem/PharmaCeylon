@@ -26,7 +26,13 @@ import type {
   TerminalIdentity,
 } from "@pharmaceylon/shared";
 import { randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import { AuditService } from "../audit/audit.service";
+import { IDEMPOTENCY_SCOPE } from "../common/idempotency.constants";
+import {
+  isPrismaUniqueFieldError,
+  normalizeIdempotencyKey,
+} from "../common/idempotency.util";
 import { StockService } from "../inventory/stock/stock.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { AccessService } from "../security/access.service";
@@ -40,6 +46,7 @@ import {
 import {
   OFFLINE_JOURNAL_OPERATION,
   lockOfflineJournal,
+  lockTillForEntry,
   offlineJournalHead,
 } from "../terminals/journal/journal-chain";
 import {
@@ -52,13 +59,18 @@ import {
 } from "../terminals/journal/offline-shift-replay";
 import { TillShiftsService } from "../terminals/shifts/till-shifts.service";
 import {
+  NOT_HONOUR_BLOCKER_MESSAGES,
   RECORD_BLOCKER_MESSAGES,
   SETTLE_BLOCKER_MESSAGES,
+  isoOrNull,
+  notHonourBlocker,
+  notHonouredEffect,
   parseDecision,
   parseReason,
   recordedSaleError,
   recordedOccurredAt,
   refusalExplanation,
+  signInMatches,
   type RecordBlocker,
   type SettleBlocker,
 } from "./journal-entry-settlement";
@@ -95,15 +107,21 @@ type Recordability =
  * - `recorded`: the entry's effect is written as it happened. A sale keeps the counter's prices,
  *   payments, seller and shift, and always waits on an offline stock case (its batches blocked),
  *   which is settled at the counter (slice 2): no stock moves here. A shift open/close is replayed
- *   if the till allows it.
- * - `not_honoured`: nothing is written; cash the counter took shows in that shift's variance.
+ *   if the till allows it, and then must be: not honouring it would strand the rest of its shift.
+ * - `not_honoured`: no sale, payment or stock is written; cash the counter took shows in that
+ *   shift's variance, and a card payment it took is kept as collected, not sold
+ *   (`offline_collected_payment`), for a refund or a re-sale.
  *
  * Either way the server's `terminal_command_receipt` is written at the entry's own sequence with its
  * own digest, so later entries chain onto it. The counter learns the outcome by resending the entry:
  * the receipt answers `reviewed` in the signed sync response.
  *
  * Lock order: the settlement, the enrollment's journal (the same advisory lock as intake), the
- * approval evidence, then any till or batch rows (as intake).
+ * approval evidence, then the till rows the entry touches (`lockTillForEntry`, as intake) before
+ * anything about the till is checked, then batch rows.
+ *
+ * Prepare accepts an `Idempotency-Key` (scope `offline_journal_settlement_prepare`): a self-approved
+ * prepare writes the sale, so a resend after a lost response returns the first result.
  */
 @Injectable()
 export class JournalReviewsService {
@@ -124,19 +142,58 @@ export class JournalReviewsService {
     branchId: string,
     status: "open" | "closed" = "open",
   ) {
-    const rows = await this.prisma.offlineJournalReview.findMany({
-      where: { tenantId, branchId, recordKind: "command", outcome: "rejected" },
-      include: {
-        settlements: { where: { tenantId }, orderBy: { requestedAt: "desc" } },
-      },
-      orderBy: { firstReceivedAt: "desc" },
-      take: 200,
+    // Filtered in the query, before any limit, so an entry still blocking its counter (past that
+    // counter's accepted head, unsettled) is never crowded out by newer settled or overtaken ones.
+    const refused = {
+      tenantId,
+      branchId,
+      recordKind: "command",
+      outcome: "rejected",
+      sequence: { not: null },
+    } satisfies Prisma.OfflineJournalReviewWhereInput;
+    const enrollments = await this.prisma.offlineJournalReview.findMany({
+      where: refused,
+      distinct: ["enrollmentId"],
+      select: { enrollmentId: true },
     });
+    if (!enrollments.length) return [];
     const heads = await this.heads(
       this.prisma,
       tenantId,
-      rows.map((r) => r.enrollmentId),
+      enrollments.map((e) => e.enrollmentId),
     );
+    const settled = {
+      tenantId,
+      status: OfflineJournalSettlementStatus.settled,
+    };
+    const againstHead = (past: boolean) =>
+      [...heads].map(([enrollmentId, head]) => ({
+        enrollmentId,
+        sequence: past ? { gt: BigInt(head) } : { lte: BigInt(head) },
+      }));
+    const rows = await this.prisma.offlineJournalReview.findMany({
+      where:
+        status === "open"
+          ? {
+              ...refused,
+              settlements: { none: settled },
+              OR: againstHead(true),
+            }
+          : {
+              ...refused,
+              OR: [{ settlements: { some: settled } }, ...againstHead(false)],
+            },
+      include: {
+        settlements: {
+          where: { tenantId },
+          orderBy: { requestedAt: "desc" },
+          include: { collectedPayments: { where: { tenantId } } },
+        },
+      },
+      orderBy: { firstReceivedAt: "desc" },
+      // Open entries are few (the one after each counter's head); the closed ones are capped.
+      ...(status === "closed" ? { take: 200 } : {}),
+    });
     const listed = rows
       .map((row) => ({
         row,
@@ -167,7 +224,7 @@ export class JournalReviewsService {
         kind: command.kind,
         sequence: Number(row.sequence),
         counter: counters.get(row.terminalId) ?? null,
-        occurredAt: new Date(command.occurredAt).toISOString(),
+        occurredAt: isoOrNull(command.occurredAt),
         staff: names.get(command.session.staffUserId) ?? null,
         totalMinor:
           command.kind === "ordinary_sale" ? command.totalMinor : null,
@@ -183,6 +240,13 @@ export class JournalReviewsService {
               decision: settlement.decision,
               status: settlement.status,
             }
+          : null,
+        // Card money a not-honoured sale took: collected, not sold.
+        collectedNotSoldMinor: settlement?.collectedPayments.length
+          ? settlement.collectedPayments.reduce(
+              (sum, p) => sum + Number(p.amountMinor),
+              0,
+            )
           : null,
       };
     });
@@ -203,17 +267,17 @@ export class JournalReviewsService {
     );
     const command = entryOf(row);
     const identity = identityOf(row);
-    const head = await offlineJournalHead(this.prisma, identity);
-    const headSequence = head ? Number(head.offlineSequence) : 0;
-    const state = entryState(row, headSequence);
-    const settleBlocker = await this.settleBlocker(this.prisma, row, command);
-    const recordability = settleBlocker
-      ? null
-      : await this.recordability(this.prisma, row, command);
     const settlements = await this.prisma.offlineJournalSettlement.findMany({
       where: { tenantId, branchId, reviewId },
       orderBy: { requestedAt: "desc" },
     });
+    const head = await offlineJournalHead(this.prisma, identity);
+    const headSequence = head ? Number(head.offlineSequence) : 0;
+    const state = entryState({ ...row, settlements }, headSequence);
+    const settleBlocker = await this.settleBlocker(this.prisma, row, command);
+    const recordability = settleBlocker
+      ? null
+      : await this.recordability(this.prisma, row, command);
     const [counters, entry, plans] = await Promise.all([
       this.terminalLabels(tenantId, branchId, [row.terminalId]),
       this.entryView(tenantId, branchId, identity, command),
@@ -261,6 +325,8 @@ export class JournalReviewsService {
               : null,
           }
         : null,
+      // Whether it may be not honoured, and what that leaves behind.
+      notHonoured: recordability ? notHonourView(command, recordability) : null,
       settlements: plans,
     };
   }
@@ -272,11 +338,79 @@ export class JournalReviewsService {
     branchId: string,
     reviewId: string,
     input: PrepareSettlementInput,
+    idempotencyKeyRaw?: string,
   ) {
     const tenantId = user.tenantId;
     const decision = parseDecision(input.decision);
     const reason = parseReason(input.reason);
-    const id = await this.prisma.$transaction(async (tx) => {
+    const key = normalizeIdempotencyKey(idempotencyKeyRaw);
+    // What a resend under the same key must match.
+    const requestBody = { reviewId, decision, reason };
+    if (key) {
+      const replay = await this.replayPrepare(user, branchId, key, requestBody);
+      if (replay) return replay;
+    }
+    let id: string;
+    try {
+      id = await this.prepareInTransaction(
+        user,
+        branchId,
+        reviewId,
+        decision,
+        reason,
+        key ? { key, requestBody } : null,
+      );
+    } catch (error) {
+      if (
+        key &&
+        (error instanceof KeyCommitted ||
+          isPrismaUniqueFieldError(error, "idempotency"))
+      ) {
+        const replay = await this.replayPrepare(
+          user,
+          branchId,
+          key,
+          requestBody,
+        );
+        if (replay) return replay;
+      }
+      throw settleError(error);
+    }
+    return this.settlementView(tenantId, branchId, id);
+  }
+
+  /** The settlement a key already prepared, as it reads now, or null for a new key. */
+  private async replayPrepare(
+    user: RequestUser,
+    branchId: string,
+    key: string,
+    requestBody: Prisma.InputJsonObject,
+  ) {
+    const record = await this.prisma.idempotencyRecord.findUnique({
+      where: prepareKey(user, key),
+    });
+    if (!record) return null;
+    const settlement = await this.prisma.offlineJournalSettlement.findFirst({
+      where: { tenantId: user.tenantId, branchId, id: record.resourceId },
+      select: { id: true },
+    });
+    if (!settlement || !isDeepStrictEqual(record.requestBody, requestBody))
+      throw new BadRequestException(
+        "Idempotency-Key already used for a different decision",
+      );
+    return this.settlementView(user.tenantId, branchId, settlement.id);
+  }
+
+  private prepareInTransaction(
+    user: RequestUser,
+    branchId: string,
+    reviewId: string,
+    decision: OfflineJournalSettlementDecision,
+    reason: string,
+    keyed: { key: string; requestBody: Prisma.InputJsonObject } | null,
+  ) {
+    const tenantId = user.tenantId;
+    return this.prisma.$transaction(async (tx) => {
       const row = await this.readReview(tx, tenantId, branchId, reviewId);
       const actor = await this.access.resolveLive(user, branchId, tx);
       if (!actor.has(REVIEW_PERMISSION))
@@ -285,17 +419,27 @@ export class JournalReviewsService {
         );
       // The journal lock: the chain can't move while this is checked and prepared.
       await lockOfflineJournal(tx, identityOf(row));
+      // A resend under the same key waited here behind its first attempt: answer with that one.
+      if (
+        keyed &&
+        (await tx.idempotencyRecord.findUnique({
+          where: prepareKey(user, keyed.key),
+        }))
+      )
+        throw new KeyCommitted();
       const command = entryOf(row);
       const blocker = await this.settleBlocker(tx, row, command);
       if (blocker)
         throw new ConflictException(SETTLE_BLOCKER_MESSAGES[blocker]);
-      if (decision === "recorded") {
-        const recordable = await this.recordability(tx, row, command);
-        if (!recordable.ok)
-          throw new ConflictException(
-            `This record can't be recorded as it happened: ${RECORD_BLOCKER_MESSAGES[recordable.blocker]}`,
-          );
-      }
+      // Advisory here; approval checks again with the till locked.
+      const recordable = await this.recordability(tx, row, command);
+      if (decision === "recorded" && !recordable.ok)
+        throw new ConflictException(
+          `This record can't be recorded as it happened: ${RECORD_BLOCKER_MESSAGES[recordable.blocker]}`,
+        );
+      const mustRecord = notHonourBlocker(command.kind, recordable.ok);
+      if (decision === "not_honoured" && mustRecord)
+        throw new ConflictException(NOT_HONOUR_BLOCKER_MESSAGES[mustRecord]);
       const open = await tx.offlineJournalSettlement.findFirst({
         where: {
           tenantId,
@@ -319,11 +463,19 @@ export class JournalReviewsService {
           commandId: row.recordId,
           sequence: row.sequence!,
           recordHash: row.recordHash,
-          decision: decision as OfflineJournalSettlementDecision,
+          decision,
           reason,
           requestedBy: user.userId,
         },
       });
+      if (keyed)
+        await tx.idempotencyRecord.create({
+          data: {
+            ...prepareKey(user, keyed.key).tenantId_userId_scope_idempotencyKey,
+            resourceId: settlement.id,
+            requestBody: keyed.requestBody,
+          },
+        });
       await this.audit.log(
         {
           tenantId,
@@ -357,7 +509,6 @@ export class JournalReviewsService {
       }
       return settlement.id;
     }, SETTLE_TX);
-    return this.settlementView(tenantId, branchId, id);
   }
 
   async approve(
@@ -366,11 +517,15 @@ export class JournalReviewsService {
     settlementId: string,
     input: ApproveSettlementInput,
   ) {
-    await this.prisma.$transaction(
-      (tx) =>
-        this.approveInTransaction(tx, user, branchId, settlementId, input),
-      SETTLE_TX,
-    );
+    try {
+      await this.prisma.$transaction(
+        (tx) =>
+          this.approveInTransaction(tx, user, branchId, settlementId, input),
+        SETTLE_TX,
+      );
+    } catch (error) {
+      throw settleError(error);
+    }
     return this.settlementView(user.tenantId, branchId, settlementId);
   }
 
@@ -423,6 +578,9 @@ export class JournalReviewsService {
       },
     );
     const command = entryOf(row);
+    // The till rows the decision depends on, locked as intake locks them, before any check: an
+    // online close, open or sale on that till waits until this settlement commits.
+    await lockTillForEntry(tx, identity, command);
     const blocker = await this.settleBlocker(tx, row, command);
     if (blocker) throw new ConflictException(SETTLE_BLOCKER_MESSAGES[blocker]);
 
@@ -434,6 +592,17 @@ export class JournalReviewsService {
     };
     let outcome: ReviewedEntryOutcome;
     if (current.decision === OfflineJournalSettlementDecision.not_honoured) {
+      if (command.kind === "ordinary_sale")
+        await this.keepCollectedPayments(tx, row, command, settlementId);
+      else if (
+        notHonourBlocker(
+          command.kind,
+          (await this.recordability(tx, row, command)).ok,
+        )
+      )
+        throw new ConflictException(
+          "The till can take this shift record now, so it is recorded: cancel this decision and prepare to record it.",
+        );
       outcome = { review, commandKind: command.kind, decision: "not_honoured" };
     } else {
       outcome = await this.record(tx, row, command, {
@@ -568,9 +737,10 @@ export class JournalReviewsService {
   // ── Recording an entry as it happened ───────────────────────────────────────────────────────
 
   /**
-   * Writes the refused entry's effect as the counter recorded it, under the journal lock. Every
-   * check `recordability` makes is made again here; anything else the offline rules required is
-   * what the manager decided to set aside.
+   * Writes the refused entry's effect as the counter recorded it, under the journal lock and the
+   * till locks the caller took (`lockTillForEntry`), so this check and the write see one state.
+   * Every check `recordability` makes is made again here; anything else the offline rules required
+   * is what the manager decided to set aside.
    */
   private async record(
     tx: Tx,
@@ -651,6 +821,57 @@ export class JournalReviewsService {
   }
 
   /**
+   * A not-honoured sale's card payments: the customer was charged and no sale exists, so each is
+   * kept as collected, not sold, against the shift it was taken in (when that shift is on the
+   * server), for a refund or a re-sale at the counter. Cash stays in the drawer, as variance.
+   */
+  private async keepCollectedPayments(
+    tx: Tx,
+    row: OfflineJournalReview,
+    command: OfflineSaleCommand,
+    settlementId: string,
+  ) {
+    const cards = command.payments.flatMap((p, paymentIndex) =>
+      p.method === "external_card" ? [{ card: p, paymentIndex }] : [],
+    );
+    if (!cards.length) return;
+    const shift = await tx.tillShift.findFirst({
+      where: {
+        tenantId: row.tenantId,
+        branchId: row.branchId,
+        id: command.session.workSessionId,
+      },
+      select: { id: true },
+    });
+    const collectedAt = recordedOccurredAt(
+      command.occurredAt,
+      row.firstReceivedAt,
+    );
+    await tx.offlineCollectedPayment.createMany({
+      data: cards.map(({ card, paymentIndex }) => ({
+        id: randomUUID(),
+        tenantId: row.tenantId,
+        branchId: row.branchId,
+        settlementId,
+        enrollmentId: row.enrollmentId,
+        commandId: command.commandId,
+        paymentIndex,
+        method: "external_card",
+        amountMinor: BigInt(card.amountMinor),
+        providerReference: card.providerReference,
+        approvalCode: card.approvalCode,
+        approvedAt: isoOrNull(card.approvedAt)
+          ? new Date(card.approvedAt)
+          : null,
+        workSessionId: command.session.workSessionId,
+        shiftId: shift?.id ?? null,
+        staffUserId: command.session.staffUserId,
+        collectedAt,
+      })),
+    });
+  }
+
+  /**
    * Whether the entry can be recorded as it happened, from the evidence this server holds: the
    * grant and snapshot it issued to this counter, the staff sign-in, the counter's own figures,
    * the batches, and the till's shifts.
@@ -667,8 +888,11 @@ export class JournalReviewsService {
     });
     const grant = await this.grant(db, identity, command.grantId);
     if (!grant) return no("grant_unknown");
-    if (!(await this.signIn(db, identity, command.staffSignInId)))
-      return no("sign_in_missing");
+    // As at intake: the sign-in is this counter's, for the entry's own person and shift.
+    const signIn = await this.signIn(db, identity, command.staffSignInId);
+    if (!signIn) return no("sign_in_missing");
+    if (!signInMatches(identity, command, signIn))
+      return no("sign_in_mismatch");
     if (
       command.session.registerId !== grant.registerId ||
       command.session.tillId !== grant.tillId
@@ -705,7 +929,13 @@ export class JournalReviewsService {
           id: command.session.workSessionId,
           closedAt: null,
         },
-        select: { tillId: true, registerId: true, staffUserId: true },
+        select: {
+          tillId: true,
+          registerId: true,
+          staffUserId: true,
+          terminalId: true,
+          enrollmentId: true,
+        },
       });
       if (
         !shift ||
@@ -713,6 +943,13 @@ export class JournalReviewsService {
         shift.registerId !== command.session.registerId
       )
         return no("shift_not_open");
+      // As at intake: only onto the seller's own shift, opened on this counter.
+      if (
+        shift.staffUserId !== command.session.staffUserId ||
+        shift.terminalId !== identity.terminalId ||
+        shift.enrollmentId !== identity.enrollmentId
+      )
+        return no("shift_not_theirs");
       return { ok: true, blocker: null };
     }
     if (command.kind === "shift_open") {
@@ -784,6 +1021,19 @@ export class JournalReviewsService {
       select: { id: true },
     });
     if (receipt) return "not_next";
+    // Two different signed records at this one place in the journal (a restored backup that signed
+    // again): a forked journal, recovered through D11, never settled one-sidedly here.
+    const fork = await db.offlineJournalReview.findFirst({
+      where: {
+        tenantId: row.tenantId,
+        enrollmentId: row.enrollmentId,
+        recordKind: "command",
+        sequence: row.sequence,
+        recordHash: { not: row.recordHash },
+      },
+      select: { id: true },
+    });
+    if (fork) return "forked";
     const enrollment = await db.terminalEnrollment.findFirst({
       where: { tenantId: row.tenantId, id: row.enrollmentId },
       select: { revokedAt: true, terminal: { select: { retiredAt: true } } },
@@ -892,8 +1142,8 @@ export class JournalReviewsService {
     });
     const names = await this.names(tenantId, staffIds);
     const base = {
-      occurredAt: new Date(command.occurredAt).toISOString(),
-      offlineStartedAt: new Date(command.offlineStartedAt).toISOString(),
+      occurredAt: isoOrNull(command.occurredAt),
+      offlineStartedAt: isoOrNull(command.offlineStartedAt),
       staff: {
         id: command.session.staffUserId,
         name: names.get(command.session.staffUserId) ?? null,
@@ -1016,7 +1266,7 @@ export class JournalReviewsService {
     const waiting =
       rows.find((r) => r.status === OfflineJournalSettlementStatus.prepared) ??
       null;
-    const [approvalRows, facts, people, sales] = await Promise.all([
+    const [approvalRows, facts, people, sales, collected] = await Promise.all([
       this.prisma.managementApproval.findMany({
         where: { tenantId, branchId, id: { in: approvalIds } },
         select: { id: true, approvedAt: true },
@@ -1031,6 +1281,14 @@ export class JournalReviewsService {
         rows.flatMap((r) => [r.requestedBy, r.approvedBy, r.cancelledBy]),
       ),
       this.salesOf(tenantId, branchId, rows),
+      this.prisma.offlineCollectedPayment.findMany({
+        where: {
+          tenantId,
+          branchId,
+          settlementId: { in: rows.map((r) => r.id) },
+        },
+        orderBy: { paymentIndex: "asc" },
+      }),
     ]);
     const person = (id: string | null) =>
       id ? { id, name: people.get(id) ?? null } : null;
@@ -1088,6 +1346,19 @@ export class JournalReviewsService {
           result.commandKind !== "ordinary_sale"
             ? result.workSessionId
             : null,
+        // A not-honoured sale's card payments, kept as collected, not sold.
+        collectedPayments: collected
+          .filter((c) => c.settlementId === r.id)
+          .map((c) => ({
+            id: c.id,
+            method: c.method,
+            amountMinor: Number(c.amountMinor),
+            providerReference: c.providerReference,
+            approvalCode: c.approvalCode,
+            approvedAt: c.approvedAt?.toISOString() ?? null,
+            shiftId: c.shiftId,
+            collectedAt: c.collectedAt.toISOString(),
+          })),
       };
     });
   }
@@ -1161,6 +1432,50 @@ export class JournalReviewsService {
     });
     return new Map(rows.map((r) => [r.id, r.counter?.label ?? r.label]));
   }
+}
+
+/** A resend under an Idempotency-Key whose first attempt committed while this one waited. */
+class KeyCommitted extends Error {}
+
+function prepareKey(user: RequestUser, idempotencyKey: string) {
+  return {
+    tenantId_userId_scope_idempotencyKey: {
+      tenantId: user.tenantId,
+      userId: user.userId,
+      scope: IDEMPOTENCY_SCOPE.offlineJournalSettlementPrepare,
+      idempotencyKey,
+    },
+  } satisfies Prisma.IdempotencyRecordWhereUniqueInput;
+}
+
+/**
+ * A unique index on the till's shifts refusing a settlement's write: an online shift opened or
+ * closed on that till at the same moment. The locks make this rare; it is a conflict, not a fault.
+ */
+function settleError(error: unknown): unknown {
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    (error as { code?: unknown }).code === "P2002" &&
+    /till_shift|till_id/.test(
+      JSON.stringify((error as { meta?: unknown }).meta ?? {}),
+    )
+  )
+    return new ConflictException(
+      "The till's shifts changed meanwhile. Open the record again.",
+    );
+  return error;
+}
+
+/** Whether a refused entry may be not honoured, and what that leaves behind. */
+function notHonourView(
+  command: OfflineJournalCommand,
+  recordability: Recordability,
+) {
+  const blocker = notHonourBlocker(command.kind, recordability.ok);
+  return blocker
+    ? { ok: false, message: NOT_HONOUR_BLOCKER_MESSAGES[blocker] }
+    : { ok: true, message: notHonouredEffect(command, recordability.blocker) };
 }
 
 /** The signed entry the counter sent, as retained with its refusal. */

@@ -12,6 +12,7 @@ import { formatMoney } from "@/lib/money";
 import { when } from "../stock-cases/case-detail";
 import css from "../stock-cases/stock-cases.module.css";
 import type {
+  CollectedPayment,
   Decision,
   EntryKind,
   RefusedRecordDetail,
@@ -42,12 +43,19 @@ const DECISIONS: Record<
   },
   not_honoured: {
     title: "Don't honour it",
+    // The server says exactly what follows (`detail.notHonoured`); this is only a fallback.
     help: (kind) =>
       kind === "ordinary_sale"
         ? "No sale, payment or stock is recorded. Any cash the counter took shows as that shift's variance."
-        : "Nothing is recorded on the till. The record is kept as evidence.",
+        : "Nothing is recorded on the till, and later records in that shift may then not be recordable.",
   },
 };
+
+/** What a decision means for this record, as the server describes it where it can. */
+const helpFor = (detail: RefusedRecordDetail, decision: Decision) =>
+  decision === "not_honoured" && detail.notHonoured
+    ? detail.notHonoured.message
+    : DECISIONS[decision].help(detail.kind);
 
 export const SETTLEMENT_LABELS: Record<Settlement["status"], string> = {
   prepared: "Needs approval",
@@ -76,7 +84,10 @@ export function RecordDetail({
   busy: boolean;
   userId: string | null;
   canSelfApprove: boolean;
-  onPrepare: (body: { decision: Decision; reason: string }) => Promise<boolean>;
+  onPrepare: (
+    body: { decision: Decision; reason: string },
+    idempotencyKey: string,
+  ) => Promise<boolean>;
   onApprove: (settlement: Settlement, approvalId: string) => Promise<boolean>;
   onCancel: (settlement: Settlement) => Promise<boolean>;
 }) {
@@ -120,7 +131,7 @@ export function RecordDetail({
         </Alert>
         <dl className={css.facts}>
           <div>
-            <dt>When (counter's clock)</dt>
+            <dt>When (counter&apos;s clock)</dt>
             <dd>{when(entry.occurredAt)}</dd>
           </div>
           <div>
@@ -186,7 +197,7 @@ export function RecordDetail({
           <Settled detail={detail} settlement={settled} />
         ) : waiting ? (
           <Waiting
-            kind={detail.kind}
+            help={helpFor(detail, waiting.decision)}
             settlement={waiting}
             busy={busy}
             canApprove={waiting.requester?.id !== userId || canSelfApprove}
@@ -242,7 +253,7 @@ function SaleLines({ entry }: { entry: SaleEntry }) {
               .map((p) =>
                 p.method === "cash"
                   ? `Cash ${minor(p.amountMinor)} (tendered ${minor(p.tenderedMinor)}, change ${minor(p.changeMinor)})`
-                  : `Card ${minor(p.amountMinor)} · ref ${p.providerReference}`,
+                  : `Card ${minor(p.amountMinor)} · ref ${p.providerReference} · approval ${p.approvalCode}`,
               )
               .join("; ")}
           </dd>
@@ -260,13 +271,26 @@ function DecisionForm({
 }: {
   detail: RefusedRecordDetail;
   busy: boolean;
-  onPrepare: (body: { decision: Decision; reason: string }) => Promise<boolean>;
+  onPrepare: (
+    body: { decision: Decision; reason: string },
+    idempotencyKey: string,
+  ) => Promise<boolean>;
 }) {
   const recordable = detail.recordable?.ok ?? false;
+  const honourable = detail.notHonoured?.ok ?? true;
+  const allowed = (d: Decision) => (d === "recorded" ? recordable : honourable);
   const [decision, setDecision] = useState<Decision>(
     recordable ? "recorded" : "not_honoured",
   );
   const [reason, setReason] = useState("");
+  // One key per decision and reason: a retried click after a lost answer can't prepare twice.
+  const keys = useRef<Record<string, string>>({});
+  const prepare = () => {
+    const body = { decision, reason: reason.trim() };
+    const slot = `${body.decision}:${body.reason}`;
+    keys.current[slot] ??= crypto.randomUUID();
+    return onPrepare(body, keys.current[slot]);
+  };
   return (
     <div className={css.form}>
       <fieldset className={css.kinds}>
@@ -279,13 +303,15 @@ function DecisionForm({
               value={d}
               checked={decision === d}
               onChange={() => setDecision(d)}
-              disabled={busy || (d === "recorded" && !recordable)}
+              disabled={busy || !allowed(d)}
             />
             <span>
               <strong>{DECISIONS[d].title}</strong>
               <br />
               <span className={css.sub}>
-                {DECISIONS[d].help(detail.kind)}
+                {d === "not_honoured" && !honourable
+                  ? `Not possible: ${detail.notHonoured!.message}`
+                  : helpFor(detail, d)}
                 {d === "recorded" && !recordable && detail.recordable?.message
                   ? ` Not possible: ${detail.recordable.message}`
                   : ""}
@@ -307,8 +333,8 @@ function DecisionForm({
       </label>
       <div className={css.actions}>
         <ActionButton
-          disabled={busy || !reason.trim()}
-          onClick={() => void onPrepare({ decision, reason: reason.trim() })}
+          disabled={busy || !reason.trim() || !allowed(decision)}
+          onClick={() => void prepare()}
         >
           Prepare decision
         </ActionButton>
@@ -318,14 +344,14 @@ function DecisionForm({
 }
 
 function Waiting({
-  kind,
+  help,
   settlement,
   busy,
   canApprove,
   onApprove,
   onCancel,
 }: {
-  kind: EntryKind;
+  help: string;
   settlement: Settlement;
   busy: boolean;
   canApprove: boolean;
@@ -338,7 +364,7 @@ function Waiting({
         <strong>{DECISIONS[settlement.decision].title}</strong>
         <span className={css.sub}> · {settlement.reason}</span>
       </p>
-      <p className={css.sub}>{DECISIONS[settlement.decision].help(kind)}</p>
+      <p className={css.sub}>{help}</p>
       <ApprovalEvidencePanel
         title="Decision approval"
         approvedVersion={null}
@@ -408,6 +434,9 @@ function Settled({
           ) : null}
         </p>
       ) : null}
+      {settlement.collectedPayments.length ? (
+        <CollectedNotSold payments={settlement.collectedPayments} />
+      ) : null}
       {detail.state === "settled" ? (
         <p className={css.sub}>
           The counter learns this the next time it sends the record, within a
@@ -415,5 +444,24 @@ function Settled({
         </p>
       ) : null}
     </>
+  );
+}
+
+/** Card money a not-honoured sale took: the customer was charged, and no sale exists. */
+function CollectedNotSold({ payments }: { payments: CollectedPayment[] }) {
+  const total = payments.reduce((sum, p) => sum + p.amountMinor, 0);
+  return (
+    <Alert variant="warning">
+      <strong>Card money collected, not sold: {minor(total)}.</strong> Refund it
+      to the customer or sell the goods again at the counter.
+      <ul aria-label="Collected, not sold">
+        {payments.map((p) => (
+          <li key={p.id}>
+            Card {minor(p.amountMinor)} · ref {p.providerReference} · approval{" "}
+            {p.approvalCode}
+          </li>
+        ))}
+      </ul>
+    </Alert>
   );
 }

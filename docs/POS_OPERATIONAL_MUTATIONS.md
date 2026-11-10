@@ -185,7 +185,8 @@ effect. Contract: [API_CONTRACT.md](API_CONTRACT.md#offline-journal-sync-p5-51).
 `settlements/:id/cancel` are `management`: a manager decides, from anywhere, whether a journal
 entry the server rejected is recorded as it happened or not honoured, and approving it exactly
 settles it. Nothing moves stock: a recorded sale waits on an offline stock case, resolved at the
-counter below. Contract:
+counter below, and a not-honoured card sale's payments are kept as collected, not sold. Prepare
+takes an `Idempotency-Key`. Contract:
 [API_CONTRACT.md](API_CONTRACT.md#refused-offline-journal-entries-p5-51-slice-4).
 
 ## P5 offline stock case resolution

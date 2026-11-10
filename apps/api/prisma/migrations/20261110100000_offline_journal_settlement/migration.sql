@@ -3,7 +3,8 @@
 -- management_approval machinery, new offline_journal_settlement pair) and written on approval in
 -- one transaction: the terminal_command_receipt at the entry's own sequence and digest, and for
 -- `recorded` the sale (always pending an offline stock case, so no stock moves remotely) or the
--- replayed shift. `not_honoured` writes no sale, payment or stock.
+-- replayed shift. `not_honoured` writes no sale, payment or stock; a card payment the sale took
+-- is kept as collected, not sold (offline_collected_payment).
 
 CREATE TYPE "OfflineJournalSettlementDecision" AS ENUM ('recorded', 'not_honoured');
 CREATE TYPE "OfflineJournalSettlementStatus" AS ENUM ('prepared', 'settled', 'cancelled');
@@ -55,6 +56,9 @@ CREATE UNIQUE INDEX "offline_journal_settlement_one_settled_per_sequence" ON "of
   WHERE "status" = 'settled';
 ALTER TABLE "offline_journal_settlement" ADD CONSTRAINT "offline_journal_settlement_review_fkey" FOREIGN KEY ("tenant_id", "branch_id", "review_id") REFERENCES "offline_journal_review"("tenant_id", "branch_id", "id") ON DELETE RESTRICT ON UPDATE RESTRICT;
 ALTER TABLE "offline_journal_settlement" ADD CONSTRAINT "offline_journal_settlement_requested_by_fkey" FOREIGN KEY ("requested_by") REFERENCES "app_user"("id") ON DELETE RESTRICT ON UPDATE RESTRICT;
+ALTER TABLE "offline_journal_settlement" ADD CONSTRAINT "offline_journal_settlement_approved_by_fkey" FOREIGN KEY ("approved_by") REFERENCES "app_user"("id") ON DELETE RESTRICT ON UPDATE RESTRICT;
+ALTER TABLE "offline_journal_settlement" ADD CONSTRAINT "offline_journal_settlement_cancelled_by_fkey" FOREIGN KEY ("cancelled_by") REFERENCES "app_user"("id") ON DELETE RESTRICT ON UPDATE RESTRICT;
+ALTER TABLE "offline_journal_settlement" ADD CONSTRAINT "offline_journal_settlement_execution_approval_fkey" FOREIGN KEY ("execution_approval_id") REFERENCES "management_approval"("id") ON DELETE RESTRICT ON UPDATE RESTRICT;
 
 -- What is approved is what is written: the decision and reason never change. To change them,
 -- cancel and prepare again, so an approval can never cover edited content.
@@ -74,6 +78,47 @@ END;
 $$;
 CREATE TRIGGER offline_journal_settlement_immutable BEFORE UPDATE OR DELETE ON "offline_journal_settlement"
   FOR EACH ROW EXECUTE FUNCTION pc_offline_journal_settlement_immutable();
+
+-- A card payment of a sale that was not honoured: the customer was charged and no sale exists, so
+-- the money is kept apart from completed sales, for a refund or a re-sale at the counter. Cash is
+-- not kept here: it is in the drawer, and shows as the shift's variance.
+CREATE TABLE "offline_collected_payment" (
+    "id" UUID NOT NULL,
+    "tenant_id" UUID NOT NULL,
+    "branch_id" UUID NOT NULL,
+    "settlement_id" UUID NOT NULL,
+    "enrollment_id" UUID NOT NULL,
+    "command_id" UUID NOT NULL,
+    "payment_index" INTEGER NOT NULL,
+    "method" VARCHAR(16) NOT NULL,
+    "amount_minor" BIGINT NOT NULL,
+    "provider_reference" VARCHAR(64) NOT NULL,
+    "approval_code" VARCHAR(32) NOT NULL,
+    "approved_at" TIMESTAMP(3),
+    "work_session_id" UUID NOT NULL,
+    "shift_id" UUID,
+    "staff_user_id" UUID NOT NULL,
+    "collected_at" TIMESTAMP(3) NOT NULL,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "offline_collected_payment_pkey" PRIMARY KEY ("id"),
+    CONSTRAINT "offline_collected_payment_shape" CHECK (
+      "method" = 'external_card' AND "payment_index" >= 0 AND "amount_minor" > 0
+      AND length(btrim("provider_reference")) > 0
+    )
+);
+CREATE UNIQUE INDEX "offline_collected_payment_settlement_id_payment_index_key" ON "offline_collected_payment"("settlement_id", "payment_index");
+CREATE INDEX "offline_collected_payment_tenant_id_branch_id_created_at_idx" ON "offline_collected_payment"("tenant_id", "branch_id", "created_at");
+CREATE INDEX "offline_collected_payment_tenant_id_shift_id_idx" ON "offline_collected_payment"("tenant_id", "shift_id");
+ALTER TABLE "offline_collected_payment" ADD CONSTRAINT "offline_collected_payment_settlement_fkey" FOREIGN KEY ("settlement_id") REFERENCES "offline_journal_settlement"("id") ON DELETE RESTRICT ON UPDATE RESTRICT;
+ALTER TABLE "offline_collected_payment" ADD CONSTRAINT "offline_collected_payment_shift_fkey" FOREIGN KEY ("tenant_id", "shift_id") REFERENCES "till_shift"("tenant_id", "id") ON DELETE RESTRICT ON UPDATE RESTRICT;
+CREATE FUNCTION pc_offline_collected_payment_retained() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  RAISE EXCEPTION 'Collected offline payments are kept as they were collected';
+END;
+$$;
+CREATE TRIGGER offline_collected_payment_retained BEFORE UPDATE OR DELETE ON "offline_collected_payment"
+  FOR EACH ROW EXECUTE FUNCTION pc_offline_collected_payment_retained();
 
 -- A recorded entry's sale always waits on a stock case; its lines that central stock could cover
 -- say `entry_reviewed` (a manager recorded a refused entry, so its stock is confirmed at the
@@ -126,6 +171,9 @@ WHERE r."is_system" = true AND r."key" IN ('owner', 'manager')
 ON CONFLICT ("role_id", "permission_key") DO NOTHING;
 
 CREATE POLICY pc_tenant_isolation ON offline_journal_settlement
+  USING (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid);
+CREATE POLICY pc_tenant_isolation ON offline_collected_payment
   USING (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid)
   WITH CHECK (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid);
 -- RLS remains disabled, consistent with the staged inventory.

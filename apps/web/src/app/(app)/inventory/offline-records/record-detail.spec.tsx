@@ -95,6 +95,11 @@ function detail(
     },
     settleBlocker: null,
     recordable: { ok: true, blocker: null, message: null },
+    notHonoured: {
+      ok: true,
+      message:
+        "No sale, payment or stock is recorded. Any cash the counter took shows as that shift's variance.",
+    },
     settlements: [],
     ...overrides,
   };
@@ -118,6 +123,7 @@ function settlement(overrides: Partial<Settlement> = {}): Settlement {
     cancelledAt: null,
     sale: null,
     workSessionId: null,
+    collectedPayments: [],
     ...overrides,
   };
 }
@@ -185,10 +191,112 @@ describe("refused offline records (P5 #51 slice 4)", () => {
       target: { value: "  Customer paid cash  " },
     });
     fireEvent.click(prepare);
-    expect(onPrepare).toHaveBeenCalledWith({
-      decision: "recorded",
-      reason: "Customer paid cash",
-    });
+    expect(onPrepare).toHaveBeenCalledWith(
+      { decision: "recorded", reason: "Customer paid cash" },
+      expect.any(String),
+    );
+  });
+
+  it("prepares with one idempotency key per decision and reason, so a retry can't prepare twice", () => {
+    const { onPrepare } = renderDetail(detail());
+    const reason = screen.getByRole("textbox", { name: "Reason" });
+    const prepare = screen.getByRole("button", { name: "Prepare decision" });
+    fireEvent.change(reason, { target: { value: "Paid cash" } });
+    fireEvent.click(prepare);
+    fireEvent.click(prepare);
+    fireEvent.change(reason, { target: { value: "Paid cash, receipt kept" } });
+    fireEvent.click(prepare);
+    const keys = onPrepare.mock.calls.map((call) => call[1]);
+    expect(keys[0]).toBe(keys[1]);
+    expect(keys[2]).not.toBe(keys[0]);
+  });
+
+  it("won't not honour a shift record the till can take, and says why", () => {
+    renderDetail(
+      detail({
+        kind: "shift_open",
+        entry: {
+          ...detail().entry,
+          kind: "shift_open",
+          openingCashMinor: 5000,
+        } as RefusedRecordDetail["entry"],
+        notHonoured: {
+          ok: false,
+          message:
+            "The till can take this shift record, so it is recorded. Not honouring it would leave every later record in that shift unrecordable.",
+        },
+      }),
+    );
+    expect(
+      screen.getByRole("radio", { name: /Don't honour it/ }),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole("radio", { name: /Record it as it happened/ }),
+    ).toBeChecked();
+    expect(
+      screen.getByText(/Not possible: The till can take this shift record/),
+    ).toBeInTheDocument();
+  });
+
+  it("says what not honouring a card sale leaves behind", () => {
+    renderDetail(
+      detail({
+        recordable: {
+          ok: false,
+          blocker: "shift_not_theirs",
+          message: "The shift it names is someone else's.",
+        },
+        notHonoured: {
+          ok: true,
+          message:
+            "No sale, payment or stock is recorded. The card payment was taken, so it is kept as collected, not sold, for a refund or a re-sale at the counter.",
+        },
+      }),
+    );
+    expect(screen.getByText(/kept as collected, not sold/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Not possible: The shift it names is someone else's/),
+    ).toBeInTheDocument();
+  });
+
+  it("shows the card money a not-honoured sale took as collected, not sold", () => {
+    renderDetail(
+      detail({
+        state: "settled",
+        settleBlocker: {
+          code: "settled",
+          message: "This record is already settled.",
+        },
+        settlements: [
+          settlement({
+            decision: "not_honoured",
+            status: "settled",
+            approver: owner,
+            settledAt: "2026-11-10T05:20:00.000Z",
+            approvalReview: null,
+            collectedPayments: [
+              {
+                id: "cp-1",
+                method: "external_card",
+                amountMinor: 3658,
+                providerReference: "TID-42",
+                approvalCode: "A1B2",
+                approvedAt: "2026-11-10T04:00:00.000Z",
+                shiftId: "shift-1",
+                collectedAt: "2026-11-10T04:00:00.000Z",
+              },
+            ],
+          }),
+        ],
+      }),
+    );
+    const decision = screen.getByRole("region", { name: "Decision" });
+    expect(decision).toHaveTextContent(
+      /Card money collected, not sold: LKR 36.58/,
+    );
+    expect(
+      within(decision).getByRole("list", { name: "Collected, not sold" }),
+    ).toHaveTextContent("ref TID-42 · approval A1B2");
   });
 
   it("offers only not honouring when the record can't be recorded, and says why", () => {
@@ -216,10 +324,10 @@ describe("refused offline records (P5 #51 slice 4)", () => {
       target: { value: "Keyed wrongly" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Prepare decision" }));
-    expect(onPrepare).toHaveBeenCalledWith({
-      decision: "not_honoured",
-      reason: "Keyed wrongly",
-    });
+    expect(onPrepare).toHaveBeenCalledWith(
+      { decision: "not_honoured", reason: "Keyed wrongly" },
+      expect.any(String),
+    );
   });
 
   it("approves the exact decision shown, with one approval ID per content, unless it is the requester's own", () => {
@@ -300,18 +408,14 @@ describe("refused offline records (P5 #51 slice 4)", () => {
   });
 
   it("lists the branch's waiting records and opens the first", async () => {
-    jest
-      .mocked(useAuth)
-      .mockReturnValue({
-        branchId: "branch-a",
-        user: { id: "u-owner" },
-      } as never);
-    jest
-      .mocked(usePermissions)
-      .mockReturnValue({
-        permissionKeys: ["sales.review_offline_entries"],
-        canSelfApprove: true,
-      } as never);
+    jest.mocked(useAuth).mockReturnValue({
+      branchId: "branch-a",
+      user: { id: "u-owner" },
+    } as never);
+    jest.mocked(usePermissions).mockReturnValue({
+      permissionKeys: ["sales.review_offline_entries"],
+      canSelfApprove: true,
+    } as never);
     const summary: RefusedRecordSummary = {
       id: "review-1",
       state: "open",
@@ -328,6 +432,7 @@ describe("refused offline records (P5 #51 slice 4)", () => {
       attempts: 3,
       firstReceivedAt: "2026-11-10T05:00:00.000Z",
       settlement: null,
+      collectedNotSoldMinor: null,
     };
     jest
       .mocked(apiJson)

@@ -1,3 +1,4 @@
+import { ConflictException } from "@nestjs/common";
 import { Prisma, TillShiftCloseKind, type TillShift } from "@prisma/client";
 import type {
   LocalOpenTillShift,
@@ -156,6 +157,9 @@ export async function replayShiftClose(
   // Waits for anything still adding money to the shift.
   await tx.$queryRaw`SELECT id FROM till_shift WHERE tenant_id = ${tenantId}::uuid
     AND branch_id = ${branchId}::uuid AND id = ${shift.id}::uuid FOR UPDATE`;
+  // An online close may have finished while this waited: never write over its count.
+  const stillOpen = await tx.tillShift.findFirst({ where: { tenantId, branchId, id: shift.id, closedAt: null }, select: { id: true } });
+  if (!stillOpen) throw new ConflictException({ code: "SHIFT_CLOSED", message: "This shift was closed meanwhile." });
   const expected = expectedCash(await deps.shifts.parts(tx, shift));
   const assisted = command.assistance !== null;
   const variance = command.closingCashCountMinor - expected;

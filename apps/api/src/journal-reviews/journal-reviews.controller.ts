@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Headers,
   HttpCode,
   HttpStatus,
   Param,
@@ -64,7 +65,7 @@ export class JournalReviewsController {
 
   @ApiOperation({
     summary:
-      "Prepare a decision on a refused record; a self-approving preparer settles it too",
+      "Prepare a decision on a refused record; a self-approving preparer settles it too. With an Idempotency-Key (scope offline_journal_settlement_prepare) a resend returns the first result.",
   })
   @RequirePermission(REVIEW_PERMISSION)
   @Post(":id/settlements")
@@ -73,8 +74,9 @@ export class JournalReviewsController {
     @RequireBranchId() branchId: string,
     @Param("id", ParseUUIDPipe) id: string,
     @Body() dto: PrepareJournalSettlementDto,
+    @Headers("idempotency-key") idempotencyKey: string | undefined,
   ) {
-    return this.reviews.prepare(user, branchId, id, dto);
+    return this.reviews.prepare(user, branchId, id, dto, idempotencyKey);
   }
 
   @ApiOperation({

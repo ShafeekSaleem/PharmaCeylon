@@ -17,6 +17,32 @@ export async function lockOfflineJournal(tx: Db, scope: Scope): Promise<void> {
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))`;
 }
 
+/**
+ * The till rows an entry's effect touches, locked as intake locks them, so a manager's settlement
+ * (P5 slice 4) checks and writes against one state. A sale share-locks its shift, so the shift can't
+ * close underneath it (an online close takes it FOR UPDATE). A shift open or close locks the till's
+ * counter, so opens and closes on that till serialize with online ones, and a close locks its shift
+ * too. Taken after the journal lock, in intake's order (counter, then shift).
+ */
+export async function lockTillForEntry(
+  tx: Db,
+  scope: { tenantId: string; branchId: string },
+  command: OfflineJournalCommand,
+): Promise<void> {
+  const { tenantId, branchId } = scope;
+  const { registerId, workSessionId } = command.session;
+  if (command.kind === "ordinary_sale") {
+    await tx.$queryRaw`SELECT id FROM till_shift WHERE tenant_id = ${tenantId}::uuid
+      AND branch_id = ${branchId}::uuid AND id = ${workSessionId}::uuid FOR SHARE`;
+    return;
+  }
+  await tx.$queryRaw`SELECT id FROM terminal_counter WHERE tenant_id = ${tenantId}::uuid
+    AND branch_id = ${branchId}::uuid AND id = ${registerId}::uuid FOR UPDATE`;
+  if (command.kind === "shift_close")
+    await tx.$queryRaw`SELECT id FROM till_shift WHERE tenant_id = ${tenantId}::uuid
+      AND branch_id = ${branchId}::uuid AND id = ${workSessionId}::uuid FOR UPDATE`;
+}
+
 /** The highest accepted command; sequences are accepted only contiguously from 1. */
 export function offlineJournalHead(
   client: Pick<Db, "terminalCommandReceipt">,

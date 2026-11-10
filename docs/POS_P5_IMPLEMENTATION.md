@@ -259,19 +259,23 @@ the counter carries on within a minute.
 | Area | What exists |
 | --- | --- |
 | Routes | `apps/api/src/journal-reviews/`: `GET /offline-journal-reviews`, `GET /:id`, `POST /:id/settlements`, `POST /settlements/:id/approve`, `POST /settlements/:id/cancel`, all `sales.review_offline_entries` and `management` in the mutation inventory. Contract: [API_CONTRACT.md](API_CONTRACT.md#refused-offline-journal-entries-p5-51-slice-4) |
-| Decisions | `recorded` (as it happened, only if its figures are exactly the snapshot's and the till allows it) or `not_honoured` (nothing written), a reason either way. Rules in `journal-reviews/journal-entry-settlement.ts` |
+| Decisions | `recorded` (as it happened, only if its figures are exactly the snapshot's and the till and shift allow it) or `not_honoured` (no sale or stock; a card sale's payments kept as collected, not sold), a reason either way. A shift record the till can take is always recorded. Rules in `journal-reviews/journal-entry-settlement.ts` |
 | Exact approval | `management_approval`, document `offline_journal_settlement`, action `offline_journal_settlement.execute`; material in `security/offline-journal-settlement-approval-material.ts` (the entry, the decision and reason, the accepted head it follows) |
-| The chain | The settlement writes the server's receipt at the entry's own sequence and digest (`terminals/journal/journal-chain.ts` holds the lock and the head both writers use). Later entries chain onto it; the clock floor skips settled receipts |
+| The chain | The settlement writes the server's receipt at the entry's own sequence and digest (`terminals/journal/journal-chain.ts` holds the journal lock, the head, and the till locks intake takes, in intake's order, so both writers judge the till alike). Later entries chain onto it; the clock floor skips settled receipts |
 | Intake | A rejected entry's content is never judged again: a resend returns the stored refusal until it is settled, then `reviewed` from the receipt |
 | Shared contract | `ReviewedEntryOutcome`; `SyncAcknowledgement` and `CommittedCommandReceipt` gain `status: "reviewed"` |
 | Desktop | `offline-journal-sync.ts` sends a `failed` entry alone (the existing 60 s issue back-off paces it), verifies `reviewed` (kind, `committedAt`, the watermark, the review fields, and a recorded sale pending on a case), marks it synced and continues in the same cycle |
-| Web | Inventory → Refused offline records (`/inventory/offline-records`): the list, the entry decoded, why it was refused, whether it can be recorded, the decision form, approval evidence, and a link to a recorded sale's stock case. Stock cases show the `entry_reviewed` reason |
+| Web | Inventory → Refused offline records (`/inventory/offline-records`): the list, the entry decoded, why it was refused, whether it can be recorded and what not honouring it leaves behind, the decision form (prepared with an `Idempotency-Key`), approval evidence, card money collected, not sold, and a link to a recorded sale's stock case. Stock cases show the `entry_reviewed` reason |
 
 ### Decisions taken in this slice (asked 2026-11-10)
 
 - **Both decisions, with a reason.** Record it as it happened, only if its amounts add up, or
-  don't honour it. Not honouring writes no sale, payment or stock; the cash the counter took
-  shows as that shift's variance.
+  don't honour it. Not honouring writes no sale or stock; the cash the counter took shows as
+  that shift's variance.
+- **A not-honoured card sale keeps its card money as collected, not sold** (asked 2026-11-10,
+  review follow-up). The customer was charged, so each card payment is written as an
+  `offline_collected_payment` (provider reference, approval code, shift) for a refund or a
+  re-sale at the counter, rather than vanishing. Showing it in the shift summary is a follow-up.
 - **A recorded sale always waits on a case, settled on the web.** It opens an
   `offline_stock_discrepancy` case and blocks its batches until the case is resolved at the
   counter (slice 2); no stock moves on a remote approval. Approval and settlement happen on the
@@ -280,13 +284,21 @@ the counter carries on within a minute.
   `20261110100000_offline_journal_settlement`), with exact approval and the tenant's
   self-approval rules.
 - **Shift entries are recorded when the till allows it**: an open if no other shift is open on
-  the till and its ID is unused, a close if that shift is still open. Otherwise only
-  not honoured.
+  the till and its ID is unused, a close if that shift is still open. **A shift record the till
+  can take must be recorded** (review follow-up): not honouring it would leave every later
+  record in that shift unrecordable. It is not honoured only when it can't be recorded, and the
+  page says what follows (later sales can then only be not honoured; a shift left open must be
+  closed on the server).
+- **A sale is recorded only as intake would have taken it** (review follow-up): onto the
+  seller's own shift opened on this counter, under a sign-in that is this counter's, for the
+  entry's own person and shift (an assisted close: the manager who closed it, on the same
+  till).
 - **A rejection is final for that content until settled**, so the answer the counter gets never
   drifts with the clock or the till. Recorded entries are dated at the counter's time but never
   after the server first saw them (a clock ahead of the server is one reason to refuse).
 - **Out of scope here:** held entries (the counter repairs them), conflicts with the accepted
-  chain and revoked or retired counters (D11 journal recovery).
+  chain, forked journals (two different entries refused at the same sequence, as after a
+  restored backup) and revoked or retired counters (D11 journal recovery).
 - **No new daily-work kind.** Approval is classified `management`, so the daily-work kind
   rule for physical approvals does not apply. The sync-status work lists rejected entries past
   the head; a settled entry has a receipt, so it drops out on its own.
@@ -297,15 +309,22 @@ the counter carries on within a minute.
   sequence and digest, the decision and reason, `prepared` → `settled` | `cancelled`, the
   approval and result. A shape check ties each status to its fields; partial unique indexes allow
   one waiting and one settled per review and one settled per enrollment and sequence; a trigger
-  keeps everything but the progress immutable; tenant isolation policy.
+  keeps everything but the progress immutable; tenant isolation policy. The approver, canceller
+  and execution approval are foreign keys.
+- `offline_collected_payment`: a not-honoured sale's card payments (method, amount as
+  `BIGINT`, provider reference, approval code, shift, seller, when collected), one per payment
+  index per settlement, tied to the settlement and the shift; retained by trigger, tenant
+  isolation policy.
 - `offline_stock_discrepancy_line.reason` gains `entry_reviewed`;
   `management_approval_shape` gains the new document and action.
 - `sales.review_offline_entries` is inserted and granted to the built-in owner and manager roles.
 
 ### Tests
 
-- API unit: `journal-entry-settlement.spec.ts` (money checks, dating, decision and reason
-  parsing, explanations); `offline-sale-commit.spec.ts` (a reviewed entry never posts).
+- API unit: `journal-entry-settlement.spec.ts` (money checks, dating including a clock that
+  gives no date, decision and reason parsing, explanations, the sign-in match including an
+  assisted close, when a shift record must be recorded, what not honouring leaves behind);
+  `offline-sale-commit.spec.ts` (a reviewed entry never posts).
 - API (PostgreSQL), `offline-journal-reviews.int-spec.ts`:
   - A sale refused after the grant expired: issuance refused and resends answered with the
     refusal; review and detail; the cashier refused; reason required; exact approval with
@@ -319,9 +338,16 @@ the counter carries on within a minute.
   - A shift open on a clock ahead of the server, dated when it arrived; the next, earlier entry
     is accepted.
   - Concurrent approvals settle once; a cancelled decision can't be approved.
+  - Review follow-ups: a held-then-rejected entry settles; a not-honoured card sale keeps its
+    payment as collected, not sold (retained); a close after the grant expired must be recorded;
+    a sale onto someone else's shift, or under a forged sign-in, can't be recorded; a forked
+    journal is `forked`; concurrent prepares with one `Idempotency-Key` settle once and
+    replay; more than 200 overtaken entries don't hide an open one, and a clock that gives no
+    date lists as `null` and is dated when it arrived.
 - Desktop: `offline-journal-sync.spec.ts` — the probe once a minute, carrying on once settled,
   and the `reviewed` acknowledgement checks.
-- Web: `record-detail.spec.tsx`.
+- Web: `record-detail.spec.tsx` (also the key per decision and reason, a recordable shift that
+  can't be not honoured, and collected payments).
 
 ## Later slices (not built)
 

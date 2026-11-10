@@ -82,13 +82,19 @@ function OfflineRecordsPage() {
     void loadDetail();
   }, [loadDetail]);
 
-  async function act(path: string, body?: unknown) {
+  async function act(
+    path: string,
+    body?: unknown,
+    headers: Record<string, string> = {},
+  ) {
     setBusy(true);
     setError(null);
     try {
       await apiJson(path, {
         method: "POST",
-        headers: body ? { "Content-Type": "application/json" } : undefined,
+        headers: body
+          ? { "Content-Type": "application/json", ...headers }
+          : headers,
         body: body ? JSON.stringify(body) : undefined,
       });
       await Promise.all([loadList(), loadDetail()]);
@@ -159,6 +165,12 @@ function OfflineRecordsPage() {
                       {r.staff ? ` · ${r.staff}` : ""}
                     </span>
                     <span className={css.sub}>{r.refusal.explanation}</span>
+                    {r.collectedNotSoldMinor !== null ? (
+                      <span className={css.sub}>
+                        Card money collected, not sold:{" "}
+                        {minor(r.collectedNotSoldMinor)}
+                      </span>
+                    ) : null}
                     <span>
                       <StatusBadge
                         status={
@@ -194,8 +206,10 @@ function OfflineRecordsPage() {
               busy={busy}
               userId={user?.id ?? null}
               canSelfApprove={canSelfApprove}
-              onPrepare={(body) =>
-                act(`/offline-journal-reviews/${detail.id}/settlements`, body)
+              onPrepare={(body, idempotencyKey) =>
+                act(`/offline-journal-reviews/${detail.id}/settlements`, body, {
+                  "Idempotency-Key": idempotencyKey,
+                })
               }
               onApprove={(s, approvalId) =>
                 act(`/offline-journal-reviews/settlements/${s.id}/approve`, {

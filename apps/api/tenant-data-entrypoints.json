@@ -341,7 +341,7 @@
     {
       "path": "src/terminals/journal/journal-chain.ts",
       "mode": "scoped-domain-lock",
-      "reason": "Transaction-scoped advisory lock on the caller's tenant + enrollment id only, taken by offline journal intake and by a manager's settlement of a refused entry, so every writer of one enrollment's chain serializes (and concurrent identical retries find the first's receipt). No data is read or written by raw SQL."
+      "reason": "Transaction-scoped advisory lock on the caller's tenant + enrollment id only, taken by offline journal intake and by a manager's settlement of a refused entry, so every writer of one enrollment's chain serializes (and concurrent identical retries find the first's receipt). A settlement then locks the till rows its entry touches by the bound tenant, branch and the signed register or work-session id, as intake does: the shift FOR SHARE for a sale, the counter (and for a close the shift) FOR UPDATE for a shift entry. No data is read or written by raw SQL."
     },
     {
       "path": "src/terminals/journal/offline-shift-replay.ts",

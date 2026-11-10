@@ -1,4 +1,5 @@
-import { randomUUID, verify } from "node:crypto";
+import { randomBytes, randomUUID, verify } from "node:crypto";
+import type { Prisma } from "@prisma/client";
 import {
   terminalSigningText,
   type SyncAcknowledgement,
@@ -331,8 +332,8 @@ describe("refused offline journal entries (P5 #51 slice 4)", () => {
       expect.objectContaining({ id: reviewId, state: "settled" }),
     ]);
     expect(
-      (await reviews.detail(c.fx.tenantId, branch(c), reviewId)).settleBlocker,
-    ).toMatchObject({ code: "settled" });
+      await reviews.detail(c.fx.tenantId, branch(c), reviewId),
+    ).toMatchObject({ state: "settled", settleBlocker: { code: "settled" } });
   });
 
   it("not honoured: no sale, payment or stock; the cash the counter took shows as the shift's variance", async () => {
@@ -453,8 +454,17 @@ describe("refused offline journal entries (P5 #51 slice 4)", () => {
     });
     const shiftReview = await reviewOf(c, openB.payload.commandId);
     expect(
-      (await reviews.detail(c.fx.tenantId, branch(c), shiftReview)).recordable,
-    ).toMatchObject({ ok: false, blocker: "till_has_open_shift" });
+      await reviews.detail(c.fx.tenantId, branch(c), shiftReview),
+    ).toMatchObject({
+      recordable: { ok: false, blocker: "till_has_open_shift" },
+      // It may be not honoured, and the page says what that leaves behind and how to avoid it.
+      notHonoured: {
+        ok: true,
+        message: expect.stringContaining(
+          "close the shift still open on this till first",
+        ),
+      },
+    });
 
     // Once the counter is revoked, its journal goes to journal recovery instead.
     await prisma.$transaction((tx) =>
@@ -617,5 +627,414 @@ describe("refused offline journal entries (P5 #51 slice 4)", () => {
       "reviewed",
       "committed",
     ]);
+  });
+
+  it("an entry held for its sign-in, then rejected once judged, is listed, settled and answered from the record", async () => {
+    const c = await counter({ main: 10 });
+    const j = offlineJournal(c);
+    const cashierIn = j.signIn(c.cashier.userId, randomUUID());
+    // No shift was opened. Without its sign-in the sale waits for it, and isn't a refusal yet.
+    const sale = j.sale(cashierIn, [[c.batches.main, 1]]);
+    expect(
+      (await sync(c, { commands: [sale] })).payload.acknowledgements[0],
+    ).toMatchObject({ status: "held", error: { code: "SESSION_INVALID" } });
+    expect(await reviews.list(c.fx.tenantId, branch(c))).toEqual([]);
+
+    // With the sign-in it is judged and refused for good (no shift is open to sell on).
+    expect(
+      (await sync(c, { staffSignIns: [cashierIn], commands: [sale] })).payload
+        .acknowledgements[0],
+    ).toMatchObject({ status: "rejected", error: { code: "SESSION_INVALID" } });
+    // Final: a resend is answered from the record, not judged again.
+    expect(
+      (await sync(c, { commands: [sale] })).payload.acknowledgements[0],
+    ).toMatchObject({ status: "rejected", error: { code: "SESSION_INVALID" } });
+    const [listed] = await reviews.list(c.fx.tenantId, branch(c));
+    expect(listed).toMatchObject({ state: "open", sequence: 1, attempts: 3 });
+    expect(
+      await reviews.detail(c.fx.tenantId, branch(c), listed!.id),
+    ).toMatchObject({
+      settleBlocker: null,
+      recordable: { ok: false, blocker: "shift_not_open" },
+      notHonoured: { ok: true },
+    });
+
+    expect(
+      await reviews.prepare(c.manager, branch(c), listed!.id, {
+        decision: "not_honoured",
+        reason: "Sold with no shift open",
+      }),
+    ).toMatchObject({ status: "settled", decision: "not_honoured" });
+    expect(
+      (await sync(c, { commands: [sale] })).payload.acknowledgements[0],
+    ).toMatchObject({ status: "reviewed", decision: "not_honoured" });
+    await expect(stuck(c)).resolves.toMatchObject({
+      includedThroughSequence: 1,
+    });
+  });
+
+  it("a card sale not honoured keeps its card money as collected, not sold", async () => {
+    const c = await counter({ main: 10 });
+    const j = offlineJournal(c);
+    const workSessionId = randomUUID();
+    const cashierIn = j.signIn(c.cashier.userId, workSessionId);
+    const open = j.open(cashierIn, 0);
+    const known = c.snapshot.lines.find((l) => l.batchId === c.batches.main)!;
+    const total =
+      known.unitPriceMinor +
+      Number(
+        (BigInt(known.unitPriceMinor) * BigInt(known.taxBasisPoints) + 5000n) /
+          10000n,
+      );
+    const late = j.sale(cashierIn, [[c.batches.main, 1]], {
+      occurredAt: c.grant.expiresAt,
+      payments: [
+        {
+          method: "external_card",
+          amountMinor: total,
+          providerReference: "TID-42 RRN-0001",
+          approvalCode: "A1B2C3",
+          approvedAt: c.grant.expiresAt,
+        },
+      ],
+    });
+    const after = c.grant.expiresAt + hour;
+    const first = await sync(
+      c,
+      { staffSignIns: [cashierIn], commands: [open, late] },
+      after,
+    );
+    expect(statuses(first.payload.acknowledgements)).toEqual([
+      "committed",
+      "rejected",
+    ]);
+    const reviewId = await reviewOf(c, late.payload.commandId);
+    expect(
+      (await reviews.detail(c.fx.tenantId, branch(c), reviewId)).notHonoured,
+    ).toEqual({
+      ok: true,
+      message: expect.stringContaining("kept as collected, not sold"),
+    });
+
+    const settled = await reviews.prepare(c.manager, branch(c), reviewId, {
+      decision: "not_honoured",
+      reason: "Customer came back; refund the card at the counter",
+    });
+    expect(settled).toMatchObject({
+      status: "settled",
+      sale: null,
+      collectedPayments: [
+        {
+          method: "external_card",
+          amountMinor: total,
+          providerReference: "TID-42 RRN-0001",
+          approvalCode: "A1B2C3",
+          shiftId: workSessionId,
+        },
+      ],
+    });
+    // No sale or payment, but the money is findable: on the record, in the settled list, by shift.
+    expect(
+      await prisma.sale.count({ where: { tenantId: c.fx.tenantId } }),
+    ).toBe(0);
+    expect(await reviews.list(c.fx.tenantId, branch(c), "closed")).toEqual([
+      expect.objectContaining({ id: reviewId, collectedNotSoldMinor: total }),
+    ]);
+    const kept = await prisma.offlineCollectedPayment.findFirstOrThrow({
+      where: { tenantId: c.fx.tenantId, shiftId: workSessionId },
+    });
+    expect(kept).toMatchObject({
+      settlementId: settled.id,
+      commandId: late.payload.commandId,
+      staffUserId: c.cashier.userId,
+      amountMinor: BigInt(total),
+    });
+    // Kept as it was collected.
+    await expect(
+      prisma.offlineCollectedPayment.update({
+        where: { id: kept.id },
+        data: { amountMinor: 1n },
+      }),
+    ).rejects.toThrow(/kept as they were collected/);
+    expect(
+      (await sync(c, { commands: [late] }, after)).payload.acknowledgements[0],
+    ).toMatchObject({ status: "reviewed", decision: "not_honoured" });
+  });
+
+  it("a shift record the till can take is recorded, never not honoured: a close after the permission ran out", async () => {
+    const c = await counter({ main: 10 });
+    const j = offlineJournal(c);
+    const workSessionId = randomUUID();
+    const cashierIn = j.signIn(c.cashier.userId, workSessionId);
+    const open = j.open(cashierIn, 500);
+    const sale = j.sale(cashierIn, [[c.batches.main, 1]]);
+    const taken = sale.payload.totalMinor;
+    const close = j.tamper(j.close(cashierIn, 500 + taken + 100, 500 + taken), {
+      occurredAt: c.grant.expiresAt,
+    });
+    const after = c.grant.expiresAt + hour;
+    const first = await sync(
+      c,
+      { staffSignIns: [cashierIn], commands: [open, sale, close] },
+      after,
+    );
+    expect(statuses(first.payload.acknowledgements)).toEqual([
+      "committed",
+      "committed",
+      "rejected",
+    ]);
+    const reviewId = await reviewOf(c, close.payload.commandId);
+    expect(
+      await reviews.detail(c.fx.tenantId, branch(c), reviewId),
+    ).toMatchObject({
+      recordable: { ok: true },
+      notHonoured: {
+        ok: false,
+        message: expect.stringContaining("can take this shift record"),
+      },
+    });
+    await expect(
+      reviews.prepare(c.manager, branch(c), reviewId, {
+        decision: "not_honoured",
+        reason: "Closed too late",
+      }),
+    ).rejects.toThrow(/can take this shift record/);
+
+    const settled = await reviews.prepare(c.manager, branch(c), reviewId, {
+      decision: "recorded",
+      reason: "Cashier closed after the permission ran out",
+    });
+    expect(settled).toMatchObject({ status: "settled", workSessionId });
+    const shift = await prisma.tillShift.findUniqueOrThrow({
+      where: { id: workSessionId },
+    });
+    expect(shift).toMatchObject({
+      closeCommandId: close.payload.commandId,
+      closingCashCountMinor: 500 + taken + 100,
+      expectedCashMinor: 500 + taken,
+      counterExpectedCashMinor: 500 + taken,
+      varianceMinor: 100,
+    });
+    expect(shift.closedAt!.getTime()).toBeGreaterThanOrEqual(
+      shift.openedAt.getTime(),
+    );
+    expect(
+      (await sync(c, { commands: [close] }, after)).payload.acknowledgements[0],
+    ).toMatchObject({
+      status: "reviewed",
+      commandKind: "shift_close",
+      decision: "recorded",
+      workSessionId,
+    });
+  });
+
+  it("a sale is recorded only on its seller's own shift, with their own sign-in", async () => {
+    const c = await counter({ main: 10 });
+    const j = offlineJournal(c);
+    const shiftA = randomUUID();
+    const cashierIn = j.signIn(c.cashier.userId, shiftA);
+    const managerIn = j.signIn(c.manager.userId, shiftA);
+    const open = j.open(cashierIn, 0);
+    // The manager sells on the cashier's shift: intake refuses it, and so does recording.
+    const onTheirs = j.sale(managerIn, [[c.batches.main, 1]]);
+    // Then a sale naming the manager but citing the cashier's sign-in.
+    const forged = j.sale(cashierIn, [[c.batches.main, 1]], {
+      session: { ...cashierIn.payload.session, staffUserId: c.manager.userId },
+    });
+    const first = await sync(c, {
+      staffSignIns: [cashierIn, managerIn],
+      commands: [open, onTheirs],
+    });
+    expect(first.payload.acknowledgements[1]).toMatchObject({
+      status: "rejected",
+      error: { code: "SESSION_INVALID" },
+    });
+    const theirs = await reviewOf(c, onTheirs.payload.commandId);
+    expect(
+      (await reviews.detail(c.fx.tenantId, branch(c), theirs)).recordable,
+    ).toMatchObject({ ok: false, blocker: "shift_not_theirs" });
+    await expect(
+      reviews.prepare(c.manager, branch(c), theirs, {
+        decision: "recorded",
+        reason: "Cash is in that drawer",
+      }),
+    ).rejects.toThrow(/can't be recorded as it happened/);
+    await reviews.prepare(c.manager, branch(c), theirs, {
+      decision: "not_honoured",
+      reason: "Sold on someone else's shift",
+    });
+
+    const next = await sync(c, { commands: [onTheirs, forged] });
+    expect(statuses(next.payload.acknowledgements)).toEqual([
+      "reviewed",
+      "rejected",
+    ]);
+    expect(
+      (
+        await reviews.detail(
+          c.fx.tenantId,
+          branch(c),
+          await reviewOf(c, forged.payload.commandId),
+        )
+      ).recordable,
+    ).toMatchObject({ ok: false, blocker: "sign_in_mismatch" });
+    expect(
+      await prisma.sale.count({ where: { tenantId: c.fx.tenantId } }),
+    ).toBe(0);
+  });
+
+  it("a forked journal, two records at one place, goes to journal recovery", async () => {
+    const c = await counter({ main: 10 });
+    const j = offlineJournal(c);
+    const cashierIn = j.signIn(c.cashier.userId, randomUUID());
+    const open = j.open(cashierIn, 0);
+    const late = j.sale(cashierIn, [[c.batches.main, 1]], {
+      occurredAt: c.grant.expiresAt,
+    });
+    const after = c.grant.expiresAt + hour;
+    await sync(c, { staffSignIns: [cashierIn], commands: [open, late] }, after);
+    // A restored backup signs a different record at the same place, refused too.
+    const other = j.tamper(late, {
+      commandId: randomUUID(),
+      lines: [{ ...late.payload.lines[0]!, quantity: 2 }],
+    });
+    expect(
+      (await sync(c, { commands: [other] }, after)).payload.acknowledgements[0],
+    ).toMatchObject({ sequence: 2, status: "rejected" });
+    const reviewId = await reviewOf(c, late.payload.commandId);
+    expect(
+      (await reviews.detail(c.fx.tenantId, branch(c), reviewId)).settleBlocker,
+    ).toMatchObject({ code: "forked" });
+    await expect(
+      reviews.prepare(c.manager, branch(c), reviewId, {
+        decision: "not_honoured",
+        reason: "Pick one",
+      }),
+    ).rejects.toThrow(/journal recovery/);
+  });
+
+  it("prepare with an Idempotency-Key answers a resend, even one racing the counter's", async () => {
+    const c = await counter({ main: 10 });
+    const j = offlineJournal(c);
+    const cashierIn = j.signIn(c.cashier.userId, randomUUID());
+    const open = j.open(cashierIn, 0);
+    const late = j.sale(cashierIn, [[c.batches.main, 1]], {
+      occurredAt: c.grant.expiresAt,
+    });
+    const after = c.grant.expiresAt + hour;
+    await sync(c, { staffSignIns: [cashierIn], commands: [open, late] }, after);
+    const reviewId = await reviewOf(c, late.payload.commandId);
+    const key = randomUUID();
+    const body = {
+      decision: "recorded",
+      reason: "Paid in cash during the outage",
+    };
+    // Self-approved, so preparing writes the sale. The same request twice, and the counter's
+    // resend of the entry, all at once.
+    const [a, b, resent] = await Promise.all([
+      reviews.prepare(c.manager, branch(c), reviewId, body, key),
+      reviews.prepare(c.manager, branch(c), reviewId, body, key),
+      sync(c, { commands: [late] }, after),
+    ]);
+    expect(a).toMatchObject({
+      status: "settled",
+      sale: { id: expect.any(String) },
+    });
+    expect(b.id).toBe(a.id);
+    expect(["rejected", "reviewed"]).toContain(
+      resent.payload.acknowledgements[0]!.status,
+    );
+    expect(
+      await prisma.sale.count({ where: { tenantId: c.fx.tenantId } }),
+    ).toBe(1);
+    expect(
+      await prisma.terminalCommandReceipt.count({
+        where: { tenantId: c.fx.tenantId, offlineSequence: 2n },
+      }),
+    ).toBe(1);
+    // Later: the same answer; the key with another decision is refused; no key is a conflict.
+    expect(
+      await reviews.prepare(c.manager, branch(c), reviewId, body, key),
+    ).toMatchObject({ id: a.id, status: "settled" });
+    await expect(
+      reviews.prepare(
+        c.manager,
+        branch(c),
+        reviewId,
+        { ...body, decision: "not_honoured" },
+        key,
+      ),
+    ).rejects.toThrow(/already used for a different decision/);
+    await expect(
+      reviews.prepare(c.manager, branch(c), reviewId, body),
+    ).rejects.toThrow(/already settled/);
+  });
+
+  it("lists every blocking entry however many settled or overtaken ones are newer, and survives a broken clock", async () => {
+    const c = await counter({ main: 10 });
+    const j = offlineJournal(c);
+    const cashierIn = j.signIn(c.cashier.userId, randomUUID());
+    const open = j.open(cashierIn, 0);
+    // A clock that gives no date at all: refused, and still listed and settled.
+    const broken = j.sale(cashierIn, [[c.batches.main, 1]], {
+      occurredAt: 9e15,
+    });
+    const first = await sync(c, {
+      staffSignIns: [cashierIn],
+      commands: [open, broken],
+    });
+    expect(first.payload.acknowledgements[1]).toMatchObject({
+      status: "rejected",
+      error: { code: "CLOCK_UNTRUSTED" },
+    });
+    const reviewId = await reviewOf(c, broken.payload.commandId);
+    const row = await prisma.offlineJournalReview.findUniqueOrThrow({
+      where: { id: reviewId },
+    });
+    // 205 newer refusals the counter has long since moved past (at or before its head).
+    const { envelope, ...rest } = row;
+    const overtaken = Array.from({ length: 205 }, (_, i) => ({
+      ...rest,
+      id: randomUUID(),
+      recordId: randomUUID(),
+      recordHash: randomBytes(32).toString("hex"),
+      sequence: 1n,
+      envelope: envelope as Prisma.InputJsonValue,
+      firstReceivedAt: new Date(Date.now() + 60_000 + i),
+      lastReceivedAt: new Date(Date.now() + 60_000 + i),
+    }));
+    await prisma.offlineJournalReview.createMany({ data: overtaken });
+
+    expect(await reviews.list(c.fx.tenantId, branch(c))).toEqual([
+      expect.objectContaining({
+        id: reviewId,
+        state: "open",
+        occurredAt: null,
+      }),
+    ]);
+    expect(await reviews.list(c.fx.tenantId, branch(c), "closed")).toHaveLength(
+      200,
+    );
+    const detail = await reviews.detail(c.fx.tenantId, branch(c), reviewId);
+    expect(detail.entry).toMatchObject({ occurredAt: null });
+    const settled = await reviews.prepare(c.manager, branch(c), reviewId, {
+      decision: "recorded",
+      reason: "The counter's clock was broken; the sale did happen",
+    });
+    expect(settled).toMatchObject({ status: "settled" });
+    // Dated when the server first saw it.
+    expect(
+      (
+        await prisma.sale.findFirstOrThrow({
+          where: {
+            tenantId: c.fx.tenantId,
+            offlineCommandId: broken.payload.commandId,
+          },
+        })
+      ).soldAt.getTime(),
+    ).toBe(row.firstReceivedAt.getTime());
+    expect(
+      await reviews.detail(c.fx.tenantId, branch(c), reviewId),
+    ).toMatchObject({ state: "settled" });
   });
 });
