@@ -8,7 +8,8 @@ import {
   type InstallResult,
   type OfflineAuthority,
 } from "./offline-authority";
-import { hasLocalOfflineUsage } from "./offline-journal";
+import { activeOutage, journalCoverage, localJournalHead } from "./offline-journal";
+import { readAcceptedWatermark } from "./reconnect-drain";
 import type { TerminalService } from "./terminal-service";
 
 const operation = "POST /api/v1/terminals/offline-authority";
@@ -60,7 +61,7 @@ export type OfflineAuthorityRefreshDeps = {
   signer: { keyId: string; publicKey: KeyObject };
   report: (error: unknown) => void;
   now?: () => number;
-  /** P4's local journal check; see offline-journal.ts. */
+  /** An extra local-use veto for the installer (tests); the installer checks the journal itself. */
   localUsage?: (db: PosDatabase, enrollmentId: string) => boolean;
 };
 
@@ -87,7 +88,7 @@ function persistent(error: unknown): boolean {
  */
 export function createOfflineAuthorityRefresh(deps: OfflineAuthorityRefreshDeps) {
   const now = deps.now ?? Date.now;
-  const localUsage = deps.localUsage ?? hasLocalOfflineUsage;
+  const localUsage = deps.localUsage;
   let inFlight = false;
   const status: OfflineAuthorityRefreshStatus = {
     nominated: null, lastSuccessAt: null, consecutiveFailures: 0, lastFailure: null, nextAttemptAt: null,
@@ -95,7 +96,19 @@ export function createOfflineAuthorityRefresh(deps: OfflineAuthorityRefreshDeps)
 
   function due(enrollmentId: string): boolean {
     const installed = readInstalledOfflineAuthority(deps.db, enrollmentId);
-    return !installed || now() - installed.snapshot.payload.generatedAt >= OFFLINE_AUTHORITY_REFRESH_MS;
+    if (!installed || now() - installed.snapshot.payload.generatedAt >= OFFLINE_AUTHORITY_REFRESH_MS) return true;
+    // P5 #51: a drain waits for a pair rebased over the journal, and an installed pair that
+    // doesn't include the journal is stale however young it is.
+    const { includedThroughSequence: sequence, includedThroughHash: hash } = installed.snapshot.payload;
+    return activeOutage(deps.db, enrollmentId) !== null ||
+      journalCoverage(deps.db, enrollmentId, { sequence, hash }) !== "covered";
+  }
+
+  /** P5 #51: journal entries recorded here that the server has not confirmed accepting. A pair
+   * issued now could not include them, so asking for one would only mint a version this counter
+   * refuses to install: the journal upload goes first. */
+  function journalWaiting(enrollmentId: string): boolean {
+    return readAcceptedWatermark(deps.db, enrollmentId).sequence < localJournalHead(deps.db, enrollmentId).sequence;
   }
 
   /** One request ID per pending request, kept across restarts until its response arrives, so a
@@ -115,6 +128,7 @@ export function createOfflineAuthorityRefresh(deps: OfflineAuthorityRefreshDeps)
     if (!current || !device) return "skipped";
     const { identity, key, staff } = current;
     if (!due(identity.enrollmentId)) return "skipped";
+    if (journalWaiting(identity.enrollmentId)) throw new OfflineAuthorityInstallError("local_usage");
     const requestId = requestIdFor(identity.enrollmentId);
     const branchId = identity.branchId;
     const command = await deps.api.request<OnlineTerminalCommand<{ requestId: string }>>(
@@ -175,6 +189,13 @@ export function createOfflineAuthorityRefresh(deps: OfflineAuthorityRefreshDeps)
       } finally {
         inFlight = false;
       }
+    },
+    /**
+     * Try again at the next tick whatever the back-off (P5 #51): the journal has just been
+     * accepted and a drain waits for a fresh pair. A renewal is due then anyway (`due`).
+     */
+    renewNow(): void {
+      status.nextAttemptAt = null;
     },
     status(): OfflineAuthorityRefreshStatus {
       return { ...status, lastFailure: status.lastFailure && { ...status.lastFailure } };

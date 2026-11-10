@@ -1,6 +1,7 @@
 import { MAX_SNAPSHOT_AGE_AT_OUTAGE_MS } from "@pharmaceylon/shared";
 import type { OfflineBackup, ReadinessCheck, ReadinessReport } from "../shared/ipc-contract";
 import type { OfflineAuthorityRefreshStatus } from "./terminal/offline-authority-refresh";
+import type { JournalSyncView } from "./terminal/offline-journal-sync";
 
 export type ReadinessFacts = {
   databaseOpen: boolean;
@@ -27,6 +28,12 @@ export type ReadinessFacts = {
       authorizedStaff: number;
       lines: number;
     } | null;
+  };
+  /** The offline journal's upload (P5 #51). Absent: not looked at (not enrolled). */
+  journalSync?: {
+    /** False when this computer has no pinned server key, so nothing can be verified. */
+    configured: boolean;
+    view: JournalSyncView;
   };
 };
 
@@ -57,10 +64,13 @@ export function explainRefreshFailure(code: string): string {
     case "BRANCH_HOURS_NOT_CONFIGURED":
       return "The branch's selling hours are not set. A manager sets them in the back office.";
     case "RECONCILIATION_REQUIRED":
-    case "reconciliation_required":
-      return "Offline sales from this counter must be reconciled online first.";
+      return "An offline sale from this counter was refused by the server. A manager reviews it in the back office first.";
     case "local_usage":
-      return "Offline sales recorded on this computer must be synchronised first.";
+      return "Offline sales recorded on this computer must be synchronised first. That happens by itself while someone is signed in.";
+    case "journal_mismatch":
+      return "The server holds offline records from this counter that this computer doesn't. Contact support.";
+    case "drain_incomplete":
+      return "Confirm the unconfirmed sales and actions first; synchronisation then finishes by itself.";
     case "invalid":
       return "The server's reply did not match this computer's offline key. Contact support.";
     case "NETWORK":
@@ -130,6 +140,33 @@ function offlineRows(facts: ReadinessFacts, now: Date): { grant: Row; catalogue:
       failures: refresh.consecutiveFailures,
       failure,
     },
+  };
+}
+
+/** The Synchronisation row: the offline journal's upload and the reconnect drain (P5 #51). */
+function syncRow(facts: ReadinessFacts, now: Date): Row {
+  const sync = facts.journalSync;
+  if (facts.enrollmentStatus !== "active" || !sync) return { status: "not_ready", detail: NEEDS_ACTIVATION };
+  if (!sync.configured)
+    return { status: "not_ready", detail: "This computer has no offline permission key set up. Contact support." };
+  const { view } = sync;
+  const at = (iso: string) => clockTime(Date.parse(iso), now);
+  const waiting = `${view.waiting} offline ${view.waiting === 1 ? "record" : "records"} waiting to reach the server.`;
+  if (view.refused > 0 || view.issue?.code === "JOURNAL_MISMATCH")
+    return { status: "failed", detail: `${view.issue?.message ?? "An offline record was refused."}${view.waiting ? ` ${waiting}` : ""}` };
+  if (view.pause)
+    return {
+      status: "warning",
+      detail: `Synchronising offline sales: new sales wait until it finishes. ${view.waiting ? waiting : "Waiting for fresh stock from the server."}${
+        view.issue ? ` ${view.issue.message}` : ""
+      }`,
+    };
+  if (view.issue) return { status: "warning", detail: view.issue.message };
+  if (!view.lastSuccessAt) return { status: "not_ready", detail: "Not confirmed with the server yet. It checks by itself while someone is signed in." };
+  const drained = view.lastDrain ? ` Offline sales from the outage at ${clockTime(view.lastDrain.startedAt, now)} are all on the server.` : "";
+  return {
+    status: "ok",
+    detail: `Everything recorded here is on the server, confirmed ${at(view.lastSuccessAt)}.${drained}`,
   };
 }
 
@@ -206,7 +243,7 @@ export function buildReadinessReport(facts: ReadinessFacts, now: Date): Readines
     { id: "catalogue", label: "Product catalogue", ...offline.catalogue },
     { id: "receipt-numbers", label: "Receipt numbering", status: "not_ready", detail: NEEDS_ACTIVATION },
     { id: "printer", label: "Receipt printer", status: "not_ready", detail: "No receipt printer has been set up." },
-    { id: "sync", label: "Synchronisation", status: "not_ready", detail: NEEDS_ACTIVATION },
+    { id: "sync", label: "Synchronisation", ...syncRow(facts, now) },
   ];
 
   return {

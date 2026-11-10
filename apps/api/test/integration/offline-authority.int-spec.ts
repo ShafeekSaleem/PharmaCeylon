@@ -21,7 +21,7 @@ import {
   OfflineActivationService,
 } from "../../src/terminals/offline-activation.service";
 import { OfflineAssignmentService } from "../../src/terminals/offline-assignment.service";
-import { emptyJournalState, issueOfflineAuthority } from "../../src/terminals/offline-authority-issuance";
+import { acceptedJournalState, issueOfflineAuthority } from "../../src/terminals/offline-authority-issuance";
 import { verifyStockSnapshot } from "../../src/terminals/stock-snapshot";
 import { TerminalTrustService } from "../../src/terminals/terminal-trust.service";
 import { boundedCanonical, sha256 } from "../../src/terminals/terminal-wire";
@@ -157,7 +157,7 @@ const issue = (identity: TerminalIdentity, commandId: string) =>
     // The signed command and its attendance are proven in terminal-execution; this file covers
     // what issuance does once the device and actor are authenticated.
     authenticate: async () => ({ identity, commandId }),
-    readState: emptyJournalState,
+    readState: acceptedJournalState,
   });
 
 const hours = (opens: string, closes: string) => ({ mode: "hours" as const, ranges: [{ opens, closes }] });
@@ -287,23 +287,52 @@ describe("initial offline authority (P3 #49)", () => {
     expect(await prisma.stockReservation.count({ where: { tenantId: fx.tenantId } })).toBe(0);
   });
 
-  it("refuses to renew once an offline journal entry is accepted, and still replays what was issued", async () => {
+  it("rebases a renewal over the accepted journal: the watermark is its head, and a lost response still replays", async () => {
     const counter = await nominatedCounterAfterReplacement();
     const issuedRequest = randomUUID();
     const issued = await issue(counter, issuedRequest);
     await acceptOfflineJournalEntry(counter, 1n);
+    const head = await acceptOfflineJournalEntry(counter, 2n);
 
-    await expect(issue(counter, randomUUID())).rejects.toMatchObject({ response: { code: "RECONCILIATION_REQUIRED" } });
-    expect(await prisma.offlineStockSnapshot.count({ where: { enrollmentId: counter.enrollmentId } })).toBe(1);
-    // A lost response is still recoverable: the pair was issued before the entry was accepted.
+    const rebased = await issue(counter, randomUUID());
+    expect(rebased.snapshot.payload).toMatchObject({ includedThroughSequence: 2, includedThroughHash: head });
+    expect(rebased.grant.payload.grantVersion).toBe(2);
+    expect(verifyStockSnapshot(rebased.snapshot, counter, { keyId: signer.keyId, publicKey: server.publicKey })).toBe(true);
+    // The pair issued before the entries were accepted is still what its request gets back.
     expect(await issue(counter, issuedRequest)).toEqual(issued);
   });
 
-  it("refuses even the first issuance over an accepted journal", async () => {
+  it("issues even the first pair over an accepted journal, at its head", async () => {
+    const counter = await nominatedCounterAfterReplacement();
+    const head = await acceptOfflineJournalEntry(counter, 1n);
+    await expect(issue(counter, randomUUID())).resolves.toMatchObject({
+      snapshot: { payload: { includedThroughSequence: 1, includedThroughHash: head } },
+    });
+  });
+
+  it("refuses while the journal is stuck past its head on an entry that needs review", async () => {
     const counter = await nominatedCounterAfterReplacement();
     await acceptOfflineJournalEntry(counter, 1n);
+    // Held entries are repaired by the counter itself (a gap, a sign-in still to upload), and a
+    // conflicting copy of an entry already accepted doesn't stop the chain: neither refuses.
+    await retainJournalReview(counter, 3n, "held", "SEQUENCE_GAP");
+    await retainJournalReview(counter, 1n, "conflict", "REPLAY_CONFLICT");
+    await expect(issue(counter, randomUUID())).resolves.toMatchObject({ snapshot: { payload: { includedThroughSequence: 1 } } });
+
+    await retainJournalReview(counter, 2n, "rejected", "LOCAL_STOCK_EXHAUSTED");
     await expect(issue(counter, randomUUID())).rejects.toMatchObject({ response: { code: "RECONCILIATION_REQUIRED" } });
-    expect(await prisma.offlineStockSnapshot.count({ where: { enrollmentId: counter.enrollmentId } })).toBe(0);
+    expect(await prisma.offlineStockSnapshot.count({ where: { enrollmentId: counter.enrollmentId } })).toBe(1);
+
+    // Once an entry is accepted at that sequence (whatever repaired it), the journal moves on.
+    await acceptOfflineJournalEntry(counter, 2n);
+    await expect(issue(counter, randomUUID())).resolves.toMatchObject({ snapshot: { payload: { includedThroughSequence: 2 } } });
+  });
+
+  it("refuses a fork: an entry past the head that doesn't follow the accepted chain", async () => {
+    const counter = await nominatedCounterAfterReplacement();
+    await acceptOfflineJournalEntry(counter, 1n);
+    await retainJournalReview(counter, 2n, "conflict", "REPLAY_CONFLICT");
+    await expect(issue(counter, randomUUID())).rejects.toMatchObject({ response: { code: "RECONCILIATION_REQUIRED" } });
   });
 
   it("an online command receipt is not offline journal", async () => {
@@ -424,14 +453,29 @@ async function nominatedCounterAfterReplacement({ prepared = true } = {}) {
   return identity;
 }
 
-/** An offline command the server accepted into this enrollment's journal (null: an online one). */
+/** An offline command the server accepted into this enrollment's journal (null: an online one).
+ * Returns its digest: the journal hash the watermark names. */
 async function acceptOfflineJournalEntry(identity: TerminalIdentity, offlineSequence: bigint | null) {
+  const requestDigest = randomBytes(32).toString("hex");
   await prisma.terminalCommandReceipt.create({
     data: {
       tenantId: identity.tenantId, branchId: identity.branchId, terminalId: identity.terminalId,
       enrollmentId: identity.enrollmentId, keyId: identity.keyId, commandId: randomUUID(),
-      operation: "offline_sale", requestDigest: randomBytes(32).toString("hex"), offlineSequence,
+      operation: "offline_sale", requestDigest, offlineSequence,
       actorUserId: fx.clerkId, command: { contractVersion: 1 }, result: { status: "accepted" },
+    },
+  });
+  return requestDigest;
+}
+
+/** A journal entry the server refused and kept for review (P5 #51 `offline_journal_review`). */
+async function retainJournalReview(identity: TerminalIdentity, sequence: bigint, outcome: "held" | "rejected" | "conflict", errorCode: string) {
+  await prisma.offlineJournalReview.create({
+    data: {
+      tenantId: identity.tenantId, branchId: identity.branchId, terminalId: identity.terminalId,
+      enrollmentId: identity.enrollmentId, keyId: identity.keyId, recordKind: "command", recordId: randomUUID(),
+      sequence, recordHash: randomBytes(32).toString("hex"), outcome, errorCode,
+      envelope: { contractVersion: 1 }, receivedByUserId: fx.clerkId,
     },
   });
 }

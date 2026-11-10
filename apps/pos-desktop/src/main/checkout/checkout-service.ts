@@ -20,6 +20,7 @@ import {
   type TerminalService,
 } from "../terminal/terminal-service";
 import type { OfflineJournalWriter } from "../terminal/offline-journal-writer";
+import { checkoutSyncPause } from "../terminal/reconnect-drain";
 import { saleTotalMinor } from "../../shared/sale-total";
 import { fromMinor, toMinor } from "./money";
 
@@ -304,6 +305,14 @@ export class CheckoutService {
     discountCoSign?: CoSign,
   ): Promise<CompletedSale> {
     const { staff, identity } = this.counter();
+    // P5 #51 (approved D12): after an outage, new sales wait on this counter until its offline
+    // journal is accepted and fresh stock with the server's review blocks is installed. Confirming
+    // an unconfirmed sale (`retry`) is part of that, so it is not paused.
+    if (checkoutSyncPause(this.deps.db, identity.enrollmentId))
+      throw new ActionFailure(
+        "SYNC_PAUSED",
+        "This counter is synchronising its offline sales. New sales start again as soon as it finishes.",
+      );
     const { request, totalMinor } = this.buildRequest(
       lines,
       tender,

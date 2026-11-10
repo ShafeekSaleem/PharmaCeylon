@@ -8,43 +8,72 @@ import { signOfflineGrant } from "./offline-grant";
 import { recordSignedStockSnapshot, type SnapshotState } from "./stock-snapshot";
 import { denied } from "./terminal-wire";
 
-/** Whether this enrollment has any accepted offline journal entry (a sequenced command receipt). */
-export async function hasAcceptedOfflineJournal(
+/** The highest accepted offline journal entry (a sequenced command receipt), or sequence 0. */
+export async function acceptedJournalHead(
   tx: Prisma.TransactionClient,
   identity: TerminalIdentity,
-): Promise<boolean> {
-  const entry = await tx.terminalCommandReceipt.findFirst({
+): Promise<{ sequence: number; hash: string | null }> {
+  const head = await tx.terminalCommandReceipt.findFirst({
     where: { tenantId: identity.tenantId, enrollmentId: identity.enrollmentId, offlineSequence: { not: null } },
-    select: { id: true },
+    orderBy: { offlineSequence: "desc" },
+    select: { offlineSequence: true, requestDigest: true },
   });
-  return entry !== null;
+  return head ? { sequence: Number(head.offlineSequence), hash: head.requestDigest } : { sequence: 0, hash: null };
 }
 
 /**
- * The journal baseline for a new issuance or renewal, read from the accepted offline journal in
- * the issuance's own consistent view. The journal is enrollment-wide: each offline command an
- * enrollment uploads is accepted as a `terminal_command_receipt` with its `offline_sequence`.
- *
- * While none has been accepted, the baseline is provably empty: watermark 0 and no hash. The
- * stock-review blocks are the branch's open batch sale blocks (P5 #51), which another counter's
- * accepted journal may have opened. Once this enrollment has an accepted journal entry, rebasing
- * the snapshot over it is a later P5 slice, so the request is refused rather than rebased on a
- * guess.
- *
- * A journal entry accepted concurrently with an issuance serializes after it: the pair issued
- * at watermark 0 was correct when it was read, and the counter that uploaded the entry holds a
- * non-empty local journal, so its installer refuses to rebase onto that pair.
+ * Whether this enrollment's journal is stuck past its accepted head on an entry that will never
+ * be accepted as sent: one rejected by policy, or one that conflicts with the accepted chain (a
+ * fork). Nothing after it can be accepted either (entries are accepted only at head + 1), so the
+ * counter cannot finish synchronising until someone reviews it. Held entries (a gap, a sign-in
+ * not uploaded yet) are not counted: the counter repairs them by sending what is missing.
  */
-export async function emptyJournalState(
+export async function journalAwaitingReview(
+  tx: Prisma.TransactionClient,
+  identity: TerminalIdentity,
+  headSequence: number,
+): Promise<boolean> {
+  const stuck = await tx.offlineJournalReview.findFirst({
+    where: {
+      tenantId: identity.tenantId,
+      enrollmentId: identity.enrollmentId,
+      recordKind: "command",
+      outcome: { in: ["rejected", "conflict"] },
+      sequence: { gt: BigInt(headSequence) },
+    },
+    select: { id: true },
+  });
+  return stuck !== null;
+}
+
+/**
+ * The journal baseline for a new issuance or renewal, read in the issuance's own repeatable-read
+ * view, together with the stock it signs (P5 #51, the rebase). Each offline command an
+ * enrollment uploads is accepted as a `terminal_command_receipt` with its `offline_sequence`, in
+ * the same transaction as its whole stock effect or its discrepancy case and batch sale blocks.
+ * So the stock this view reads already includes every posted sale through the accepted head, and
+ * every sale still pending reconciliation holds its batches in `batch_sale_block`, which the
+ * snapshot marks `stockReviewRequired` (approved D1): advancing the watermark never makes those
+ * units sellable again.
+ *
+ * The watermark is the accepted head (0 and no hash while nothing has been accepted). The
+ * counter installs the pair only if that head is its own last journal entry, so a pair issued
+ * while the counter still has entries to upload is simply not installed. A journal stuck on an
+ * entry that needs review is refused (`RECONCILIATION_REQUIRED`): the counter cannot rebase onto
+ * it, and minting versions it will never install would only hide the problem.
+ *
+ * The review blocks are the branch's open batch sale blocks, whichever counter's journal opened
+ * them (e.g. the counter this one replaced): those batches are never sellable offline either.
+ */
+export async function acceptedJournalState(
   tx: Prisma.TransactionClient,
   identity: TerminalIdentity,
 ): Promise<SnapshotState> {
-  if (await hasAcceptedOfflineJournal(tx, identity)) denied("RECONCILIATION_REQUIRED");
-  // P5 #51 (approved D1): batches an open offline discrepancy case holds, whichever counter's
-  // journal opened it (e.g. the counter this one replaced), are never sellable offline either.
+  const head = await acceptedJournalHead(tx, identity);
+  if (await journalAwaitingReview(tx, identity, head.sequence)) denied("RECONCILIATION_REQUIRED");
   return {
-    includedThroughSequence: 0,
-    includedThroughHash: null,
+    includedThroughSequence: head.sequence,
+    includedThroughHash: head.hash,
     reviewRequiredBatchIds: await blockedBatchIds(tx, identity.tenantId, identity.branchId),
   };
 }

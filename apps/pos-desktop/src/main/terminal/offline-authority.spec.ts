@@ -147,9 +147,9 @@ describe("rebasing onto a newer version", () => {
     expect(readInstalledOfflineAuthority(local.db, identity.enrollmentId)).toEqual({ version: 1, ...first });
   });
 
-  it("leaves a pair rebased over an accepted journal to P5", () => {
+  it("never installs a pair rebased over journal entries this computer doesn't have (P5 #51)", () => {
     installOfflineAuthority(local.db, authority({ issuedAt: NOW - 120_000 }), expected());
-    expect(installOfflineAuthority(local.db, authority({ version: 2, sequence: 3 }), expected())).toBe("reconciliation_required");
+    expect(installOfflineAuthority(local.db, authority({ version: 2, sequence: 3 }), expected())).toBe("journal_mismatch");
     expect(installedVersion()).toBe(1);
   });
 

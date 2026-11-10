@@ -21,6 +21,12 @@ import { ReturnsService } from "./returns/returns-service";
 import { readInstalledOfflineAuthority } from "./terminal/offline-authority";
 import { startOfflineAuthorityRefresh, type OfflineAuthorityRefresh } from "./terminal/offline-authority-refresh";
 import { OfflineJournalWriter } from "./terminal/offline-journal-writer";
+import {
+  journalSyncState,
+  readJournalSyncView,
+  startOfflineJournalSync,
+  type OfflineJournalSync,
+} from "./terminal/offline-journal-sync";
 import { SignedCommandService } from "./terminal/signed-commands";
 import { ShiftService } from "./shifts/shift-service";
 import { StockLookupService } from "./terminal/stock-lookup";
@@ -83,6 +89,7 @@ let shifts: ShiftService | null = null;
 let stock: StockLookupService | null = null;
 let returns: ReturnsService | null = null;
 let authorityRefresh: OfflineAuthorityRefresh | null = null;
+let journalSync: OfflineJournalSync | null = null;
 // Receipts can be reprinted for sales completed since the app started; nothing is kept on disk.
 const recentSales = new Map<string, CompletedSale>();
 
@@ -135,6 +142,18 @@ async function act<T>(
   }
 }
 
+/** The offline journal's upload (P5 #51), for the readiness checks and the Sell page. */
+function journalSyncFacts(): Pick<ReadinessFacts, "journalSync"> {
+  const enrollmentId = store ? new DeviceStore(store.db).read()?.identity.enrollmentId : undefined;
+  if (!store || !enrollmentId) return {};
+  return {
+    journalSync: {
+      configured: journalSync !== null,
+      view: journalSync ? journalSync.view(enrollmentId) : readJournalSyncView(store.db, enrollmentId),
+    },
+  };
+}
+
 /** The installed offline authority and how its renewal is going, for the readiness checks. */
 function offlineAuthorityFacts(): Pick<ReadinessFacts, "offlineAuthority"> {
   const enrollmentId = store ? new DeviceStore(store.db).read()?.identity.enrollmentId : undefined;
@@ -179,6 +198,7 @@ function registerIpc(schemaVersion: number, logger: ReturnType<typeof createLogg
               : 0,
             ...unconfirmedFacts(),
             ...offlineAuthorityFacts(),
+            ...journalSyncFacts(),
           },
           new Date(),
         ),
@@ -396,6 +416,7 @@ function registerIpc(schemaVersion: number, logger: ReturnType<typeof createLogg
       lock: () => act(logger, "lock", (service) => service.lock()),
       unlock: ({ pin }) => act(logger, "unlock", (service) => service.unlock(pin)),
       getShift: () => shifts?.state() ?? { current: null, lastClosed: null, unsynced: [] },
+      getJournalSync: () => journalSyncState(journalSyncFacts().journalSync?.view ?? null),
       refreshShift: () => act(logger, "refreshShift", () => requireShifts().refresh()),
       openShift: ({ pin, count }) => act(logger, "openShift", () => requireShifts().open(pin, count)),
       closeShift: ({ count, varianceNote, assistance }) =>
@@ -499,6 +520,17 @@ async function start(): Promise<void> {
       });
       authorityRefresh = refresh;
       app.once("before-quit", stopRefresh);
+      // P5 #51: the journal upload and reconnect drain, verified with the same server key.
+      const { sync, stop: stopSync } = startOfflineJournalSync({
+        db: store.db,
+        api: terminalApi,
+        terminal,
+        signer: { keyId: authorityKeyId, publicKey },
+        refresh,
+        report: (error) => logger.warn("offline_journal.sync_failed", { error }),
+      });
+      journalSync = sync;
+      app.once("before-quit", stopSync);
     } catch (error) {
       logger.error("offline_authority.invalid_public_key", { error });
     }
