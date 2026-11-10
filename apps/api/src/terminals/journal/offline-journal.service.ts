@@ -275,9 +275,19 @@ export class OfflineJournalService {
         });
       }
 
+      // Recovery of old evidence, never new writes, from a revoked or retired counter.
+      const enrollment = await tx.terminalEnrollment.findFirstOrThrow({
+        where: { tenantId: identity.tenantId, id: identity.enrollmentId },
+        select: { revokedAt: true, publicKeyHex: true, terminal: { select: { retiredAt: true } } },
+      });
+      const revoked = () =>
+        this.refuse(tx, user, identity, item, held("TERMINAL_REVOKED", "This counter was revoked; its journal is kept for review."));
+
       // A rejection is final for that exact content until a manager settles it (slice 4): the
       // counter resends the entry to learn the outcome, and a resend is never judged again. The
-      // answer cannot drift (a clock that has caught up, a shift that has since opened).
+      // answer cannot drift (a clock that has caught up, a shift that has since opened). A revoked
+      // or retired counter is told so instead: no manager settles its journal here (D11), and the
+      // stored row keeps its refusal, since a review only escalates.
       const refused = await tx.offlineJournalReview.findUnique({
         where: {
           tenantId_enrollmentId_recordKind_recordHash: {
@@ -286,11 +296,14 @@ export class OfflineJournalService {
         },
         select: { outcome: true, errorCode: true },
       });
-      if (refused?.outcome === "rejected")
+      if (refused?.outcome === "rejected") {
+        if (enrollment.publicKeyHex !== device.publicKeyHex) denied("IDENTITY_MISMATCH");
+        if (enrollment.revokedAt || enrollment.terminal.retiredAt) return revoked();
         return this.refuse(tx, user, identity, item, rejected(
           refused.errorCode as TerminalErrorCode,
           "This journal entry was refused. A manager reviews it in the back office.",
         ));
+      }
 
       const head = await this.head(tx, identity);
       const headSequence = head ? Number(head.offlineSequence) : 0;
@@ -304,14 +317,8 @@ export class OfflineJournalService {
           originalHash: head?.requestDigest ?? null,
         });
 
-      // Recovery of old evidence, never new writes, from a revoked or retired counter.
-      const enrollment = await tx.terminalEnrollment.findFirstOrThrow({
-        where: { tenantId: identity.tenantId, id: identity.enrollmentId },
-        select: { revokedAt: true, publicKeyHex: true, terminal: { select: { retiredAt: true } } },
-      });
       if (enrollment.publicKeyHex !== device.publicKeyHex) denied("IDENTITY_MISMATCH");
-      if (enrollment.revokedAt || enrollment.terminal.retiredAt)
-        return this.refuse(tx, user, identity, item, held("TERMINAL_REVOKED", "This counter was revoked; its journal is kept for review."));
+      if (enrollment.revokedAt || enrollment.terminal.retiredAt) return revoked();
 
       // A trusted counter clock does not run ahead of the server or backwards along its journal.
       // An entry a manager settled is not evidence of the clock (it may be the reason it was

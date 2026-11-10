@@ -1738,7 +1738,8 @@ approves, under the tenant's self-approval policy. It is management work: no cou
 stock moves.
 
 **The counter learns it by resending.** Resending the refused content returns the stored refusal
-until it is settled. Then step 1 finds the settlement's receipt and acknowledges it
+until it is settled (a revoked or retired counter is answered `held` `TERMINAL_REVOKED` instead,
+and the stored refusal stands). Then step 1 finds the settlement's receipt and acknowledges it
 `status: "reviewed"` with `committedAt`, `review`, `commandKind` and `decision`; a recorded
 sale adds `saleId`, `stockPosting: "pending_reconciliation"` and `reconciliationCaseId`, a
 recorded shift entry `workSessionId`. The desktop accepts `reviewed` only from a verified reply
