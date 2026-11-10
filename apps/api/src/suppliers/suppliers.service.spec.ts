@@ -66,6 +66,8 @@ describe("supplier invoice payments", () => {
     const tx = {
       $queryRaw: jest.fn().mockResolvedValue([{ next_value: 2 }]),
       branch: { findFirst: jest.fn().mockResolvedValue({ id: "b1" }) },
+      // No tenant payment counter yet: it starts on the tenant's first branch.
+      documentSequence: { findFirst: jest.fn().mockResolvedValue(null) },
       supplierInvoice: {
         findFirst: jest.fn().mockResolvedValue(invoice),
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
