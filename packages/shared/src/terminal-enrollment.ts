@@ -26,10 +26,10 @@ export type TerminalCounterView = Readonly<{
 }>;
 
 /**
- * P5 #51: GET `/terminals/offline-journal/sync-status`. How far one enrollment's offline journal
- * has reached the server, read from the server's own tables only. The server sees what a counter
- * has sent, never what it still holds: a counter cut off right now may have entries it has not
- * uploaded yet.
+ * P5 #51: one enrollment in GET `/terminals/offline-journal/sync-status`. How far its offline
+ * journal has reached the server, read from the server's own tables only. The server sees what a
+ * counter has sent, never what it still holds: a counter cut off right now may have entries it
+ * has not uploaded yet, and the server can't tell how many follow an entry it refused.
  */
 export type CounterJournalSyncView = Readonly<{
   enrollmentId: string;
@@ -43,25 +43,32 @@ export type CounterJournalSyncView = Readonly<{
   retiredAt: number | null;
   /** The highest accepted journal entry, and when the server accepted it. Null: none yet. */
   head: Readonly<{ sequence: number; acceptedAt: number }> | null;
-  /** The last upload that brought the server something: an entry, accepted or not, or a staff
-   * sign-in. An upload with nothing new leaves no trace, so this can be older than the counter's
-   * own "confirmed" time. */
-  lastUploadAt: number | null;
-  /** Entries past the head held back until the counter sends what they wait on (a gap, a staff
-   * sign-in, a manager's after-hours approval), or because the key was revoked. */
-  waiting: number;
-  /** Entries past the head that were rejected or conflict with the accepted journal. Nothing
-   * after them can be accepted until someone reviews them. */
-  needsReview: number;
-  /** The first entry past the head that needs review: where this journal stops. */
-  stuck: Readonly<{
+  /** The last time an upload brought the server something new: an entry, accepted or refused, or
+   * a staff sign-in. An upload with nothing new leaves no trace, so a counter that has sold
+   * nothing offline since shows an older time than its own "confirmed" one. */
+  lastReceivedAt: number | null;
+  /**
+   * Where the journal stopped: the first entry past the head the server refused, or null. Intake
+   * stops at the first refusal, so nothing after it reaches the server until it is resolved.
+   * `held`: the counter repairs it by sending what it lacks (an earlier entry, a staff sign-in,
+   * a manager's after-hours approval), or a revoked key's journal waits for recovery. `rejected`
+   * or `conflict`: it will never be accepted as sent; someone must review it.
+   */
+  stoppedAt: Readonly<{
     sequence: number;
-    outcome: "rejected" | "conflict";
+    outcome: "held" | "rejected" | "conflict";
     errorCode: string;
+    /** When the server first refused it. */
     since: number;
   }> | null;
   /** Accepted offline sales from this enrollment whose stock waits on an open stock case. */
   openStockCases: number;
+}>;
+
+/** P5 #51: GET `/terminals/offline-journal/sync-status`. Times read in the branch's timezone. */
+export type CounterJournalSyncStatus = Readonly<{
+  timezone: string;
+  enrollments: ReadonlyArray<CounterJournalSyncView>;
 }>;
 
 /** POST `/terminals/enrollments/challenge`. The desktop generates the Ed25519 key and keeps the

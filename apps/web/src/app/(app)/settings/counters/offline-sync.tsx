@@ -6,61 +6,65 @@ import type {
 import { StatusBadge } from "@/components/ui";
 import css from "../settings.module.css";
 
-const sameDay = (a: Date, b: Date) =>
-  a.getFullYear() === b.getFullYear() &&
-  a.getMonth() === b.getMonth() &&
-  a.getDate() === b.getDate();
+const dayKey = (at: number | Date, timeZone: string) =>
+  new Date(at).toLocaleDateString("en-CA", { timeZone });
 
-/** "14:02" today, "3 Nov, 14:02" on another day, in the viewer's locale. */
-export function syncTime(at: number, now: Date = new Date()): string {
-  const when = new Date(at);
-  const clock: Intl.DateTimeFormatOptions = {
-    hour: "2-digit",
-    minute: "2-digit",
-  };
-  return sameDay(when, now)
-    ? when.toLocaleTimeString(undefined, clock)
-    : when.toLocaleString(undefined, {
+/**
+ * "14:02" today, "3 Nov, 14:02" on another day, in the branch's timezone (as Daily work reads
+ * it), so a manager looking from elsewhere sees the counter's own clock.
+ */
+export function syncTime(
+  at: number,
+  timeZone: string,
+  now: Date = new Date(),
+): string {
+  const clock = { hour: "2-digit", minute: "2-digit", timeZone } as const;
+  return dayKey(at, timeZone) === dayKey(now, timeZone)
+    ? new Date(at).toLocaleTimeString("en-GB", clock)
+    : new Date(at).toLocaleString("en-GB", {
         day: "numeric",
         month: "short",
         ...clock,
       });
 }
 
-/** "3 waiting / 1 needs review", leaving out whichever is zero; null when nothing waits. */
-export function waitingSummary(view: CounterJournalSyncView): string | null {
-  const parts = [
-    view.waiting > 0 ? `${view.waiting} waiting` : null,
-    view.needsReview > 0
-      ? `${view.needsReview} ${view.needsReview === 1 ? "needs" : "need"} review`
-      : null,
-  ].filter(Boolean);
-  return parts.length ? parts.join(" / ") : null;
-}
-
 /** One enrollment's journal on the server, in a manager's words. */
 export function offlineSyncSummary(
   view: CounterJournalSyncView,
+  timeZone: string,
   now: Date = new Date(),
 ): { text: string; tone: "ok" | "waiting" | "review" | "none" } {
-  const waiting = waitingSummary(view);
-  if (waiting)
-    return { text: waiting, tone: view.needsReview > 0 ? "review" : "waiting" };
-  const last = view.lastUploadAt ?? view.head?.acceptedAt ?? null;
+  const stop = view.stoppedAt;
+  if (stop)
+    return {
+      text: `Stopped at entry ${stop.sequence}`,
+      tone: stop.outcome === "held" ? "waiting" : "review",
+    };
+  const last = view.lastReceivedAt ?? view.head?.acceptedAt ?? null;
   if (last === null) return { text: "No offline sales sent yet", tone: "none" };
   return {
-    text: `All on the server, last sync ${syncTime(last, now)}`,
+    text: `All on the server, last received ${syncTime(last, timeZone, now)}`,
     tone: "ok",
   };
 }
 
-function stuckHint(view: CounterJournalSyncView, now: Date): string | null {
-  if (!view.stuck) return null;
-  const why =
-    view.stuck.outcome === "conflict"
-      ? "doesn't match the server's copy"
-      : `was refused ${syncTime(view.stuck.since, now)}`;
-  return `Stopped at entry ${view.stuck.sequence}, which ${why}. Nothing after it can sync until it is reviewed.`;
+/** Why a current counter's journal stopped, and what moves it on. */
+export function stoppedHint(
+  view: CounterJournalSyncView,
+  timeZone: string,
+  now: Date = new Date(),
+): string | null {
+  const stop = view.stoppedAt;
+  if (!stop) return null;
+  const since = syncTime(stop.since, timeZone, now);
+  switch (stop.outcome) {
+    case "held":
+      return `Held since ${since}: the counter hasn't sent something it needs yet, such as an earlier entry or a sign-in. It goes through on a later sync.`;
+    case "rejected":
+      return `Refused ${since}. Nothing after it syncs until it is reviewed.`;
+    case "conflict":
+      return `It doesn't match the server's copy. Nothing after it syncs until the counter's journal is recovered.`;
+  }
 }
 
 const stockCases = (n: number) => (
@@ -69,25 +73,31 @@ const stockCases = (n: number) => (
   </Link>
 );
 
-function earlierLabel(view: CounterJournalSyncView, now: Date): string {
+function earlierLabel(
+  view: CounterJournalSyncView,
+  timeZone: string,
+  now: Date,
+): string {
   if (view.retiredAt !== null) return `Retired computer ${view.terminalLabel}`;
   return view.revokedAt !== null
-    ? `${view.terminalLabel}, key revoked ${syncTime(view.revokedAt, now)}`
+    ? `${view.terminalLabel}, key revoked ${syncTime(view.revokedAt, timeZone, now)}`
     : view.terminalLabel;
 }
 
 /**
  * The Counters page's "Offline sales" cell: how far the counter's current journal has reached
- * the server, then any earlier key or computer of this counter with entries still waiting.
+ * the server, then any earlier key or computer of this counter that stopped short.
  */
 export function CounterOfflineSales({
   counter,
   journal,
+  timeZone,
   failed,
   now = new Date(),
 }: {
   counter: TerminalCounterView;
-  journal: CounterJournalSyncView[] | null;
+  journal: ReadonlyArray<CounterJournalSyncView> | null;
+  timeZone: string;
   failed: boolean;
   now?: Date;
 }) {
@@ -103,8 +113,8 @@ export function CounterOfflineSales({
   if (!current && earlier.length === 0)
     return <span className={css.rowHint}>—</span>;
 
-  const summary = current ? offlineSyncSummary(current, now) : null;
-  const hint = current ? stuckHint(current, now) : null;
+  const summary = current ? offlineSyncSummary(current, timeZone, now) : null;
+  const hint = current ? stoppedHint(current, timeZone, now) : null;
   return (
     <div>
       {summary ? (
@@ -124,7 +134,10 @@ export function CounterOfflineSales({
       ) : null}
       {earlier.map((view) => (
         <div key={view.enrollmentId} className={css.rowHint}>
-          {earlierLabel(view, now)}: {waitingSummary(view) ?? "nothing waiting"}
+          {earlierLabel(view, timeZone, now)}:{" "}
+          {view.stoppedAt
+            ? `stopped at entry ${view.stoppedAt.sequence}`
+            : "nothing waiting"}
           {view.openStockCases > 0 ? (
             <> · {stockCases(view.openStockCases)}</>
           ) : null}

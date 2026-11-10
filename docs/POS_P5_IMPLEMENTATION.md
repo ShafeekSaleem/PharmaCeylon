@@ -165,9 +165,9 @@ Synchronisation row). Managers now see it per counter, from the server's own rec
 
 | Area | What exists |
 | --- | --- |
-| Read | `GET /terminals/offline-journal/sync-status` (`tenant.management`, live at the branch): per enrollment the accepted head and when it was accepted, the last upload, entries waiting past the head (held) and needing review (rejected or conflicting), the first stuck entry, and open stock cases. One repeatable-read statement over `terminal_command_receipt`, `offline_journal_review`, `offline_staff_sign_in` and `offline_stock_discrepancy`, every table scoped by tenant and branch (`journal/counter-journal-status.ts`) |
-| Counters page | Settings → Counters has an "Offline sales" column: "All on the server, last sync 14:02", "3 waiting / 1 needs review" with where the journal stopped, a link to Inventory → Stock cases for open cases, and an earlier revoked key or retired computer of the same counter while its entries still wait. A failed status read leaves the counters list working ("Couldn't check") |
-| Daily work | `offline_journal.review`, "Offline sales stuck at a counter": one item per enrollment stuck past its head on a rejected or conflicting entry, for `tenant.management`, linking to Counters |
+| Read | `GET /terminals/offline-journal/sync-status` (`tenant.management`, live at the branch): the branch's timezone and, per enrollment, the accepted head and when it was accepted, when an upload last brought something, where the journal stopped (the first refused entry past the head) and open stock cases. One statement over `terminal_command_receipt`, `offline_journal_review`, `offline_staff_sign_in` and `offline_stock_discrepancy`, every read scoped by tenant and branch; the head and the stopping point are shared SQL fragments (`journal/counter-journal-status.ts`) |
+| Counters page | Settings → Counters has an "Offline sales" column: "All on the server, last received 14:02" or "Stopped at entry 42" with what moves it on (the counter repairs a held entry; a refused one needs review; a conflict needs journal recovery), a link to Inventory → Stock cases for open cases, and an earlier revoked key or retired computer of the same counter while its journal stops short. Times read in the branch's timezone, as Daily work does. A failed status read leaves the counters list working ("Couldn't check") |
+| Daily work | `offline_journal.review`, "Review refused offline entry": a current counter stopped on a rejected entry, for `tenant.management`, linking to Counters |
 
 ### Decisions
 
@@ -175,24 +175,34 @@ Synchronisation row). Managers now see it per counter, from the server's own rec
   is what the server accepted and retained. So "all on the server" means every entry the counter
   has sent was accepted: a counter that is offline now may hold sales it hasn't sent yet, and the
   page says so.
-- **Last sync is the last upload that brought something.** An empty confirmation upload (slice 3
-  sends one every 5 minutes) writes nothing, so it can't be seen; the status stays read-only
-  rather than writing on every upload.
-- **Counted per sequence, past the head only.** A sequence with any rejected or conflicting copy
-  needs review; otherwise a held one waits (the counter repairs it by sending what it lacks, or it
-  waits for D11 review on a revoked key). Refusals at or below the head are kept as evidence but
-  are not status: a conflict on an accepted entry leaves the accepted one standing.
-- **Existing permission.** `tenant.management` is what the Counters page already requires; no
-  new key.
+- **"Last received", not "last sync".** It is the last upload that brought the server something
+  new. An empty confirmation upload (slice 3 sends one every 5 minutes) writes nothing, so it
+  can't be seen; the status stays read-only rather than writing on every upload.
+- **Where it stopped, not how many wait.** Intake stops at the first refusal and retains only
+  that entry, so the server holds nothing after it and can't count what follows. The status names
+  the lowest refused sequence past the head (a conflicting copy before a rejected one before a
+  held one). Refusals at or below the head are kept as evidence but are not status: a conflict on
+  an accepted entry leaves the accepted one standing.
+- **Daily work lists only what can be settled from it.** A held entry is the counter's to repair.
+  A rejected one on a current counter is what slice 4 (#155) settles: its settlement writes the
+  receipt at that sequence, the head moves past it and the item drops out. Conflicts, and revoked
+  or retired counters, go to D11 journal recovery (#154), so they stay on the Counters page but
+  are not listed as work nothing here clears.
+- **Existing permission.** `tenant.management` is what the Counters page already requires. Slice
+  4's `sales.review_offline_entries` is not in `develop` yet (a key outside the catalog is granted
+  to nobody), so the Daily work source carries a TODO(#155) to switch to it and link
+  `/inventory/offline-records`.
 - This covers "sync lag visible centrally" from the later slices list.
 
 ### Tests
 
-Unit: `journal/counter-journal-status.spec.ts` (row mapping, which enrollments are listed,
-tenant/branch scoping of every table, the service's permission and snapshot),
-`terminal-routes.spec.ts`, `daily-work-kinds.spec.ts`. PostgreSQL:
-`test/integration/counter-journal-status.int-spec.ts` — head and last upload, a held entry
-waiting until it is accepted, a rejected entry and a fork past the head stopping the journal (and
-the Daily work item, only with `tenant.management`), a conflict at the head not counted, open
-stock cases, a revoked counter listed only while entries wait, other tenants and branches, and
-refusal without the permission. Web: `settings/counters/page.spec.tsx`, `offline-sync.spec.tsx`.
+Unit: `journal/counter-journal-status.spec.ts` (row mapping, which enrollments are listed, every
+read of every table in the status query and the Daily work source joined on the enrollment's
+tenant and branch, the service's permission and timezone), `terminal-routes.spec.ts`,
+`daily-work-kinds.spec.ts`. PostgreSQL: `test/integration/counter-journal-status.int-spec.ts` —
+head and last receipt, a held entry stopping the journal until it is accepted, a rejected entry
+stopping it (and the Daily work item, only with `tenant.management`), the tenant's other branch
+seeing only its own computer and no item, a conflict at the head not counted, a fork past the
+head stopping it but left out of Daily work, open stock cases, a revoked counter listed only
+while its journal stops short, another tenant, and refusal without the permission. Web:
+`settings/counters/page.spec.tsx`, `offline-sync.spec.tsx` (including branch-timezone times).

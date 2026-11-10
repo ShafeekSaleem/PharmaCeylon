@@ -1,6 +1,6 @@
 import { Injectable } from "@nestjs/common";
-import { Prisma } from "@prisma/client";
-import type { CounterJournalSyncView } from "@pharmaceylon/shared";
+import type { CounterJournalSyncStatus } from "@pharmaceylon/shared";
+import { safeTimeZone } from "../../common/business-date.util";
 import { PrismaService } from "../../prisma/prisma.service";
 import { AccessService } from "../../security/access.service";
 import type { RequestUser } from "../../security/interfaces/authenticated-request.interface";
@@ -23,18 +23,22 @@ export class CounterJournalStatusService {
     private readonly access: AccessService,
   ) {}
 
-  list(user: RequestUser, branchId: string): Promise<CounterJournalSyncView[]> {
-    return this.prisma.$transaction(
-      async (tx) => {
-        const access = await this.access.resolveLive(user, uuid(branchId), tx);
-        if (!access.has("tenant.management")) denied("PERMISSION_DENIED");
-        const rows = await tx.$queryRaw<JournalStatusRow[]>(
-          journalStatusQuery(user.tenantId, branchId),
-        );
-        return journalSyncViews(rows);
-      },
-      // One snapshot: a head that moves mid-read can't count an accepted entry as still waiting.
-      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
-    );
+  list(user: RequestUser, branchId: string): Promise<CounterJournalSyncStatus> {
+    return this.prisma.$transaction(async (tx) => {
+      const access = await this.access.resolveLive(user, uuid(branchId), tx);
+      if (!access.has("tenant.management")) denied("PERMISSION_DENIED");
+      const branch = await tx.branch.findFirst({
+        where: { tenantId: user.tenantId, id: branchId },
+        select: { timezone: true },
+      });
+      // One statement reads one snapshot: a head that moves meanwhile can't count twice.
+      const rows = await tx.$queryRaw<JournalStatusRow[]>(
+        journalStatusQuery(user.tenantId, branchId),
+      );
+      return {
+        timezone: safeTimeZone(branch?.timezone),
+        enrollments: journalSyncViews(rows),
+      };
+    });
   }
 }

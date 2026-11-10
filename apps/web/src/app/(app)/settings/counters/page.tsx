@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import type {
-  CounterJournalSyncView,
+  CounterJournalSyncStatus,
   TerminalCounterView,
   TerminalEnrollmentCodeIssued,
   TerminalEnrollmentCodeView,
@@ -69,14 +69,14 @@ function Counters() {
   const [issued, setIssued] = useState<TerminalEnrollmentCodeIssued | null>(null);
   const [pending, setPending] = useState<PendingAction | null>(null);
   const [revoking, setRevoking] = useState<string | null>(null);
-  const [journal, setJournal] = useState<CounterJournalSyncView[] | null>(null);
+  const [journal, setJournal] = useState<CounterJournalSyncStatus | null>(null);
   const [journalFailed, setJournalFailed] = useState(false);
 
   const load = useCallback(async () => {
     // The sync status is extra: if it can't be read, the counters still can.
     const journalRead = countersApi.journalStatus().then(
-      (views) => {
-        setJournal(views);
+      (status) => {
+        setJournal(status);
         setJournalFailed(false);
       },
       () => setJournalFailed(true),
@@ -180,7 +180,12 @@ function Counters() {
                       <StatusBadge status={status.status} label={status.label} variant={status.variant} />
                     </td>
                     <td>
-                      <CounterOfflineSales counter={counter} journal={journal} failed={journalFailed} />
+                      <CounterOfflineSales
+                        counter={counter}
+                        journal={journal?.enrollments ?? null}
+                        timeZone={journal?.timezone ?? "Asia/Colombo"}
+                        failed={journalFailed}
+                      />
                     </td>
                     <td>
                       <div className={css.chipRow}>
@@ -227,8 +232,12 @@ function Counters() {
         </form>
         {counters && counters.length > 0 ? (
           <p className={css.rowHint}>
-            Offline sales shows what each counter has sent the server. A counter that is offline
-            right now may still hold sales it hasn&apos;t sent.
+            Offline sales shows what each counter has sent the server, with times in the
+            branch&apos;s timezone. &ldquo;Last received&rdquo; is the last upload that brought the
+            server something new; a counter that has sold nothing offline since sends nothing new.
+            A counter that is offline right now may still hold sales it hasn&apos;t sent, and when
+            a journal stops at an entry, nothing after it reaches the server, so the server
+            can&apos;t tell how many sales follow.
           </p>
         ) : null}
         <p className={css.rowHint}>

@@ -6,11 +6,15 @@ import type {
 import {
   CounterOfflineSales,
   offlineSyncSummary,
+  stoppedHint,
   syncTime,
-  waitingSummary,
 } from "./offline-sync";
 
-const now = new Date(2026, 10, 10, 15, 30);
+const ZONE = "Asia/Colombo";
+// 15:30 in Colombo (UTC+05:30).
+const now = new Date(Date.UTC(2026, 10, 10, 10, 0));
+const colombo = (day: number, hour: number, minute: number) =>
+  Date.UTC(2026, 10, day, hour, minute) - 5.5 * 3_600_000;
 const view = (
   over: Partial<CounterJournalSyncView> = {},
 ): CounterJournalSyncView => ({
@@ -22,12 +26,19 @@ const view = (
   revokedAt: null,
   retiredAt: null,
   head: null,
-  lastUploadAt: null,
-  waiting: 0,
-  needsReview: 0,
-  stuck: null,
+  lastReceivedAt: null,
+  stoppedAt: null,
   openStockCases: 0,
   ...over,
+});
+const stopped = (
+  outcome: "held" | "rejected" | "conflict",
+  sequence = 7,
+): CounterJournalSyncView["stoppedAt"] => ({
+  sequence,
+  outcome,
+  errorCode: "X",
+  since: colombo(10, 14, 2),
 });
 const counter: TerminalCounterView = {
   registerId: "r1",
@@ -43,49 +54,55 @@ const counter: TerminalCounterView = {
 };
 
 describe("offline sales summary (P5 #51)", () => {
-  it("shows only the clock for today and adds the date otherwise", () => {
-    const today = new Date(2026, 10, 10, 14, 2).getTime();
-    const earlier = new Date(2026, 10, 3, 14, 2).getTime();
-    expect(syncTime(today, now)).toBe(
-      new Date(today).toLocaleTimeString(undefined, {
-        hour: "2-digit",
-        minute: "2-digit",
-      }),
-    );
-    expect(syncTime(earlier, now)).not.toBe(syncTime(today, now));
-    expect(syncTime(earlier, now)).toContain(syncTime(today, now));
+  it("reads times on the branch's clock: only the time today, the date otherwise", () => {
+    expect(syncTime(colombo(10, 14, 2), ZONE, now)).toBe("14:02");
+    expect(syncTime(colombo(3, 14, 2), ZONE, now)).toBe("3 Nov, 14:02");
+    // 23:30 on the 10th in Colombo is already the 11th's 00:30 there, though both are the 10th in UTC.
+    const lateNow = new Date(Date.UTC(2026, 10, 10, 19, 0));
+    const lastNight = Date.UTC(2026, 10, 10, 18, 0);
+    expect(syncTime(lastNight, ZONE, lateNow)).toBe("10 Nov, 23:30");
+    expect(syncTime(lastNight, "Europe/London", lateNow)).toBe("18:00");
   });
 
-  it("leaves out whichever count is zero", () => {
-    expect(waitingSummary(view({ waiting: 3, needsReview: 1 }))).toBe(
-      "3 waiting / 1 needs review",
-    );
-    expect(waitingSummary(view({ waiting: 2 }))).toBe("2 waiting");
-    expect(waitingSummary(view({ needsReview: 2 }))).toBe("2 need review");
-    expect(waitingSummary(view())).toBeNull();
-  });
-
-  it("is all on the server only when nothing it sent waits", () => {
-    const at = new Date(2026, 10, 10, 14, 2).getTime();
+  it("is all on the server, with the last time something arrived, only while nothing stopped", () => {
+    const at = colombo(10, 14, 2);
     expect(
       offlineSyncSummary(
-        view({ lastUploadAt: at, head: { sequence: 3, acceptedAt: at } }),
+        view({ lastReceivedAt: at, head: { sequence: 3, acceptedAt: at } }),
+        ZONE,
         now,
       ),
-    ).toEqual({
-      text: `All on the server, last sync ${syncTime(at, now)}`,
-      tone: "ok",
-    });
-    expect(
-      offlineSyncSummary(view({ lastUploadAt: at, waiting: 1 }), now).tone,
-    ).toBe("waiting");
-    expect(
-      offlineSyncSummary(view({ lastUploadAt: at, needsReview: 1 }), now).tone,
-    ).toBe("review");
-    expect(offlineSyncSummary(view(), now)).toEqual({
+    ).toEqual({ text: "All on the server, last received 14:02", tone: "ok" });
+    expect(offlineSyncSummary(view(), ZONE, now)).toEqual({
       text: "No offline sales sent yet",
       tone: "none",
     });
+  });
+
+  it("names the entry it stopped at, never a count it can't know", () => {
+    expect(
+      offlineSyncSummary(view({ stoppedAt: stopped("held") }), ZONE, now),
+    ).toEqual({ text: "Stopped at entry 7", tone: "waiting" });
+    for (const outcome of ["rejected", "conflict"] as const)
+      expect(
+        offlineSyncSummary(view({ stoppedAt: stopped(outcome) }), ZONE, now)
+          .tone,
+      ).toBe("review");
+  });
+
+  it("says what moves each kind of stop on", () => {
+    expect(stoppedHint(view(), ZONE, now)).toBeNull();
+    expect(
+      stoppedHint(view({ stoppedAt: stopped("held") }), ZONE, now),
+    ).toMatch(
+      /^Held since 14:02: the counter hasn't sent something it needs yet/,
+    );
+    expect(
+      stoppedHint(view({ stoppedAt: stopped("rejected") }), ZONE, now),
+    ).toBe("Refused 14:02. Nothing after it syncs until it is reviewed.");
+    expect(
+      stoppedHint(view({ stoppedAt: stopped("conflict") }), ZONE, now),
+    ).toMatch(/doesn't match the server's copy.*journal is recovered/);
   });
 
   it("explains a journal stopped on a conflict", () => {
@@ -94,24 +111,13 @@ describe("offline sales summary (P5 #51)", () => {
         counter={counter}
         failed={false}
         now={now}
-        journal={[
-          view({
-            needsReview: 1,
-            stuck: {
-              sequence: 7,
-              outcome: "conflict",
-              errorCode: "REPLAY_CONFLICT",
-              since: 0,
-            },
-          }),
-        ]}
+        timeZone={ZONE}
+        journal={[view({ stoppedAt: stopped("conflict") })]}
       />,
     );
-    expect(screen.getByText("1 needs review")).toBeInTheDocument();
+    expect(screen.getByText("Stopped at entry 7")).toBeInTheDocument();
     expect(
-      screen.getByText(
-        /Stopped at entry 7, which doesn't match the server's copy/,
-      ),
+      screen.getByText(/It doesn't match the server's copy/),
     ).toBeInTheDocument();
   });
 
@@ -121,6 +127,7 @@ describe("offline sales summary (P5 #51)", () => {
         counter={{ ...counter, terminal: null }}
         failed={false}
         now={now}
+        timeZone={ZONE}
         journal={[
           view({
             enrollmentId: "old",

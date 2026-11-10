@@ -346,7 +346,7 @@
     {
       "path": "src/terminals/journal/counter-journal-status.service.ts",
       "mode": "tenant-filtered-read-model",
-      "reason": "Read-only counter journal sync status (P5 #51) in one repeatable-read statement after live tenant.management at the branch: enrollments WHERE the bound tenant_id and branch_id, and every receipt, review, sign-in and stock case subquery constrained to the enrollment's tenant_id and branch_id."
+      "reason": "Read-only counter journal sync status (P5 #51) in one statement after live tenant.management at the branch: enrollments WHERE the bound tenant_id and branch_id, and every receipt, review, sign-in and stock case subquery or lateral constrained to the enrollment's tenant_id and branch_id. The branch timezone read is filtered by tenantId and id."
     },
     {
       "path": "src/security/offline-stock-resolution-approval-material.ts",

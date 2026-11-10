@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type {
+  CounterJournalSyncStatus,
   CounterJournalSyncView,
   TerminalCounterView,
   TerminalEnrollmentCodeView,
@@ -56,16 +57,19 @@ const synced: CounterJournalSyncView = {
   revokedAt: null,
   retiredAt: null,
   head: { sequence: 41, acceptedAt: noon.getTime() - 60_000 },
-  lastUploadAt: noon.getTime(),
-  waiting: 0,
-  needsReview: 0,
-  stuck: null,
+  lastReceivedAt: noon.getTime(),
+  stoppedAt: null,
   openStockCases: 0,
 };
-let journal: CounterJournalSyncView[] | Error = [synced];
+const ZONE = "Asia/Colombo";
+const status = (...enrollments: CounterJournalSyncView[]): CounterJournalSyncStatus => ({
+  timezone: ZONE,
+  enrollments,
+});
+let journal: CounterJournalSyncStatus | Error = status(synced);
 
 beforeEach(() => {
-  journal = [synced];
+  journal = status(synced);
   (apiJson as jest.Mock).mockReset();
   (apiJson as jest.Mock).mockImplementation((path: string, init?: RequestInit) => {
     if (init?.method === "POST" && path === "/terminals/enrollment-codes")
@@ -127,11 +131,13 @@ it("revokes a waiting code", async () => {
 });
 
 describe("offline sales (P5 #51)", () => {
-  it("says a counter's offline sales are all on the server, with the last sync", async () => {
+  it("says a counter's offline sales are all on the server, with when the last of them arrived", async () => {
     render(<CountersSettingsPage />);
     const back = (await screen.findByText("Back counter")).closest("tr")!;
     expect(
-      await within(back).findByText(`All on the server, last sync ${syncTime(noon.getTime())}`),
+      await within(back).findByText(
+        `All on the server, last received ${syncTime(noon.getTime(), ZONE)}`,
+      ),
     ).toBeInTheDocument();
     expect(apiJson).toHaveBeenCalledWith("/terminals/offline-journal/sync-status");
     // A counter with no computer has nothing to report.
@@ -139,20 +145,20 @@ describe("offline sales (P5 #51)", () => {
     expect(within(front).getAllByText("—").length).toBeGreaterThan(0);
   });
 
-  it("shows what waits, where the journal stopped, and links its open stock cases", async () => {
-    journal = [
-      {
-        ...synced,
-        waiting: 3,
-        needsReview: 1,
-        stuck: { sequence: 42, outcome: "rejected", errorCode: "GRANT_INVALID", since: noon.getTime() },
-        openStockCases: 2,
-      },
-    ];
+  it("shows where the journal stopped and links its open stock cases", async () => {
+    journal = status({
+      ...synced,
+      stoppedAt: { sequence: 42, outcome: "rejected", errorCode: "GRANT_INVALID", since: noon.getTime() },
+      openStockCases: 2,
+    });
     render(<CountersSettingsPage />);
     const back = (await screen.findByText("Back counter")).closest("tr")!;
-    expect(await within(back).findByText("3 waiting / 1 needs review")).toBeInTheDocument();
-    expect(within(back).getByText(/Stopped at entry 42, which was refused/)).toBeInTheDocument();
+    expect(await within(back).findByText("Stopped at entry 42")).toBeInTheDocument();
+    expect(
+      within(back).getByText(
+        `Refused ${syncTime(noon.getTime(), ZONE)}. Nothing after it syncs until it is reviewed.`,
+      ),
+    ).toBeInTheDocument();
     expect(within(back).getByRole("link", { name: "2 stock cases open" })).toHaveAttribute(
       "href",
       "/inventory/stock-cases",
@@ -160,23 +166,20 @@ describe("offline sales (P5 #51)", () => {
     expect(within(back).queryByText(/All on the server/)).not.toBeInTheDocument();
   });
 
-  it("keeps an earlier, revoked key listed under its counter while its entries wait", async () => {
-    journal = [
-      synced,
-      {
-        ...synced,
-        enrollmentId: "66666666-6666-4666-8666-666666666666",
-        terminalLabel: "OLD-PC",
-        current: false,
-        revokedAt: noon.getTime(),
-        waiting: 2,
-        openStockCases: 1,
-      },
-    ];
+  it("keeps an earlier, revoked key listed under its counter while its journal stops short", async () => {
+    journal = status(synced, {
+      ...synced,
+      enrollmentId: "66666666-6666-4666-8666-666666666666",
+      terminalLabel: "OLD-PC",
+      current: false,
+      revokedAt: noon.getTime(),
+      stoppedAt: { sequence: 9, outcome: "held", errorCode: "TERMINAL_REVOKED", since: noon.getTime() },
+      openStockCases: 1,
+    });
     render(<CountersSettingsPage />);
     const back = (await screen.findByText("Back counter")).closest("tr")!;
     const earlier = await within(back).findByText(/OLD-PC, key revoked/);
-    expect(earlier).toHaveTextContent("2 waiting");
+    expect(earlier).toHaveTextContent("stopped at entry 9");
     expect(within(earlier).getByRole("link", { name: "1 stock case open" })).toBeInTheDocument();
     expect(within(back).getByText(/All on the server/)).toBeInTheDocument();
   });

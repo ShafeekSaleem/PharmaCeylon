@@ -1,4 +1,5 @@
 import { randomBytes, randomUUID } from "node:crypto";
+import { RoleName } from "@prisma/client";
 import type { CounterJournalSyncView } from "@pharmaceylon/shared";
 import { DailyWorkService } from "../../src/dashboard/daily-work.service";
 import { CounterJournalStatusService } from "../../src/terminals/journal/counter-journal-status.service";
@@ -21,38 +22,69 @@ import {
  */
 const status = new CounterJournalStatusService(prisma as never, access);
 
-const mine = async (c: Counter): Promise<CounterJournalSyncView> => {
-  const views = await status.list(c.manager, c.fx.mainBranchId);
-  return views.find((v) => v.enrollmentId === c.identity.enrollmentId)!;
-};
+const enrollments = async (c: Counter, branchId = c.fx.mainBranchId) =>
+  (await status.list(c.manager, branchId)).enrollments;
+
+const mine = async (c: Counter): Promise<CounterJournalSyncView> =>
+  (await enrollments(c)).find(
+    (v) => v.enrollmentId === c.identity.enrollmentId,
+  )!;
 
 const journalWork = async (
   c: Counter,
   has: (key: string) => boolean = () => true,
+  branchId = c.fx.mainBranchId,
 ) =>
   (
     await new DailyWorkService(
       prisma as never,
       { resolve: async () => ({ canSelfApprove: true, has }) } as never,
-    ).get(c.manager, c.fx.mainBranchId, { filter: "all", page: 1 } as never, {
+    ).get(c.manager, branchId, { filter: "all", page: 1 } as never, {
       pageSize: 200,
     })
   ).items.filter((item) => item.kind === "offline_journal.review");
+
+/** A computer enrolled at the tenant's other branch, with the same manager assigned there. */
+async function otherBranchEnrollment(c: Counter) {
+  const branchId = c.fx.otherBranchId;
+  await prisma.userBranchRole.create({
+    data: {
+      tenantId: c.fx.tenantId,
+      branchId,
+      userId: c.manager.userId,
+      role: RoleName.manager,
+    },
+  });
+  const terminal = await prisma.operationalTerminal.create({
+    data: { tenantId: c.fx.tenantId, branchId, label: "BACK-PC" },
+  });
+  return prisma.terminalEnrollment.create({
+    data: {
+      tenantId: c.fx.tenantId,
+      branchId,
+      terminalId: terminal.id,
+      keyId: randomUUID(),
+      publicKeyHex: "a".repeat(64),
+      enrolledByUserId: c.owner.userId,
+    },
+  });
+}
 
 afterAll(async () => {
   await prisma.$disconnect();
 });
 
 describe("counter journal sync status (P5 #51)", () => {
-  it("follows the head and last upload, and counts a held entry as waiting until it is accepted", async () => {
+  it("follows the head and the last receipt, and stops at a held entry until it is accepted", async () => {
     const c = await counter({ main: 20 });
+    expect((await status.list(c.manager, c.fx.mainBranchId)).timezone).toBe(
+      "Asia/Colombo",
+    );
     expect(await mine(c)).toMatchObject({
       current: true,
       head: null,
-      lastUploadAt: null,
-      waiting: 0,
-      needsReview: 0,
-      stuck: null,
+      lastReceivedAt: null,
+      stoppedAt: null,
       openStockCases: 0,
       terminalId: c.identity.terminalId,
       registerId: c.grant.registerId,
@@ -77,14 +109,13 @@ describe("counter journal sync status (P5 #51)", () => {
     const accepted = await mine(c);
     expect(accepted).toMatchObject({
       head: { sequence: 2, acceptedAt: head.recordedAt.getTime() },
-      waiting: 0,
-      needsReview: 0,
+      stoppedAt: null,
     });
-    expect(accepted.lastUploadAt).toBeGreaterThanOrEqual(
+    expect(accepted.lastReceivedAt).toBeGreaterThanOrEqual(
       head.recordedAt.getTime(),
     );
 
-    // A sale citing a sign-in the counter has not uploaded yet waits; the counter repairs it.
+    // A sale citing a sign-in the counter has not uploaded yet is held; the counter repairs it.
     const stranger = j.signIn(
       c.cashier.userId,
       cashierIn.payload.session.workSessionId,
@@ -92,29 +123,32 @@ describe("counter journal sync status (P5 #51)", () => {
     const third = j.sale(stranger, [[c.batches.main, 1]]);
     await sync(c, { commands: [third] });
     const held = await mine(c);
-    expect(held).toMatchObject({
-      head: { sequence: 2 },
-      waiting: 1,
-      needsReview: 0,
-      stuck: null,
-    });
     const review = await prisma.offlineJournalReview.findFirstOrThrow({
       where: { tenantId: c.fx.tenantId, recordId: third.payload.commandId },
     });
-    expect(held.lastUploadAt).toBe(review.lastReceivedAt.getTime());
+    expect(review.outcome).toBe("held");
+    expect(held).toMatchObject({
+      head: { sequence: 2 },
+      stoppedAt: {
+        sequence: 3,
+        outcome: "held",
+        errorCode: review.errorCode,
+        since: review.firstReceivedAt.getTime(),
+      },
+    });
+    expect(held.lastReceivedAt).toBe(review.lastReceivedAt.getTime());
+    // Nothing for a manager to settle: the counter sends what the entry lacks.
     expect(await journalWork(c)).toEqual([]);
 
     // Sent again with its sign-in: accepted, and the retained refusal is behind the head now.
     await sync(c, { staffSignIns: [stranger], commands: [third] });
     expect(await mine(c)).toMatchObject({
       head: { sequence: 3 },
-      waiting: 0,
-      needsReview: 0,
-      stuck: null,
+      stoppedAt: null,
     });
   });
 
-  it("names the entry a journal stops on when it is rejected, and lists it in Daily work for counter managers", async () => {
+  it("names the entry a journal stops on when it is rejected, and lists it in Daily work at its own branch only", async () => {
     const c = await counter({ main: 20 });
     const j = offlineJournal(c);
     const cashierIn = j.signIn(c.cashier.userId, randomUUID());
@@ -134,9 +168,7 @@ describe("counter journal sync status (P5 #51)", () => {
     });
     expect(view).toMatchObject({
       head: { sequence: 1 },
-      waiting: 0,
-      needsReview: 1,
-      stuck: {
+      stoppedAt: {
         sequence: 2,
         outcome: "rejected",
         errorCode: "INVALID_COMMAND",
@@ -151,10 +183,10 @@ describe("counter journal sync status (P5 #51)", () => {
         kind: "offline_journal.review",
         where: "web",
         category: "counter",
-        title: "Offline sales stuck at a counter",
-        detail: "Front · entry 2 was refused",
+        title: "Review refused offline entry",
+        detail: "Front · stopped at entry 2; nothing after it syncs",
         reference: "PC",
-        status: "rejected",
+        status: "INVALID_COMMAND",
         href: "/settings/counters",
         approval: false,
         createdAt: review.firstReceivedAt.toISOString(),
@@ -164,9 +196,25 @@ describe("counter journal sync status (P5 #51)", () => {
     expect(await journalWork(c, (key) => key !== "tenant.management")).toEqual(
       [],
     );
+
+    // The tenant's other branch, managed by the same manager, sees its own computer only.
+    const back = await otherBranchEnrollment(c);
+    expect(await enrollments(c, c.fx.otherBranchId)).toEqual([
+      expect.objectContaining({
+        enrollmentId: back.id,
+        terminalLabel: "BACK-PC",
+        head: null,
+        stoppedAt: null,
+      }),
+    ]);
+    expect(await journalWork(c, () => true, c.fx.otherBranchId)).toEqual([]);
+    expect((await enrollments(c)).map((v) => v.enrollmentId)).toEqual([
+      c.identity.enrollmentId,
+    ]);
+    expect(await journalWork(c)).toHaveLength(1);
   });
 
-  it("counts a fork past the head as needing review, but not a conflict on an entry already accepted", async () => {
+  it("stops at a fork past the head, not at a conflict on an entry already accepted, and leaves conflicts out of Daily work", async () => {
     const c = await counter({ main: 20 });
     const j = offlineJournal(c);
     const cashierIn = j.signIn(c.cashier.userId, randomUUID());
@@ -182,9 +230,7 @@ describe("counter journal sync status (P5 #51)", () => {
     });
     expect(await mine(c)).toMatchObject({
       head: { sequence: 2 },
-      needsReview: 0,
-      waiting: 0,
-      stuck: null,
+      stoppedAt: null,
     });
     expect(await journalWork(c)).toEqual([]);
 
@@ -194,13 +240,14 @@ describe("counter journal sync status (P5 #51)", () => {
     });
     await sync(c, { commands: [forked] });
     expect(await mine(c)).toMatchObject({
-      needsReview: 1,
-      stuck: { sequence: 3, outcome: "conflict", errorCode: "REPLAY_CONFLICT" },
+      stoppedAt: {
+        sequence: 3,
+        outcome: "conflict",
+        errorCode: "REPLAY_CONFLICT",
+      },
     });
-    expect((await journalWork(c))[0]).toMatchObject({
-      detail: "Front · entry 3 conflicts with the server's copy",
-      status: "conflict",
-    });
+    // Slice 4 doesn't settle a conflict; D11 journal recovery (#154) does.
+    expect(await journalWork(c)).toEqual([]);
   });
 
   it("counts open stock cases from the counter's offline sales", async () => {
@@ -234,13 +281,12 @@ describe("counter journal sync status (P5 #51)", () => {
     // Accepted (the head moved), with its stock waiting on a case.
     expect(await mine(c)).toMatchObject({
       head: { sequence: 2 },
-      waiting: 0,
-      needsReview: 0,
+      stoppedAt: null,
       openStockCases: 1,
     });
   });
 
-  it("keeps a revoked counter listed while its journal still has entries waiting, and only at its own branch", async () => {
+  it("keeps a revoked counter listed while its journal stops short, and never shows another tenant's", async () => {
     const c = await counter({ main: 20 });
     const other = await counter({ main: 5 });
     const j = offlineJournal(c);
@@ -261,7 +307,10 @@ describe("counter journal sync status (P5 #51)", () => {
     );
 
     // Revoked with nothing outstanding: history, not status.
-    expect(await status.list(c.manager, c.fx.mainBranchId)).toEqual([]);
+    expect(await status.list(c.manager, c.fx.mainBranchId)).toEqual({
+      timezone: "Asia/Colombo",
+      enrollments: [],
+    });
 
     await journal.sync(
       c.owner,
@@ -270,23 +319,25 @@ describe("counter journal sync status (P5 #51)", () => {
         commands: [...accepted, j.sale(cashierIn, [[c.batches.main, 1]])],
       }),
     );
-    const views = await status.list(c.manager, c.fx.mainBranchId);
-    expect(views).toEqual([
+    expect(await enrollments(c)).toEqual([
       expect.objectContaining({
         enrollmentId: c.identity.enrollmentId,
         current: false,
         revokedAt: expect.any(Number),
         head: expect.objectContaining({ sequence: 2 }),
-        waiting: 1,
-        needsReview: 0,
+        stoppedAt: expect.objectContaining({
+          sequence: 3,
+          outcome: "held",
+          errorCode: "TERMINAL_REVOKED",
+        }),
       }),
     ]);
+    // A revoked key's journal waits for D11 recovery, not Daily work.
+    expect(await journalWork(c)).toEqual([]);
     // Another tenant's counter never appears, and its manager can't read this branch.
-    expect(
-      (await status.list(other.manager, other.fx.mainBranchId)).map(
-        (v) => v.enrollmentId,
-      ),
-    ).toEqual([other.identity.enrollmentId]);
+    expect((await enrollments(other)).map((v) => v.enrollmentId)).toEqual([
+      other.identity.enrollmentId,
+    ]);
     await expect(
       status.list(other.manager, c.fx.mainBranchId),
     ).rejects.toThrow();
