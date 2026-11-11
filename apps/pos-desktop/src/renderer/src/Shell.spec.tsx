@@ -239,6 +239,53 @@ describe("TitleBar connection display (P2b #103)", () => {
     expect(screen.queryByText(/ready until 22:00/)).toBeNull();
   });
 
+  it("tags the lead status word so narrow layouts ellipsize detail before the word", () => {
+    renderWithKeys(
+      <StatusBar
+        state={deviceState({ enrollment: enrollmentBase })}
+        api={apiOk}
+        journal={journalSynced("2026-11-09T14:32:08.000Z")}
+        offlineBackup={{
+          grantExpiresAt: new Date(2099, 0, 1, 22, 0, 0).toISOString(),
+          snapshotGeneratedAt: "2026-11-09T14:00:00.000Z",
+          authorizedStaff: 4,
+          usable: true,
+          failures: 0,
+          failure: null,
+        }}
+        printer={{ name: "EPSON", displayName: "EPSON TM-T82III" }}
+        info={{ appVersion: "1.0.0", electronVersion: "44", schemaVersion: 1, packaged: false }}
+        shift={{
+          workSessionId: ids.session,
+          shiftNumber: "S-0412",
+          staffUserId: ids.ana,
+          staffName: "Sachini Rathnayake",
+          openedAt: "2026-11-09T08:02:00.000Z",
+          openingCashMinor: 0,
+          openingCount: [],
+          status: "open",
+          sync: "synced",
+          error: null,
+          expectedCashMinor: 2_485_000,
+          closedAt: null,
+          closedByName: null,
+          closingCashCountMinor: null,
+          serverExpectedCashMinor: null,
+          varianceMinor: null,
+          varianceNote: null,
+          assistanceReason: null,
+          needsManagerPin: false,
+          summary: null,
+          summaryAt: null,
+        }}
+      />,
+    );
+    const word = screen.getByText("Online");
+    expect(word.tagName).toBe("B");
+    expect(word.className).toMatch(/sbStatusWord/);
+    expect(word.textContent).toBe("Online");
+  });
+
   it("does not use api.checkedAt as last sync in the status bar lead", () => {
     const lastAt = "2026-11-09T14:32:08.000Z";
     renderWithKeys(

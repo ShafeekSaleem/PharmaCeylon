@@ -55,6 +55,16 @@ for (const { width, height, tag } of sizes) {
     await page.waitForSelector("[data-screenshot-shell]");
     await page.getByText(/Offline backup · ready until/).waitFor();
 
+    const leadWord = page.locator("footer b").filter({ hasText: /^Online$/ }).first();
+    await leadWord.waitFor();
+    const leadBox = await leadWord.boundingBox();
+    const leadText = (await leadWord.textContent())?.trim();
+    if (leadText !== "Online" || !leadBox || leadBox.width < 28) {
+      throw new Error(
+        `${tag} ${theme}: lead status word must stay full "Online" (got "${leadText}", width ${leadBox?.width})`,
+      );
+    }
+
     const overflow = await page.evaluate(() => ({
       doc: document.documentElement.scrollWidth - document.documentElement.clientWidth,
       body: document.body.scrollWidth - document.body.clientWidth,

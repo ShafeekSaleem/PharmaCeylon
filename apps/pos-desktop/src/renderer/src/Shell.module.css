@@ -436,6 +436,29 @@
   white-space: nowrap;
 }
 
+/* Lead sync/reachability segment: the status word never ellipsizes (colour + word). */
+.sbLead {
+  flex-shrink: 0;
+  min-width: 0;
+}
+
+.sbLeadCore {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.sbStatusWord {
+  flex-shrink: 0;
+}
+
+.sbLeadDetail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
 /* ---------- pages ---------- */
 .page {
   position: relative;
@@ -528,16 +551,25 @@
     min-width: 0;
   }
 
-  .statusbar > .sb:not(.sbBackup):not(:nth-last-child(-n+2)) {
-    flex: 1 1 0;
+  /* Give up horizontal space in order: printer, shift, cash; never the lead status word. */
+  .sbPrinter {
+    flex: 1 1 3.5rem;
+    flex-shrink: 4;
     min-width: 0;
     overflow: hidden;
   }
 
-  .statusbar > .sb:not(.sbBackup):not(:nth-last-child(-n+2)) > :not(:global(.pos-ic)):not(.d) {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+  .sbShift {
+    flex: 1 1 4rem;
+    flex-shrink: 3;
     min-width: 0;
+    overflow: hidden;
+  }
+
+  .sbCash {
+    flex: 1 1 4.5rem;
+    flex-shrink: 2;
+    min-width: 0;
+    overflow: hidden;
   }
 }
