@@ -4,11 +4,13 @@ import type {
   DeviceState,
   JournalSync,
   LocalShift,
+  OfflineBackup,
   Printer,
 } from "../../shared/ipc-contract";
 import type { ReactNode } from "react";
 import {
   lastSyncLabels,
+  offlineBackupReadyUntil,
   showLastSyncPill,
 } from "./connection-sync";
 import { initials, shortDay, shortName, time, timeWithSeconds, useNow, useSecondNow } from "./format";
@@ -74,9 +76,12 @@ export function LastSyncDisplay({ lastSuccessAt, variant }: { lastSuccessAt: str
     );
   }
   return (
-    <span className={cx(styles.sb, styles.sbOk)}>
+    <span className={cx(styles.sb, styles.sbOk, styles.sbLead)}>
       <span className={styles.d} />
-      <b>Online</b> · {detailClock}
+      <span className={styles.sbLeadCore}>
+        <b className={styles.sbStatusWord}>Online</b>
+        <span className={styles.sbLeadDetail}> · {detailClock}</span>
+      </span>
     </span>
   );
 }
@@ -97,17 +102,26 @@ function ReachabilityPill({ api }: { api: ApiReachability | null }) {
 }
 
 function ReachabilityStatus({ api }: { api: ApiReachability | null }) {
+  const word = serverText(api);
   return (
     <span
       className={cx(
         styles.sb,
+        styles.sbLead,
         api?.reachable && styles.sbOk,
         api && !api.reachable && styles.sbBad,
       )}
     >
       <span className={styles.d} />
-      <b>{serverText(api)}</b>
-      {api && ` · checked ${timeWithSeconds(new Date(api.checkedAt))}`}
+      <span className={styles.sbLeadCore}>
+        <b className={styles.sbStatusWord}>{word}</b>
+        {api && (
+          <span className={styles.sbLeadDetail}>
+            {" "}
+            · checked {timeWithSeconds(new Date(api.checkedAt))}
+          </span>
+        )}
+      </span>
     </span>
   );
 }
@@ -279,6 +293,7 @@ export function StatusBar({
   state,
   api,
   journal = null,
+  offlineBackup = null,
   printer,
   info,
   shift = null,
@@ -286,6 +301,8 @@ export function StatusBar({
   state: DeviceState;
   api: ApiReachability | null;
   journal?: JournalSync | null;
+  /** Installed offline authority summary from readiness (grant expiry for the status bar). */
+  offlineBackup?: OfflineBackup | null;
   printer: Printer | null | undefined;
   info: AppInfo | null;
   /** The shift open on this till (this counter's copy). */
@@ -294,6 +311,8 @@ export function StatusBar({
   const session = state.staffSession;
   const local = atTheComputer(state);
   const syncPill = showLastSyncPill(state.enrollment?.status, api, journal);
+  const now = useSecondNow(Boolean(offlineBackup?.grantExpiresAt && offlineBackup?.usable));
+  const backupUntil = offlineBackupReadyUntil(offlineBackup, now);
   return (
     <footer className={styles.statusbar}>
       {syncPill && journal?.lastSuccessAt ? (
@@ -303,10 +322,10 @@ export function StatusBar({
       )}
       {shift ? (
         <>
-          <span className={styles.sb}>
+          <span className={cx(styles.sb, styles.sbShift)}>
             <Icon name="clock" />
             {/* One run of text, so the bar's flex gap doesn't space out its words. */}
-            <span>
+            <span className={styles.sbShrink}>
               Shift {shift.shiftNumber && <b>{shift.shiftNumber}</b>}
               {shift.shiftNumber && " · "}
               {shortName(shift.staffName)}
@@ -315,9 +334,9 @@ export function StatusBar({
               {shift.status === "closing" && " · closing, not yet synced"}
             </span>
           </span>
-          <span className={styles.sb}>
+          <span className={cx(styles.sb, styles.sbCash)}>
             <Icon name="wallet" />
-            <span>
+            <span className={styles.sbShrink}>
               <span className={styles.sbLabel}>Drawer expected </span>
               <b>Rs {money(shift.expectedCashMinor)}</b>
             </span>
@@ -339,9 +358,17 @@ export function StatusBar({
         )
       )}
       {printer !== undefined && (
-        <span className={styles.sb}>
+        <span className={cx(styles.sb, styles.sbPrinter)}>
           <Icon name="printer" />
-          {printer ? printer.displayName : "No printer installed"}
+          <span className={styles.sbShrink}>
+            {printer ? printer.displayName : "No printer installed"}
+          </span>
+        </span>
+      )}
+      {backupUntil && (
+        <span className={cx(styles.sb, styles.sbBackup)} title={backupUntil}>
+          <Icon name="shield-check" />
+          <span className={styles.sbBackupText}>Offline backup · {backupUntil}</span>
         </span>
       )}
       <span className={ui.grow} />

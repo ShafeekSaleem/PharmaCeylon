@@ -23,6 +23,11 @@ import shell from "./Shell.module.css";
 import { SignInScreen } from "./SignIn";
 import { ThisCounterPage } from "./ThisCounter";
 import ui from "./ui.module.css";
+import {
+  shouldRedirectFromWorkPage,
+  showCounterWorkRail,
+} from "./counter-work-nav";
+import { useShellReadinessPoll } from "./shell-readiness";
 import { cx } from "./useAction";
 
 const API_POLL_MS = 15_000;
@@ -151,6 +156,14 @@ export function App() {
     (person) => person.staffUserId === session?.staffUserId,
   )?.role;
   const mayApproveRefunds = sessionRole === "owner" || sessionRole === "manager";
+  const shellActive = Boolean(device?.enrollment?.status === "active" && session && !device?.locked);
+  useShellReadinessPoll(shellActive, refreshReadiness, api?.reachable);
+
+  useEffect(() => {
+    if (page === "work" && shouldRedirectFromWorkPage(sessionRole, workCount)) {
+      setPage("sell");
+    }
+  }, [sessionRole, page, workCount]);
 
   // Each sign-in opens on Sell. Someone whose PIN isn't set or prepared here gets their panel
   // straight away, since they can't lock the counter without it.
@@ -265,7 +278,7 @@ export function App() {
                 page={page}
                 onPage={setPage}
                 workCount={workCount}
-                showWork={workCount > 0 || page === "work"}
+                showWork={showCounterWorkRail(sessionRole, workCount, page)}
                 session={session}
                 personOpen={personOpen}
                 onPerson={() =>
@@ -369,6 +382,7 @@ export function App() {
               state={device}
               api={api}
               journal={journal}
+              offlineBackup={readiness?.offlineBackup ?? null}
               printer={printer}
               info={info}
               shift={shift?.current ?? null}

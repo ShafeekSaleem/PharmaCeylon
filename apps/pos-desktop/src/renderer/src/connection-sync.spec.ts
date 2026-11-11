@@ -1,7 +1,12 @@
 import { describe, expect, it } from "@jest/globals";
 import type { JournalSync } from "../../shared/ipc-contract";
 import { timeWithSeconds } from "./format";
-import { formatSyncedAgo, lastSyncLabels, showLastSyncPill } from "./connection-sync";
+import {
+  formatSyncedAgo,
+  lastSyncLabels,
+  offlineBackupReadyUntil,
+  showLastSyncPill,
+} from "./connection-sync";
 
 const now = new Date("2026-11-09T14:32:16.000Z");
 const lastAt = "2026-11-09T14:32:08.000Z";
@@ -36,6 +41,39 @@ describe("lastSyncLabels", () => {
     expect(labels.detailAgo).toBe("synced 8 s ago");
     expect(labels.detailClock).toBe(`last sync ${timeWithSeconds(new Date(lastAt))}`);
     expect(labels.detailClock).not.toContain("checked");
+  });
+});
+
+describe("offlineBackupReadyUntil", () => {
+  const backup = (usable: boolean, grantExpiresAt: string) => ({
+    grantExpiresAt,
+    snapshotGeneratedAt: "2026-11-09T14:00:00.000Z",
+    authorizedStaff: 4,
+    usable,
+    failures: 0,
+    failure: null,
+  });
+
+  it("shows ready until 22:00 while the grant is usable and not yet expired", () => {
+    const grant = new Date(2026, 10, 9, 22, 0, 0).toISOString();
+    const now = new Date(2026, 10, 9, 21, 0, 0);
+    expect(offlineBackupReadyUntil(backup(true, grant), now)).toBe("ready until 22:00");
+  });
+
+  it("hides after the grant expiry without waiting for a readiness re-read", () => {
+    const grant = new Date(2026, 10, 9, 22, 0, 0).toISOString();
+    const now = new Date(2026, 10, 9, 22, 0, 1);
+    expect(offlineBackupReadyUntil(backup(true, grant), now)).toBeNull();
+  });
+
+  it("hides when readiness marks the backup not usable even with a future grant", () => {
+    const grant = new Date(2026, 10, 9, 22, 0, 0).toISOString();
+    const now = new Date(2026, 10, 9, 21, 0, 0);
+    expect(offlineBackupReadyUntil(backup(false, grant), now)).toBeNull();
+  });
+
+  it("is omitted when there is no backup", () => {
+    expect(offlineBackupReadyUntil(null)).toBeNull();
   });
 });
 
