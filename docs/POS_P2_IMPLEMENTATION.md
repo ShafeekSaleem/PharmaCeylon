@@ -138,8 +138,26 @@ restriction".
   co-sign or record until an owner has recorded registrations, and no screen does that yet
   (`POST /admin/pharmacist-registrations`).
 
+## Title and status bar last sync (P2b #103, PR 138)
+
+When an active enrolled counter is online and P5 has confirmed a full journal upload, the renderer
+shows the mockup strings from `connection-sync.ts` using `JournalSync.lastSuccessAt` and `syncing`
+from `getJournalSync` (backed by `offline_journal_sync.last_success_at` and the in-memory upload
+flag). P5 (`apps/pos-desktop/src/main/terminal/offline-journal-sync.ts`) is the writer:
+
+- `counter_sync_in_progress` in `app_meta` — `"1"` while a cycle is in flight, `"0"` when it ends
+  (including failures) and at sync engine start after restart.
+- `counter_last_successful_sync_at` in `app_meta` — ISO instant when the server confirms the whole
+  journal (empty upload included); mirrored from `offline_journal_sync.last_success_at`, re-aligned
+  per enrollment on each cycle.
+
+All other cases (checking reachability, offline, syncing, no successful sync yet, revoked) keep the
+existing reachability pill until Design approves more states in the mockup.
+
 ## Not done in P2 yet
 
+- **Status bar offline-backup "ready until …"** (mockup draws it; still follows This counter /
+  readiness, not this PR).
 - **Desktop screens for the other nine signed physical operations** (P6's desktop half, or a P2
   follow-up). The server already requires a signed counter command for stocktake post, held
   adjustment post, held delivery post, import stock post and undo (D-W2 opening stock), transfer

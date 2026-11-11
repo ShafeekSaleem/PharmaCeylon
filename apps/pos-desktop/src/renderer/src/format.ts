@@ -59,6 +59,17 @@ export function initials(name: string) {
   ).toUpperCase();
 }
 
+/** Ticks every second — for relative sync age on the title bar. */
+export function useSecondNow(active = true) {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    if (!active) return;
+    const id = window.setInterval(() => setNow(new Date()), 1000);
+    return () => window.clearInterval(id);
+  }, [active]);
+  return now;
+}
+
 /** The current time, updated as each minute turns. */
 export function useNow() {
   const [now, setNow] = useState(() => new Date());

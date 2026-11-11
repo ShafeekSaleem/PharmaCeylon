@@ -7,7 +7,11 @@ import type {
   Printer,
 } from "../../shared/ipc-contract";
 import type { ReactNode } from "react";
-import { initials, shortDay, shortName, time, timeWithSeconds, useNow } from "./format";
+import {
+  lastSyncLabels,
+  showLastSyncPill,
+} from "./connection-sync";
+import { initials, shortDay, shortName, time, timeWithSeconds, useNow, useSecondNow } from "./format";
 import { money } from "./sell-model";
 import { Icon, type IconName } from "./Icon";
 import styles from "./Shell.module.css";
@@ -57,18 +61,72 @@ function serverText(api: ApiReachability | null) {
   return api.reachable ? "Server reachable" : "Server not reachable";
 }
 
+/** Lockstep title-bar pill and status-bar lead segment when the mockup sync state applies (P2b #103). */
+export function LastSyncDisplay({ lastSuccessAt, variant }: { lastSuccessAt: string; variant: "title" | "status" }) {
+  const now = useSecondNow(true);
+  const { detailAgo, detailClock } = lastSyncLabels(lastSuccessAt, now);
+  if (variant === "title") {
+    return (
+      <div role="status" className={styles.conn}>
+        <span className={styles.dot} />
+        Online <span className={styles.connDetail}>· {detailAgo}</span>
+      </div>
+    );
+  }
+  return (
+    <span className={cx(styles.sb, styles.sbOk)}>
+      <span className={styles.d} />
+      <b>Online</b> · {detailClock}
+    </span>
+  );
+}
+
+function ReachabilityPill({ api }: { api: ApiReachability | null }) {
+  return (
+    <div
+      role="status"
+      className={cx(
+        styles.conn,
+        api === null ? styles.connWait : !api.reachable && styles.connBad,
+      )}
+    >
+      <span className={styles.dot} />
+      {serverText(api)}
+    </div>
+  );
+}
+
+function ReachabilityStatus({ api }: { api: ApiReachability | null }) {
+  return (
+    <span
+      className={cx(
+        styles.sb,
+        api?.reachable && styles.sbOk,
+        api && !api.reachable && styles.sbBad,
+      )}
+    >
+      <span className={styles.d} />
+      <b>{serverText(api)}</b>
+      {api && ` · checked ${timeWithSeconds(new Date(api.checkedAt))}`}
+    </span>
+  );
+}
+
 /** The app's own title bar. Windows draws the minimise, maximise and close buttons over its right end. */
 export function TitleBar({
   state,
   api,
+  journal = null,
 }: {
   state: DeviceState | null;
   api: ApiReachability | null;
+  journal?: JournalSync | null;
 }) {
   const now = useNow();
   const enrollment = state?.enrollment;
   const placed =
     enrollment?.status === "active" || enrollment?.status === "revoked";
+  const syncPill = showLastSyncPill(enrollment?.status, api, journal);
   return (
     <header className={styles.titlebar}>
       <div className={styles.brand}>
@@ -82,7 +140,7 @@ export function TitleBar({
       <span className={styles.sep} />
       <div className={styles.where}>
         <Icon name="map-pin" />
-        {placed ? (
+        {enrollment && placed ? (
           <>
             <b>{enrollment.branchName}</b> ·{" "}
             {tillDisplayName(enrollment.counterLabel, enrollment.tillId)}
@@ -93,16 +151,11 @@ export function TitleBar({
         )}
       </div>
       <span className={ui.grow} />
-      <div
-        role="status"
-        className={cx(
-          styles.conn,
-          api === null ? styles.connWait : !api.reachable && styles.connBad,
-        )}
-      >
-        <span className={styles.dot} />
-        {serverText(api)}
-      </div>
+      {syncPill && journal?.lastSuccessAt ? (
+        <LastSyncDisplay lastSuccessAt={journal.lastSuccessAt} variant="title" />
+      ) : (
+        <ReachabilityPill api={api} />
+      )}
       <div className={styles.clock}>
         {shortDay(now)} · {time(now)}
       </div>
@@ -225,12 +278,14 @@ export function Rail({
 export function StatusBar({
   state,
   api,
+  journal = null,
   printer,
   info,
   shift = null,
 }: {
   state: DeviceState;
   api: ApiReachability | null;
+  journal?: JournalSync | null;
   printer: Printer | null | undefined;
   info: AppInfo | null;
   /** The shift open on this till (this counter's copy). */
@@ -238,19 +293,14 @@ export function StatusBar({
 }) {
   const session = state.staffSession;
   const local = atTheComputer(state);
+  const syncPill = showLastSyncPill(state.enrollment?.status, api, journal);
   return (
     <footer className={styles.statusbar}>
-      <span
-        className={cx(
-          styles.sb,
-          api?.reachable && styles.sbOk,
-          api && !api.reachable && styles.sbBad,
-        )}
-      >
-        <span className={styles.d} />
-        <b>{serverText(api)}</b>
-        {api && ` · checked ${timeWithSeconds(new Date(api.checkedAt))}`}
-      </span>
+      {syncPill && journal?.lastSuccessAt ? (
+        <LastSyncDisplay lastSuccessAt={journal.lastSuccessAt} variant="status" />
+      ) : (
+        <ReachabilityStatus api={api} />
+      )}
       {shift ? (
         <>
           <span className={styles.sb}>
@@ -304,7 +354,6 @@ export function StatusBar({
   );
 }
 
-/** Covers a selling page while the server can't be reached. The page stays underneath, cart and all. */
 /**
  * P5 #51 (approved D12): after an outage, new sales wait on this counter while it sends its
  * offline sales to the server and takes fresh stock. It resumes by itself; nothing here can skip
@@ -353,6 +402,7 @@ export function SyncBlock({ sync, children }: { sync: JournalSync; children?: Re
   );
 }
 
+/** Covers a selling page while the server can't be reached. The page stays underneath, cart and all. */
 export function ServerBlock({ onRetry }: { onRetry: () => void }) {
   return (
     <div className={styles.block} role="alert">
