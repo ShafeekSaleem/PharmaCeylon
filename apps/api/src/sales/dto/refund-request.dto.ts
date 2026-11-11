@@ -16,7 +16,11 @@ import {
 } from "class-validator";
 import { PaymentMethod, SaleRefundRequestStatus } from "@prisma/client";
 import { ApproverCoSignDto } from "./approver-cosign.dto";
-import { REFUND_REASONS, RefundSaleItemDto, type RefundReason } from "./refund-sale.dto";
+import {
+  REFUND_REASONS,
+  RefundSaleItemDto,
+  type RefundReason,
+} from "./refund-sale.dto";
 
 /**
  * A refund prepared remotely (D10): what comes back, how much and why. It moves no stock or

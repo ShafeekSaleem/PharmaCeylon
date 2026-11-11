@@ -9,9 +9,11 @@ import { businessToday, safeTimeZone } from "../common/business-date.util";
 import { PrismaService } from "../prisma/prisma.service";
 import { AccessService } from "../security/access.service";
 import { RequestUser } from "../security/interfaces/authenticated-request.interface";
+import { stuckJournalWorkSource } from "../terminals/journal/counter-journal-status";
 import { POS_ROLLOUT_SELECT, resolvePosRollout } from "../tenant/pos-rollout";
 import { counterKinds } from "./daily-work-kinds";
 import { DailyWorkQueryDto } from "./dto/daily-work-query.dto";
+import { refundNeedsApprovalSql } from "../sales/refund-approval-queue";
 
 const PAGE_SIZE = 6;
 
@@ -30,7 +32,7 @@ export class DailyWorkService {
     /** Server callers (notifications) read more than a page, or only some kinds. */
     opts: { pageSize?: number; kinds?: readonly DailyWorkKind[] } = {},
   ): Promise<DailyWorkResponse> {
-    const pageSize = opts.pageSize ?? PAGE_SIZE;
+    const pageSize = opts.pageSize ?? query.pageSize ?? PAGE_SIZE;
     const actor = await this.access.resolve(user, branchId);
     const branch = await this.prisma.branch.findFirst({
       where: { tenantId: user.tenantId, id: branchId },
@@ -172,21 +174,23 @@ export class DailyWorkService {
     }
     // Refunds prepared remotely (P6): over the threshold they need an approver; once approved, or
     // under the threshold, they wait at the counter. A threshold lowered since preparation counts.
-    if (allowed("sales.refund")) {
-      const needsApproval = Prisma.sql`(r.status = 'prepared' AND (r.approval_required OR (ts.approval_required_return_threshold IS NOT NULL AND r.amount >= ts.approval_required_return_threshold)))`;
+    if (actor.has("sales.refund") || actor.has("returns.approve")) {
+      const needsApproval = refundNeedsApprovalSql();
       sources.push(Prisma.sql`
         SELECT 'refund:' || r.id, CASE WHEN ${needsApproval} THEN 'sale_refund.approve' ELSE 'sale_refund.execute' END, 'counter',
           CASE WHEN ${needsApproval} THEN 'Approve prepared refund' ELSE 'Refund the customer' END,
           concat(s.invoice_no, ' · LKR ', r.amount::text), r.request_number, r.status::text,
-          '/sales/' || r.sale_id, CASE WHEN ${needsApproval} THEN 'Review refund' ELSE 'Open sale' END,
+          CASE WHEN ${needsApproval} THEN '/sales?view=pending-approvals&request=' || r.id ELSE '/sales/' || r.sale_id END,
+          CASE WHEN ${needsApproval} THEN 'Review refund' ELSE 'Open sale' END,
           r.requested_at, NULL::timestamp,
           CASE WHEN ${needsApproval} THEN 'Branch approvers' ELSE 'Counter team' END,
           (r.requested_by = ${uid}::uuid AND NOT ${needsApproval}), ${needsApproval},
           (${needsApproval} AND ${blocked(Prisma.sql`r.requested_by`)}), 1
         FROM sale_refund_request r JOIN sale s ON s.id = r.sale_id AND s.tenant_id = r.tenant_id AND s.branch_id = r.branch_id
           LEFT JOIN tenant_settings ts ON ts.tenant_id = r.tenant_id
+          LEFT JOIN management_approval a ON a.tenant_id = r.tenant_id AND a.branch_id = r.branch_id AND a.id = r.execution_approval_id
         WHERE r.tenant_id = ${tenant}::uuid AND r.branch_id = ${branchId}::uuid AND r.status IN ('prepared', 'approved')
-          AND ((${actor.has("returns.approve")} AND ${needsApproval}) OR NOT ${needsApproval})`);
+          AND ((${actor.has("returns.approve")} AND ${needsApproval}) OR (${actor.has("sales.refund")} AND NOT ${needsApproval}))`);
     }
     // P5 #51: offline sales whose stock waits on a case. Reviewers see open cases until a plan is
     // approved; once approved, the plan waits at the counter for someone who manages inventory.
@@ -217,6 +221,13 @@ export class DailyWorkService {
           AND ((${actor.has("inventory.resolve_stock_cases")} AND NOT ${ready})
             OR (${actor.has("inventory.manage")} AND ${ready}))`);
     }
+    // P5 #51: a current counter's offline journal stopped on an entry the server rejected.
+    // Nothing after it can be accepted, so its later offline sales stay off the server until the
+    // entry is settled. Conflicts and revoked or retired counters are D11 recovery's (#154).
+    // TODO(#155): gate on `sales.review_offline_entries` once slice 4 adds it to the catalog; it
+    // isn't in `develop` yet, and AccessService grants a key outside the catalog to nobody.
+    if (actor.has("tenant.management"))
+      sources.push(stuckJournalWorkSource(tenant, branchId));
     // Held bills live in the web POS. At a live branch it is hidden, so they leave the web (W9);
     // during a fallback the web POS is back and so are its holds.
     if (allowed("sales.pos_use") && rollout !== "live") {
@@ -283,15 +294,16 @@ export class DailyWorkService {
     const place = atCounter.length
       ? Prisma.sql`CASE WHEN kind IN (${Prisma.join(atCounter)}) THEN 'counter' ELSE 'web' END`
       : Prisma.sql`'web'`;
-    const category = Prisma.sql`${
-      query.category ? Prisma.sql`category = ${query.category}` : Prisma.sql`true`
-    } AND ${
+    const category = query.category ? Prisma.sql`category = ${query.category}` : Prisma.sql`true`;
+    const term = query.q?.trim() ?? "";
+    const sourceScope = Prisma.sql`${query.kind ? Prisma.sql`kind = ${query.kind}` : Prisma.sql`true`} AND ${
       opts.kinds
         ? opts.kinds.length
           ? Prisma.sql`kind IN (${Prisma.join([...opts.kinds])})`
           : Prisma.sql`false`
         : Prisma.sql`true`
-    }`;
+    } AND (${term} = '' OR strpos(lower(reference), lower(${term})) > 0
+      OR strpos(lower(detail), lower(${term})) > 0 OR strpos(lower(title), lower(${term})) > 0)`;
     // One statement: page, total and filter counts describe the same database snapshot.
     const [result] = await this.prisma.$queryRaw<
       Array<{
@@ -304,7 +316,8 @@ export class DailyWorkService {
       WITH work (id, kind, category, title, detail, reference, status, href, action, created_at, due_at, owner, mine, approval, blocked, priority)
         AS (${Prisma.join(sources, " UNION ALL ")}),
       classified AS (SELECT *, COALESCE(due_at <= ${now}::timestamp, false) AS overdue, ${place} AS place FROM work),
-      scoped AS (SELECT * FROM classified WHERE ${category}),
+      source_scope AS (SELECT * FROM classified WHERE ${sourceScope}),
+      scoped AS (SELECT * FROM source_scope WHERE ${category}),
       filtered AS (SELECT * FROM scoped WHERE ${filter}),
       page AS (SELECT * FROM filtered ORDER BY blocked ASC, overdue DESC, priority, (approval AND NOT blocked) DESC,
         mine DESC NULLS LAST, due_at ASC NULLS LAST, created_at, id LIMIT ${pageSize} OFFSET ${(query.page - 1) * pageSize})
@@ -320,7 +333,7 @@ export class DailyWorkService {
       (SELECT jsonb_build_object('all', count(*), 'mine', count(*) FILTER (WHERE mine),
         'approvals', count(*) FILTER (WHERE approval AND NOT blocked), 'overdue', count(*) FILTER (WHERE overdue),
         'counter', count(*) FILTER (WHERE place = 'counter')) FROM scoped) AS counts,
-      COALESCE((SELECT jsonb_object_agg(category, n) FROM (SELECT category, count(*)::int n FROM classified GROUP BY category) c), '{}'::jsonb) AS categories`);
+      COALESCE((SELECT jsonb_object_agg(category, n) FROM (SELECT category, count(*)::int n FROM source_scope GROUP BY category) c), '{}'::jsonb) AS categories`);
     return {
       ...result,
       page: query.page,

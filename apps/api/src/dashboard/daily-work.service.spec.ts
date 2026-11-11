@@ -109,6 +109,16 @@ describe("DailyWorkService", () => {
     expect(sql().values).toContain("stocktake.post");
   });
 
+  it("narrows module pending views without widening internal kind scope", async () => {
+    const { service, sql } = setup("live", ["stocktakes.use", "stocktakes.review", "returns.approve"]);
+    await service.get(user, branchId, { filter: "all", kind: "stocktake.approve", q: "COUNT%_", page: 2, pageSize: 25 }, { kinds: ["stocktake.approve", "sale_refund.approve"] });
+    expect(sql().sql).toContain("source_scope AS");
+    expect(sql().sql).toContain("kind = ?");
+    expect(sql().sql).toContain("strpos(lower(reference)");
+    expect(sql().values).toEqual(expect.arrayContaining(["stocktake.approve", "sale_refund.approve", "COUNT%_", 25]));
+    expect(sql().sql).toContain("FROM source_scope GROUP BY category");
+  });
+
   it("returns an empty queue with the counter count when the caller sees no sources", async () => {
     const { prisma, service } = setup("live", []);
     const result = await service.get(user, branchId, { filter: "all", page: 1 });

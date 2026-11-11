@@ -86,6 +86,19 @@ enum OfflineStockResolutionStatus {
   cancelled
 }
 
+/// P5 #51 slice 4: what a manager decided about an offline journal entry the server rejected.
+enum OfflineJournalSettlementDecision {
+  recorded
+  not_honoured
+}
+
+/// `settled` means approved and written in one step: the settlement has no counter execution.
+enum OfflineJournalSettlementStatus {
+  prepared
+  settled
+  cancelled
+}
+
 enum SaleStatus {
   posted
   voided
@@ -787,6 +800,8 @@ model TillShift {
   payments      SalePayment[]
   goodsReturns  GoodsReturn[]
   cashMovements TillCashMovement[]
+  /// Card money taken for offline sales that were not honoured (P5 slice 4).
+  collectedNotSold OfflineCollectedPayment[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, branchId, id])
@@ -3480,10 +3495,83 @@ model OfflineJournalReview {
   lastReceivedAt     DateTime @default(now()) @map("last_received_at")
   receivedByUserId   String   @map("received_by_user_id") @db.Uuid
   enrollment         TerminalEnrollment @relation(fields: [tenantId, branchId, terminalId, enrollmentId, keyId], references: [tenantId, branchId, terminalId, id, keyId], onDelete: Restrict, onUpdate: Restrict, map: "offline_journal_review_enrollment_fkey")
+  settlements        OfflineJournalSettlement[]
 
   @@unique([tenantId, enrollmentId, recordKind, recordHash], map: "offline_journal_review_content_key")
+  @@unique([tenantId, branchId, id], map: "offline_journal_review_tenant_branch_id_key")
   @@index([tenantId, branchId, outcome])
   @@map("offline_journal_review")
+}
+
+/// P5 #51 slice 4: a manager's settlement of a rejected offline journal entry (one
+/// `offline_journal_review` row), so the counter's chain can move past it. Prepared, exactly
+/// approved (`management_approval`, `offline_journal_settlement.execute`) and, on approval,
+/// written in the same transaction: the `terminal_command_receipt` at the entry's own sequence and
+/// digest, and for `recorded` the sale (always pending an offline stock case) or the replayed
+/// shift. Nothing physical moves: a recorded sale's stock is settled through its stock case at the
+/// counter. Content is immutable once prepared; cancel and prepare again to change it.
+model OfflineJournalSettlement {
+  id                  String                           @id @db.Uuid
+  tenantId            String                           @map("tenant_id") @db.Uuid
+  branchId            String                           @map("branch_id") @db.Uuid
+  reviewId            String                           @map("review_id") @db.Uuid
+  enrollmentId        String                           @map("enrollment_id") @db.Uuid
+  commandId           String                           @map("command_id") @db.Uuid
+  sequence            BigInt
+  recordHash          String                           @map("record_hash") @db.Char(64)
+  decision            OfflineJournalSettlementDecision
+  reason              String                           @db.VarChar(500)
+  status              OfflineJournalSettlementStatus   @default(prepared)
+  approvalVersion     Int                              @default(1) @map("approval_version")
+  requestedBy         String                           @map("requested_by") @db.Uuid
+  requestedAt         DateTime                         @default(now()) @map("requested_at")
+  executionApprovalId String?                          @map("execution_approval_id") @db.Uuid
+  approvedBy          String?                          @map("approved_by") @db.Uuid
+  settledAt           DateTime?                        @map("settled_at")
+  /// The receipt's `ReviewedEntryOutcome` (with the sale, case or shift it wrote).
+  result              Json?
+  cancelledBy         String?                          @map("cancelled_by") @db.Uuid
+  cancelledAt         DateTime?                        @map("cancelled_at")
+  review              OfflineJournalReview             @relation(fields: [tenantId, branchId, reviewId], references: [tenantId, branchId, id], onDelete: Restrict, onUpdate: Restrict, map: "offline_journal_settlement_review_fkey")
+  collectedPayments   OfflineCollectedPayment[]
+
+  @@index([tenantId, branchId, status])
+  @@index([reviewId])
+  @@map("offline_journal_settlement")
+}
+
+/// P5 #51 slice 4: a card payment of an offline sale a manager did not honour. The customer was
+/// charged and no sale exists, so the money is kept here, apart from completed sales, for a refund
+/// or a re-sale at the counter. Written with the settlement; never changed or deleted.
+model OfflineCollectedPayment {
+  id                String                   @id @db.Uuid
+  tenantId          String                   @map("tenant_id") @db.Uuid
+  branchId          String                   @map("branch_id") @db.Uuid
+  settlementId      String                   @map("settlement_id") @db.Uuid
+  enrollmentId      String                   @map("enrollment_id") @db.Uuid
+  commandId         String                   @map("command_id") @db.Uuid
+  /// The payment's place in the sale's payments.
+  paymentIndex      Int                      @map("payment_index")
+  /// "external_card"
+  method            String                   @db.VarChar(16)
+  amountMinor       BigInt                   @map("amount_minor")
+  providerReference String                   @map("provider_reference") @db.VarChar(64)
+  approvalCode      String                   @map("approval_code") @db.VarChar(32)
+  approvedAt        DateTime?                @map("approved_at")
+  /// The work session the counter sold in; `shiftId` when that shift is on the server.
+  workSessionId     String                   @map("work_session_id") @db.Uuid
+  shiftId           String?                  @map("shift_id") @db.Uuid
+  /// The seller as the counter signed it.
+  staffUserId       String                   @map("staff_user_id") @db.Uuid
+  collectedAt       DateTime                 @map("collected_at")
+  createdAt         DateTime                 @default(now()) @map("created_at")
+  settlement        OfflineJournalSettlement @relation(fields: [settlementId], references: [id], onDelete: Restrict, onUpdate: Restrict, map: "offline_collected_payment_settlement_fkey")
+  shift             TillShift?               @relation(fields: [tenantId, shiftId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict, map: "offline_collected_payment_shift_fkey")
+
+  @@unique([settlementId, paymentIndex])
+  @@index([tenantId, branchId, createdAt])
+  @@index([tenantId, shiftId])
+  @@map("offline_collected_payment")
 }
 
 /// P5 #51, approved D1: an accepted offline sale whose stock could not be posted at sync. The
@@ -3663,6 +3751,8 @@ enum OfflineJournalRecoveryStatus {
   approved
   recovered
   superseded
+  /// A counter restore the owner or a delegated manager closed with a reason (abandoned).
+  closed
 }
 
 model OfflineJournalRecovery {
@@ -3698,6 +3788,16 @@ model OfflineJournalRecovery {
   completedAt          DateTime?                    @map("completed_at")
   completion           Json?
   supersededAt         DateTime?                    @map("superseded_at")
+  /// Counter restore closed without completing: by whom, why, and on what authority (D13).
+  closedByUserId       String?                      @map("closed_by_user_id") @db.Uuid
+  closedAt             DateTime?                    @map("closed_at")
+  closeReason          String?                      @map("close_reason")
+  closeAuthority       String?                      @map("close_authority") @db.VarChar(24)
+  closeDelegationId    String?                      @map("close_delegation_id") @db.Uuid
+  /// Missing journal: the evidence the sign-off saw — retained refusals and restore reports for
+  /// the enrollment. Either growing makes the sign-off stale. Null on a counter restore.
+  refusalsSeen         Int?                         @map("refusals_seen")
+  restoresSeen         Int?                         @map("restores_seen")
   enrollment           TerminalEnrollment           @relation(fields: [tenantId, branchId, terminalId, enrollmentId, keyId], references: [tenantId, branchId, terminalId, id, keyId], onDelete: Restrict, onUpdate: Restrict, map: "offline_journal_recovery_enrollment_fkey")
   entries              OfflineJournalRecoveryEntry[]
 

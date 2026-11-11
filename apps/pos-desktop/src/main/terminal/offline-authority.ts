@@ -105,6 +105,19 @@ export function readInstalledOfflineAuthority(
 }
 
 /**
+ * Whether the installed pair includes everything this computer's journal holds (P5 #51): no
+ * outage whose drain is unfinished, and a snapshot watermark that is exactly the local journal
+ * head. Accepted entries the snapshot was rebased over stay on this computer as evidence; they
+ * don't count against it. False when no pair is installed.
+ */
+export function installedPairCoversJournal(db: PosDatabase, enrollmentId: string): boolean {
+  const installed = readInstalledOfflineAuthority(db, enrollmentId);
+  if (!installed || activeOutage(db, enrollmentId)) return false;
+  const { includedThroughSequence: sequence, includedThroughHash: hash } = installed.snapshot.payload;
+  return journalCoverage(db, enrollmentId, { sequence, hash }) === "covered";
+}
+
+/**
  * The rebasing installer (P3 #49, rebasing over a journal P5 #51). Verifies the pair, then, in one
  * immediate transaction, stores it as this counter's only installed pair.
  *
@@ -160,6 +173,10 @@ export function installOfflineAuthority(
     if (coverage === "behind") return "local_usage";
     if (usage?.(db, enrollmentId)) return "local_usage";
     const at = new Date(expected.trustedNow).toISOString();
+    // Recorded even when the drain can't finish yet (`drain_incomplete` below commits, it doesn't
+    // throw): the watermark is the server's signed acceptance of the journal, true whatever this
+    // install makes of the pair, and it only moves forward. After a lost upload reply it is the
+    // only evidence the journal arrived, so the upload isn't repeated while a sale is confirmed.
     recordAcceptedWatermark(db, enrollmentId, watermark, at);
     const outage = activeOutage(db, enrollmentId);
     if (outage && !mayResumeOnlineCheckout(drainResumeEvidence(db, enrollmentId, { snapshotCoversJournal: true })))

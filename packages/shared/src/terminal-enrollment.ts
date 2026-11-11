@@ -25,6 +25,52 @@ export type TerminalCounterView = Readonly<{
   }> | null;
 }>;
 
+/**
+ * P5 #51: one enrollment in GET `/terminals/offline-journal/sync-status`. How far its offline
+ * journal has reached the server, read from the server's own tables only. The server sees what a
+ * counter has sent, never what it still holds: a counter cut off right now may have entries it
+ * has not uploaded yet, and the server can't tell how many follow an entry it refused.
+ */
+export type CounterJournalSyncView = Readonly<{
+  enrollmentId: string;
+  terminalId: string;
+  terminalLabel: string;
+  /** The counter the computer is (or was) on. */
+  registerId: string | null;
+  /** The counter's enrollment now: key not revoked and computer not retired. */
+  current: boolean;
+  revokedAt: number | null;
+  retiredAt: number | null;
+  /** The highest accepted journal entry, and when the server accepted it. Null: none yet. */
+  head: Readonly<{ sequence: number; acceptedAt: number }> | null;
+  /** The last time an upload brought the server something new: an entry, accepted or refused, or
+   * a staff sign-in. An upload with nothing new leaves no trace, so a counter that has sold
+   * nothing offline since shows an older time than its own "confirmed" one. */
+  lastReceivedAt: number | null;
+  /**
+   * Where the journal stopped: the first entry past the head the server refused, or null. Intake
+   * stops at the first refusal, so nothing after it reaches the server until it is resolved.
+   * `held`: the counter repairs it by sending what it lacks (an earlier entry, a staff sign-in,
+   * a manager's after-hours approval), or a revoked key's journal waits for recovery. `rejected`
+   * or `conflict`: it will never be accepted as sent; someone must review it.
+   */
+  stoppedAt: Readonly<{
+    sequence: number;
+    outcome: "held" | "rejected" | "conflict";
+    errorCode: string;
+    /** When the server first refused it. */
+    since: number;
+  }> | null;
+  /** Accepted offline sales from this enrollment whose stock waits on an open stock case. */
+  openStockCases: number;
+}>;
+
+/** P5 #51: GET `/terminals/offline-journal/sync-status`. Times read in the branch's timezone. */
+export type CounterJournalSyncStatus = Readonly<{
+  timezone: string;
+  enrollments: ReadonlyArray<CounterJournalSyncView>;
+}>;
+
 /** POST `/terminals/enrollments/challenge`. The desktop generates the Ed25519 key and keeps the
  * private half in its main process; `publicKeyHex` is the raw 32-byte key, lowercase hex. */
 export type TerminalEnrollmentChallengeRequest = Readonly<{

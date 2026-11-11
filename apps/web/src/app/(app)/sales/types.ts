@@ -94,7 +94,7 @@ export type SaleRefundRequest = {
   saleId: string;
   invoiceNo: string | null;
   status: "prepared" | "approved" | "executed" | "cancelled";
-  lines: { productId: string; batchId: string; qty: number; unitPrice: string; disposition: "restock" | "quarantine" }[];
+  lines: { productId: string; batchId: string; productName?: string | null; batchNo?: string | null; qty: number; unitPrice: string; disposition: "restock" | "quarantine" }[];
   amount: string;
   refundMethod: PaymentMethod | null;
   reasonCode: string | null;

@@ -29,6 +29,7 @@ const REASON_LABELS: Record<CaseBatch["reason"], string> = {
   counted_after_sale: "Counted after the sale",
   batch_under_review: "Batch already under review",
   sale_pending: "Waits with the rest of the sale",
+  entry_reviewed: "Recorded after a manager reviewed the refused offline sale",
 };
 
 export const PLAN_LABELS: Record<StockCasePlan["status"], string> = {

@@ -1,6 +1,12 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import type { TerminalCounterView, TerminalEnrollmentCodeView } from "@pharmaceylon/shared";
+import type {
+  CounterJournalSyncStatus,
+  CounterJournalSyncView,
+  TerminalCounterView,
+  TerminalEnrollmentCodeView,
+} from "@pharmaceylon/shared";
 import { apiJson } from "@/lib/auth-client";
+import { syncTime } from "./offline-sync";
 import CountersSettingsPage from "./page";
 
 jest.mock("@/lib/auth-client", () => ({ apiJson: jest.fn() }));
@@ -40,7 +46,30 @@ const code: TerminalEnrollmentCodeView = {
   status: "outstanding",
 };
 
+const noon = new Date();
+noon.setHours(12, 2, 0, 0);
+const synced: CounterJournalSyncView = {
+  enrollmentId: enrolled.terminal!.enrollmentId!,
+  terminalId: enrolled.terminal!.terminalId,
+  terminalLabel: "DISPENSARY-PC",
+  registerId: enrolled.registerId,
+  current: true,
+  revokedAt: null,
+  retiredAt: null,
+  head: { sequence: 41, acceptedAt: noon.getTime() - 60_000 },
+  lastReceivedAt: noon.getTime(),
+  stoppedAt: null,
+  openStockCases: 0,
+};
+const ZONE = "Asia/Colombo";
+const status = (...enrollments: CounterJournalSyncView[]): CounterJournalSyncStatus => ({
+  timezone: ZONE,
+  enrollments,
+});
+let journal: CounterJournalSyncStatus | Error = status(synced);
+
 beforeEach(() => {
+  journal = status(synced);
   (apiJson as jest.Mock).mockReset();
   (apiJson as jest.Mock).mockImplementation((path: string, init?: RequestInit) => {
     if (init?.method === "POST" && path === "/terminals/enrollment-codes")
@@ -48,6 +77,8 @@ beforeEach(() => {
     if (init?.method === "POST") return Promise.resolve(undefined);
     if (path === "/terminals/counters") return Promise.resolve([empty, enrolled]);
     if (path === "/terminals/enrollment-codes") return Promise.resolve([code]);
+    if (path === "/terminals/offline-journal/sync-status")
+      return journal instanceof Error ? Promise.reject(journal) : Promise.resolve(journal);
     return Promise.reject(new Error(path));
   });
 });
@@ -97,4 +128,68 @@ it("revokes a waiting code", async () => {
       method: "POST",
     }),
   );
+});
+
+describe("offline sales (P5 #51)", () => {
+  it("says a counter's offline sales are all on the server, with when the last of them arrived", async () => {
+    render(<CountersSettingsPage />);
+    const back = (await screen.findByText("Back counter")).closest("tr")!;
+    expect(
+      await within(back).findByText(
+        `All on the server, last received ${syncTime(noon.getTime(), ZONE)}`,
+      ),
+    ).toBeInTheDocument();
+    expect(apiJson).toHaveBeenCalledWith("/terminals/offline-journal/sync-status");
+    // A counter with no computer has nothing to report.
+    const front = screen.getByText("Front counter", { selector: "td" }).closest("tr")!;
+    expect(within(front).getAllByText("—").length).toBeGreaterThan(0);
+  });
+
+  it("shows where the journal stopped and links its open stock cases", async () => {
+    journal = status({
+      ...synced,
+      stoppedAt: { sequence: 42, outcome: "rejected", errorCode: "GRANT_INVALID", since: noon.getTime() },
+      openStockCases: 2,
+    });
+    render(<CountersSettingsPage />);
+    const back = (await screen.findByText("Back counter")).closest("tr")!;
+    expect(await within(back).findByText("Stopped at entry 42")).toBeInTheDocument();
+    expect(
+      within(back).getByText(
+        `Refused ${syncTime(noon.getTime(), ZONE)}. Nothing after it syncs until it is reviewed.`,
+      ),
+    ).toBeInTheDocument();
+    expect(within(back).getByRole("link", { name: "2 stock cases open" })).toHaveAttribute(
+      "href",
+      "/inventory/stock-cases",
+    );
+    expect(within(back).queryByText(/All on the server/)).not.toBeInTheDocument();
+  });
+
+  it("keeps an earlier, revoked key listed under its counter while its journal stops short", async () => {
+    journal = status(synced, {
+      ...synced,
+      enrollmentId: "66666666-6666-4666-8666-666666666666",
+      terminalLabel: "OLD-PC",
+      current: false,
+      revokedAt: noon.getTime(),
+      stoppedAt: { sequence: 9, outcome: "held", errorCode: "TERMINAL_REVOKED", since: noon.getTime() },
+      openStockCases: 1,
+    });
+    render(<CountersSettingsPage />);
+    const back = (await screen.findByText("Back counter")).closest("tr")!;
+    const earlier = await within(back).findByText(/OLD-PC, key revoked/);
+    expect(earlier).toHaveTextContent("stopped at entry 9");
+    expect(within(earlier).getByRole("link", { name: "1 stock case open" })).toBeInTheDocument();
+    expect(within(back).getByText(/All on the server/)).toBeInTheDocument();
+  });
+
+  it("still lists the counters when the sync status can't be read", async () => {
+    journal = new Error("Forbidden");
+    render(<CountersSettingsPage />);
+    const back = (await screen.findByText("Back counter")).closest("tr")!;
+    expect(await within(back).findByText("Couldn't check")).toBeInTheDocument();
+    expect(within(back).getByText("Enrolled")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
 });

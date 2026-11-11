@@ -13,6 +13,7 @@ import type {
   CompletedSale,
   CustomerView,
   HeldCart,
+  JournalSync,
   PrescriptionView,
   Printer,
   Tender,
@@ -30,6 +31,7 @@ import { invoke, moneyInput } from "./invoke";
 import { KeyHint } from "./KeyHint";
 import { inField, KeyScope, SCAN_GAP_MS, useKeyBinding } from "./keymap";
 import s from "./Sell.module.css";
+import { SyncBlock } from "./Shell";
 import {
   discountFromInput,
   discountPercent,
@@ -337,11 +339,17 @@ export function Sell({
   onActivity,
   onCommandSent,
   online = true,
+  syncPause = null,
 }: {
   onActivity?: () => void;
   onCommandSent?: () => void;
   /** Whether the server answers. Discounts need it: offline, F9 is off and says why. */
   online?: boolean;
+  /**
+   * Set while synchronisation pauses new sales (P5 #51). The block covers the page and holds its
+   * unconfirmed sales: the drain waits for them, so they must stay confirmable under it.
+   */
+  syncPause?: JournalSync | null;
 } = {}) {
   const [catalog, setCatalog] = useState<CatalogProduct[] | null>(null);
   const [vatRatePercent, setVatRatePercent] = useState(0);
@@ -995,6 +1003,19 @@ export function Sell({
     />
   );
 
+  const pendingCheckouts = (
+    <PendingCheckouts
+      reloadKey={pendingKey}
+      onCount={onPendingCount}
+      onResolved={(resolved) => {
+        setSale(resolved);
+        setLastSale(resolved);
+        // Confirming the sale that was on screen settles that cart.
+        if (awaiting) resetSale();
+      }}
+    />
+  );
+
   return (
     <div className={s.sell} aria-label="Sell">
       <div className={s.grid}>
@@ -1211,16 +1232,7 @@ export function Sell({
               </div>
             )}
           </div>
-          <PendingCheckouts
-            reloadKey={pendingKey}
-            onCount={onPendingCount}
-            onResolved={(resolved) => {
-              setSale(resolved);
-              setLastSale(resolved);
-              // Confirming the sale that was on screen settles that cart.
-              if (awaiting) resetSale();
-            }}
-          />
+          {!syncPause && pendingCheckouts}
           <CustomerStrip
             customer={customer}
             onChange={setCustomer}
@@ -1744,6 +1756,7 @@ export function Sell({
         />
         </KeyScope>
       )}
+      {syncPause && <SyncBlock sync={syncPause}>{pendingCheckouts}</SyncBlock>}
     </div>
   );
 }

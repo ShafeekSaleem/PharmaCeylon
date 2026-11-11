@@ -33,6 +33,7 @@ import { SuppliersModule } from "./suppliers/suppliers.module";
 import { TenantModule } from "./tenant/tenant.module";
 import { StocktakesModule } from "./stocktakes/stocktakes.module";
 import { StockCasesModule } from "./stock-cases/stock-cases.module";
+import { JournalReviewsModule } from "./journal-reviews/journal-reviews.module";
 import { TransfersModule } from "./transfers/transfers.module";
 import { UploadsModule } from "./uploads/uploads.module";
 import { SetupModule } from "./setup/setup.module";
@@ -71,6 +72,7 @@ import { ClinicalModule } from "./clinical/clinical.module";
     TransfersModule,
     StocktakesModule,
     StockCasesModule,
+    JournalReviewsModule,
     ReturnsModule,
     ReportsModule,
     CatalogModule,

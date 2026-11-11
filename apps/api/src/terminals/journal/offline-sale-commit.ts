@@ -14,7 +14,6 @@ import type {
 } from "@pharmaceylon/shared";
 import type { AuditService } from "../../audit/audit.service";
 import { nextDocumentNumber } from "../../common/document-sequence.util";
-import { countsAfterSale } from "../../inventory/stock/counts-after-sale";
 import { blockedBatchIds } from "../../inventory/stock/sale-blocks";
 import type { StockService } from "../../inventory/stock/stock.service";
 
@@ -23,8 +22,9 @@ type Tx = Prisma.TransactionClient;
 /** LKR minor units to the Decimal(12,2) rupees the sale tables store, exactly. */
 export const fromMinor = (minor: number) => new Prisma.Decimal(minor).div(100);
 
-/** Why a batch's units are waiting on the case rather than posted. */
-export type PendingReason = "shortfall" | "counted_after_sale" | "batch_under_review" | "sale_pending";
+/** Why a batch's units are waiting on the case rather than posted. `entry_reviewed`: a manager
+ * recorded a refused journal entry (slice 4), so its stock is confirmed at the counter. */
+export type PendingReason = "shortfall" | "batch_under_review" | "sale_pending" | "entry_reviewed";
 
 export type BatchDecision = Readonly<{
   batchId: string;
@@ -41,14 +41,14 @@ export type BatchDecision = Readonly<{
  * from has the units available now and none is already held by an open case. Otherwise nothing
  * posts and every batch of the sale waits on one case, each with the reason it waits. A batch an
  * earlier case holds is not posted into, even with units to spare: its count is under review.
- * Nor is a batch counted after the sale was made (`countedAfterSale`): that count already took
- * the sale's units off, and posting them again would deduct them twice.
+ * `entryReviewed` (slice 4): a refused entry a manager recorded never posts; every batch waits on
+ * its case, and those central stock could cover say so (`entry_reviewed`).
  */
 export function decideStockPosting(
   sold: ReadonlyArray<Readonly<{ batchId: string; productId: string; quantity: number }>>,
   available: ReadonlyMap<string, number>,
   blocked: ReadonlySet<string>,
-  countedAfterSale: ReadonlySet<string> = new Set(),
+  options: { entryReviewed?: boolean } = {},
 ): { posts: boolean; batches: BatchDecision[] } {
   const byBatch = new Map<string, { productId: string; quantity: number }>();
   for (const line of sold) {
@@ -65,22 +65,21 @@ export function decideStockPosting(
       availableQuantityAtSync,
       shortfallQuantity: Math.max(0, quantity - availableQuantityAtSync),
       underReview: blocked.has(batchId),
-      counted: countedAfterSale.has(batchId),
     };
   });
-  const posts = facts.every((f) => f.shortfallQuantity === 0 && !f.underReview && !f.counted);
+  const posts = !options.entryReviewed && facts.every((f) => f.shortfallQuantity === 0 && !f.underReview);
   return {
     posts,
-    batches: facts.map(({ underReview, counted, ...f }) => ({
+    batches: facts.map(({ underReview, ...f }) => ({
       ...f,
       reason: posts
         ? null
         : f.shortfallQuantity > 0
           ? "shortfall"
-          : counted
-            ? "counted_after_sale"
-            : underReview
-              ? "batch_under_review"
+          : underReview
+            ? "batch_under_review"
+            : options.entryReviewed
+              ? "entry_reviewed"
               : "sale_pending",
     })),
   };
@@ -136,11 +135,14 @@ export async function commitOfflineSale(
     snapshot: BranchStockSnapshot;
     lines: ReadonlyArray<ResolvedSaleLine>;
     uploadedByUserId: string;
+    /** Slice 4: a manager recorded this refused entry. It always waits on a stock case, opened
+     * in their name; the sale keeps its own seller and time. */
+    review?: { settlementId: string; settledByUserId: string; soldAt: Date };
   },
 ): Promise<CommittedOfflineSale> {
-  const { identity, command, snapshot, lines } = input;
+  const { identity, command, snapshot, lines, review } = input;
   const { tenantId, branchId } = identity;
-  const soldAt = new Date(command.occurredAt);
+  const soldAt = review?.soldAt ?? new Date(command.occurredAt);
   const staffUserId = command.session.staffUserId;
 
   // Lock every batch first (id order), then read balances and blocks under those locks: a
@@ -149,12 +151,11 @@ export async function commitOfflineSale(
   await deps.stock.lockBatches(tx, tenantId, batchIds);
   const balances = await deps.stock.balances(tx, tenantId, batchIds);
   const blocked = await blockedBatchIds(tx, tenantId, branchId, batchIds);
-  const counted = await countsAfterSale(tx, { tenantId, branchId }, batchIds, soldAt);
   const decision = decideStockPosting(
     lines,
     new Map(batchIds.map((id) => [id, balances.get(id)?.available ?? 0])),
     blocked,
-    new Set(counted.map((c) => c.batchId)),
+    { entryReviewed: review !== undefined },
   );
 
   let subtotalMinor = 0;
@@ -265,7 +266,7 @@ export async function commitOfflineSale(
       {
         tenantId,
         branchId,
-        actorUserId: input.uploadedByUserId,
+        actorUserId: review?.settledByUserId ?? input.uploadedByUserId,
         eventName: "offline_stock_discrepancy.opened",
         entityName: "offline_stock_discrepancy",
         entityId: caseId,
@@ -277,6 +278,7 @@ export async function commitOfflineSale(
           snapshotId: snapshot.snapshotId,
           snapshotVersion: snapshot.snapshotVersion,
           batches: decision.batches,
+          ...(review ? { journalSettlementId: review.settlementId } : {}),
         },
       },
       tx,
@@ -308,6 +310,7 @@ export async function commitOfflineSale(
         uploadedByUserId: input.uploadedByUserId,
         stockPosting: outcome.stockPosting,
         reconciliationCaseId: outcome.reconciliationCaseId,
+        ...(review ? { journalSettlementId: review.settlementId, settledByUserId: review.settledByUserId } : {}),
       },
     },
     tx,

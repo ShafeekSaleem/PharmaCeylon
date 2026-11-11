@@ -23,6 +23,7 @@ import { resetJournalUsageForEnrollment } from "../terminal/offline-journal-writ
 import { readAcceptedWatermark } from "../terminal/reconnect-drain";
 import {
   openCipherFile,
+  authoritativeBackupTakenAt,
   readStoreFacts,
   readWrappedKey,
   sha256File,
@@ -210,7 +211,11 @@ export function verifyStoreBackup(
   backup: StoreBackup,
   protector: SecretProtector,
   migrations: readonly Migration[],
-): { key: string; facts: ReturnType<typeof readStoreFacts> } {
+): {
+  key: string;
+  facts: ReturnType<typeof readStoreFacts>;
+  backupTakenAt: number;
+} {
   const file = join(backup.dir, "pos.db");
   if (sha256File(file) !== backup.manifest.sha256)
     throw new StoreRestoreError(
@@ -254,7 +259,11 @@ export function verifyStoreBackup(
         "BACKUP_NEWER_THAN_APP",
         "This backup was taken by a newer version of the app.",
       );
-    return { key, facts };
+    return {
+      key,
+      facts,
+      backupTakenAt: authoritativeBackupTakenAt(db, backup.manifest.takenAt),
+    };
   } finally {
     db.close();
   }
@@ -471,7 +480,7 @@ export function restoreStoreBackup(options: {
       "STORE_IN_USE",
       "This computer's store opens and holds a counter. A backup is restored only over a store that is broken or empty.",
     );
-  const { key: backupKey } = verifyStoreBackup(
+  const { key: backupKey, backupTakenAt } = verifyStoreBackup(
     backup,
     protector,
     options.migrations,
@@ -510,7 +519,7 @@ export function restoreStoreBackup(options: {
     applied = applyRestoreGuards(db, {
       restoreId,
       backupId: backup.manifest.backupId,
-      backupTakenAt: backup.manifest.takenAt,
+      backupTakenAt,
       restoredAt,
       setAsidePath: existsSync(join(dataDir, "pos.db"))
         ? relative(dataDir, join(dataDir, intent.setAside))

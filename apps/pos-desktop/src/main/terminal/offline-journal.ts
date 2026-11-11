@@ -2,8 +2,8 @@ import type { PosDatabase } from "../db/database";
 
 /**
  * Local tables that carry enrollment-scoped journal data. Used to ensure new journal tables are
- * registered when added (`offline-authority.spec.ts`). Not every table here blocks authority
- * renewal — see `hasLocalOfflineUsage`.
+ * registered when added (`offline-authority.spec.ts`). Whether they block installing a newer pair
+ * is decided from the journal itself (`journalCoverage`), not from which tables hold rows.
  */
 export const OFFLINE_USAGE_TABLES: readonly string[] = [
   "offline_journal_state",
@@ -26,11 +26,6 @@ export const NOT_OFFLINE_USAGE = [
   "offline_journal_recovery",
   "offline_journal_set_aside",
 ] as const;
-
-function hasRowInTable(db: PosDatabase, table: string, enrollmentId: string): boolean {
-  if (!/^[a-z_][a-z0-9_]*$/.test(table)) throw new Error(`Invalid offline usage table: ${table}`);
-  return db.prepare(`SELECT 1 FROM ${table} WHERE enrollment_id = ? LIMIT 1`).get(enrollmentId) !== undefined;
-}
 
 /** A journal position: a sequence and the hash of the entry at it (null at 0, the empty journal). */
 export type JournalPosition = { sequence: number; hash: string | null };
@@ -91,43 +86,4 @@ export function activeOutage(
     )
     .get(enrollmentId) as { offline_session_id: string; offline_started_at: number | null } | undefined;
   return row ? { offlineSessionId: row.offline_session_id, offlineStartedAt: row.offline_started_at ?? 0 } : null;
-}
-
-/** The journal watermark of the installed snapshot, read directly (no import cycle with offline-authority). */
-function installedWatermark(db: PosDatabase, enrollmentId: string): number | null {
-  const row = db.prepare("SELECT snapshot_envelope FROM offline_authority WHERE enrollment_id = ?").get(enrollmentId) as
-    | { snapshot_envelope: string }
-    | undefined;
-  if (!row) return null;
-  const sequence = (JSON.parse(row.snapshot_envelope) as { payload?: { includedThroughSequence?: unknown } }).payload
-    ?.includedThroughSequence;
-  return typeof sequence === "number" ? sequence : null;
-}
-
-/**
- * Whether this enrollment holds offline journal evidence that the installed authority does not
- * include yet: an outage whose drain has not finished, or journal entries past the installed
- * snapshot's watermark. While true the counter is not reconciled with the server (P5 #51).
- *
- * Online-only bookkeeping — consumption watermarks, per-sale dedupe rows, staff sign-in envelopes
- * and idle journal state — never counts. Accepted entries the installed snapshot was rebased over
- * don't either: they stay on this computer as evidence.
- *
- * Renewal itself no longer uses this as a veto: the rebasing installer compares the new pair's
- * own watermark with the local journal (`journalCoverage`), and installing a pair that covers it
- * is how a drain finishes.
- */
-export function hasLocalOfflineUsage(
-  db: PosDatabase,
-  enrollmentId: string,
-  tables?: readonly string[],
-): boolean {
-  if (tables) {
-    return tables.some((table) => hasRowInTable(db, table, enrollmentId));
-  }
-  if (activeOutage(db, enrollmentId)) return true;
-  const head = localJournalHead(db, enrollmentId);
-  if (head.sequence === 0) return false;
-  const watermark = installedWatermark(db, enrollmentId);
-  return watermark === null || watermark < head.sequence;
 }

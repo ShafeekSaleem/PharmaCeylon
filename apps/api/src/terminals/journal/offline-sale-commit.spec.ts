@@ -33,17 +33,15 @@ describe("decideStockPosting", () => {
     expect(result.batches[0]).toMatchObject({ reason: "batch_under_review", shortfallQuantity: 0, availableQuantityAtSync: 3 });
   });
 
-  it("does not post into a batch counted after the sale: that count already took the units off", () => {
-    const result = decideStockPosting([sold("a", 1), sold("b", 1), sold("c", 4)], new Map([["a", 3], ["b", 3], ["c", 1]]), new Set(["b"]), new Set(["a", "c"]));
-    expect(result.posts).toBe(false);
-    // A shortfall still says so; a batch both counted and under review waits as counted.
-    expect(result.batches.map((b) => [b.batchId, b.reason])).toEqual([["a", "counted_after_sale"], ["b", "batch_under_review"], ["c", "shortfall"]]);
-    expect(decideStockPosting([sold("a", 1)], new Map([["a", 3]]), new Set(["a"]), new Set(["a"])).batches[0].reason).toBe("counted_after_sale");
-  });
-
   it("reads a negative or missing balance as nothing available, never a negative quantity", () => {
     const result = decideStockPosting([sold("a", 2), sold("b", 1)], new Map([["a", -4]]), new Set());
     expect(result.batches.map((b) => [b.availableQuantityAtSync, b.shortfallQuantity])).toEqual([[0, 2], [0, 1]]);
+  });
+
+  it("never posts an entry a manager recorded after review (slice 4): it waits on a case", () => {
+    const result = decideStockPosting([sold("a", 1), sold("b", 4)], new Map([["a", 3], ["b", 2]]), new Set(), { entryReviewed: true });
+    expect(result.posts).toBe(false);
+    expect(result.batches.map((b) => [b.batchId, b.reason, b.shortfallQuantity])).toEqual([["a", "entry_reviewed", 0], ["b", "shortfall", 2]]);
   });
 
   it("converts minor units exactly", () => {

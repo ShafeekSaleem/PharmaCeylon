@@ -281,8 +281,28 @@
   },
   {
     "method": "POST",
+    "path": "/api/v1/offline-journal-recoveries/:id/close",
+    "source": "apps/api/src/terminals/journal/journal-recoveries.controller.ts"
+  },
+  {
+    "method": "POST",
     "path": "/api/v1/offline-journal-recoveries/missing-journal",
     "source": "apps/api/src/terminals/journal/journal-recoveries.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/offline-journal-reviews/:id/settlements",
+    "source": "apps/api/src/journal-reviews/journal-reviews.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/offline-journal-reviews/settlements/:id/approve",
+    "source": "apps/api/src/journal-reviews/journal-reviews.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/offline-journal-reviews/settlements/:id/cancel",
+    "source": "apps/api/src/journal-reviews/journal-reviews.controller.ts"
   },
   {
     "method": "POST",

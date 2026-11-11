@@ -1,6 +1,6 @@
 import { randomBytes, randomUUID, verify } from "node:crypto";
 import { RoleName, StockMovementType } from "@prisma/client";
-import { terminalSigningText, type Signed } from "@pharmaceylon/shared";
+import { MAX_OFFLINE_JOURNAL_SYNC_COMMANDS, terminalSigningText, type Signed } from "@pharmaceylon/shared";
 import { acceptedJournalState, issueOfflineAuthority } from "../../src/terminals/offline-authority-issuance";
 import { commandText, sha256 } from "../../src/terminals/terminal-wire";
 import { terminalDevice } from "../fixtures/terminal-device";
@@ -428,5 +428,60 @@ describe("offline journal intake (P5 #51)", () => {
       .toMatchObject({ status: "held", error: { code: "SESSION_INVALID" } });
     expect((await sync(c, { staffSignIns: [stranger], commands: [waiting] })).payload.acknowledgements[0])
       .toMatchObject({ status: "committed" });
+  });
+
+  it("escalates a held entry once it is judged and rejected, and never softens a refusal", async () => {
+    const c = await counter({ main: 20 });
+    const j = offlineJournal(c);
+    const cashierIn = j.signIn(c.cashier.userId, randomUUID());
+    // No shift was opened. Without its sign-in the sale waits for it.
+    const sale = j.sale(cashierIn, [[c.batches.main, 1]]);
+    expect((await sync(c, { commands: [sale] })).payload.acknowledgements[0])
+      .toMatchObject({ status: "held", error: { code: "SESSION_INVALID" } });
+    const kept = () => prisma.offlineJournalReview.findFirstOrThrow({ where: { tenantId: c.fx.tenantId, recordId: sale.payload.commandId } });
+    expect(await kept()).toMatchObject({ outcome: "held", attempts: 1 });
+
+    // With the sign-in it is judged, and refused for good: there is no open shift to sell on.
+    expect((await sync(c, { staffSignIns: [cashierIn], commands: [sale] })).payload.acknowledgements[0])
+      .toMatchObject({ status: "rejected", error: { code: "SESSION_INVALID" } });
+    expect(await kept()).toMatchObject({ outcome: "rejected", errorCode: "SESSION_INVALID", attempts: 2 });
+    // So the journal is stuck past its head, and no authority is rebased over it.
+    await expect(prisma.$transaction((tx) => acceptedJournalState(tx, c.identity)))
+      .rejects.toMatchObject({ response: { code: "RECONCILIATION_REQUIRED" } });
+    expect(await prisma.auditEvent.count({ where: { tenantId: c.fx.tenantId, eventName: "terminal.offline_journal_escalated" } })).toBe(1);
+
+    // A milder refusal of the same content later doesn't soften it.
+    await prisma.$transaction((tx) => trust.revokeEnrollment(tx, c.owner, c.fx.mainBranchId, c.identity.enrollmentId, "Stolen"));
+    const revoked = await journal.sync(c.owner, c.fx.mainBranchId, request(c, { commands: [sale] }));
+    expect(revoked.payload.acknowledgements[0]).toMatchObject({ status: "held", error: { code: "TERMINAL_REVOKED" } });
+    const row = await kept();
+    expect(row).toMatchObject({ outcome: "rejected", errorCode: "SESSION_INVALID", attempts: 3 });
+    // Nor can anything else: the table only lets an outcome escalate.
+    await expect(prisma.offlineJournalReview.update({ where: { id: row.id }, data: { outcome: "held" } }))
+      .rejects.toThrow(/only escalates/);
+  });
+
+  it("accepts more than one sync page of commands through the real sync path", async () => {
+    const c = await counter({ main: 500 });
+    const j = offlineJournal(c);
+    const workSessionId = randomUUID();
+    const cashierIn = j.signIn(c.cashier.userId, workSessionId);
+    const open = j.open(cashierIn, 0);
+    const extra = 6;
+    const saleCount = MAX_OFFLINE_JOURNAL_SYNC_COMMANDS - 1 + extra;
+    const sales = Array.from({ length: saleCount }, () => j.sale(cashierIn, [[c.batches.main, 1]]));
+
+    const first = await sync(c, {
+      staffSignIns: [cashierIn],
+      commands: [open, ...sales.slice(0, MAX_OFFLINE_JOURNAL_SYNC_COMMANDS - 1)],
+    });
+    expect(first.payload.acknowledgements.every((a) => a.status === "committed")).toBe(true);
+    expect(first.payload.committedThroughSequence).toBe(MAX_OFFLINE_JOURNAL_SYNC_COMMANDS);
+
+    const second = await sync(c, { commands: sales.slice(MAX_OFFLINE_JOURNAL_SYNC_COMMANDS - 1) });
+    expect(second.payload.acknowledgements).toHaveLength(extra);
+    expect(second.payload.acknowledgements.every((a) => a.status === "committed")).toBe(true);
+    expect(second.payload.committedThroughSequence).toBe(1 + saleCount);
+    expect(await onHand(c.batches.main)).toBe(500 - saleCount);
   });
 });

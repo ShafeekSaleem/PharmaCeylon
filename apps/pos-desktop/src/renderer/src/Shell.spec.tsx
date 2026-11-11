@@ -62,7 +62,10 @@ describe("SyncBlock (P5 #51)", () => {
   const sync = {
     recorded: 3, accepted: 1, waiting: 2, refused: 0, syncing: true, lastSuccessAt: null,
     issue: null, lastDrainAt: null,
-    pause: { reason: "draining" as const, waiting: 2, outageStartedAt: "2026-11-10T09:00:00.000Z" },
+    pause: {
+      reason: "draining" as const, waiting: 2, outageStartedAt: "2026-11-10T09:00:00.000Z",
+      unconfirmed: { sales: 0, actions: 0 },
+    },
   };
 
   it("says new sales wait while the offline records upload, and that the sale on screen is kept", () => {
@@ -75,6 +78,20 @@ describe("SyncBlock (P5 #51)", () => {
   it("waits for fresh stock once every record is on the server", () => {
     renderWithKeys(<SyncBlock sync={{ ...sync, accepted: 3, waiting: 0, pause: { ...sync.pause, waiting: 0 } }} />);
     expect(screen.getByRole("status").textContent).toContain("fresh stock is on its way");
+  });
+
+  it("says what sent from here still needs confirming, and holds the unconfirmed sales so they can be", () => {
+    renderWithKeys(
+      <SyncBlock sync={{ ...sync, accepted: 3, waiting: 0, pause: { ...sync.pause, waiting: 0, unconfirmed: { sales: 2, actions: 1 } } }}>
+        <button type="button">Confirm with server</button>
+      </SyncBlock>,
+    );
+    const text = screen.getByRole("status").textContent ?? "";
+    expect(text).toContain("The offline sales are on the server. New sales");
+    expect(text).not.toContain("fresh stock is on its way");
+    expect(text).toContain("The 2 sales below were sent but not confirmed: synchronisation finishes once they are.");
+    expect(text).toContain("An action sent from here waits in Counter work for the person who sent it to confirm it.");
+    expect(screen.getByRole("button", { name: "Confirm with server" })).toBeTruthy();
   });
 
   it("asks for attention when a record is refused, with the server's reason", () => {

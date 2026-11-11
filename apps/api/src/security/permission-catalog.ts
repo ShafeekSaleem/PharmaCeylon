@@ -516,6 +516,18 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
     dependencies: ["sales.pos_use"],
   },
   {
+    // P5 #51 slice 4: settled remotely, on approval. A recorded sale's stock waits on an offline
+    // stock case, which is settled at the counter (inventory.resolve_stock_cases / manage).
+    key: "sales.review_offline_entries",
+    module: "sales",
+    label: "Review refused offline sales",
+    description:
+      "Decide what happens to an offline sale or shift record the server refused: record it as it happened or don't honour it. The counter that sent it can't sell until this is done.",
+    defaultRoles: [owner, manager],
+    riskLevel: "elevated",
+    dependencies: ["sales.view"],
+  },
+  {
     key: "sales.discount_override",
     module: "sales",
     label: "Approve discounts over the limit",

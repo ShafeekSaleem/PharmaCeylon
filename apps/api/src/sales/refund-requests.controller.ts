@@ -33,7 +33,9 @@ import { RefundRequestsService } from "./refund-requests.service";
 export class RefundRequestsController {
   constructor(private readonly refunds: RefundRequestsService) {}
 
-  @ApiOperation({ summary: "Refunds prepared at this branch (filter by sale or status)" })
+  @ApiOperation({
+    summary: "Refunds prepared at this branch (filter by sale or status)",
+  })
   @RequirePermission("sales.refund")
   @CounterRoute()
   @Get("refund-requests")
@@ -45,8 +47,10 @@ export class RefundRequestsController {
     return this.refunds.list(user.tenantId, branchId, query);
   }
 
-  @ApiOperation({ summary: "One prepared refund, with its approval evidence and status" })
-  @RequirePermission("sales.refund")
+  @ApiOperation({
+    summary: "One prepared refund, with its approval evidence and status",
+  })
+  @RequirePermission("sales.refund", "returns.approve")
   @Get("refund-requests/:id")
   getOne(
     @CurrentUser() user: RequestUser,
@@ -56,7 +60,10 @@ export class RefundRequestsController {
     return this.refunds.getOne(user.tenantId, branchId, id);
   }
 
-  @ApiOperation({ summary: "Prepare a refund from a sale; it waits at the counter (no stock or money moves)" })
+  @ApiOperation({
+    summary:
+      "Prepare a refund from a sale; it waits at the counter (no stock or money moves)",
+  })
   @RequirePermission("sales.refund")
   @CounterRoute()
   @Post(":id/refund-requests")
@@ -88,7 +95,9 @@ export class RefundRequestsController {
     return this.refunds.approve(user, branchId, id, dto);
   }
 
-  @ApiOperation({ summary: "Cancel a prepared refund that has not been executed" })
+  @ApiOperation({
+    summary: "Cancel a prepared refund that has not been executed",
+  })
   @RequirePermission("sales.refund")
   @HttpCode(HttpStatus.OK)
   @Post("refund-requests/:id/cancel")
@@ -100,7 +109,10 @@ export class RefundRequestsController {
     return this.refunds.cancel(user, branchId, id);
   }
 
-  @ApiOperation({ summary: "Execute a prepared refund at the counter: stock back and money out, once" })
+  @ApiOperation({
+    summary:
+      "Execute a prepared refund at the counter: stock back and money out, once",
+  })
   @RequirePermission("sales.refund")
   @HttpCode(HttpStatus.OK)
   @Post("refund-requests/:id/execute")

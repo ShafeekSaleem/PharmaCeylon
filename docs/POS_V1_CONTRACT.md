@@ -206,8 +206,10 @@ its own key only that Windows user there can unlock, with PIN verifiers removed;
 computer may restore, but only onto a store that cannot be opened or holds no counter; the
 restored counter removes its offline pair and renewal requests and gets no offline authority until
 the owner or a delegated manager acknowledges the restore in the back office; online selling
-continues meanwhile unless the backup was taken mid-outage. A late sale over a count made after it
-waits on its case (`counted_after_sale`) instead of deducting twice (`docs/POS_P5_IMPLEMENTATION.md`).
+continues meanwhile unless the backup was taken mid-outage. A restored counter is issued offline
+authority again only once the grant issued before its restore has expired, since the computer it
+was copied from may still hold it; online selling is not held. A restore that will never complete
+is closed by the same authority, with a reason (`docs/POS_P5_IMPLEMENTATION.md`).
 
 Revised D13 (2026-10-21) separates authorization from activation. Owner control and explicit
 per-user/per-branch manager delegation remain; manager role alone is insufficient and managers

@@ -385,15 +385,17 @@ export class RefundRequestsService {
     if (!rows.length) return [];
     const userIds = [...new Set(rows.flatMap((row) => [row.requestedBy, row.approvedBy, row.executedBy, row.cancelledBy])
       .filter((value): value is string => !!value))];
-    const [people, sales, threshold, evidence] = await Promise.all([
+    const [people, sales, threshold, evidence, products, batches] = await Promise.all([
       this.prisma.appUser.findMany({ where: { tenantId, id: { in: userIds } }, select: { id: true, fullName: true } }),
       this.prisma.sale.findMany({ where: { tenantId, branchId, id: { in: rows.map((row) => row.saleId) } },
         select: { id: true, invoiceNo: true } }),
       this.sales.refundApprovalThreshold(this.prisma, tenantId),
       this.prisma.managementApproval.findMany({
-        where: { tenantId, id: { in: rows.map((row) => row.executionApprovalId).filter((v): v is string => !!v) } },
+        where: { tenantId, branchId, id: { in: rows.map((row) => row.executionApprovalId).filter((v): v is string => !!v) } },
         select: { id: true, revokedAt: true },
       }),
+      this.prisma.product.findMany({ where: { tenantId, id: { in: rows.flatMap(row => storedLines(row).map(line => line.productId)) } }, select: { id: true, name: true } }),
+      this.prisma.batch.findMany({ where: { tenantId, branchId, id: { in: rows.flatMap(row => storedLines(row).map(line => line.batchId)) } }, select: { id: true, batchNo: true } }),
     ]);
     const person = (userId: string | null) => (userId ? people.find((p) => p.id === userId) ?? null : null);
     const revoked = new Set(evidence.filter((e) => e.revokedAt).map((e) => e.id));
@@ -406,7 +408,10 @@ export class RefundRequestsService {
         saleId: row.saleId,
         invoiceNo: sales.find((s) => s.id === row.saleId)?.invoiceNo ?? null,
         status: row.status,
-        lines: storedLines(row),
+        lines: storedLines(row).map(line => ({ ...line,
+          productName: products.find(product => product.id === line.productId)?.name ?? null,
+          batchNo: batches.find(batch => batch.id === line.batchId)?.batchNo ?? null,
+        })),
         amount: row.amount.toFixed(2),
         refundMethod: row.refundMethod,
         reasonCode: row.reasonCode,
@@ -415,7 +420,7 @@ export class RefundRequestsService {
         executionApprovalId: row.executionApprovalId,
         approvalRevoked: row.executionApprovalId ? revoked.has(row.executionApprovalId) : false,
         // Waiting at the counter: nothing more is needed before someone there refunds it.
-        readyAtCounter: open && (row.executionApprovalId ? !revoked.has(row.executionApprovalId) : !needsApproval),
+        readyAtCounter: open && (row.executionApprovalId ? evidence.some(e => e.id === row.executionApprovalId && !e.revokedAt) : !needsApproval),
         approvalReview: open ? saleRefundApprovalReview(row) : null,
         approvalVersion: row.approvalVersion,
         requester: person(row.requestedBy),

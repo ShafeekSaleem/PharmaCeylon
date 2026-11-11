@@ -224,6 +224,58 @@ export function readStoreFacts(
   };
 }
 
+/** Written only inside backup copies, before re-keying: the authoritative backup time on restore. */
+export function writeStoreBackupMeta(db: PosDatabase, takenAt: number): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS store_backup_meta (
+      taken_at INTEGER NOT NULL
+    ) STRICT;
+  `);
+  db.prepare("DELETE FROM store_backup_meta").run();
+  db.prepare("INSERT INTO store_backup_meta (taken_at) VALUES (?)").run(takenAt);
+}
+
+export function readStoreBackupMetaTakenAt(db: PosDatabase): number | null {
+  if (!tableExists(db, "store_backup_meta")) return null;
+  const row = db.prepare("SELECT taken_at FROM store_backup_meta LIMIT 1").get() as
+    | { taken_at: number }
+    | undefined;
+  return row?.taken_at ?? null;
+}
+
+/** Newest journal command time in the copy, if any (ISO `created_at` in the journal table). */
+export function newestJournalTimestampMs(db: PosDatabase): number | null {
+  if (!tableExists(db, "offline_journal_command")) return null;
+  const row = db
+    .prepare("SELECT max(created_at) AS latest FROM offline_journal_command")
+    .get() as { latest: string | null } | undefined;
+  if (!row?.latest) return null;
+  const ms = Date.parse(row.latest);
+  return Number.isFinite(ms) ? ms : null;
+}
+
+/**
+ * The backup time to sign into a restore report. Prefer the in-copy meta row; cross-check with the
+ * journal. An edited `backup.json` must never move this later and shrink what the back office must
+ * check (never trust the manifest alone when the copy proves an earlier time).
+ */
+export function authoritativeBackupTakenAt(
+  db: PosDatabase,
+  manifestTakenAt: number,
+): number {
+  const inCopy = readStoreBackupMetaTakenAt(db);
+  const journalLatest = newestJournalTimestampMs(db);
+  if (inCopy !== null) {
+    if (manifestTakenAt > inCopy) {
+      if (journalLatest !== null) return Math.min(inCopy, journalLatest);
+      return inCopy;
+    }
+    return Math.min(inCopy, manifestTakenAt);
+  }
+  if (journalLatest !== null) return Math.min(journalLatest, manifestTakenAt);
+  return manifestTakenAt;
+}
+
 function compactTime(at: number): string {
   // 20261110T104233123Z: sorts by time, safe in a folder name.
   return new Date(at).toISOString().replace(/[-:.]/g, "");
@@ -271,6 +323,7 @@ export function takeStoreBackup(
       copy.pragma("secure_delete = ON");
       if (tableExists(copy, "staff_credential"))
         copy.prepare("DELETE FROM staff_credential").run();
+      writeStoreBackupMeta(copy, takenAt);
       copy.exec("VACUUM");
       copy.pragma(`rekey = "x'${backupKey}'"`);
     } finally {

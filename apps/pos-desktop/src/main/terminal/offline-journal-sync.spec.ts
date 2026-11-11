@@ -47,6 +47,7 @@ import {
   drainAwaitsFreshSnapshot,
   journalNeedsRecovery,
   readAcceptedWatermark,
+  unresolvedSubmissions,
 } from "./reconnect-drain";
 
 /** P5 #51: uploading the offline journal P4 writes, and finishing the reconnect drain. */
@@ -277,10 +278,21 @@ function sellOffline(count: number): Signed<OfflineSaleCommand>[] {
 
 type Refusal = { status: "held" | "rejected"; code: string; once?: boolean };
 
-/** A fake server with the intake's ordering rules: head + 1 only, exact replays are duplicates. */
+type Decision = "recorded" | "not_honoured";
+
+/**
+ * A fake server with the intake's ordering rules: head + 1 only, exact replays are duplicates, and
+ * a refused entry a manager settled (slice 4) is answered `reviewed` at its own sequence.
+ */
 function fakeServer() {
-  const accepted: { commandId: string; hash: string; sequence: number }[] = [];
+  const accepted: {
+    commandId: string;
+    hash: string;
+    sequence: number;
+    reviewed?: Decision;
+  }[] = [];
   const refusals = new Map<number, Refusal>();
+  const settlements = new Map<number, Decision>();
   const requests: SyncRequest[] = [];
   let loseNext = false;
   let alter: ((payload: SyncResponse) => SyncResponse) | null = null;
@@ -307,12 +319,45 @@ function fakeServer() {
         stockPosting: "posted" as const,
         reconciliationCaseId: null,
       });
-      if (accepted.some((a) => a.commandId === command.commandId)) {
-        acknowledgements.push(committed("duplicate"));
+      const reviewed = (decision: Decision): SyncAcknowledgement => ({
+        ...base,
+        status: "reviewed",
+        committedAt: NOW,
+        review: {
+          settlementId: `settlement-${command.sequence}`,
+          refusalCode: "LOCAL_STOCK_EXHAUSTED",
+          settledAt: NOW,
+        },
+        commandKind: "ordinary_sale",
+        ...(decision === "recorded"
+          ? {
+              decision,
+              saleId: `sale-${command.commandId}`,
+              stockPosting: "pending_reconciliation" as const,
+              reconciliationCaseId: `case-${command.commandId}`,
+            }
+          : { decision }),
+      });
+      const prior = accepted.find((a) => a.commandId === command.commandId);
+      if (prior) {
+        acknowledgements.push(
+          prior.reviewed ? reviewed(prior.reviewed) : committed("duplicate"),
+        );
         continue;
       }
       const refusal = refusals.get(command.sequence);
       const headSequence = accepted.at(-1)?.sequence ?? 0;
+      const settlement = settlements.get(command.sequence);
+      if (settlement && command.sequence === headSequence + 1) {
+        accepted.push({
+          commandId: command.commandId,
+          hash,
+          sequence: command.sequence,
+          reviewed: settlement,
+        });
+        acknowledgements.push(reviewed(settlement));
+        continue;
+      }
       if (refusal || command.sequence !== headSequence + 1) {
         const { status, code } = refusal ?? {
           status: "held" as const,
@@ -375,6 +420,11 @@ function fakeServer() {
     refusals,
     requests,
     lose: () => void (loseNext = true),
+    /** A manager settles the refused entry at `sequence` in the back office. */
+    settle: (sequence: number, decision: Decision) => {
+      refusals.delete(sequence);
+      settlements.set(sequence, decision);
+    },
     alter: (fn: typeof alter) => void (alter = fn),
     signWith: (key: typeof signingKey) => void (signingKey = key),
   };
@@ -433,6 +483,7 @@ describe("uploading the offline journal", () => {
       reason: "draining",
       waiting: 3,
       outageStartedAt: NOW,
+      unconfirmed: { sales: 0, actions: 0 },
     });
 
     await u.sync.tick();
@@ -473,6 +524,7 @@ describe("uploading the offline journal", () => {
       reason: "draining",
       waiting: 0,
       outageStartedAt: NOW,
+      unconfirmed: { sales: 0, actions: 0 },
     });
     expect(drainAwaitsFreshSnapshot(local.db, identity.enrollmentId)).toBe(
       true,
@@ -510,7 +562,7 @@ describe("uploading the offline journal", () => {
     expect(u.view()).toMatchObject({ waiting: 0, issue: null });
   });
 
-  it("stops where the server stopped: a held entry is sent again later, a rejected one never", async () => {
+  it("stops where the server stopped: a held entry is sent again later, a rejected one alone once a minute", async () => {
     sellOffline(3);
     const u = uploader();
     u.srv.refusals.set(2, {
@@ -542,7 +594,8 @@ describe("uploading the offline journal", () => {
     ]);
     expect(u.view()).toMatchObject({ accepted: 3, waiting: 0, issue: null });
 
-    // A rejected entry waits for review: never resent, and nothing after it goes.
+    // A rejected entry waits for a manager: it is never judged again, so it goes alone, once a
+    // minute, to learn how it was settled; nothing after it goes.
     sellOffline(2);
     u.srv.refusals.set(4, {
       status: "rejected",
@@ -559,13 +612,21 @@ describe("uploading the offline journal", () => {
       ["failed", "LOCAL_STOCK_EXHAUSTED"],
       ["pending", null],
     ]);
-    u.advance(JOURNAL_CONFIRM_MS);
+    u.advance(ISSUE_RETRY_MS - 1);
     await u.sync.tick();
     expect(u.srv.requests).toHaveLength(3);
+    u.advance(1);
+    await u.sync.tick();
+    expect(u.srv.requests[3]!.commands.map((c) => c.payload.sequence)).toEqual([
+      4,
+    ]);
     expect(u.view()).toMatchObject({
       refused: 1,
       waiting: 2,
-      issue: { code: "LOCAL_STOCK_EXHAUSTED" },
+      issue: {
+        code: "LOCAL_STOCK_EXHAUSTED",
+        message: expect.stringContaining("Refused offline records"),
+      },
     });
     expect(journalSyncState(u.view()).pause).toMatchObject({
       reason: "draining",
@@ -573,6 +634,52 @@ describe("uploading the offline journal", () => {
     });
     expect(drainAwaitsFreshSnapshot(local.db, identity.enrollmentId)).toBe(
       false,
+    );
+  });
+
+  it("carries on once a manager settles a refused entry: the signed reviewed answer marks it, and the rest follows", async () => {
+    sellOffline(3);
+    const u = uploader();
+    u.srv.refusals.set(2, {
+      status: "rejected",
+      code: "LOCAL_STOCK_EXHAUSTED",
+    });
+    await u.sync.tick();
+    expect(u.rows().map((r) => r.sync_status)).toEqual([
+      "synced",
+      "failed",
+      "pending",
+    ]);
+
+    u.srv.settle(2, "recorded");
+    u.advance(ISSUE_RETRY_MS);
+    await u.sync.tick();
+    // The probe, then what waited behind it, in the same cycle.
+    expect(
+      u.srv.requests
+        .slice(1)
+        .map((r) => r.commands.map((c) => c.payload.sequence)),
+    ).toEqual([[2], [3]]);
+    expect(u.rows().map((r) => [r.sync_status, r.last_error_code])).toEqual([
+      ["synced", null],
+      ["synced", null],
+      ["synced", null],
+    ]);
+    expect(JSON.parse(u.rows()[1]!.acknowledgement_json!)).toMatchObject({
+      status: "reviewed",
+      decision: "recorded",
+      stockPosting: "pending_reconciliation",
+      review: { settlementId: "settlement-2" },
+    });
+    expect(u.view()).toMatchObject({
+      accepted: 3,
+      waiting: 0,
+      refused: 0,
+      issue: null,
+      lastSuccessAt: new Date(NOW + ISSUE_RETRY_MS).toISOString(),
+    });
+    expect(drainAwaitsFreshSnapshot(local.db, identity.enrollmentId)).toBe(
+      true,
     );
   });
 
@@ -589,6 +696,22 @@ describe("uploading the offline journal", () => {
       accepted: JOURNAL_BATCH * 2 + 20,
       waiting: 0,
     });
+  });
+
+  it("shows only this enrollment's last sync: a re-enrolled counter has none until its first confirmation", async () => {
+    // The previous enrollment's last confirmation is still in app_meta.
+    local.db
+      .prepare("INSERT INTO app_meta (key, value, updated_at) VALUES (?, ?, ?)")
+      .run(LAST_SUCCESSFUL_SYNC_KEY, "2026-10-01T08:00:00.000Z", "x");
+    const u = uploader();
+    u.srv.lose();
+    await u.sync.tick();
+    expect(u.meta(LAST_SUCCESSFUL_SYNC_KEY)).toBeUndefined();
+    u.advance(15_000);
+    await u.sync.tick();
+    expect(u.meta(LAST_SUCCESSFUL_SYNC_KEY)).toBe(
+      new Date(NOW + 15_000).toISOString(),
+    );
   });
 
   it("confirms an empty journal every five minutes, and sends nothing while nobody is signed in", async () => {
@@ -709,6 +832,51 @@ describe("trusting the server's reply", () => {
     ).toBe(1);
   });
 
+  it("keeps a journal mismatch through failed cycles; only a verified reply clears it", async () => {
+    const u = uploader();
+    u.srv.alter((p) => ({
+      ...p,
+      committedThroughSequence: 3,
+      committedThroughHash: "a".repeat(64),
+    }));
+    await u.sync.tick();
+    expect(u.view().issue).toMatchObject({ code: "JOURNAL_MISMATCH" });
+
+    // The connection drops on the next attempt: the restored journal still can't start an outage.
+    u.srv.lose();
+    u.advance(ISSUE_RETRY_MS);
+    await u.sync.tick();
+    expect(u.srv.requests).toHaveLength(2);
+    expect(u.view().issue).toMatchObject({ code: "JOURNAL_MISMATCH" });
+    expect(journalNeedsRecovery(local.db, identity.enrollmentId)).toBe(true);
+    expect(() =>
+      writer.ensureOfflineOutageSession(identity.enrollmentId, NOW),
+    ).toThrow("RECONCILIATION_REQUIRED");
+
+    // Nor does a reply that fails verification.
+    u.srv.signWith(otherServer.privateKey);
+    u.advance(60_000);
+    await u.sync.tick();
+    expect(u.srv.requests).toHaveLength(3);
+    expect(u.view().issue).toMatchObject({ code: "JOURNAL_MISMATCH" });
+
+    // Nor does a clean, verified reply that still names entries this computer doesn't have.
+    u.srv.signWith(server.privateKey);
+    u.advance(120_000);
+    await u.sync.tick();
+    expect(u.srv.requests).toHaveLength(4);
+    expect(u.view().issue).toMatchObject({ code: "JOURNAL_MISMATCH" });
+    expect(journalNeedsRecovery(local.db, identity.enrollmentId)).toBe(true);
+
+    // A verified reply naming this computer's own chain does.
+    u.srv.alter(null);
+    u.advance(ISSUE_RETRY_MS);
+    await u.sync.tick();
+    expect(u.srv.requests).toHaveLength(5);
+    expect(u.view().issue).toBeNull();
+    expect(journalNeedsRecovery(local.db, identity.enrollmentId)).toBe(false);
+  });
+
   it("checks every acknowledgement field it relies on", () => {
     const sent = new Map([
       [
@@ -736,9 +904,30 @@ describe("trusting the server's reply", () => {
       stockPosting: "posted",
       reconciliationCaseId: null,
     };
-    expect(() =>
-      verifySyncResponse(reply(ok), { identity, signer, sent }),
-    ).not.toThrow();
+    const review = {
+      settlementId: "st",
+      refusalCode: "GRANT_EXPIRED",
+      settledAt: NOW,
+    };
+    const recorded = {
+      ...ok,
+      status: "reviewed",
+      decision: "recorded",
+      stockPosting: "pending_reconciliation",
+      reconciliationCaseId: "case",
+      review,
+    };
+    const notHonoured = {
+      commandKind: "ordinary_sale",
+      status: "reviewed",
+      decision: "not_honoured",
+      committedAt: NOW,
+      review,
+    };
+    for (const good of [ok, recorded, notHonoured])
+      expect(() =>
+        verifySyncResponse(reply(good), { identity, signer, sent }),
+      ).not.toThrow();
     for (const broken of [
       { ...ok, commandKind: "shift_open" },
       {
@@ -748,6 +937,12 @@ describe("trusting the server's reply", () => {
       },
       { ...ok, status: "accepted" },
       { status: "held" },
+      // A sale recorded after review never posts stock.
+      { ...recorded, stockPosting: "posted", reconciliationCaseId: null },
+      { ...recorded, review: null },
+      { ...recorded, review: { ...review, settledAt: "now" } },
+      { ...notHonoured, decision: "voided" },
+      { ...notHonoured, commandKind: "shift_close" },
     ])
       expect(() =>
         verifySyncResponse(reply(broken), { identity, signer, sent }),
@@ -792,22 +987,26 @@ describe("finishing the reconnect drain (approved D12)", () => {
     ).not.toBe(outage.offlineSessionId);
   });
 
-  it("keeps the outage and the installed pair while a sale sent from here is unconfirmed", async () => {
-    const { head } = await drained(1);
+  it("keeps the outage and the installed pair while a sale sent from here is unconfirmed, but records the pair's watermark", async () => {
+    // The journal reached the server but the upload's reply was lost: nothing is accepted here yet.
+    sellOffline(1);
+    const head = localJournalHead(local.db, identity.enrollmentId);
+    expect(readAcceptedWatermark(local.db, identity.enrollmentId)).toEqual({
+      sequence: 0,
+      hash: null,
+    });
+    const draftId = randomUUID();
     local.db
       .prepare(
         `INSERT INTO checkout_draft (id, work_session_id, staff_user_id, request_json, total_minor, status, enrollment_id, created_at, updated_at)
        VALUES (?, ?, ?, '{"items":[]}', 100, 'uncertain', ?, 'x', 'x')`,
       )
       .run(
-        randomUUID(),
+        draftId,
         staff.workSessionId,
         staff.staffUserId,
         identity.enrollmentId,
       );
-    expect(drainAwaitsFreshSnapshot(local.db, identity.enrollmentId)).toBe(
-      false,
-    );
     expect(
       installOfflineAuthority(
         local.db,
@@ -819,8 +1018,73 @@ describe("finishing the reconnect drain (approved D12)", () => {
       readInstalledOfflineAuthority(local.db, identity.enrollmentId)?.version,
     ).toBe(1);
     expect(activeOutage(local.db, identity.enrollmentId)).not.toBeNull();
-    expect(checkoutSyncPause(local.db, identity.enrollmentId)).toMatchObject({
+    // Intended: the pair's watermark is the server's signed acceptance of the journal, true
+    // whatever this install made of the pair. So the upload is done, and staff are told that
+    // only the unconfirmed sale holds the drain now.
+    expect(readAcceptedWatermark(local.db, identity.enrollmentId)).toEqual(head);
+    expect(checkoutSyncPause(local.db, identity.enrollmentId)).toEqual({
       reason: "draining",
+      waiting: 0,
+      outageStartedAt: NOW,
+      unconfirmed: { sales: 1, actions: 0 },
+    });
+
+    // Confirmed: the same pair now finishes the drain.
+    local.db
+      .prepare("UPDATE checkout_draft SET status = 'completed' WHERE id = ?")
+      .run(draftId);
+    expect(drainAwaitsFreshSnapshot(local.db, identity.enrollmentId)).toBe(true);
+    expect(
+      installOfflineAuthority(
+        local.db,
+        authority(2, NOW + 5_000, head),
+        expected(NOW + 6_000),
+      ),
+    ).toBe("installed");
+    expect(activeOutage(local.db, identity.enrollmentId)).toBeNull();
+  });
+
+  it("waits for what this enrollment sent, not what an earlier enrollment of this computer left", async () => {
+    await drained(1);
+    const signedCommand = (enrollmentId: string) =>
+      local.db
+        .prepare(
+          `INSERT INTO signed_command (command_id, operation, staff_user_id, envelope_json, attendance_proof_id, status, created_at, updated_at)
+           VALUES (?, 'POST /api/v1/terminal-commands/x', ?, ?, ?, 'uncertain', 'x', 'x')`,
+        )
+        .run(
+          randomUUID(),
+          staff.staffUserId,
+          JSON.stringify({ payload: { identity: { ...identity, enrollmentId } } }),
+          randomUUID(),
+        );
+    const draft = (enrollmentId: string | null) =>
+      local.db
+        .prepare(
+          `INSERT INTO checkout_draft (id, work_session_id, staff_user_id, request_json, total_minor, status, enrollment_id, created_at, updated_at)
+           VALUES (?, ?, ?, '{"items":[]}', 100, 'submitted', ?, 'x', 'x')`,
+        )
+        .run(randomUUID(), staff.workSessionId, staff.staffUserId, enrollmentId);
+    // Neither can be resent from this enrollment, so neither can be confirmed here.
+    signedCommand(randomUUID());
+    draft(randomUUID());
+    expect(unresolvedSubmissions(local.db, identity.enrollmentId)).toEqual({
+      sales: 0,
+      actions: 0,
+    });
+    expect(drainAwaitsFreshSnapshot(local.db, identity.enrollmentId)).toBe(true);
+
+    // This enrollment's own, and a draft from before drafts recorded their enrollment, do count.
+    signedCommand(identity.enrollmentId);
+    draft(null);
+    expect(unresolvedSubmissions(local.db, identity.enrollmentId)).toEqual({
+      sales: 1,
+      actions: 1,
+    });
+    expect(drainAwaitsFreshSnapshot(local.db, identity.enrollmentId)).toBe(false);
+    expect(checkoutSyncPause(local.db, identity.enrollmentId)?.unconfirmed).toEqual({
+      sales: 1,
+      actions: 1,
     });
   });
 
@@ -862,6 +1126,7 @@ describe("finishing the reconnect drain (approved D12)", () => {
     const sync = { tick: jest.fn(async () => undefined) };
     let status = {
       nominated: true as boolean | null,
+      nominatedAt: null as number | null,
       lastFailure: null as { at: number; code: string } | null,
     };
     const refresh = {
@@ -895,10 +1160,21 @@ describe("finishing the reconnect drain (approved D12)", () => {
     expect(refresh.tick).toHaveBeenCalledTimes(1);
     expect(activeOutage(local.db, identity.enrollmentId)).not.toBeNull();
 
+    // Answers recorded before the drain asked (from before the outage, while the refresh's own
+    // request is still in flight) are stale: the server may be about to issue the pair.
+    status = {
+      nominated: false,
+      nominatedAt: NOW - 60_000,
+      lastFailure: { at: NOW - 60_000, code: "GRANT_INVALID" },
+    };
+    await cycle();
+    expect(activeOutage(local.db, identity.enrollmentId)).not.toBeNull();
+
     // Offline selling was switched off for the branch: no pair will come. Online checkout checks
     // stock centrally, so the drain ends without one.
     status = {
       nominated: true,
+      nominatedAt: NOW,
       lastFailure: { at: NOW, code: "GRANT_INVALID" },
     };
     await cycle();
@@ -909,6 +1185,52 @@ describe("finishing the reconnect drain (approved D12)", () => {
     ).toBe(1);
   });
 
+  it("asks again for a fresh pair as soon as the last unconfirmed sale is confirmed", async () => {
+    sellOffline(1);
+    await uploader().sync.tick();
+    const refresh = {
+      renewNow: jest.fn(),
+      tick: jest.fn(async () => undefined),
+      status: () => ({
+        nominated: true,
+        nominatedAt: null,
+        lastFailure: null,
+        lastSuccessAt: null,
+        consecutiveFailures: 0,
+        nextAttemptAt: null,
+      }),
+    };
+    const cycle = createSyncCoordinator({
+      db: local.db,
+      sync: { tick: async () => undefined },
+      refresh,
+      now: () => NOW,
+      terminal: {
+        current: () => ({ identity, staff, key: deviceKey }),
+      } as never,
+    });
+    await cycle();
+    expect(refresh.renewNow).toHaveBeenCalledTimes(1);
+
+    // A sale goes uncertain before the pair arrives: the installer refuses it (`drain_incomplete`)
+    // and the refresh backs off. Confirming the sale must not wait out that back-off.
+    const draftId = randomUUID();
+    local.db
+      .prepare(
+        `INSERT INTO checkout_draft (id, work_session_id, staff_user_id, request_json, total_minor, status, enrollment_id, created_at, updated_at)
+         VALUES (?, ?, ?, '{"items":[]}', 100, 'uncertain', ?, 'x', 'x')`,
+      )
+      .run(draftId, staff.workSessionId, staff.staffUserId, identity.enrollmentId);
+    await cycle();
+    expect(refresh.renewNow).toHaveBeenCalledTimes(1);
+    local.db
+      .prepare("UPDATE checkout_draft SET status = 'completed' WHERE id = ?")
+      .run(draftId);
+    await cycle();
+    expect(refresh.renewNow).toHaveBeenCalledTimes(2);
+    expect(refresh.tick).toHaveBeenCalledTimes(2);
+  });
+
   it("never ends the drain without a pair while journal entries are still waiting", async () => {
     sellOffline(1);
     const refresh = {
@@ -916,6 +1238,7 @@ describe("finishing the reconnect drain (approved D12)", () => {
       tick: jest.fn(async () => undefined),
       status: () => ({
         nominated: false,
+        nominatedAt: NOW,
         lastFailure: null,
         lastSuccessAt: null,
         consecutiveFailures: 0,

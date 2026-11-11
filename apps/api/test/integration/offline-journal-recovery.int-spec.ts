@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { Prisma } from "@prisma/client";
+import { RoleName, type Prisma } from "@prisma/client";
 import type {
   JournalPosition,
   OfflineJournalCommand,
@@ -15,6 +15,7 @@ import {
   acceptedJournalState,
   issueOfflineAuthority,
 } from "../../src/terminals/offline-authority-issuance";
+import { OfflineAuthorityController } from "../../src/terminals/offline-authority.controller";
 import { terminalDevice } from "../fixtures/terminal-device";
 import {
   access,
@@ -22,6 +23,7 @@ import {
   assignments,
   attest,
   audit,
+  config,
   counter,
   offlineJournal,
   prisma,
@@ -144,7 +146,8 @@ function signedCompletion(
   );
 }
 
-const renew = (c: Counter) =>
+/** A renewal; `at` is when the journal checks run (the restore wait), now by default. */
+const renew = (c: Counter, at?: number) =>
   issueOfflineAuthority(prisma as never, access, {
     signer,
     defaultVatRatePercent: 18,
@@ -152,8 +155,51 @@ const renew = (c: Counter) =>
       identity: c.identity,
       commandId: randomUUID(),
     }),
-    readState: acceptedJournalState,
+    readState: (t, identity) => acceptedJournalState(t, identity, at),
   });
+
+const refusal = (promise: Promise<unknown>) =>
+  promise.then(
+    () => null,
+    (error: { response?: Record<string, unknown> }) => error.response ?? null,
+  );
+
+/** The renewal challenge a counter asks for first (`POST /terminals/offline-authority/challenge`). */
+const authority = new OfflineAuthorityController(
+  prisma as never,
+  trust,
+  access,
+  config as never,
+  {} as never,
+);
+async function challenge(c: Counter) {
+  const branch = c.fx.mainBranchId;
+  const session = await tx((t) =>
+    trust.beginSession(t, c.manager, branch, c.identity),
+  );
+  const sp = await proofs.record(
+    c.manager,
+    branch,
+    c.device.sign(
+      attest(c.fx, session, "session", c.manager),
+      c.identity.keyId,
+      "attendance",
+    ),
+  );
+  const { workSessionId } = await tx((t) =>
+    trust.finishSession(
+      t,
+      c.manager,
+      branch,
+      c.device.sign(session, c.identity.keyId),
+      sp.proofId,
+    ),
+  );
+  return authority.prepare(c.manager, branch, {
+    workSessionId,
+    requestId: randomUUID(),
+  });
+}
 
 describe("restored counter journal recovery (D11)", () => {
   it("hands the accepted entries back, refuses authority while open, and needs the owner or a delegated manager", async () => {
@@ -300,8 +346,22 @@ describe("restored counter journal recovery (D11)", () => {
       ),
     ).toBe("JOURNAL_RECOVERY_INVALID");
 
-    // A fresh pair is rebased at the server's head.
-    const issued = await renew(c);
+    // The computer this was copied from may still hold the grant issued before the restore, so
+    // nothing is issued until that has expired (D11, wait out the last grant); online selling
+    // carries on meanwhile.
+    expect(await refusal(renew(c))).toMatchObject({
+      code: "RESTORED_COUNTER_WAIT",
+      availableAt: c.grant.expiresAt,
+    });
+    expect(
+      (await recovery.detail(c.owner, c.fx.mainBranchId, reported.recoveryId))
+        .offlineResumesAt,
+    ).toBe(c.grant.expiresAt);
+    expect(await code(renew(c, c.grant.expiresAt - 1))).toBe(
+      "RESTORED_COUNTER_WAIT",
+    );
+    // Then a fresh pair is rebased at the server's head.
+    const issued = await renew(c, c.grant.expiresAt);
     expect(issued.snapshot.payload).toMatchObject({
       includedThroughSequence: 3,
       includedThroughHash: head.hash,
@@ -498,6 +558,7 @@ describe("restored counter journal recovery (D11)", () => {
       (
         await recovery.status(c.cashier, c.fx.mainBranchId, {
           identity: c.identity,
+          localHead: position(open),
         })
       )?.status,
     ).toBe("superseded");
@@ -549,12 +610,205 @@ describe("restored counter journal recovery (D11)", () => {
     expect(
       await recovery.status(c.cashier, c.fx.mainBranchId, {
         identity: c.identity,
+        localHead: position(open),
       }),
     ).toMatchObject({
       recoveryId: again.recoveryId,
       status: "superseded",
     });
-    expect(await code(renew(c))).not.toBe("RECONCILIATION_REQUIRED");
+    // Approved then superseded when the original kept selling: wait out its pre-restore grant.
+    expect(await refusal(renew(c))).toMatchObject({
+      code: "RESTORED_COUNTER_WAIT",
+      availableAt: c.grant.expiresAt,
+    });
+    await expect(renew(c, c.grant.expiresAt)).resolves.toMatchObject({
+      snapshot: { payload: { includedThroughSequence: 5 } },
+    });
+  });
+
+  it("supersedes a stale open recovery at issuance, and lets the owner close one that will never complete", async () => {
+    const c = await counter({ main: 40 });
+    const { head, open, j, signIn } = await acceptedJournal(c);
+    const branch = c.fx.mainBranchId;
+
+    // A restored copy reports, then is wiped: it never asks about its recovery again.
+    const abandoned = await upload(
+      c,
+      signedReport(c, {
+        serverHead: head,
+        commonPrefix: position(open),
+        localHead: position(open),
+      }),
+    );
+    expect(await code(challenge(c))).toBe("RECONCILIATION_REQUIRED");
+    expect(await code(renew(c))).toBe("RECONCILIATION_REQUIRED");
+
+    // The original keeps selling and syncing. The report no longer describes the journal, so
+    // issuance supersedes it rather than refusing for good.
+    const later = j.sale(signIn, [[c.batches.main, 1]]);
+    expect(
+      (await sync(c, { commands: [later] })).payload.committedThroughSequence,
+    ).toBe(4);
+    await expect(renew(c)).resolves.toMatchObject({
+      snapshot: {
+        payload: {
+          includedThroughSequence: 4,
+          includedThroughHash: position(later).hash,
+        },
+      },
+    });
+    expect(
+      (await recovery.detail(c.owner, branch, abandoned.recoveryId)).status,
+    ).toBe("superseded");
+
+    // Reported again at the current head and abandoned again: only a person can close it.
+    const again = await upload(
+      c,
+      signedReport(c, {
+        serverHead: position(later),
+        commonPrefix: position(open),
+        localHead: position(open),
+      }),
+    );
+    expect(await code(renew(c))).toBe("RECONCILIATION_REQUIRED");
+    const close = {
+      reason: "The restored PC was wiped; nothing was sold on it.",
+    };
+    expect(
+      await code(recovery.close(c.manager, branch, again.recoveryId, close)),
+    ).toBe("OFFLINE_ASSIGNMENT_NOT_DELEGATED");
+    const closed = await recovery.close(
+      c.owner,
+      branch,
+      again.recoveryId,
+      close,
+    );
+    expect(closed).toMatchObject({
+      status: "closed",
+      closure: { reason: close.reason, authority: "owner" },
+      offlineResumesAt: null,
+    });
+    expect(
+      await code(recovery.close(c.owner, branch, again.recoveryId, close)),
+    ).toBe("JOURNAL_RECOVERY_NOT_OPEN");
+    expect(
+      await code(
+        recovery.approve(c.owner, branch, again.recoveryId, {
+          reason: "Too late",
+          expectedServerHeadSequence: 4,
+          expectedUnmatched: 0,
+        }),
+      ),
+    ).toBe("JOURNAL_RECOVERY_NOT_APPROVED");
+    // If the computer does come back, it is told the recovery is over.
+    expect(
+      await code(
+        recovery.complete(c.cashier, branch, again.recoveryId, {
+          completion: signedCompletion(
+            c,
+            again.recoveryId,
+            position(later),
+            position(open),
+          ),
+        }),
+      ),
+    ).toBe("JOURNAL_RECOVERY_NOT_APPROVED");
+    expect(
+      (
+        await recovery.status(c.cashier, branch, {
+          identity: c.identity,
+          localHead: position(open),
+        })
+      )?.status,
+    ).toBe("closed");
+    // Closed before approval: the copy never restored anything, so nothing waits.
+    await expect(renew(c)).resolves.toBeDefined();
+    const events = await prisma.auditEvent.findMany({
+      where: { tenantId: c.fx.tenantId, entityId: again.recoveryId },
+      orderBy: { createdAt: "asc" },
+      select: { eventName: true, payload: true },
+    });
+    expect(events.map((e) => e.eventName)).toEqual([
+      "terminal.journal_recovery_reported",
+      "terminal.journal_recovery_closed",
+    ]);
+    expect(events[1]!.payload).toMatchObject({
+      previousStatus: "awaiting_approval",
+      reason: close.reason,
+      authority: "owner",
+    });
+    await expect(
+      prisma.offlineJournalRecovery.update({
+        where: { id: again.recoveryId },
+        data: { closeReason: "edited" },
+      }),
+    ).rejects.toThrow();
+  });
+
+  it("supersedes a recovery once the counter's own journal is somewhere else", async () => {
+    const c = await counter({ main: 40 });
+    const { head, open } = await acceptedJournal(c);
+    const branch = c.fx.mainBranchId;
+    const reported = await upload(
+      c,
+      signedReport(c, {
+        serverHead: head,
+        commonPrefix: position(open),
+        localHead: position(open),
+      }),
+    );
+    const status = (localHead: JournalPosition) =>
+      recovery.status(c.cashier, branch, { identity: c.identity, localHead });
+    expect((await status(position(open)))?.status).toBe("awaiting_approval");
+    // Restored again, from a copy that matches the server: the report is moot.
+    expect(await status(head)).toMatchObject({
+      recoveryId: reported.recoveryId,
+      status: "superseded",
+    });
+    await expect(renew(c)).resolves.toBeDefined();
+  });
+
+  it("waits out the grants issued before an approved restore, even one closed before it completed", async () => {
+    const c = await counter({ main: 40 });
+    const { head, open } = await acceptedJournal(c);
+    const branch = c.fx.mainBranchId;
+    const reported = await upload(
+      c,
+      signedReport(c, {
+        serverHead: head,
+        commonPrefix: position(open),
+        localHead: position(open),
+      }),
+    );
+    // Open: the owner is told when offline selling can come back if they approve.
+    expect(
+      (await recovery.detail(c.owner, branch, reported.recoveryId))
+        .offlineResumesAt,
+    ).toBe(c.grant.expiresAt);
+    await recovery.approve(c.owner, branch, reported.recoveryId, {
+      reason: "Restored from yesterday's copy; nothing sold on it.",
+      expectedServerHeadSequence: 3,
+      expectedUnmatched: 0,
+    });
+    // The computer may have applied it before it was wiped.
+    await recovery.close(c.owner, branch, reported.recoveryId, {
+      reason: "Wiped after approval; never confirmed.",
+    });
+    expect(await refusal(challenge(c))).toMatchObject({
+      code: "RESTORED_COUNTER_WAIT",
+      availableAt: c.grant.expiresAt,
+    });
+    expect(await refusal(renew(c))).toMatchObject({
+      code: "RESTORED_COUNTER_WAIT",
+      availableAt: c.grant.expiresAt,
+    });
+    expect(
+      (await recovery.detail(c.owner, branch, reported.recoveryId))
+        .offlineResumesAt,
+    ).toBe(c.grant.expiresAt);
+    await expect(renew(c, c.grant.expiresAt)).resolves.toMatchObject({
+      snapshot: { payload: { includedThroughSequence: 3 } },
+    });
   });
 });
 
@@ -790,6 +1044,103 @@ describe("missing-journal sign-off and replacing the offline counter (D11)", () 
     ).resolves.toMatchObject({
       cleared: false,
       reason: "OFFLINE_RECOVERY_EVIDENCE_REQUIRED",
+    });
+  });
+
+  it("goes stale when a revoked counter uploads after it, though its head cannot move", async () => {
+    const c = await counter({ main: 40 });
+    const { j, signIn } = await acceptedJournal(c);
+    const expiry = c.grant.expiresAt;
+    await tx((t) =>
+      trust.revokeEnrollment(
+        t,
+        c.owner,
+        c.fx.mainBranchId,
+        c.identity.enrollmentId,
+        "Stolen",
+      ),
+    );
+    const signed = await signOff(c, c.owner, expiry, 3);
+    await expect(check(c, expiry + 1)).resolves.toMatchObject({
+      cleared: true,
+      journalSignOffId: signed.recoveryId,
+    });
+
+    // The device comes back and uploads a sale it made on its grant: held, never accepted, but
+    // new evidence the sign-off never saw.
+    const reply = await sync(c, {
+      commands: [j.sale(signIn, [[c.batches.main, 1]])],
+    });
+    expect(reply.payload.committedThroughSequence).toBe(3);
+    await expect(check(c, expiry + 1)).resolves.toMatchObject({
+      cleared: false,
+      reason: "OFFLINE_RECOVERY_EVIDENCE_REQUIRED",
+    });
+    const view = await recovery.list(c.owner, c.fx.mainBranchId);
+    expect(view.offlineCounter).toMatchObject({
+      journalCleared: false,
+      signOff: { recoveryId: signed.recoveryId, current: false },
+    });
+    expect(view.offlineCounter?.refusals.length).toBeGreaterThan(0);
+
+    // Signed off again, having seen it.
+    const again = await signOff(c, c.owner, expiry, 3);
+    await expect(check(c, expiry + 1)).resolves.toMatchObject({
+      cleared: true,
+      journalSignOffId: again.recoveryId,
+    });
+  });
+
+  it("refuses a sign-off for another nomination, a branch without an offline counter, or around an open restore", async () => {
+    const c = await counter({ main: 40 });
+    const { head, open } = await acceptedJournal(c);
+    const expiry = c.grant.expiresAt;
+    const input = {
+      enrollmentId: c.identity.enrollmentId,
+      expectedNominationVersion: 1,
+      expectedServerHeadSequence: 3,
+      reason: "Checked",
+    };
+    const at = (branchId: string, over: Partial<typeof input> = {}) =>
+      code(
+        recovery.signOffMissingJournal(
+          c.owner,
+          branchId,
+          { ...input, ...over },
+          expiry,
+        ),
+      );
+    expect(await at(c.fx.mainBranchId, { expectedNominationVersion: 2 })).toBe(
+      "NOMINATION_VERSION_CHANGED",
+    );
+    expect(await at(c.fx.mainBranchId, { enrollmentId: randomUUID() })).toBe(
+      "NOMINATION_VERSION_CHANGED",
+    );
+    await prisma.userBranchRole.create({
+      data: {
+        tenantId: c.fx.tenantId,
+        branchId: c.fx.otherBranchId,
+        userId: c.owner.userId,
+        role: RoleName.owner,
+      },
+    });
+    expect(await at(c.fx.otherBranchId)).toBe("NO_OFFLINE_COUNTER");
+
+    // A restored copy of this counter reported records: decide that recovery first.
+    const reported = await upload(
+      c,
+      signedReport(c, {
+        serverHead: head,
+        commonPrefix: position(open),
+        localHead: position(open),
+      }),
+    );
+    expect(await at(c.fx.mainBranchId)).toBe("JOURNAL_RECOVERY_OPEN");
+    await recovery.close(c.owner, c.fx.mainBranchId, reported.recoveryId, {
+      reason: "Not ours: an old image booted by mistake.",
+    });
+    await expect(signOff(c, c.owner, expiry, 3)).resolves.toMatchObject({
+      status: "approved",
     });
   });
 });

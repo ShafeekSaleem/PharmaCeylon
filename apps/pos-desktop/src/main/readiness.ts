@@ -64,7 +64,9 @@ export function explainRefreshFailure(code: string): string {
     case "BRANCH_HOURS_NOT_CONFIGURED":
       return "The branch's selling hours are not set. A manager sets them in the back office.";
     case "RECONCILIATION_REQUIRED":
-      return "An offline sale from this counter was refused by the server. A manager reviews it in the back office first.";
+      return "An offline sale from this counter was refused by the server, or a restored copy of this counter is waiting for a decision. A manager reviews it in the back office first.";
+    case "RESTORED_COUNTER_WAIT":
+      return "This counter was restored from an older copy. It can sell offline again once the offline permission issued before the restore runs out (at most a day); online selling works meanwhile.";
     case "local_usage":
       return "Offline sales recorded on this computer must be synchronised first. That happens by itself while someone is signed in.";
     case "journal_mismatch":
@@ -156,13 +158,22 @@ function syncRow(facts: ReadinessFacts, now: Date): Row {
   const waiting = `${view.waiting} offline ${view.waiting === 1 ? "record" : "records"} waiting to reach the server.`;
   if (view.refused > 0 || view.issue?.code === "JOURNAL_MISMATCH" || view.issue?.code === "STORE_RESTORED")
     return { status: "failed", detail: `${view.issue?.message ?? "An offline record was refused."}${view.waiting ? ` ${waiting}` : ""}` };
-  if (view.pause)
+  if (view.pause) {
+    const { sales, actions } = view.pause.unconfirmed;
+    const unconfirmed = [
+      sales ? `${sales} ${sales === 1 ? "sale" : "sales"}` : null,
+      actions ? `${actions} ${actions === 1 ? "action" : "actions"}` : null,
+    ].filter((part): part is string => part !== null);
+    const confirming = unconfirmed.length
+      ? ` It finishes once ${unconfirmed.join(" and ")} sent from here ${sales + actions === 1 ? "is" : "are"} confirmed.`
+      : "";
     return {
       status: "warning",
-      detail: `Synchronising offline sales: new sales wait until it finishes. ${view.waiting ? waiting : "Waiting for fresh stock from the server."}${
-        view.issue ? ` ${view.issue.message}` : ""
-      }`,
+      detail: `Synchronising offline sales: new sales wait until it finishes. ${
+        view.waiting ? waiting : unconfirmed.length ? "The offline sales are on the server." : "Waiting for fresh stock from the server."
+      }${confirming}${view.issue ? ` ${view.issue.message}` : ""}`,
     };
+  }
   if (view.issue) return { status: "warning", detail: view.issue.message };
   if (!view.lastSuccessAt) return { status: "not_ready", detail: "Not confirmed with the server yet. It checks by itself while someone is signed in." };
   const drained = view.lastDrain ? ` Offline sales from the outage at ${clockTime(view.lastDrain.startedAt, now)} are all on the server.` : "";

@@ -15,6 +15,7 @@ import type { RequestUser } from "../../security/interfaces/authenticated-reques
 import { OFFLINE_ASSIGNMENT_MANAGER_PERMISSION } from "../offline-assignment.service";
 import {
   ApproveJournalRecoveryDto,
+  CloseJournalRecoveryDto,
   MissingJournalSignOffDto,
 } from "./journal-recovery.dto";
 import { OfflineJournalRecoveryService } from "./journal-recovery.service";
@@ -22,9 +23,9 @@ import { OfflineJournalRecoveryService } from "./journal-recovery.service";
 /**
  * P5 #51, D11 (decisions of 2026-11-10), remote management: review and approve a restored
  * counter's journal recovery, and sign off the offline counter's journal so another counter can
- * take over. `tenant.management` is the route gate; approving and signing off additionally need
- * revised D13 authority (an owner, or a manager with the owner's live delegation for the
- * branch). Nothing here changes a counter or issues authority.
+ * take over. `tenant.management` is the route gate; approving, closing and signing off
+ * additionally need revised D13 authority (an owner, or a manager with the owner's live
+ * delegation for the branch). Nothing here changes a counter or issues authority.
  */
 @ApiTags("offline-journal-recoveries")
 @Controller("offline-journal-recoveries")
@@ -66,6 +67,22 @@ export class OfflineJournalRecoveriesController {
     @Body() dto: ApproveJournalRecoveryDto,
   ) {
     return this.recovery.approve(user, branchId, id, dto);
+  }
+
+  @ApiOperation({
+    summary:
+      "Close a restored counter's journal recovery that will not complete, with a reason",
+  })
+  @RequirePermission(OFFLINE_ASSIGNMENT_MANAGER_PERMISSION)
+  @Post(":id/close")
+  @HttpCode(200)
+  close(
+    @CurrentUser() user: RequestUser,
+    @RequireBranchId() branchId: string,
+    @Param("id", ParseUUIDPipe) id: string,
+    @Body() dto: CloseJournalRecoveryDto,
+  ) {
+    return this.recovery.close(user, branchId, id, dto);
   }
 
   @ApiOperation({

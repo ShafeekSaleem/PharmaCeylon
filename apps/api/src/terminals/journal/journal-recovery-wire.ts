@@ -171,6 +171,14 @@ export function parseChainRequest(raw: unknown): OfflineJournalChainRequest {
   };
 }
 
-export function parseIdentityRequest(raw: unknown): TerminalIdentity {
-  return parseIdentity(object(raw, ["identity"]).identity) as TerminalIdentity;
+/** `POST …/recovery/status`: who is asking, and where its journal head is now. */
+export function parseStatusRequest(raw: unknown): {
+  identity: TerminalIdentity;
+  localHead: JournalPosition;
+} {
+  const body = object(raw, ["identity", "localHead"]);
+  return {
+    identity: parseIdentity(body.identity) as TerminalIdentity,
+    localHead: parsePosition(body.localHead),
+  };
 }

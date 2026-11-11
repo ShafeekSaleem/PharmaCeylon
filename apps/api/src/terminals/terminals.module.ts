@@ -12,6 +12,7 @@ import { OfflineActivationController } from "./offline-activation.controller";
 import { OfflineActivationClearance, OfflineActivationService } from "./offline-activation.service";
 import { OfflineAssignmentController } from "./offline-assignment.controller";
 import { OfflineAuthorityController } from "./offline-authority.controller";
+import { CounterJournalStatusService } from "./journal/counter-journal-status.service";
 import { OfflineJournalController } from "./journal/offline-journal.controller";
 import { OfflineJournalService } from "./journal/offline-journal.service";
 import { OfflineJournalRecoveriesController } from "./journal/journal-recoveries.controller";
@@ -67,6 +68,7 @@ import { TillShiftsService } from "./shifts/till-shifts.service";
     OfflineJournalService,
     OfflineJournalRecoveryService,
     OfflineCounterRestoreService,
+    CounterJournalStatusService,
   ],
   exports: [
     TerminalTrustService,

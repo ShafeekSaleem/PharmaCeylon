@@ -24,6 +24,14 @@ export class ApproveJournalRecoveryDto {
   expectedUnmatched!: number;
 }
 
+/** Close an abandoned restore recovery: why it will not complete, and what was done about it. */
+export class CloseJournalRecoveryDto {
+  @IsString()
+  @Matches(/\S/)
+  @MaxLength(1000)
+  reason!: string;
+}
+
 export class MissingJournalSignOffDto {
   @IsUUID()
   enrollmentId!: string;

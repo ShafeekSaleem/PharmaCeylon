@@ -76,6 +76,11 @@ export const journalSyncSchema = z.object({
       waiting: z.number().int().min(0),
       /** When the outage being synchronised began, ISO. */
       outageStartedAt: z.string().nullable(),
+      /** Sent from here with no confirmed outcome: the drain finishes once they are confirmed. */
+      unconfirmed: z.object({
+        sales: z.number().int().min(0),
+        actions: z.number().int().min(0),
+      }),
     })
     .nullable(),
   /** When the last outage's synchronisation finished, ISO. */

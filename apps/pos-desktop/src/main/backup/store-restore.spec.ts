@@ -739,6 +739,35 @@ describe("restoring at start-up", () => {
   });
 });
 
+describe("backup time in the encrypted copy", () => {
+  it("uses the in-copy time when backup.json was edited to date the backup later", () => {
+    const backup = takeBackup(NOW);
+    const manifestPath = join(backup.dir, "backup.json");
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
+      takenAt: number;
+    };
+    manifest.takenAt = NOW + 24 * 60 * 60_000;
+    writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+    breakStore();
+    restoreStoreBackup({
+      dataDir,
+      backup: { dir: backup.dir, manifest: { ...backup.manifest, ...manifest } },
+      protector: thisUser,
+      migrations,
+      now: () => NOW + 60_000,
+    });
+    const { db } = reopen();
+    const signed = JSON.parse(
+      (db.prepare("SELECT report_envelope FROM store_restore").get() as {
+        report_envelope: string;
+      }).report_envelope,
+    ) as Signed<OfflineCounterRestoreReport>;
+    expect(signed.payload.backupTakenAt).toBe(NOW);
+    expect(signed.payload.backupTakenAt).toBeLessThan(manifest.takenAt);
+    db.close();
+  });
+});
+
 describe("a computer whose clock is wrong", () => {
   it("still restores when its clock is behind the backup, and reports both times as they are", () => {
     const backup = takeBackup(NOW);

@@ -332,8 +332,10 @@ function recoveryServer(
 ) {
   const recoveries: ServerRecovery[] = [];
   const pages: number[][] = [];
+  const asked: JournalPosition[] = [];
   let lose: string | null = null;
   let withhold = 0;
+  let beforeComplete: ((r: ServerRecovery) => void) | null = null;
   const head = (): JournalPosition =>
     chain.length ? at(chain.at(-1)!) : { sequence: 0, hash: null };
   const view = (r: ServerRecovery): CounterJournalRecovery => ({
@@ -387,11 +389,9 @@ function recoveryServer(
         recoveries.push(r);
       }
       if (r.status === "awaiting_approval" && upload.unmatched.length) {
+        // Evidence is kept once per record hash, as the server does.
         const fresh = upload.unmatched.filter(
-          (e) =>
-            !r!.received.some(
-              (x) => x.payload.commandId === e.payload.commandId,
-            ),
+          (e) => !r!.received.some((x) => at(x).hash === at(e).hash),
         );
         const from = r.received.length
           ? at(r.received.at(-1)!)
@@ -404,8 +404,19 @@ function recoveryServer(
       return view(r);
     }
     if (path.endsWith("/status")) {
+      const { localHead } = body as { localHead: JournalPosition };
+      asked.push(localHead);
       const latest = recoveries.at(-1);
-      return latest ? view(latest) : null;
+      if (!latest) return null;
+      // A journal somewhere else than the one reported makes the recovery moot.
+      if (
+        (latest.status === "awaiting_approval" ||
+          latest.status === "approved") &&
+        (localHead.sequence !== latest.report.localHead.sequence ||
+          localHead.hash !== latest.report.localHead.hash)
+      )
+        latest.status = "superseded";
+      return view(latest);
     }
     const r = recoveries.find((x) => path.includes(x.recoveryId));
     if (!r) throw new ApiError(404, "NOT_FOUND", "not found");
@@ -413,6 +424,8 @@ function recoveryServer(
       body as { completion: Signed<OfflineJournalRecoveryCompletion> }
     ).completion;
     if (r.status === "recovered") return view(r);
+    beforeComplete?.(r);
+    beforeComplete = null;
     if (r.status !== "approved") throw refuse("JOURNAL_RECOVERY_NOT_APPROVED");
     if (completion.payload.journalHead.sequence !== head().sequence) {
       r.status = "superseded";
@@ -439,7 +452,13 @@ function recoveryServer(
     recoveries,
     pages,
     chain,
+    asked,
     approve: () => void (recoveries.at(-1)!.status = "approved"),
+    /** The owner closes the latest recovery (D11: one that will never complete). */
+    close: () => void (recoveries.at(-1)!.status = "closed"),
+    /** Runs once when the next completion arrives, before the server checks it. */
+    beforeComplete: (fn: (r: ServerRecovery) => void) =>
+      void (beforeComplete = fn),
     /** The next reply to a path ending in `suffix` is lost after the server acted on it. */
     lose: (suffix: string) => void (lose = suffix),
     withhold: (n: number) => void (withhold = n),
@@ -574,13 +593,11 @@ describe("journal recovery (D11)", () => {
     expect(await r.recovery.tick()).toBe("recovered");
     const recoveryId = srv.recoveries[0]!.recoveryId;
     expect(setAsideEntries(local.db, identity.enrollmentId)).toEqual(
-      mine
-        .slice(1)
-        .map((e) => ({
-          recoveryId,
-          sequence: e.payload.sequence,
-          commandId: e.payload.commandId,
-        })),
+      mine.slice(1).map((e) => ({
+        recoveryId,
+        sequence: e.payload.sequence,
+        commandId: e.payload.commandId,
+      })),
     );
     expect(commands().map((c) => c.command_id)).toEqual(
       [...accepted, ...elsewhere].map((e) => e.payload.commandId),
@@ -679,6 +696,128 @@ describe("journal recovery (D11)", () => {
     expect(
       readInstalledOfflineAuthority(local.db, identity.enrollmentId),
     ).not.toBeNull();
+  });
+
+  it.each(["moved", "closed"] as const)(
+    "starts over when the server refuses a completion it had approved (%s)",
+    async (refusal) => {
+      const mine = sellHere(1);
+      const chain = [...mine, ...soldElsewhere(at(mine[0]!), 1)];
+      const srv = recoveryServer(chain);
+      restoredWith(mine);
+      const r = recoverer(srv);
+      expect(await r.recovery.tick()).toBe("waiting");
+      srv.approve();
+      // Between this computer applying the recovery and confirming it, the original uploads
+      // another sale, or the owner closes the recovery.
+      srv.beforeComplete((rec) => {
+        if (refusal === "moved")
+          chain.push(...soldElsewhere(at(chain.at(-1)!), 1));
+        else rec.status = "closed";
+      });
+      r.advance(RECOVERY_POLL_MS);
+      expect(await r.recovery.tick()).toBe("waiting");
+      // Applied, then refused: this computer holds the server's journal as it was approved (a
+      // prefix of the server's now), no offline authority, and no recovery.
+      expect(readLocalRecovery(local.db, identity.enrollmentId)).toBeNull();
+      expect(localJournalHead(local.db, identity.enrollmentId)).toEqual(
+        at(chain[1]!),
+      );
+      expect(journalNeedsRecovery(local.db, identity.enrollmentId)).toBe(false);
+      expect(
+        readInstalledOfflineAuthority(local.db, identity.enrollmentId),
+      ).toBeNull();
+      expect(srv.recoveries[0]!.status).toBe(
+        refusal === "moved" ? "superseded" : "closed",
+      );
+      // Nothing left to recover: catching up is the upload's job.
+      r.advance(RECOVERY_POLL_MS);
+      expect(await r.recovery.tick()).toBe("idle");
+      expect(srv.recoveries).toHaveLength(1);
+    },
+  );
+
+  it("reports afresh when the owner closes the recovery while the journal still differs", async () => {
+    const mine = sellHere(1);
+    const srv = recoveryServer([...mine, ...soldElsewhere(at(mine[0]!), 1)]);
+    restoredWith(mine);
+    const r = recoverer(srv);
+    expect(await r.recovery.tick()).toBe("waiting");
+    srv.close();
+    r.advance(RECOVERY_POLL_MS);
+    expect(await r.recovery.tick()).toBe("waiting");
+    expect(srv.recoveries.map((x) => x.status)).toEqual([
+      "closed",
+      "awaiting_approval",
+    ]);
+    expect(readLocalRecovery(local.db, identity.enrollmentId)).toMatchObject({
+      recoveryId: srv.recoveries[1]!.recoveryId,
+      status: "awaiting_approval",
+    });
+  });
+
+  it("keeps asking about its open recovery after the mismatch clears, so a moot one is superseded", async () => {
+    const mine = sellHere(1);
+    const srv = recoveryServer([...mine, ...soldElsewhere(at(mine[0]!), 1)]);
+    restoredWith(mine);
+    const r = recoverer(srv);
+    expect(await r.recovery.tick()).toBe("waiting");
+    const reported = readLocalRecovery(local.db, identity.enrollmentId)!;
+
+    // The mismatch clears with the report still open.
+    local.db
+      .prepare(
+        "UPDATE offline_journal_sync SET issue_code = NULL, issue_at = NULL WHERE enrollment_id = ?",
+      )
+      .run(identity.enrollmentId);
+    r.advance(RECOVERY_POLL_MS);
+    // Still the journal it reported: open until a person decides, or it goes stale.
+    expect(await r.recovery.tick()).toBe("waiting");
+    expect(srv.asked.at(-1)).toEqual(
+      localJournalHead(local.db, identity.enrollmentId),
+    );
+    expect(readLocalRecovery(local.db, identity.enrollmentId)?.reportId).toBe(
+      reported.reportId,
+    );
+
+    // Its journal is somewhere else now: the server supersedes the report, and it is forgotten.
+    sellHere(1);
+    r.advance(RECOVERY_POLL_MS);
+    expect(await r.recovery.tick()).toBe("idle");
+    expect(srv.asked.at(-1)).toEqual(
+      localJournalHead(local.db, identity.enrollmentId),
+    );
+    expect(srv.recoveries[0]!.status).toBe("superseded");
+    expect(readLocalRecovery(local.db, identity.enrollmentId)).toBeNull();
+    expect(srv.recoveries).toHaveLength(1);
+    // And then nothing to ask about.
+    const calls = srv.paths().length;
+    r.advance(RECOVERY_POLL_MS);
+    expect(await r.recovery.tick()).toBe("idle");
+    expect(srv.paths()).toHaveLength(calls);
+  });
+
+  it("keeps one copy of evidence per record, however often a page is resent", async () => {
+    const mine = sellHere(3);
+    const accepted = mine.slice(0, 1);
+    const srv = recoveryServer([
+      ...accepted,
+      ...soldElsewhere(at(mine[0]!), 1),
+    ]);
+    restoredWith(accepted);
+    const r = recoverer(srv);
+    srv.lose("/report");
+    expect(await r.recovery.tick()).toBe("idle");
+    r.advance(60_000);
+    expect(await r.recovery.tick()).toBe("waiting");
+    // The page went twice; the server kept its records once.
+    expect(srv.pages).toEqual([
+      [2, 3],
+      [2, 3],
+    ]);
+    expect(srv.recoveries[0]!.received.map((e) => e.payload.sequence)).toEqual([
+      2, 3,
+    ]);
   });
 
   it("leaves a journal that is only behind to the upload", async () => {

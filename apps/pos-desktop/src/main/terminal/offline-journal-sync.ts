@@ -1,5 +1,6 @@
 import { verify, type KeyObject } from "node:crypto";
 import {
+  MAX_OFFLINE_JOURNAL_SYNC_COMMANDS,
   terminalSigningText,
   type OfflineJournalCommand,
   type OfflineStaffSignIn,
@@ -31,12 +32,14 @@ import {
   type JournalRecovery,
 } from "./journal-recovery";
 import {
-  checkoutSyncPause,
   drainAwaitsFreshSnapshot,
   ensureSyncRow,
   finishDrainWithoutRenewal,
+  NOTHING_UNCONFIRMED,
   readAcceptedWatermark,
   recordAcceptedWatermark,
+  syncPauseFrom,
+  unresolvedSubmissions,
   type CheckoutSyncPause,
 } from "./reconnect-drain";
 import type { TerminalService } from "./terminal-service";
@@ -46,7 +49,7 @@ export const JOURNAL_SYNC_TICK_MS = 15_000;
 /** With nothing waiting, the server confirms the whole journal this often (the "last sync" time). */
 export const JOURNAL_CONFIRM_MS = 5 * 60_000;
 /** Entries per request. The server processes them one transaction each, in order. */
-export const JOURNAL_BATCH = 50;
+export const JOURNAL_BATCH = MAX_OFFLINE_JOURNAL_SYNC_COMMANDS;
 /** Batches per cycle, so one cycle can't run unbounded on a very long journal. */
 const MAX_BATCHES = 20;
 const FIRST_BACKOFF_MS = 15_000;
@@ -116,7 +119,9 @@ const safeInt = (v: unknown, min = 0): v is number =>
  * offline authority key and `sync_response` purpose, this exact counter, a watermark in canonical
  * form, and one acknowledgement per entry sent, in order, naming its exact hash and sequence
  * ("Only a signed, identity-matching server response with command ID/digest and receipt may mark
- * a local item acknowledged").
+ * a local item acknowledged"). A `reviewed` acknowledgement (slice 4) is a refused entry a manager
+ * settled: accepted into the chain at its own sequence, recorded as it happened (a sale always
+ * waiting on a stock case) or not honoured.
  */
 export function verifySyncResponse(
   envelope: unknown,
@@ -207,6 +212,31 @@ export function verifySyncResponse(
           throw new SyncResponseInvalid("acknowledgement");
       } else if (typeof ack.workSessionId !== "string")
         throw new SyncResponseInvalid("acknowledgement");
+    } else if (ack.status === "reviewed") {
+      const review = ack.review;
+      if (
+        ack.commandKind !== sent.kind ||
+        !safeInt(ack.committedAt) ||
+        sent.sequence > payload.committedThroughSequence ||
+        !isRecord(review) ||
+        typeof review.settlementId !== "string" ||
+        typeof review.refusalCode !== "string" ||
+        !safeInt(review.settledAt)
+      )
+        throw new SyncResponseInvalid("acknowledgement");
+      if (ack.decision === "recorded") {
+        if (sent.kind === "ordinary_sale") {
+          // Recorded after review, a sale never posts stock: it waits on a case.
+          if (
+            typeof ack.saleId !== "string" ||
+            ack.stockPosting !== "pending_reconciliation" ||
+            typeof ack.reconciliationCaseId !== "string"
+          )
+            throw new SyncResponseInvalid("acknowledgement");
+        } else if (typeof ack.workSessionId !== "string")
+          throw new SyncResponseInvalid("acknowledgement");
+      } else if (ack.decision !== "not_honoured")
+        throw new SyncResponseInvalid("acknowledgement");
     } else if (ack.status === "held" || ack.status === "rejected") {
       if (
         !isRecord(ack.error) ||
@@ -296,7 +326,7 @@ export function explainSyncIssue(code: string): string {
     case "REPLAY_CONFLICT":
       return "An offline record doesn't match what the server already has. A manager reviews it in the back office.";
     default:
-      return `The server refused an offline record (${code}). A manager reviews it in the back office.`;
+      return `The server refused an offline record (${code}). A manager settles it in the back office (Refused offline records); this counter carries on by itself within a minute of that.`;
   }
 }
 
@@ -306,7 +336,9 @@ export function explainSyncIssue(code: string): string {
  *
  * - Entries go in sequence order from the first one not yet accepted, with every staff sign-in they
  *   cite, in batches. A refused entry stops the upload where the server stopped: `held` ones are
- *   sent again (the next cycle may repair them), `rejected` ones never are — they wait for review.
+ *   sent again (the next cycle may repair them). A `rejected` one is never judged again: it is
+ *   sent alone, at most once a minute, and the server answers from its record — still refused, or
+ *   `reviewed` once a manager has settled it (slice 4), after which the rest follows.
  * - Only a verified, signed reply marks an entry accepted, with its acknowledgement kept beside it.
  *   A lost reply is recovered by sending the same entries again: the server answers `duplicate`
  *   with the original receipt.
@@ -346,6 +378,23 @@ export function createOfflineJournalSync(deps: OfflineJournalSyncDeps) {
         at,
         enrollmentId,
       );
+  }
+
+  /**
+   * A cycle that failed without a verified reply (no answer, a refused request, a reply that failed
+   * its checks) says nothing about the server's journal, so it never replaces a recorded
+   * `JOURNAL_MISMATCH`. Only a verified reply sets or clears that (`apply`), because P4's outage
+   * guard reads it: a dropped connection must not let a restored journal start an outage.
+   */
+  function recordFailure(enrollmentId: string, code: string) {
+    const at = iso();
+    ensureSyncRow(deps.db, enrollmentId, at);
+    deps.db
+      .prepare(
+        `UPDATE offline_journal_sync SET issue_code = ?, issue_message = ?, issue_sequence = NULL, issue_at = ?, updated_at = ?
+       WHERE enrollment_id = ? AND (issue_code IS NULL OR issue_code <> 'JOURNAL_MISMATCH')`,
+      )
+      .run(code, explainSyncIssue(code), at, at, enrollmentId);
   }
 
   function unsynced(enrollmentId: string): CommandRow[] {
@@ -492,7 +541,7 @@ export function createOfflineJournalSync(deps: OfflineJournalSyncDeps) {
   async function send(
     identity: TerminalIdentity,
     rows: CommandRow[],
-  ): Promise<{ complete: boolean; more: boolean }> {
+  ): Promise<{ complete: boolean; more: boolean; allAccepted: boolean }> {
     const commands = rows.map(
       (row) => JSON.parse(row.envelope_json) as Signed<OfflineJournalCommand>,
     );
@@ -527,32 +576,71 @@ export function createOfflineJournalSync(deps: OfflineJournalSyncDeps) {
     const allAccepted =
       response.acknowledgements.length === rows.length &&
       response.acknowledgements.every(
-        (a) => a.status === "committed" || a.status === "duplicate",
+        (a) =>
+          a.status === "committed" ||
+          a.status === "duplicate" ||
+          a.status === "reviewed",
       );
     return {
       complete,
       more: !complete && rows.length === JOURNAL_BATCH && allAccepted,
+      allAccepted,
     };
   }
 
   /** `issue`: the server answered, but something it said stops the journal being confirmed. */
+  /**
+   * The last-sync time in `app_meta` (read by the title and status bars, #138) is one key for the
+   * computer, so it follows the enrollment signed in now: after a re-enrollment, the previous
+   * counter's last confirmation must not show as this one's until its first.
+   */
+  function alignLastSync(enrollmentId: string): void {
+    const mine =
+      (
+        deps.db
+          .prepare(
+            "SELECT last_success_at FROM offline_journal_sync WHERE enrollment_id = ?",
+          )
+          .get(enrollmentId) as { last_success_at: string | null } | undefined
+      )?.last_success_at ?? null;
+    const shown =
+      (
+        deps.db
+          .prepare("SELECT value FROM app_meta WHERE key = ?")
+          .get(LAST_SUCCESSFUL_SYNC_KEY) as { value: string } | undefined
+      )?.value ?? null;
+    if (shown === mine) return;
+    if (mine) setMeta(deps.db, LAST_SUCCESSFUL_SYNC_KEY, mine, iso());
+    else
+      deps.db
+        .prepare("DELETE FROM app_meta WHERE key = ?")
+        .run(LAST_SUCCESSFUL_SYNC_KEY);
+  }
+
   async function cycle(force: boolean): Promise<"done" | "issue" | "skipped"> {
     const current = deps.terminal.current();
     if (!current) return "skipped";
     const { identity } = current;
     const enrollmentId = identity.enrollmentId;
+    alignLastSync(enrollmentId);
     let rows = unsynced(enrollmentId);
-    // A refused entry blocks the chain until it is reviewed; resending it changes nothing.
-    if (rows[0]?.sync_status === "failed") return "skipped";
     if (!rows.length && !force && !confirmDue(enrollmentId)) return "skipped";
     setMeta(deps.db, SYNC_IN_PROGRESS_KEY, "1", iso());
     try {
       for (let batch = 0; batch < MAX_BATCHES; batch++) {
+        // A refused entry blocks the chain until a manager settles it. It goes alone (the server
+        // stops at it anyway) and is answered from the server's record; the cycle then reports an
+        // issue, so the next probe is a minute away.
+        const probe = rows[0]?.sync_status === "failed";
         const result = await send(
           identity,
-          rows.filter((row) => row.sync_status === "pending"),
+          probe
+            ? rows.slice(0, 1)
+            : rows.filter((row) => row.sync_status === "pending"),
         );
-        if (!result.more) break;
+        // Settled: carry on with what waited behind it in the same cycle.
+        if (!(probe ? result.allAccepted && !result.complete : result.more))
+          break;
         rows = unsynced(enrollmentId);
         if (!rows.length || rows[0]!.sync_status !== "pending") break;
       }
@@ -596,7 +684,7 @@ export function createOfflineJournalSync(deps: OfflineJournalSyncDeps) {
         const code = failureCode(error);
         if (current) {
           try {
-            setIssue(current.identity.enrollmentId, { code });
+            recordFailure(current.identity.enrollmentId, code);
           } catch (recordError) {
             deps.report(recordError);
           }
@@ -701,7 +789,12 @@ export function readJournalSyncView(
             drainedAt: row.drained_at,
           }
         : null,
-    pause: checkoutSyncPause(db, enrollmentId),
+    pause: syncPauseFrom(
+      outage,
+      head,
+      accepted,
+      outage ? unresolvedSubmissions(db, enrollmentId) : NOTHING_UNCONFIRMED,
+    ),
   };
 }
 
@@ -729,7 +822,7 @@ export function createSyncCoordinator(deps: {
 }) {
   const now = deps.now ?? Date.now;
   /** One immediate renewal per outage and journal head; after that, the refresh's own back-off. */
-  let renewalAskedFor: string | null = null;
+  let renewalAskedFor: { key: string; at: number } | null = null;
   return async function cycle(): Promise<void> {
     await deps.sync.tick();
     if (deps.recovery && (await deps.recovery.tick()) === "recovered")
@@ -739,17 +832,30 @@ export function createSyncCoordinator(deps: {
     const current = deps.terminal.current();
     if (!current || !deps.refresh) return;
     const enrollmentId = current.identity.enrollmentId;
-    if (!drainAwaitsFreshSnapshot(deps.db, enrollmentId)) return;
+    if (!drainAwaitsFreshSnapshot(deps.db, enrollmentId)) {
+      // Ask afresh once it does. A sale left unconfirmed when the pair arrived (`drain_incomplete`,
+      // which backs the refresh off) is confirmed by a person: the drain then finishes at once
+      // rather than after that back-off.
+      renewalAskedFor = null;
+      return;
+    }
     const key = `${activeOutage(deps.db, enrollmentId)?.offlineSessionId}:${localJournalHead(deps.db, enrollmentId).sequence}`;
-    if (renewalAskedFor !== key) {
-      renewalAskedFor = key;
+    if (renewalAskedFor?.key !== key) {
+      renewalAskedFor = { key, at: now() };
       deps.refresh.renewNow();
       await deps.refresh.tick();
     }
+    // Only an answer given since the drain asked ends it without a pair. One recorded earlier (a
+    // refusal from before the outage, say, while the refresh's own request is still in flight so
+    // this tick returned at once) is stale: the server may be about to issue the pair that finishes
+    // the drain properly.
+    const askedAt = renewalAskedFor.at;
     const status = deps.refresh.status();
     if (
-      status.nominated === false ||
-      (status.lastFailure && NO_OFFLINE_AUTHORITY.has(status.lastFailure.code))
+      (status.nominated === false && (status.nominatedAt ?? -Infinity) >= askedAt) ||
+      (status.lastFailure &&
+        status.lastFailure.at >= askedAt &&
+        NO_OFFLINE_AUTHORITY.has(status.lastFailure.code))
     )
       finishDrainWithoutRenewal(
         deps.db,
@@ -813,6 +919,7 @@ export function journalSyncState(view: JournalSyncView | null): JournalSync {
         view.pause.outageStartedAt === null
           ? null
           : new Date(view.pause.outageStartedAt).toISOString(),
+      unconfirmed: { ...view.pause.unconfirmed },
     },
     lastDrainAt: view.lastDrain?.drainedAt ?? null,
   };

@@ -185,11 +185,22 @@ effect. Contract: [API_CONTRACT.md](API_CONTRACT.md#offline-journal-sync-p5-51).
 `…/:recoveryId/complete` are `local_record`: a counter whose journal is not the server's reads
 the accepted chain back, reports the difference with its unmatched entries as device-signed
 evidence, and confirms it applied an approved recovery. None posts a sale, moves stock or cash,
-or issues a grant; unmatched entries are evidence only. `POST /offline-journal-recoveries/:id/approve`
-and `POST /offline-journal-recoveries/missing-journal` are `management`: an owner or delegated
-manager approves a recovery, or signs off the offline counter's journal so another counter can
-be activated, from anywhere; neither changes a counter. Contract:
+or issues a grant; unmatched entries are evidence only. `POST /offline-journal-recoveries/:id/approve`,
+`POST /offline-journal-recoveries/:id/close` and `POST /offline-journal-recoveries/missing-journal`
+are `management`: an owner or delegated manager approves a recovery, closes one that will never
+complete, or signs off the offline counter's journal so another counter can be activated, from
+anywhere; none changes a counter. Contract:
 [API_CONTRACT.md](API_CONTRACT.md#offline-journal-recovery-p5-51-d11).
+
+## P5 refused offline journal entries
+
+`POST /offline-journal-reviews/:id/settlements`, `settlements/:id/approve` and
+`settlements/:id/cancel` are `management`: a manager decides, from anywhere, whether a journal
+entry the server rejected is recorded as it happened or not honoured, and approving it exactly
+settles it. Nothing moves stock: a recorded sale waits on an offline stock case, resolved at the
+counter below, and a not-honoured card sale's payments are kept as collected, not sold. Prepare
+takes an `Idempotency-Key`. Contract:
+[API_CONTRACT.md](API_CONTRACT.md#refused-offline-journal-entries-p5-51-slice-4).
 
 ## P5 counter store restore
 
