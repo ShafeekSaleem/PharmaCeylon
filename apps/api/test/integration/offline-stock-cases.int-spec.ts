@@ -38,7 +38,7 @@ class OpenHours extends MandatoryOperationEvidence {
 const approvals = new ManagementApprovalsService(access, audit);
 const cases = new StockCasesService(prisma as never, audit, access, approvals, stock);
 const authorization = new OperationAuthorizationService(access, trust, new OpenHours({} as never, {} as never), approvals);
-const operations = new SignedOperations({} as never, {} as never, {} as never, {} as never, {} as never, {} as never,
+const operations = new SignedOperations({} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never,
   {} as never, {} as never, {} as never, {} as never, cases);
 const executor = new TerminalCommandExecutor(prisma as never, trust, authorization, operations, audit, access);
 // The counter list reads cached grants, so it needs the real permissions resolver.

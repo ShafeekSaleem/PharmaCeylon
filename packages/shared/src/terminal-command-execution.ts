@@ -1,3 +1,4 @@
+import type { QuarantineReasonCode } from "./stock-quarantine";
 import type { OnlineTerminalCommand, Signed, TerminalIdentity } from "./terminal-contracts";
 
 /** P1 online signed execution, contract v1. See docs/API_CONTRACT.md "Signed terminal commands".
@@ -17,6 +18,8 @@ export const SIGNED_PHYSICAL_OPERATIONS = [
   "POST /api/v1/purchasing/prepared-receipts/:id/post",
   "POST /api/v1/returns/:id/complete",
   "POST /api/v1/inventory/adjustments",
+  "POST /api/v1/inventory/batches/:id/quarantine",
+  "POST /api/v1/inventory/batches/:id/release-quarantine",
   "POST /api/v1/prescriptions",
   "POST /api/v1/offline-stock-cases/resolutions/:id/execute",
 ] as const;
@@ -68,6 +71,21 @@ export type SignedOperationBody = {
     qty: number;
     reason: string | null; // required for a correction
     fromQuarantine: boolean; // write-offs only
+  }>;
+  /** Hold sellable units on a batch. `qty: null` holds everything not already held or reserved.
+   * `reason` is required when `reasonCode` is `other`. */
+  "POST /api/v1/inventory/batches/:id/quarantine": Readonly<{
+    batchId: string;
+    qty: number | null;
+    reasonCode: QuarantineReasonCode;
+    reason: string | null;
+  }>;
+  /** Return held units to sellable stock after inspection. `qty: null` releases everything held.
+   * Refused when the batch is expired. */
+  "POST /api/v1/inventory/batches/:id/release-quarantine": Readonly<{
+    batchId: string;
+    qty: number | null;
+    reason: string | null;
   }>;
   /** A prescription presented at the counter. The signed session's staff member must hold a
    * current SLMC registration at the branch (PHARMACIST_REQUIRED otherwise); approvalEvidenceId
@@ -151,6 +169,16 @@ export type SignedOperationResult = {
     type: "stock_adjustment.posted"; productId: string; batchId: string;
     movementType: "adjustment_in" | "adjustment_out"; qty: number; stockReferenceId: string;
   }>;
+  /** Each command is its own quarantine move; a replay returns the original receipt. */
+  "POST /api/v1/inventory/batches/:id/quarantine": Readonly<{
+    type: "batch.quarantined"; batchId: string; productId: string; qty: number;
+    reasonCode: QuarantineReasonCode; stockReferenceId: string;
+  }>;
+  /** Each command is its own release move; a replay returns the original receipt. */
+  "POST /api/v1/inventory/batches/:id/release-quarantine": Readonly<{
+    type: "batch.quarantine_released"; batchId: string; productId: string; qty: number;
+    stockReferenceId: string;
+  }>;
   /** Each command is its own prescription; a replay returns this original receipt. */
   "POST /api/v1/prescriptions": Readonly<{
     type: "prescription.recorded"; prescriptionId: string; rxNumber: string;
@@ -178,7 +206,7 @@ export type SignedOperationResult = {
 
 /** POST /api/v1/terminal-commands/prepare (Bearer + x-branch-id). Returns OnlineTerminalCommand<body>.
  * approvalEvidenceId is required for stocktake/held posting, must be null for import operations,
- * direct adjustments, prescriptions and transfer receipt, and is the transfer's approval (or null where waived) for transfer dispatch;
+ * direct adjustments, quarantine/release, prescriptions and transfer receipt, and is the transfer's approval (or null where waived) for transfer dispatch;
  * pharmacistEvidenceId is null, or for a clinical operation (prescriptions) a co-sign from
  * POST /terminal-commands/pharmacist-cosigns; operatingHoursExceptionId must be null for every v1 operation.
  */

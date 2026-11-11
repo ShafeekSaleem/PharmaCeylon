@@ -445,58 +445,80 @@ export class InventoryService {
     batchId: string,
     dto: QuarantineBatchDto,
   ) {
+    const { snapshot } = await this.prisma.$transaction(tx =>
+      this.quarantineBatchInTransaction(tx, tenantId, branchId, userId, batchId, dto),
+    );
+    return snapshot;
+  }
+
+  /** Quarantine core shared by the browser route and the signed terminal adapter, in the caller's
+   * READ COMMITTED transaction. `command` is verified provenance copied into the success audit. */
+  async quarantineBatchInTransaction(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    branchId: string,
+    userId: string,
+    batchId: string,
+    dto: QuarantineBatchDto,
+    command?: CommandProvenance,
+  ) {
     const reason = dto.reason?.trim() || QUARANTINE_REASON_LABELS[dto.reasonCode];
     if (dto.reasonCode === "other" && !dto.reason?.trim()) {
       throw new BadRequestException("Describe why the stock is being held");
     }
 
-    return this.prisma.$transaction(async (tx) => {
-      const batch = await tx.batch.findFirst({
-        where: { id: batchId, tenantId, branchId },
-        select: { id: true, productId: true, batchNo: true },
-      });
-      if (!batch) throw new NotFoundException("Batch not found");
-
-      await this.stock.lockBatches(tx, tenantId, [batchId]);
-      const balance =
-        (await this.stock.balances(tx, tenantId, [batchId])).get(batchId) ??
-        toBalance(ZERO_QUANTITIES);
-      const qty = dto.qty ?? balance.available;
-      if (qty <= 0) {
-        throw new BadRequestException(
-          balance.onHand <= 0
-            ? "There is no stock on this batch to quarantine"
-            : "Nothing left to quarantine — every unit on this batch is already held or reserved",
-        );
-      }
-
-      const referenceId = randomUUID();
-      await this.stock.quarantine(
-        tx,
-        { tenantId, branchId, userId, referenceId },
-        { productId: batch.productId, batchId, qty, reasonCode: dto.reasonCode, reason },
-      );
-      await this.audit.log(
-        {
-          tenantId,
-          branchId,
-          actorUserId: userId,
-          eventName: "batch.quarantined",
-          entityName: "batch",
-          entityId: batchId,
-          payload: {
-            productId: batch.productId,
-            batchNo: batch.batchNo,
-            qty,
-            reasonCode: dto.reasonCode,
-            reason,
-            referenceId,
-          },
-        },
-        tx,
-      );
-      return this.batchStockSnapshot(tx, tenantId, batchId);
+    const batch = await tx.batch.findFirst({
+      where: { id: batchId, tenantId, branchId },
+      select: { id: true, productId: true, batchNo: true },
     });
+    if (!batch) throw new NotFoundException("Batch not found");
+
+    await this.stock.lockBatches(tx, tenantId, [batchId]);
+    const balance =
+      (await this.stock.balances(tx, tenantId, [batchId])).get(batchId) ??
+      toBalance(ZERO_QUANTITIES);
+    const qty = dto.qty ?? balance.available;
+    if (qty <= 0) {
+      throw new BadRequestException(
+        balance.onHand <= 0
+          ? "There is no stock on this batch to quarantine"
+          : "Nothing left to quarantine — every unit on this batch is already held or reserved",
+      );
+    }
+
+    const referenceId = randomUUID();
+    await this.stock.quarantine(
+      tx,
+      { tenantId, branchId, userId, referenceId },
+      { productId: batch.productId, batchId, qty, reasonCode: dto.reasonCode, reason },
+    );
+    await this.audit.log(
+      {
+        tenantId,
+        branchId,
+        actorUserId: userId,
+        eventName: "batch.quarantined",
+        entityName: "batch",
+        entityId: batchId,
+        payload: {
+          productId: batch.productId,
+          batchNo: batch.batchNo,
+          qty,
+          reasonCode: dto.reasonCode,
+          reason,
+          referenceId,
+          ...(command ? { command } : {}),
+        },
+      },
+      tx,
+    );
+    return {
+      productId: batch.productId,
+      qty,
+      reasonCode: dto.reasonCode,
+      referenceId,
+      snapshot: await this.batchStockSnapshot(tx, tenantId, batchId),
+    };
   }
 
   async releaseQuarantine(
@@ -506,54 +528,75 @@ export class InventoryService {
     batchId: string,
     dto: ReleaseQuarantineDto = {},
   ) {
+    const { snapshot } = await this.prisma.$transaction(tx =>
+      this.releaseQuarantineInTransaction(tx, tenantId, branchId, userId, batchId, dto),
+    );
+    return snapshot;
+  }
+
+  /** Release core shared by the browser route and the signed terminal adapter, in the caller's
+   * READ COMMITTED transaction. `command` is verified provenance copied into the success audit. */
+  async releaseQuarantineInTransaction(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    branchId: string,
+    userId: string,
+    batchId: string,
+    dto: ReleaseQuarantineDto = {},
+    command?: CommandProvenance,
+  ) {
     const { today } = await this.clock(tenantId);
-    return this.prisma.$transaction(async (tx) => {
-      const batch = await tx.batch.findFirst({
-        where: { id: batchId, tenantId, branchId },
-        select: { id: true, productId: true, batchNo: true, expiryDate: true, quarantineReason: true },
-      });
-      if (!batch) throw new NotFoundException("Batch not found");
-      if (batch.expiryDate < today) {
-        throw new BadRequestException(
-          `This batch expired on ${batch.expiryDate.toISOString().slice(0, 10)}. Expired stock can't go back on sale — write it off or return it to the supplier.`,
-        );
-      }
-
-      await this.stock.lockBatches(tx, tenantId, [batchId]);
-      const balance =
-        (await this.stock.balances(tx, tenantId, [batchId])).get(batchId) ??
-        toBalance(ZERO_QUANTITIES);
-      const qty = dto.qty ?? balance.quarantined;
-      if (qty <= 0) throw new BadRequestException("Nothing is quarantined on this batch");
-
-      const referenceId = randomUUID();
-      const reason = dto.reason?.trim() || null;
-      await this.stock.release(
-        tx,
-        { tenantId, branchId, userId, referenceId },
-        { productId: batch.productId, batchId, qty, reason },
-      );
-      await this.audit.log(
-        {
-          tenantId,
-          branchId,
-          actorUserId: userId,
-          eventName: "batch.quarantine_released",
-          entityName: "batch",
-          entityId: batchId,
-          payload: {
-            productId: batch.productId,
-            batchNo: batch.batchNo,
-            qty,
-            reason,
-            previousReason: batch.quarantineReason,
-            referenceId,
-          },
-        },
-        tx,
-      );
-      return this.batchStockSnapshot(tx, tenantId, batchId);
+    const batch = await tx.batch.findFirst({
+      where: { id: batchId, tenantId, branchId },
+      select: { id: true, productId: true, batchNo: true, expiryDate: true, quarantineReason: true },
     });
+    if (!batch) throw new NotFoundException("Batch not found");
+    if (batch.expiryDate < today) {
+      throw new BadRequestException(
+        `This batch expired on ${batch.expiryDate.toISOString().slice(0, 10)}. Expired stock can't go back on sale — write it off or return it to the supplier.`,
+      );
+    }
+
+    await this.stock.lockBatches(tx, tenantId, [batchId]);
+    const balance =
+      (await this.stock.balances(tx, tenantId, [batchId])).get(batchId) ??
+      toBalance(ZERO_QUANTITIES);
+    const qty = dto.qty ?? balance.quarantined;
+    if (qty <= 0) throw new BadRequestException("Nothing is quarantined on this batch");
+
+    const referenceId = randomUUID();
+    const reason = dto.reason?.trim() || null;
+    await this.stock.release(
+      tx,
+      { tenantId, branchId, userId, referenceId },
+      { productId: batch.productId, batchId, qty, reason },
+    );
+    await this.audit.log(
+      {
+        tenantId,
+        branchId,
+        actorUserId: userId,
+        eventName: "batch.quarantine_released",
+        entityName: "batch",
+        entityId: batchId,
+        payload: {
+          productId: batch.productId,
+          batchNo: batch.batchNo,
+          qty,
+          reason,
+          previousReason: batch.quarantineReason,
+          referenceId,
+          ...(command ? { command } : {}),
+        },
+      },
+      tx,
+    );
+    return {
+      productId: batch.productId,
+      qty,
+      referenceId,
+      snapshot: await this.batchStockSnapshot(tx, tenantId, batchId),
+    };
   }
 
   /** Every expired batch with sellable units left: hold those units. */

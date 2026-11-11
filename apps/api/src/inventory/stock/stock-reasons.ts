@@ -1,17 +1,9 @@
-/**
- * Why stock was held back. Stored on the ledger row as `reasonCode`; the free-text `reason` a
- * person typed sits next to it. A code rather than only free text so "how much did we lose to
- * expiry vs damage" is a query, not a reading exercise.
- */
-export const QUARANTINE_REASON_CODES = [
-  "expired",
-  "damaged",
-  "recall",
-  "inspection",
-  "other",
-] as const;
+import {
+  QUARANTINE_REASON_CODES,
+  type QuarantineReasonCode,
+} from "@pharmaceylon/shared";
 
-export type QuarantineReasonCode = (typeof QUARANTINE_REASON_CODES)[number];
+export { QUARANTINE_REASON_CODES, type QuarantineReasonCode };
 
 export const QUARANTINE_REASON_LABELS: Record<QuarantineReasonCode, string> = {
   expired: "Expired",

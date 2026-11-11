@@ -1,13 +1,17 @@
 import { Injectable } from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
 import {
+  QUARANTINE_REASON_CODES,
   STOCK_ADJUSTMENT_KINDS,
+  type QuarantineReasonCode,
   type SignedOperationBody,
   type SignedOperationResult,
   type SignedPhysicalOperation,
 } from "@pharmaceylon/shared";
 import { PrescriptionsService } from "../customers/prescriptions.service";
 import { AdjustmentService } from "../inventory/adjustment.service";
+import type { QuarantineBatchDto, ReleaseQuarantineDto } from "../inventory/dto/quarantine-batch.dto";
+import { InventoryService } from "../inventory/inventory.service";
 import { adjustmentDirection, type StockAdjustmentDto } from "../inventory/dto/stock-adjustment.dto";
 import { ImportStockService } from "../product-import/import-stock.service";
 import { ProductImportService } from "../product-import/product-import.service";
@@ -121,6 +125,41 @@ function adjustmentBody(raw: unknown): AdjustmentBody {
   return body as AdjustmentBody;
 }
 /** The same request the browser route takes; prices go from minor units back to 2dp amounts. */
+type QuarantineBody = SignedOperationBody["POST /api/v1/inventory/batches/:id/quarantine"];
+type ReleaseBody = SignedOperationBody["POST /api/v1/inventory/batches/:id/release-quarantine"];
+const optionalQty = (value: unknown) => {
+  if (value === null) return null;
+  return count(value, 1);
+};
+function quarantineBody(raw: unknown): QuarantineBody {
+  const body = object(raw, ["batchId", "qty", "reasonCode", "reason"]);
+  uuid(body.batchId);
+  optionalQty(body.qty);
+  if (!(QUARANTINE_REASON_CODES as readonly unknown[]).includes(body.reasonCode)) invalid();
+  if (body.reason !== null) trimmed(body.reason, 512);
+  if (body.reasonCode === "other" && (body.reason === null || trimmed(body.reason, 512).length === 0)) invalid();
+  return body as QuarantineBody;
+}
+function releaseBody(raw: unknown): ReleaseBody {
+  const body = object(raw, ["batchId", "qty", "reason"]);
+  uuid(body.batchId);
+  optionalQty(body.qty);
+  if (body.reason !== null) trimmed(body.reason, 512);
+  return body as ReleaseBody;
+}
+function quarantineDto(body: QuarantineBody): QuarantineBatchDto {
+  return {
+    reasonCode: body.reasonCode as QuarantineReasonCode,
+    ...(body.qty !== null ? { qty: body.qty } : {}),
+    ...(body.reason !== null ? { reason: body.reason } : {}),
+  };
+}
+function releaseDto(body: ReleaseBody): ReleaseQuarantineDto {
+  return {
+    ...(body.qty !== null ? { qty: body.qty } : {}),
+    ...(body.reason !== null ? { reason: body.reason } : {}),
+  };
+}
 function adjustmentDto(body: AdjustmentBody): StockAdjustmentDto {
   const batch = body.newBatch;
   return {
@@ -193,6 +232,7 @@ export class SignedOperations {
   constructor(
     stocktakes: StocktakesService,
     adjustments: AdjustmentService,
+    inventory: InventoryService,
     deliveries: HeldDeliveryService,
     importStock: ImportStockService,
     imports: ProductImportService,
@@ -272,6 +312,63 @@ export class SignedOperations {
               movementType: adjustmentDirection(body) === "in" ? "adjustment_in" : "adjustment_out",
               qty: body.qty,
               stockReferenceId: posted.referenceId,
+            },
+          };
+        },
+      },
+      "POST /api/v1/inventory/batches/:id/quarantine": {
+        descriptor: {
+          method: "POST",
+          routeTemplate: "/api/v1/inventory/batches/:id/quarantine",
+          permission: "inventory.quarantine",
+          parseBody: quarantineBody,
+        },
+        async execute(tx, user, branchId, body, context) {
+          const held = await inventory.quarantineBatchInTransaction(
+            tx,
+            user.tenantId,
+            branchId,
+            user.userId,
+            body.batchId,
+            quarantineDto(body),
+            context.command,
+          );
+          return {
+            result: {
+              type: "batch.quarantined",
+              batchId: body.batchId,
+              productId: held.productId,
+              qty: held.qty,
+              reasonCode: held.reasonCode,
+              stockReferenceId: held.referenceId,
+            },
+          };
+        },
+      },
+      "POST /api/v1/inventory/batches/:id/release-quarantine": {
+        descriptor: {
+          method: "POST",
+          routeTemplate: "/api/v1/inventory/batches/:id/release-quarantine",
+          permission: "inventory.release_quarantine",
+          parseBody: releaseBody,
+        },
+        async execute(tx, user, branchId, body, context) {
+          const released = await inventory.releaseQuarantineInTransaction(
+            tx,
+            user.tenantId,
+            branchId,
+            user.userId,
+            body.batchId,
+            releaseDto(body),
+            context.command,
+          );
+          return {
+            result: {
+              type: "batch.quarantine_released",
+              batchId: body.batchId,
+              productId: released.productId,
+              qty: released.qty,
+              stockReferenceId: released.referenceId,
             },
           };
         },
