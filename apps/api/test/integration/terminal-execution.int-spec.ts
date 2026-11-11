@@ -752,7 +752,7 @@ describe("quarantine and release through signed commands (P6 #173)", () => {
 
     const over = await signedCommand(counter, QUARANTINE, { batchId, qty: 100, reasonCode: "damaged", reason: null }, null);
     const before = await batchTotals(prisma, batchId);
-    await expect(run(counter, over.request)).rejects.toThrow(/Nothing left to quarantine|already held or reserved/);
+    await expect(run(counter, over.request)).rejects.toThrow(/Only 4 available/);
     expect(await batchTotals(prisma, batchId)).toEqual(before);
     expect(await receiptsFor(over.payload.commandId)).toBe(0);
   });
