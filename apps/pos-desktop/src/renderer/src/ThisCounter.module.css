@@ -288,3 +288,19 @@ div.tiles {
     display: none;
   }
 }
+
+/* 1024 × 640 (minimum): stack readiness above the printer and offline panels. */
+@media (max-width: 1023px) {
+  .body {
+    grid-template-columns: minmax(0, 1fr);
+    overflow: auto;
+  }
+
+  .side {
+    overflow: visible;
+  }
+
+  .rd {
+    grid-template-columns: 64px minmax(100px, 150px) minmax(0, 1fr);
+  }
+}

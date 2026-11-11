@@ -1,7 +1,12 @@
 import { describe, expect, it } from "@jest/globals";
 import type { JournalSync } from "../../shared/ipc-contract";
-import { timeWithSeconds } from "./format";
-import { formatSyncedAgo, lastSyncLabels, showLastSyncPill } from "./connection-sync";
+import { time, timeWithSeconds } from "./format";
+import {
+  formatSyncedAgo,
+  lastSyncLabels,
+  offlineBackupReadyUntil,
+  showLastSyncPill,
+} from "./connection-sync";
 
 const now = new Date("2026-11-09T14:32:16.000Z");
 const lastAt = "2026-11-09T14:32:08.000Z";
@@ -36,6 +41,36 @@ describe("lastSyncLabels", () => {
     expect(labels.detailAgo).toBe("synced 8 s ago");
     expect(labels.detailClock).toBe(`last sync ${timeWithSeconds(new Date(lastAt))}`);
     expect(labels.detailClock).not.toContain("checked");
+  });
+});
+
+describe("offlineBackupReadyUntil", () => {
+  it("uses grantExpiresAt from readiness when the grant is usable", () => {
+    const expires = new Date(2026, 10, 9, 22, 0, 0);
+    expect(
+      offlineBackupReadyUntil({
+        grantExpiresAt: expires.toISOString(),
+        snapshotGeneratedAt: "2026-11-09T14:00:00.000Z",
+        authorizedStaff: 4,
+        usable: true,
+        failures: 0,
+        failure: null,
+      }),
+    ).toBe(`ready until ${time(expires)}`);
+  });
+
+  it("is omitted when there is no grant or it is not usable", () => {
+    expect(offlineBackupReadyUntil(null)).toBeNull();
+    expect(
+      offlineBackupReadyUntil({
+        grantExpiresAt: "2026-11-09T22:00:00.000Z",
+        snapshotGeneratedAt: null,
+        authorizedStaff: 0,
+        usable: false,
+        failures: 1,
+        failure: "Network",
+      }),
+    ).toBeNull();
   });
 });
 

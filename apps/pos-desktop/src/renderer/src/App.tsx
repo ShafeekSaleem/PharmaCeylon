@@ -265,7 +265,7 @@ export function App() {
                 page={page}
                 onPage={setPage}
                 workCount={workCount}
-                showWork={workCount > 0 || page === "work"}
+                showWork
                 session={session}
                 personOpen={personOpen}
                 onPerson={() =>
@@ -369,6 +369,7 @@ export function App() {
               state={device}
               api={api}
               journal={journal}
+              offlineBackup={readiness?.offlineBackup ?? null}
               printer={printer}
               info={info}
               shift={shift?.current ?? null}

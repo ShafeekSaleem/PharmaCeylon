@@ -19,7 +19,7 @@ import {
 } from "../test/harness";
 import { StatusBar, SyncBlock, TitleBar } from "./Shell";
 import { lastSyncLabels } from "./connection-sync";
-import { timeWithSeconds } from "./format";
+import { time, timeWithSeconds } from "./format";
 
 afterEach(cleanup);
 
@@ -140,6 +140,29 @@ describe("TitleBar connection display (P2b #103)", () => {
     );
     expect(screen.getByRole("status").textContent).toContain("Server reachable");
     expect(screen.getByRole("status").textContent).not.toContain("Online");
+  });
+
+  it("shows offline-backup readiness from readiness.offlineBackup.grantExpiresAt", () => {
+    const expires = new Date(2026, 10, 9, 22, 0, 0);
+    renderWithKeys(
+      <StatusBar
+        state={deviceState({ enrollment: enrollmentBase })}
+        api={apiOk}
+        journal={journalSynced("2026-11-09T14:32:08.000Z")}
+        offlineBackup={{
+          grantExpiresAt: expires.toISOString(),
+          snapshotGeneratedAt: "2026-11-09T14:00:00.000Z",
+          authorizedStaff: 4,
+          usable: true,
+          failures: 0,
+          failure: null,
+        }}
+        printer={null}
+        info={null}
+      />,
+    );
+    expect(screen.getByText(/Offline backup/)).toBeTruthy();
+    expect(screen.getByText(new RegExp(`ready until ${time(expires).replace(":", "\\:")}`))).toBeTruthy();
   });
 
   it("does not use api.checkedAt as last sync in the status bar lead", () => {
