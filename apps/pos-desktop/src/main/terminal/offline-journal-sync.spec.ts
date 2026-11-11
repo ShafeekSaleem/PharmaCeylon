@@ -278,10 +278,21 @@ function sellOffline(count: number): Signed<OfflineSaleCommand>[] {
 
 type Refusal = { status: "held" | "rejected"; code: string; once?: boolean };
 
-/** A fake server with the intake's ordering rules: head + 1 only, exact replays are duplicates. */
+type Decision = "recorded" | "not_honoured";
+
+/**
+ * A fake server with the intake's ordering rules: head + 1 only, exact replays are duplicates, and
+ * a refused entry a manager settled (slice 4) is answered `reviewed` at its own sequence.
+ */
 function fakeServer() {
-  const accepted: { commandId: string; hash: string; sequence: number }[] = [];
+  const accepted: {
+    commandId: string;
+    hash: string;
+    sequence: number;
+    reviewed?: Decision;
+  }[] = [];
   const refusals = new Map<number, Refusal>();
+  const settlements = new Map<number, Decision>();
   const requests: SyncRequest[] = [];
   let loseNext = false;
   let alter: ((payload: SyncResponse) => SyncResponse) | null = null;
@@ -308,12 +319,45 @@ function fakeServer() {
         stockPosting: "posted" as const,
         reconciliationCaseId: null,
       });
-      if (accepted.some((a) => a.commandId === command.commandId)) {
-        acknowledgements.push(committed("duplicate"));
+      const reviewed = (decision: Decision): SyncAcknowledgement => ({
+        ...base,
+        status: "reviewed",
+        committedAt: NOW,
+        review: {
+          settlementId: `settlement-${command.sequence}`,
+          refusalCode: "LOCAL_STOCK_EXHAUSTED",
+          settledAt: NOW,
+        },
+        commandKind: "ordinary_sale",
+        ...(decision === "recorded"
+          ? {
+              decision,
+              saleId: `sale-${command.commandId}`,
+              stockPosting: "pending_reconciliation" as const,
+              reconciliationCaseId: `case-${command.commandId}`,
+            }
+          : { decision }),
+      });
+      const prior = accepted.find((a) => a.commandId === command.commandId);
+      if (prior) {
+        acknowledgements.push(
+          prior.reviewed ? reviewed(prior.reviewed) : committed("duplicate"),
+        );
         continue;
       }
       const refusal = refusals.get(command.sequence);
       const headSequence = accepted.at(-1)?.sequence ?? 0;
+      const settlement = settlements.get(command.sequence);
+      if (settlement && command.sequence === headSequence + 1) {
+        accepted.push({
+          commandId: command.commandId,
+          hash,
+          sequence: command.sequence,
+          reviewed: settlement,
+        });
+        acknowledgements.push(reviewed(settlement));
+        continue;
+      }
       if (refusal || command.sequence !== headSequence + 1) {
         const { status, code } = refusal ?? {
           status: "held" as const,
@@ -376,6 +420,11 @@ function fakeServer() {
     refusals,
     requests,
     lose: () => void (loseNext = true),
+    /** A manager settles the refused entry at `sequence` in the back office. */
+    settle: (sequence: number, decision: Decision) => {
+      refusals.delete(sequence);
+      settlements.set(sequence, decision);
+    },
     alter: (fn: typeof alter) => void (alter = fn),
     signWith: (key: typeof signingKey) => void (signingKey = key),
   };
@@ -513,7 +562,7 @@ describe("uploading the offline journal", () => {
     expect(u.view()).toMatchObject({ waiting: 0, issue: null });
   });
 
-  it("stops where the server stopped: a held entry is sent again later, a rejected one never", async () => {
+  it("stops where the server stopped: a held entry is sent again later, a rejected one alone once a minute", async () => {
     sellOffline(3);
     const u = uploader();
     u.srv.refusals.set(2, {
@@ -545,7 +594,8 @@ describe("uploading the offline journal", () => {
     ]);
     expect(u.view()).toMatchObject({ accepted: 3, waiting: 0, issue: null });
 
-    // A rejected entry waits for review: never resent, and nothing after it goes.
+    // A rejected entry waits for a manager: it is never judged again, so it goes alone, once a
+    // minute, to learn how it was settled; nothing after it goes.
     sellOffline(2);
     u.srv.refusals.set(4, {
       status: "rejected",
@@ -562,13 +612,21 @@ describe("uploading the offline journal", () => {
       ["failed", "LOCAL_STOCK_EXHAUSTED"],
       ["pending", null],
     ]);
-    u.advance(JOURNAL_CONFIRM_MS);
+    u.advance(ISSUE_RETRY_MS - 1);
     await u.sync.tick();
     expect(u.srv.requests).toHaveLength(3);
+    u.advance(1);
+    await u.sync.tick();
+    expect(u.srv.requests[3]!.commands.map((c) => c.payload.sequence)).toEqual([
+      4,
+    ]);
     expect(u.view()).toMatchObject({
       refused: 1,
       waiting: 2,
-      issue: { code: "LOCAL_STOCK_EXHAUSTED" },
+      issue: {
+        code: "LOCAL_STOCK_EXHAUSTED",
+        message: expect.stringContaining("Refused offline records"),
+      },
     });
     expect(journalSyncState(u.view()).pause).toMatchObject({
       reason: "draining",
@@ -576,6 +634,52 @@ describe("uploading the offline journal", () => {
     });
     expect(drainAwaitsFreshSnapshot(local.db, identity.enrollmentId)).toBe(
       false,
+    );
+  });
+
+  it("carries on once a manager settles a refused entry: the signed reviewed answer marks it, and the rest follows", async () => {
+    sellOffline(3);
+    const u = uploader();
+    u.srv.refusals.set(2, {
+      status: "rejected",
+      code: "LOCAL_STOCK_EXHAUSTED",
+    });
+    await u.sync.tick();
+    expect(u.rows().map((r) => r.sync_status)).toEqual([
+      "synced",
+      "failed",
+      "pending",
+    ]);
+
+    u.srv.settle(2, "recorded");
+    u.advance(ISSUE_RETRY_MS);
+    await u.sync.tick();
+    // The probe, then what waited behind it, in the same cycle.
+    expect(
+      u.srv.requests
+        .slice(1)
+        .map((r) => r.commands.map((c) => c.payload.sequence)),
+    ).toEqual([[2], [3]]);
+    expect(u.rows().map((r) => [r.sync_status, r.last_error_code])).toEqual([
+      ["synced", null],
+      ["synced", null],
+      ["synced", null],
+    ]);
+    expect(JSON.parse(u.rows()[1]!.acknowledgement_json!)).toMatchObject({
+      status: "reviewed",
+      decision: "recorded",
+      stockPosting: "pending_reconciliation",
+      review: { settlementId: "settlement-2" },
+    });
+    expect(u.view()).toMatchObject({
+      accepted: 3,
+      waiting: 0,
+      refused: 0,
+      issue: null,
+      lastSuccessAt: new Date(NOW + ISSUE_RETRY_MS).toISOString(),
+    });
+    expect(drainAwaitsFreshSnapshot(local.db, identity.enrollmentId)).toBe(
+      true,
     );
   });
 
@@ -800,9 +904,30 @@ describe("trusting the server's reply", () => {
       stockPosting: "posted",
       reconciliationCaseId: null,
     };
-    expect(() =>
-      verifySyncResponse(reply(ok), { identity, signer, sent }),
-    ).not.toThrow();
+    const review = {
+      settlementId: "st",
+      refusalCode: "GRANT_EXPIRED",
+      settledAt: NOW,
+    };
+    const recorded = {
+      ...ok,
+      status: "reviewed",
+      decision: "recorded",
+      stockPosting: "pending_reconciliation",
+      reconciliationCaseId: "case",
+      review,
+    };
+    const notHonoured = {
+      commandKind: "ordinary_sale",
+      status: "reviewed",
+      decision: "not_honoured",
+      committedAt: NOW,
+      review,
+    };
+    for (const good of [ok, recorded, notHonoured])
+      expect(() =>
+        verifySyncResponse(reply(good), { identity, signer, sent }),
+      ).not.toThrow();
     for (const broken of [
       { ...ok, commandKind: "shift_open" },
       {
@@ -812,6 +937,12 @@ describe("trusting the server's reply", () => {
       },
       { ...ok, status: "accepted" },
       { status: "held" },
+      // A sale recorded after review never posts stock.
+      { ...recorded, stockPosting: "posted", reconciliationCaseId: null },
+      { ...recorded, review: null },
+      { ...recorded, review: { ...review, settledAt: "now" } },
+      { ...notHonoured, decision: "voided" },
+      { ...notHonoured, commandKind: "shift_close" },
     ])
       expect(() =>
         verifySyncResponse(reply(broken), { identity, signer, sent }),

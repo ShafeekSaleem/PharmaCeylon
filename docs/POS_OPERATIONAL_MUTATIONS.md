@@ -179,6 +179,16 @@ the replayed shift; `shift_open` / `shift_close` replay D7b's offline shift reco
 retired counter may upload to recover old evidence, which is kept for review and writes no
 effect. Contract: [API_CONTRACT.md](API_CONTRACT.md#offline-journal-sync-p5-51).
 
+## P5 refused offline journal entries
+
+`POST /offline-journal-reviews/:id/settlements`, `settlements/:id/approve` and
+`settlements/:id/cancel` are `management`: a manager decides, from anywhere, whether a journal
+entry the server rejected is recorded as it happened or not honoured, and approving it exactly
+settles it. Nothing moves stock: a recorded sale waits on an offline stock case, resolved at the
+counter below, and a not-honoured card sale's payments are kept as collected, not sold. Prepare
+takes an `Idempotency-Key`. Contract:
+[API_CONTRACT.md](API_CONTRACT.md#refused-offline-journal-entries-p5-51-slice-4).
+
 ## P5 offline stock case resolution
 
 `POST /offline-stock-cases/:id/resolutions`, `resolutions/:id/approve` and `resolutions/:id/cancel`

@@ -11,6 +11,7 @@ export const IDEMPOTENCY_SCOPE = {
   productImport: "product_import",
   heldAdjustmentRequest: "held_adjustment_request",
   stockAdjustment: "stock_adjustment",
+  offlineJournalSettlementPrepare: "offline_journal_settlement_prepare",
 } as const;
 
 export type IdempotencyScope =

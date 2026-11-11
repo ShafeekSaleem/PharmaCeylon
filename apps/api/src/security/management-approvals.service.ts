@@ -20,6 +20,7 @@ import {
 } from "./approval-documents";
 import type { RequestUser } from "./interfaces/authenticated-request.interface";
 import { lockOfflineStockResolution } from "./offline-stock-resolution-approval-material";
+import { lockOfflineJournalSettlement } from "./offline-journal-settlement-approval-material";
 
 type Tx = Prisma.TransactionClient;
 type Stored = Prisma.ManagementApprovalGetPayload<{}>;
@@ -334,6 +335,8 @@ export class ManagementApprovalsService {
       await tx.$queryRaw`SELECT id FROM prepared_receipt WHERE tenant_id = ${row.tenantId}::uuid AND branch_id = ${row.branchId}::uuid AND id = ${row.documentId}::uuid FOR UPDATE`;
     } else if (row.documentType === "offline_stock_resolution") {
       if (!(await lockOfflineStockResolution(tx, row.tenantId, row.branchId, row.documentId))) denied("APPROVAL_INVALID");
+    } else if (row.documentType === "offline_journal_settlement") {
+      if (!(await lockOfflineJournalSettlement(tx, row.tenantId, row.branchId, row.documentId))) denied("APPROVAL_INVALID");
     } else if (row.documentType === "goods_return")
       await tx.$queryRaw`SELECT id FROM goods_return WHERE tenant_id = ${row.tenantId}::uuid AND branch_id = ${row.branchId}::uuid AND id = ${row.documentId}::uuid FOR UPDATE`;
     else denied("APPROVAL_INVALID");

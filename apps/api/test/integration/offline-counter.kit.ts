@@ -240,8 +240,9 @@ export function offlineJournal(c: Counter) {
     till,
     offlineStartedAt,
     get sequence() { return sequence; },
-    open: (staff: Signed<OfflineStaffSignIn>, openingCashMinor: number, previousClosedWorkSessionId: string | null = null) =>
-      entry<OfflineShiftOpenCommand>(staff, { kind: "shift_open", currency: "LKR", openingCashMinor, previousClosedWorkSessionId }),
+    open: (staff: Signed<OfflineStaffSignIn>, openingCashMinor: number, previousClosedWorkSessionId: string | null = null,
+      overrides: Partial<OfflineShiftOpenCommand> = {}) =>
+      entry<OfflineShiftOpenCommand>(staff, { kind: "shift_open", currency: "LKR", openingCashMinor, previousClosedWorkSessionId }, overrides),
     sale(staff: Signed<OfflineStaffSignIn>, items: Array<[string, number]>, overrides: Partial<OfflineSaleCommand> = {}) {
       const priced = items.map(([batchId, qty]) => line(batchId, qty));
       const totalMinor = priced.reduce((sum, p) => sum + p.total, 0);
@@ -270,7 +271,9 @@ export const sync = (c: Counter, parts: Partial<Omit<SyncRequest, "contractVersi
   journal.sync(c.cashier, c.fx.mainBranchId, request(c, parts), now);
 
 export function saleAck(ack: SyncAcknowledgement) {
-  if (!("commandKind" in ack) || ack.commandKind !== "ordinary_sale") throw new Error(`not a sale ack: ${JSON.stringify(ack)}`);
+  // Intake's own sale acknowledgements; a manager's settlement answers `reviewed` (slice 4).
+  if (!("commandKind" in ack) || ack.commandKind !== "ordinary_sale" || ack.status === "reviewed")
+    throw new Error(`not a sale ack: ${JSON.stringify(ack)}`);
   return ack;
 }
 export const onHand = async (batchId: string) => (await prisma.batchStock.findUniqueOrThrow({ where: { batchId } })).onHandQty;

@@ -62,6 +62,11 @@ export const MUTATION_ACTIONS = Object.freeze({
   "POST /api/v1/offline-stock-cases/resolutions/:id/approve": "management",
   "POST /api/v1/offline-stock-cases/resolutions/:id/cancel": "management",
   "POST /api/v1/offline-stock-cases/resolutions/:id/execute": "stock",
+  // P5 #51 slice 4: deciding about a refused offline record writes records only (a recorded
+  // sale's stock waits on a stock case settled at the counter), so it is remote management.
+  "POST /api/v1/offline-journal-reviews/:id/settlements": "management",
+  "POST /api/v1/offline-journal-reviews/settlements/:id/approve": "management",
+  "POST /api/v1/offline-journal-reviews/settlements/:id/cancel": "management",
   "PATCH /api/v1/notifications/:id/archive": "personalization",
   "PATCH /api/v1/notifications/:id/read": "personalization",
   "PATCH /api/v1/notifications/preferences": "personalization",
