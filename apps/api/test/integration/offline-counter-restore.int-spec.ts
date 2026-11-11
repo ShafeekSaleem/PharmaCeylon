@@ -345,3 +345,83 @@ describe("a counter whose clock is wrong (P5 #51)", () => {
     expect(ahead!.clockSkew!.aheadOfServerMs).toBeGreaterThan(3_600_000);
   });
 });
+
+describe("a late offline sale over a count made after it (P5 #51)", () => {
+  it("waits on its case instead of deducting the counted units twice", async () => {
+    const c = await counter({ main: 10, other: 10 });
+    const j = offlineJournal(c);
+    const signIn = j.signIn(c.cashier.userId, randomUUID());
+    const open = j.open(signIn, 100_000);
+    const sale = j.sale(signIn, [
+      [c.batches.main, 3],
+      [c.batches.other, 1],
+    ]);
+    // The shop counted the main batch after the sale (the units already gone) and posted it.
+    const countedAt = new Date(sale.payload.occurredAt + 60_000);
+    const id = randomUUID();
+    await prisma.stocktake.create({
+      data: {
+        id,
+        tenantId: c.fx.tenantId,
+        branchId: c.fx.mainBranchId,
+        stocktakeNumber: `ST-${id.slice(0, 6)}`,
+        status: "approved",
+        countedBy: c.manager.userId,
+        lines: {
+          create: {
+            tenantId: c.fx.tenantId,
+            productId: c.fx.productId,
+            batchId: c.batches.main,
+            systemQty: 10,
+            countedQty: 7,
+            varianceQty: -3,
+            status: "posted",
+            countedAt,
+            postedAt: countedAt,
+          },
+        },
+      },
+    });
+    await prisma.stocktake.update({
+      where: { id },
+      data: {
+        status: "completed",
+        postedAt: countedAt,
+        completedAt: countedAt,
+      },
+    });
+
+    // The counter reconnects later (after a restore, say) and uploads the sale.
+    const reply = await sync(c, {
+      staffSignIns: [signIn],
+      commands: [open, sale],
+    });
+    const ack = saleAck(
+      reply.payload.acknowledgements.find(
+        (a) => a.commandId === sale.payload.commandId,
+      )!,
+    );
+    expect(ack.stockPosting).toBe("pending_reconciliation");
+    const lines = await prisma.offlineStockDiscrepancyLine.findMany({
+      where: { tenantId: c.fx.tenantId, caseId: ack.reconciliationCaseId! },
+      orderBy: { reason: "asc" },
+      select: { batchId: true, reason: true, shortfallQuantity: true },
+    });
+    expect(lines).toEqual([
+      {
+        batchId: c.batches.main,
+        reason: "counted_after_sale",
+        shortfallQuantity: 0,
+      },
+      {
+        batchId: c.batches.other,
+        reason: "sale_pending",
+        shortfallQuantity: 0,
+      },
+    ]);
+    // Nothing was deducted again: the stocktake's correction is not in this test, so on hand is
+    // still the opening stock.
+    expect(await onHand(c.batches.main)).toBe(10);
+    expect(await onHand(c.batches.other)).toBe(10);
+  });
+});
