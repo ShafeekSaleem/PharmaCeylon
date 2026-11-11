@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 
+const SRI_LANKA_TZ = "Asia/Colombo";
+
 /** Dates and times the way the mockups write them: "Sun 1 Nov", "14:32", "Sunday, 1 November 2026". */
 function parts(date: Date, options: Intl.DateTimeFormatOptions) {
   const named: Partial<Record<Intl.DateTimeFormatPartTypes, string>> = {};
@@ -8,6 +10,34 @@ function parts(date: Date, options: Intl.DateTimeFormatOptions) {
   ))
     named[part.type] = part.value;
   return named;
+}
+
+function partsTz(date: Date, options: Intl.DateTimeFormatOptions, timeZone: string) {
+  const named: Partial<Record<Intl.DateTimeFormatPartTypes, string>> = {};
+  for (const part of new Intl.DateTimeFormat("en-GB", { ...options, timeZone }).formatToParts(
+    date,
+  ))
+    named[part.type] = part.value;
+  return named;
+}
+
+/** Tooltip clock in Sri Lanka time, regardless of the PC timezone. */
+export function timeColomboWithSeconds(date: Date) {
+  const p = partsTz(
+    date,
+    { hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" },
+    SRI_LANKA_TZ,
+  );
+  return `${p.hour}:${p.minute}:${p.second}`;
+}
+
+export function longDayColombo(date: Date) {
+  const p = partsTz(
+    date,
+    { weekday: "long", day: "numeric", month: "long", year: "numeric" },
+    SRI_LANKA_TZ,
+  );
+  return `${p.weekday}, ${p.day} ${p.month} ${p.year}`;
 }
 
 export function time(date: Date) {

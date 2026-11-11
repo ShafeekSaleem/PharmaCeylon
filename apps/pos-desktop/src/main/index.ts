@@ -20,11 +20,11 @@ import { CheckoutService } from "./checkout/checkout-service";
 import { DispensingService } from "./checkout/dispensing";
 import { CounterWorkService } from "./terminal/counter-work";
 import { ReturnsService } from "./returns/returns-service";
+import { journalSyncForRenderer } from "./journal-sync-renderer";
 import { readInstalledOfflineAuthority } from "./terminal/offline-authority";
 import { startOfflineAuthorityRefresh, type OfflineAuthorityRefresh } from "./terminal/offline-authority-refresh";
 import { OfflineJournalWriter } from "./terminal/offline-journal-writer";
 import {
-  journalSyncForRenderer,
   readJournalSyncView,
   startOfflineJournalSync,
   type OfflineJournalSync,

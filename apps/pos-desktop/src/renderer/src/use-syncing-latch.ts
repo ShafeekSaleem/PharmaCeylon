@@ -1,33 +1,35 @@
 import { useEffect, useRef, useState } from "react";
 
+export const SYNCING_LATCH_MS = 1000;
+
 /**
- * Anti-flicker for journal.syncing (spec #103): show "syncing" only after ~1 s of a cycle, and
- * keep it visible for at least 1 s after syncing ends so the pill does not flash reachability copy.
+ * Anti-flicker for journal.syncing (spec #103): show syncing only after ~1 s, and keep it for at
+ * least 1 s after syncing ends. Callers should use this value directly (not `journal.syncing &&`).
  */
-export function useSyncingLatch(syncing: boolean): boolean {
-  const [visible, setVisible] = useState(false);
-  const visibleRef = useRef(false);
-  visibleRef.current = visible;
+export function useSyncingLatch(syncing: boolean, delayMs = SYNCING_LATCH_MS): boolean {
+  const [latched, setLatched] = useState(false);
+  const latchedRef = useRef(false);
+  latchedRef.current = latched;
 
   useEffect(() => {
-    let timer: number | undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     if (syncing) {
-      timer = window.setTimeout(() => {
-        visibleRef.current = true;
-        setVisible(true);
-      }, 1000);
-    } else if (visibleRef.current) {
-      timer = window.setTimeout(() => {
-        visibleRef.current = false;
-        setVisible(false);
-      }, 1000);
+      timer = setTimeout(() => {
+        latchedRef.current = true;
+        setLatched(true);
+      }, delayMs);
+    } else if (latchedRef.current) {
+      timer = setTimeout(() => {
+        latchedRef.current = false;
+        setLatched(false);
+      }, delayMs);
     } else {
-      setVisible(false);
+      setLatched(false);
     }
     return () => {
-      if (timer !== undefined) window.clearTimeout(timer);
+      if (timer !== undefined) clearTimeout(timer);
     };
-  }, [syncing]);
+  }, [syncing, delayMs]);
 
-  return visible;
+  return latched;
 }

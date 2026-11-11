@@ -8,12 +8,6 @@ jest.mock("./format", () => {
     ...actual,
     useSecondNow: () => tick,
     useNow: () => tick,
-    timeWithSeconds: (d: Date) => {
-      const h = d.getUTCHours().toString().padStart(2, "0");
-      const m = d.getUTCMinutes().toString().padStart(2, "0");
-      const s = d.getUTCSeconds().toString().padStart(2, "0");
-      return `${h}:${m}:${s}`;
-    },
   };
 });
 

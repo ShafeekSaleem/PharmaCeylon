@@ -88,6 +88,24 @@ export type InstallResult =
 
 type InstalledRow = { version: number; grant_envelope: string; snapshot_envelope: string };
 
+type SnapshotGeneratedAtRow = { version: number; generated_at: number | null };
+
+/** Lightweight read for sync status UI — no full envelope parse (epic #103). */
+export function readInstalledSnapshotGeneratedAt(
+  db: PosDatabase,
+  enrollmentId: string,
+): { version: number; generatedAt: number } | null {
+  const row = db
+    .prepare(
+      `SELECT version, json_extract(snapshot_envelope, '$.payload.generatedAt') AS generated_at
+       FROM offline_authority WHERE enrollment_id = ?`,
+    )
+    .get(enrollmentId) as SnapshotGeneratedAtRow | undefined;
+  if (!row || row.generated_at === null) return null;
+  const generatedAt = Number(row.generated_at);
+  return Number.isFinite(generatedAt) ? { version: row.version, generatedAt } : null;
+}
+
 /** The installed pair for this enrollment, if any. */
 export function readInstalledOfflineAuthority(
   db: PosDatabase,

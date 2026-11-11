@@ -1,29 +1,13 @@
-import { describe, expect, it, jest } from "@jest/globals";
+import { describe, expect, it } from "@jest/globals";
 import type { JournalSync } from "../../shared/ipc-contract";
+import { timeWithSeconds } from "./format";
 import {
   SYNC_STALE_MS,
+  attachJournalAttention,
   deriveSyncState,
   formatStatusSyncClock,
   formatSyncedAgo,
 } from "./connection-sync";
-
-jest.mock("./format", () => {
-  const actual = jest.requireActual<typeof import("./format")>("./format");
-  return {
-    ...actual,
-    timeWithSeconds: (d: Date) => {
-      const h = d.getUTCHours().toString().padStart(2, "0");
-      const m = d.getUTCMinutes().toString().padStart(2, "0");
-      const s = d.getUTCSeconds().toString().padStart(2, "0");
-      return `${h}:${m}:${s}`;
-    },
-    time: (d: Date) => {
-      const h = d.getUTCHours().toString().padStart(2, "0");
-      const m = d.getUTCMinutes().toString().padStart(2, "0");
-      return `${h}:${m}`;
-    },
-  };
-});
 
 const now = new Date("2026-11-11T09:14:16.000Z");
 const apiOk = { reachable: true, checkedAt: "2026-11-11T09:14:05.000Z", latencyMs: 5 };
@@ -52,7 +36,7 @@ describe("deriveSyncState — inactive / fallback", () => {
 });
 
 describe("deriveSyncState — states 0–6 (sales-only)", () => {
-  const salesOnly = (over: Partial<JournalSync> = {}) =>
+  const salesOnly = (over: Partial<JournalSync> = {}): JournalSync =>
     baseJournal({ stockDownloadNominated: null, lastStockDownloadAt: null, ...over });
 
   it("0 synced baseline", () => {
@@ -63,19 +47,60 @@ describe("deriveSyncState — states 0–6 (sales-only)", () => {
     expect(d.statusParts[0]?.text).toMatch(/Sales sent 09:14/);
   });
 
-  it("0 hides green when issue or pause is set (PR 138)", () => {
-    expect(deriveSyncState("active", apiOk, salesOnly({ issue: { code: "X", message: "m" } }), now, false)!.tone).toBe(
-      "warn",
-    );
-    expect(
-      deriveSyncState(
-        "active",
-        apiOk,
-        salesOnly({ pause: { reason: "draining", waiting: 1, outageStartedAt: null, unconfirmed: { sales: 0, actions: 0 } } }),
-        now,
-        false,
-      )!.tone,
-    ).toBe("warn");
+  it("issue: keeps timestamp UI, not cyan syncing, issue in tooltip", () => {
+    const d = deriveSyncState(
+      "active",
+      apiOk,
+      salesOnly({ issue: { code: "HELD", message: "A manager reviews it in the back office." }, waiting: 2, syncing: true }),
+      now,
+      true,
+    )!;
+    expect(d.attentionPending).toBe(true);
+    expect(d.caseId).toBe("T7");
+    expect(d.tone).not.toBe("info");
+    expect(d.titleDetail).toContain("synced");
+    expect(d.tooltip).toContain("manager reviews");
+    expect(d.titleDetail).not.toContain("manager");
+  });
+
+  it("refused: attentionPending without inventing pill copy", () => {
+    const d = deriveSyncState(
+      "active",
+      apiOk,
+      salesOnly({ refused: 1, waiting: 2, syncing: true }),
+      now,
+      true,
+    )!;
+    expect(d.attentionPending).toBe(true);
+    expect(d.tone).not.toBe("info");
+    expect(d.caseId).not.toBe("2");
+  });
+
+  it("attachJournalAttention is the attention hook (TODO pill copy)", () => {
+    const base = deriveSyncState("active", apiOk, salesOnly(), now, false)!;
+    expect(base.attentionPending).toBeFalsy();
+    const withIssue = attachJournalAttention(base, {
+      ...salesOnly(),
+      issue: { code: "X", message: "Only in tooltip." },
+      refused: 0,
+    });
+    expect(withIssue.attentionPending).toBe(true);
+    expect(withIssue.tooltip).toContain("Only in tooltip.");
+    expect(withIssue.titleDetail).toBe(base.titleDetail);
+  });
+
+  it("pause uses a reason instead of synced ago", () => {
+    const d = deriveSyncState(
+      "active",
+      apiOk,
+      salesOnly({
+        pause: { reason: "draining", waiting: 1, outageStartedAt: null, unconfirmed: { sales: 0, actions: 0 } },
+      }),
+      now,
+      false,
+    )!;
+    expect(d.caseId).toBe("0-blocked");
+    expect(d.titleDetail).toBe("Synchronising offline sales");
   });
 
   it("1 checking the server", () => {
@@ -146,6 +171,23 @@ describe("deriveSyncState — states 0–6 (sales-only)", () => {
       true,
     )!;
     expect(d.caseId).toBe("5");
+  });
+
+  it("precedence: issue beats syncing (visible timestamps, mismatch in tooltip)", () => {
+    const d = deriveSyncState(
+      "active",
+      apiOk,
+      salesOnly({
+        issue: { code: "JOURNAL_MISMATCH", message: "The journal on this counter does not match the server." },
+        syncing: true,
+        waiting: 4,
+      }),
+      now,
+      true,
+    )!;
+    expect(d.attentionPending).toBe(true);
+    expect(d.caseId).not.toBe("2");
+    expect(d.tooltip).toContain("does not match the server");
   });
 
   it("precedence: syncing beats overdue", () => {
@@ -241,19 +283,56 @@ describe("deriveSyncState — two-way T1–T6", () => {
     expect(d.caseId).toBe("T7");
     expect(d.tone).toBe("ok");
   });
+
+  it("two-way attention includes stock line in tooltip", () => {
+    const d = deriveSyncState(
+      "active",
+      apiOk,
+      baseJournal({
+        issue: { code: "HELD", message: "Held for review." },
+        waiting: 1,
+        syncing: true,
+      }),
+      now,
+      true,
+    )!;
+    expect(d.tooltip).toContain("Held for review.");
+    expect(d.tooltip).toContain("Stock updated:");
+    expect(d.attentionPending).toBe(true);
+    expect(d.tone).not.toBe("info");
+  });
 });
 
-describe("formatStatusSyncClock (timezone-independent via UTC mock)", () => {
-  it("shows exact last sync 14:32:08", () => {
-    const clock = formatStatusSyncClock("2026-11-09T14:32:08.000Z", new Date("2026-11-09T15:00:00.000Z"));
-    expect(clock).toBe("last sync 14:32:08".replace("last sync ", ""));
-    expect(`last sync ${clock}`).toBe("last sync 14:32:08");
+describe("formatStatusSyncClock", () => {
+  it("shows exact last sync 14:32:08 under Jest UTC", () => {
+    const at = "2026-11-09T14:32:08.000Z";
+    expect(formatStatusSyncClock(at, new Date("2026-11-09T15:00:00.000Z"))).toBe(
+      timeWithSeconds(new Date(at)),
+    );
+    expect(`last sync ${formatStatusSyncClock(at, new Date("2026-11-09T15:00:00.000Z"))}`).toBe(
+      "last sync 14:32:08",
+    );
   });
 });
 
 describe("formatSyncedAgo", () => {
+  const tick = new Date("2026-11-09T14:32:16.000Z");
+  const from = (iso: string) => new Date(iso);
+
   it("uses seconds under a minute", () => {
-    const tick = new Date("2026-11-09T14:32:16.000Z");
-    expect(formatSyncedAgo(new Date("2026-11-09T14:32:08.000Z"), tick)).toBe("8 s ago");
+    expect(formatSyncedAgo(from("2026-11-09T14:32:08.000Z"), tick)).toBe("8 s ago");
+  });
+
+  it("uses minutes under an hour", () => {
+    expect(formatSyncedAgo(from("2026-11-09T14:00:16.000Z"), tick)).toBe("32 min ago");
+  });
+
+  it("uses hours under forty-eight hours", () => {
+    expect(formatSyncedAgo(from("2026-11-09T08:32:16.000Z"), tick)).toBe("6 h ago");
+  });
+
+  it("uses days beyond forty-eight hours", () => {
+    expect(formatSyncedAgo(from("2026-11-07T14:32:16.000Z"), tick)).toBe("2 days ago");
+    expect(formatSyncedAgo(from("2026-11-06T14:32:16.000Z"), tick)).toBe("3 days ago");
   });
 });

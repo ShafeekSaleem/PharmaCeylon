@@ -1,5 +1,5 @@
 import type { ApiReachability, JournalSync } from "../../shared/ipc-contract";
-import { longDay, shortDay, time, timeWithSeconds } from "./format";
+import { longDayColombo, shortDay, time, timeColomboWithSeconds, timeWithSeconds } from "./format";
 
 /** Approved overdue threshold (Shafeek, 11 Nov 2026). */
 export const SYNC_STALE_MS = 15 * 60 * 1000;
@@ -20,6 +20,11 @@ export type DerivedSync = {
   tooltip: string;
   ariaLabel: string;
   caseId: string;
+  /**
+   * Journal issue / refused: tooltip carries `journal.issue.message`; pill/status copy is TODO (Emma).
+   * Visible UI keeps the timestamp state (synced / overdue / …) until design approves attention copy.
+   */
+  attentionPending?: boolean;
 };
 
 export function formatSyncedAgo(from: Date, now: Date): string {
@@ -57,12 +62,32 @@ function formatDirectionClock(iso: string, now: Date): string {
 
 function tooltipStamp(iso: string): string {
   const at = new Date(iso);
-  return `${longDay(at)}, ${timeWithSeconds(at)}`;
+  return `${longDayColombo(at)}, ${timeColomboWithSeconds(at)}`;
 }
 
 function serverChecked(api: ApiReachability | null): string {
   if (!api?.checkedAt) return "";
-  return `Server checked: ${timeWithSeconds(new Date(api.checkedAt))} · Sri Lanka time`;
+  return `Server checked: ${timeColomboWithSeconds(new Date(api.checkedAt))} · Sri Lanka time`;
+}
+
+export function syncNeedsAttention(journal: JournalSync): boolean {
+  return journal.refused > 0 || journal.issue !== null;
+}
+
+/** Appends `journal.issue.message` to the tooltip; does not change pill/status (design TODO). */
+export function attachJournalAttention(state: DerivedSync, journal: JournalSync): DerivedSync {
+  if (!syncNeedsAttention(journal)) return state;
+  let tooltip = state.tooltip;
+  const msg = journal.issue?.message;
+  if (msg && !tooltip.includes(msg)) {
+    const parts = tooltip.split(" · ").filter(Boolean);
+    const server = parts.find((p) => p.startsWith("Server checked:"));
+    const body = parts.filter((p) => p !== server);
+    body.push(msg);
+    if (server) body.push(server);
+    tooltip = body.join(" · ");
+  }
+  return { ...state, tooltip, attentionPending: true };
 }
 
 type DirState = "fresh" | "overdue" | "never";
@@ -108,6 +133,19 @@ export function deriveSyncState(
   showJournalSyncing: boolean,
 ): DerivedSync | null {
   if (enrollmentStatus !== "active" || !journal) return null;
+  return attachJournalAttention(
+    deriveSyncStateUi(enrollmentStatus, api, journal, now, showJournalSyncing),
+    journal,
+  );
+}
+
+function deriveSyncStateUi(
+  enrollmentStatus: EnrollmentStatus,
+  api: ApiReachability | null,
+  journal: JournalSync,
+  now: Date,
+  showJournalSyncing: boolean,
+): DerivedSync {
 
   const twoWay = journal.stockDownloadNominated === true;
   const salesAt = journal.lastSuccessAt;
@@ -209,8 +247,10 @@ export function deriveSyncState(
   }
 
   // Syncing (state 2 + folded sales waiting) — before "never synced" (spec precedence 4 > 5)
-  const salesWaiting = journal.waiting > 0 && sales !== "overdue";
-  const journalSyncing = journal.syncing && showJournalSyncing;
+  const blockedFromSyncing = syncNeedsAttention(journal);
+  const salesWaiting =
+    !blockedFromSyncing && journal.waiting > 0 && sales !== "overdue";
+  const journalSyncing = !blockedFromSyncing && showJournalSyncing;
   const inSyncing = journalSyncing || salesWaiting;
 
   if (inSyncing) {
@@ -228,7 +268,6 @@ export function deriveSyncState(
         salesAt ? `Sales sent: ${tooltipStamp(salesAt)}` : "",
         stockAt ? `Stock updated: ${tooltipStamp(stockAt)}` : "",
       ];
-      if (journal.issue?.message) tipLines.splice(1, 0, journal.issue.message);
       return {
         active: true,
         tone: "info",
@@ -356,7 +395,6 @@ export function deriveSyncState(
       const age = formatSyncedAgo(new Date(salesAt!), now);
       const tip = baseTooltip([
         `Sales sent: ${tooltipStamp(salesAt!)} · overdue (over 15 min)`,
-        journal.issue?.message ?? "",
         stockAt ? `Stock updated: ${tooltipStamp(stockAt)}` : "",
       ]);
       return {
@@ -394,7 +432,6 @@ export function deriveSyncState(
         tooltip: baseTooltip([
           `Sales sent: ${tooltipStamp(salesAt!)} · overdue`,
           `Stock updated: ${tooltipStamp(stockAt!)} · overdue`,
-          journal.issue?.message ?? "",
         ]),
         ariaLabel: "Online, sync overdue",
         caseId: "T5",
@@ -439,7 +476,6 @@ export function deriveSyncState(
         ],
         tooltip: baseTooltip([
           `Sales sent: ${tooltipStamp(salesAt!)} · overdue`,
-          journal.issue?.message ?? "",
         ]),
         ariaLabel: "Online, sales overdue",
         caseId: "T4",
@@ -458,10 +494,7 @@ export function deriveSyncState(
       titleDetail: `sync overdue · ${age}`,
       statusLead: "Online",
       statusParts: [{ text: `sync overdue · last sync ${formatStatusSyncClock(salesAt!, now)}` }],
-      tooltip: baseTooltip([
-        `Last sync: ${tooltipStamp(salesAt!)}`,
-        journal.issue?.message ?? "",
-      ]),
+      tooltip: baseTooltip([`Last sync: ${tooltipStamp(salesAt!)}`]),
       ariaLabel: "Online, sync overdue",
       caseId: "6",
     };
@@ -488,21 +521,25 @@ export function deriveSyncState(
     };
   }
 
+  const reason =
+    journal.pause?.reason === "draining"
+      ? "Synchronising offline sales"
+      : journal.pause?.reason === "unsynced"
+        ? "Waiting to synchronise"
+        : "Synchronisation paused";
   return {
     active: true,
     tone: "warn",
     pulse: false,
     titleLead: "Online",
-    titleDetail: `synced ${formatSyncedAgo(new Date(salesAt!), now)}`,
+    titleDetail: reason,
     statusLead: "Online",
-    statusParts: salesOnly
-      ? [{ text: `Sales sent ${formatDirectionClock(salesAt!, now)}` }]
-      : [{ text: `last sync ${formatStatusSyncClock(salesAt!, now)}` }],
+    statusParts: [{ text: reason, tone: "warn" }],
     tooltip: baseTooltip([
       `Sales sent: ${tooltipStamp(salesAt!)}`,
-      journal.issue?.message ?? "",
+      reason,
     ]),
-    ariaLabel: "Online",
+    ariaLabel: "Online, synchronisation paused",
     caseId: "0-blocked",
   };
 }
