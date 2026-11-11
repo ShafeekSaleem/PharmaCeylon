@@ -48,7 +48,7 @@ describe("deriveSyncState — states 0–6 (sales-only)", () => {
     expect(d.statusParts[0]?.text).toMatch(/Sales sent 09:14/);
   });
 
-  it("attention: issue only — amber pill and status, not syncing", () => {
+  it("attention: issue shows reason in pill, not synced ago", () => {
     const msg = "A manager reviews it in the back office.";
     const d = deriveSyncState(
       "active",
@@ -60,6 +60,7 @@ describe("deriveSyncState — states 0–6 (sales-only)", () => {
     expect(d.caseId).toBe("attention");
     expect(d.tone).toBe("warn");
     expect(d.titleDetail).toBe(SALES_ATTENTION_PILL);
+    expect(d.titleDetail).not.toMatch(/^synced /);
     expect(d.statusParts[0]?.text).toBe(`⚠ Sales not sent · ${msg}`);
     expect(d.tooltip).toContain(msg);
     expect(d.tooltip).toContain("Sales sent:");
@@ -151,6 +152,7 @@ describe("deriveSyncState — states 0–6 (sales-only)", () => {
     )!;
     expect(d.caseId).toBe("0-blocked");
     expect(d.titleDetail).toBe("Synchronising offline sales");
+    expect(d.titleDetail).not.toMatch(/^synced /);
   });
 
   it("1 checking the server", () => {
@@ -354,14 +356,33 @@ describe("deriveSyncState — two-way T1–T6", () => {
 });
 
 describe("formatStatusSyncClock", () => {
-  it("shows exact last sync 14:32:08 under Jest UTC", () => {
+  it("uses the real timeWithSeconds formatter at a fixed instant (Jest TZ=UTC)", () => {
     const at = "2026-11-09T14:32:08.000Z";
-    expect(formatStatusSyncClock(at, new Date("2026-11-09T15:00:00.000Z"))).toBe(
-      timeWithSeconds(new Date(at)),
-    );
-    expect(`last sync ${formatStatusSyncClock(at, new Date("2026-11-09T15:00:00.000Z"))}`).toBe(
-      "last sync 14:32:08",
-    );
+    const now = new Date("2026-11-09T15:00:00.000Z");
+    const clock = formatStatusSyncClock(at, now);
+    expect(clock).toBe(timeWithSeconds(new Date(at)));
+    expect(`last sync ${clock}`).toBe(`last sync ${timeWithSeconds(new Date(at))}`);
+  });
+});
+
+describe("serverChecked tooltip (Sri Lanka time)", () => {
+  it("labels Server checked with Asia/Colombo wall clock", () => {
+    const d = deriveSyncState("active", apiOk, baseJournal({ stockDownloadNominated: null }), now, false)!;
+    expect(d.tooltip).toContain("Server checked: 14:44:05 · Sri Lanka time");
+  });
+});
+
+describe("syncing latch at deriveSyncState", () => {
+  it("honours showJournalSyncing when journal.syncing is already false", () => {
+    const d = deriveSyncState(
+      "active",
+      apiOk,
+      baseJournal({ syncing: false, stockDownloadNominated: null, lastStockDownloadAt: null }),
+      now,
+      true,
+    )!;
+    expect(d.caseId).toBe("2");
+    expect(d.tone).toBe("info");
   });
 });
 

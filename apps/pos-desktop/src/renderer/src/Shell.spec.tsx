@@ -26,6 +26,7 @@ import {
   renderWithKeys,
 } from "../test/harness";
 import { Rail, StatusBar, SyncBlock, TitleBar } from "./Shell";
+import { timeWithSeconds } from "./format";
 
 afterEach(() => {
   statusBarNow.current = titleTick;
@@ -310,8 +311,9 @@ describe("TitleBar connection display (P2b #103)", () => {
     expect(screen.getByText(/Online/).parentElement?.textContent).not.toContain("checked");
   });
 
-  it("shows exact last sync 14:32:08 when offline (fixed clock, PR 138)", () => {
+  it("shows last sync via the real formatter when offline (PR 138)", () => {
     const lastAt = "2026-11-09T14:32:08.000Z";
+    const expectedClock = timeWithSeconds(new Date(lastAt));
     renderWithKeys(
       <StatusBar
         state={deviceState({ enrollment: enrollmentBase })}
@@ -321,7 +323,9 @@ describe("TitleBar connection display (P2b #103)", () => {
         info={null}
       />,
     );
-    expect(screen.getByText(/Offline/).parentElement?.textContent).toContain("last sync 14:32:08");
+    expect(screen.getByText(/Offline/).parentElement?.textContent).toContain(
+      `last sync ${expectedClock}`,
+    );
   });
 });
 

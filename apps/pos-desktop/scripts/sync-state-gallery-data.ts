@@ -71,6 +71,20 @@ const fixtures: Array<{ id: string; d: ReturnType<typeof deriveSyncState> }> = [
   { id: "T5", d: deriveSyncState("active", apiOk, journal({ lastSuccessAt: "2026-11-11T07:00:00.000Z", lastStockDownloadAt: "2026-11-11T06:58:00.000Z" }), now, false) },
   { id: "T6", d: deriveSyncState("active", apiDown, journal(), now, false) },
   { id: "T7", d: deriveSyncState("active", apiOk, journal({ stockDownloadNominated: false, lastStockDownloadAt: null }), now, false) },
+  {
+    id: "attention",
+    d: deriveSyncState(
+      "active",
+      apiOk,
+      journal({
+        issue: { code: "HELD", message: "A manager reviews it in the back office." },
+        waiting: 2,
+        syncing: true,
+      }),
+      now,
+      true,
+    ),
+  },
 ];
 
 const out = fixtures.filter((f) => f.d).map((f) => ({ id: f.id, ...render(f.d!) }));

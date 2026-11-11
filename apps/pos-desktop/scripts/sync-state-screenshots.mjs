@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
- * Renders deriveSyncState fixtures in a minimal shell and saves 1366×768 PNGs (light + dark).
+ * Agent-only: renders deriveSyncState fixtures and saves PNGs under /opt/cursor/artifacts.
+ * Not part of CI. Requires devDependencies `playwright` and `tsx` (or `npx tsx` on PATH).
  * Run from repo root: node apps/pos-desktop/scripts/sync-state-screenshots.mjs
  */
 import { spawnSync } from "node:child_process";
@@ -59,15 +60,22 @@ const st=document.getElementById('status'); st.className='sb '+c.sbClass; st.inn
 </script></body></html>`;
 fs.writeFileSync(htmlPath, html);
 
-const ids = cases.map((c) => c.id);
+const harryReviewIds = ["T7", "2", "attention", "5", "T2"];
+const viewports = [
+  { w: 1280, h: 720, tag: "1280x720" },
+  { w: 1024, h: 640, tag: "1024x640" },
+];
 const browser = await chromium.launch();
-for (const theme of ["light", "dark"]) {
-  for (const id of ids) {
-    const page = await browser.newPage({ viewport: { width: 1366, height: 768 } });
-    await page.goto(`${pathToFileURL(htmlPath)}?id=${encodeURIComponent(id)}&theme=${theme}`);
-    await page.screenshot({ path: path.join(outDir, `${id}-${theme}.png`) });
-    await page.close();
+for (const { w, h, tag } of viewports) {
+  for (const theme of ["light", "dark"]) {
+    for (const id of harryReviewIds) {
+      if (!cases.some((c) => c.id === id)) continue;
+      const page = await browser.newPage({ viewport: { width: w, height: h } });
+      await page.goto(`${pathToFileURL(htmlPath)}?id=${encodeURIComponent(id)}&theme=${theme}`);
+      await page.screenshot({ path: path.join(outDir, `pr171-${id}-${tag}-${theme}.png`) });
+      await page.close();
+    }
   }
 }
 await browser.close();
-console.log(`Wrote ${ids.length * 2} screenshots to ${outDir}`);
+console.log(`Wrote ${harryReviewIds.length * viewports.length * 2} review PNGs to ${outDir}`);
