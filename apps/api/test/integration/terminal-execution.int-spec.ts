@@ -711,6 +711,52 @@ describe("quarantine and release through signed commands (P6 #173)", () => {
     expect(await receiptsFor(expired.payload.commandId)).toBe(0);
   });
 
+  it("refuses signed quarantine when the batch belongs to another branch or tenant", async () => {
+    const counter = await counterFor(fx.managerId);
+    for (const batchId of [
+      await createStockedBatch(prisma, stock, fx, { qty: 9, branchId: fx.otherBranchId }),
+      await createStockedBatch(prisma, stock, foreign, { qty: 9, branchId: foreign.mainBranchId }),
+    ]) {
+      const { payload, request } = await signedCommand(counter, QUARANTINE,
+        { batchId, qty: 1, reasonCode: "damaged", reason: null }, null);
+      const before = await batchTotals(prisma, batchId);
+      await expect(run(counter, request)).rejects.toThrow(/Batch not found/);
+      expect(await batchTotals(prisma, batchId)).toEqual(before);
+      expect(await receiptsFor(payload.commandId)).toBe(0);
+    }
+  });
+
+  it("refuses signed release when the batch belongs to another branch or tenant", async () => {
+    const counter = await counterFor(fx.managerId);
+    const otherBranchBatch = await createStockedBatch(prisma, stock, fx, { qty: 6, branchId: fx.otherBranchId });
+    await inventory.quarantineBatch(fx.tenantId, fx.otherBranchId, fx.managerId, otherBranchBatch, { qty: 2, reasonCode: "damaged" });
+    const foreignBatch = await createStockedBatch(prisma, stock, foreign, { qty: 6, branchId: foreign.mainBranchId });
+    await inventory.quarantineBatch(foreign.tenantId, foreign.mainBranchId, foreign.managerId, foreignBatch, { qty: 2, reasonCode: "damaged" });
+    for (const batchId of [otherBranchBatch, foreignBatch]) {
+      const { payload, request } = await signedCommand(counter, RELEASE, { batchId, qty: 1, reason: null }, null);
+      const before = await batchTotals(prisma, batchId);
+      await expect(run(counter, request)).rejects.toThrow(/Batch not found/);
+      expect(await batchTotals(prisma, batchId)).toEqual(before);
+      expect(await receiptsFor(payload.commandId)).toBe(0);
+    }
+  });
+
+  it("quarantines with reasonCode other and refuses qty beyond available", async () => {
+    const counter = await counterFor(fx.managerId);
+    const batchId = await createStockedBatch(prisma, stock, fx, { qty: 6 });
+    const { request } = await signedCommand(counter, QUARANTINE, {
+      batchId, qty: 2, reasonCode: "other", reason: "Supplier recall notice",
+    }, null);
+    await run(counter, request);
+    expect(await batchTotals(prisma, batchId)).toMatchObject({ quarantined: 2, available: 4 });
+
+    const over = await signedCommand(counter, QUARANTINE, { batchId, qty: 100, reasonCode: "damaged", reason: null }, null);
+    const before = await batchTotals(prisma, batchId);
+    await expect(run(counter, over.request)).rejects.toThrow(/Nothing left to quarantine|already held or reserved/);
+    expect(await batchTotals(prisma, batchId)).toEqual(before);
+    expect(await receiptsFor(over.payload.commandId)).toBe(0);
+  });
+
   it("refuses quarantine without inventory.quarantine", async () => {
     const batchId = await createStockedBatch(prisma, stock, fx, { qty: 6 });
     await prisma.userBranchRole.updateMany({
