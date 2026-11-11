@@ -7,6 +7,10 @@ export const TERMINAL_CONTRACT_VERSION = 1 as const;
 export const MAX_OFFLINE_GRANT_MS = 24 * 60 * 60 * 1000;
 /** Approved D4: saved stock may be at most 15 minutes old at the original outage start. */
 export const MAX_SNAPSHOT_AGE_AT_OUTAGE_MS = 15 * 60 * 1000;
+/** Entries per offline journal sync request; counters page beyond this (P5 #51). */
+export const MAX_OFFLINE_JOURNAL_SYNC_COMMANDS = 25;
+export const MAX_OFFLINE_JOURNAL_SYNC_SIGN_INS = 25;
+export const MAX_OFFLINE_JOURNAL_SYNC_SUPPORT_RECORDS = 25;
 
 /** Deterministic, integer-only wire encoding; callers UTF-8 encode before signing/hash. */
 export function terminalSigningText(purpose: "grant" | "snapshot" | "command" | "sync_response" | "attendance", payload: unknown): string {
@@ -400,6 +404,26 @@ export type OfflineStockDiscrepancy = Readonly<{
   status: "open" | "resolved";
 }>;
 
+/**
+ * P5 #51 slice 4: a manager settled a journal entry the server had rejected, so the chain moves
+ * past it. The server's receipt sits at the entry's own sequence with its own digest, and later
+ * entries chain onto it as usual. `recorded`: the entry's effect was written as it happened (a
+ * sale always waits on an offline stock case; a shift open/close is replayed). `not_honoured`:
+ * nothing was written; the entry is kept as evidence only.
+ */
+export type ReviewedEntryOutcome = Readonly<{
+  review: Readonly<{
+    settlementId: string;
+    /** Why the server had refused the entry. */
+    refusalCode: TerminalApiErrorCode;
+    settledAt: number;
+  }>;
+}> & (
+  | (Readonly<{ commandKind: "ordinary_sale"; decision: "recorded"; saleId: string }> & StockPostingOutcome)
+  | Readonly<{ commandKind: "shift_open" | "shift_close"; decision: "recorded"; workSessionId: string }>
+  | Readonly<{ commandKind: OfflineJournalCommand["kind"]; decision: "not_honoured" }>
+);
+
 export type SyncAcknowledgement = Readonly<{
   commandId: string;
   commandHash: string;
@@ -408,6 +432,8 @@ export type SyncAcknowledgement = Readonly<{
   | (Readonly<{ commandKind: "ordinary_sale"; status: "committed" | "duplicate"; saleId: string; committedAt: number }> & StockPostingOutcome)
   | Readonly<{ commandKind: "shift_open" | "shift_close"; status: "committed" | "duplicate";
       workSessionId: string; committedAt: number }>
+  // Accepted into the chain by a manager's settlement (slice 4), never by the upload itself.
+  | (Readonly<{ status: "reviewed"; committedAt: number }> & ReviewedEntryOutcome)
   | Readonly<{ status: "held" | "rejected"; error: TerminalApiError }>
 );
 export type SyncRequest = Readonly<{
@@ -752,6 +778,7 @@ export type CommittedCommandReceipt = Readonly<{
 }> & (
   | (Readonly<{ commandKind: "ordinary_sale"; saleId: string }> & StockPostingOutcome)
   | Readonly<{ commandKind: "shift_open" | "shift_close"; workSessionId: string }>
+  | ReviewedEntryOutcome
 );
 
 /** Called on an authenticated enrolled-device request; receipt lookup is tenant/enrollment scoped. */

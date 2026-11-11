@@ -1,13 +1,16 @@
-import type {
-  OfflineJournalCommand,
-  OfflinePayment,
-  OfflineSaleCommand,
-  OfflineShiftCloseCommand,
-  OfflineShiftOpenCommand,
-  OfflineStaffSignIn,
-  OrdinarySaleLine,
-  Signed,
-  TerminalIdentity,
+import {
+  MAX_OFFLINE_JOURNAL_SYNC_COMMANDS,
+  MAX_OFFLINE_JOURNAL_SYNC_SIGN_INS,
+  MAX_OFFLINE_JOURNAL_SYNC_SUPPORT_RECORDS,
+  type OfflineJournalCommand,
+  type OfflinePayment,
+  type OfflineSaleCommand,
+  type OfflineShiftCloseCommand,
+  type OfflineShiftOpenCommand,
+  type OfflineStaffSignIn,
+  type OrdinarySaleLine,
+  type Signed,
+  type TerminalIdentity,
 } from "@pharmaceylon/shared";
 import { parseStaffSignIn } from "../held-evidence-verification";
 import {
@@ -28,9 +31,9 @@ import {
  * Per-request limits. The API's JSON body limit (100 kB) is the outer bound; a counter with more
  * to upload sends it in pages, each continuing from the previous response's watermark.
  */
-export const MAX_SYNC_COMMANDS = 25;
-export const MAX_SYNC_SIGN_INS = 25;
-export const MAX_SYNC_SUPPORT_RECORDS = 25;
+export const MAX_SYNC_COMMANDS = MAX_OFFLINE_JOURNAL_SYNC_COMMANDS;
+export const MAX_SYNC_SIGN_INS = MAX_OFFLINE_JOURNAL_SYNC_SIGN_INS;
+export const MAX_SYNC_SUPPORT_RECORDS = MAX_OFFLINE_JOURNAL_SYNC_SUPPORT_RECORDS;
 const MAX_SALE_LINES = 100;
 const MAX_SALE_PAYMENTS = 4;
 const MAX_PROVIDER_REFERENCE_LENGTH = 64;

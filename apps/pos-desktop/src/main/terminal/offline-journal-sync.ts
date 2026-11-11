@@ -1,5 +1,6 @@
 import { verify, type KeyObject } from "node:crypto";
 import {
+  MAX_OFFLINE_JOURNAL_SYNC_COMMANDS,
   terminalSigningText,
   type OfflineJournalCommand,
   type OfflineStaffSignIn,
@@ -42,7 +43,7 @@ export const JOURNAL_SYNC_TICK_MS = 15_000;
 /** With nothing waiting, the server confirms the whole journal this often (the "last sync" time). */
 export const JOURNAL_CONFIRM_MS = 5 * 60_000;
 /** Entries per request. The server processes them one transaction each, in order. */
-export const JOURNAL_BATCH = 50;
+export const JOURNAL_BATCH = MAX_OFFLINE_JOURNAL_SYNC_COMMANDS;
 /** Batches per cycle, so one cycle can't run unbounded on a very long journal. */
 const MAX_BATCHES = 20;
 const FIRST_BACKOFF_MS = 15_000;
@@ -112,7 +113,9 @@ const safeInt = (v: unknown, min = 0): v is number =>
  * offline authority key and `sync_response` purpose, this exact counter, a watermark in canonical
  * form, and one acknowledgement per entry sent, in order, naming its exact hash and sequence
  * ("Only a signed, identity-matching server response with command ID/digest and receipt may mark
- * a local item acknowledged").
+ * a local item acknowledged"). A `reviewed` acknowledgement (slice 4) is a refused entry a manager
+ * settled: accepted into the chain at its own sequence, recorded as it happened (a sale always
+ * waiting on a stock case) or not honoured.
  */
 export function verifySyncResponse(
   envelope: unknown,
@@ -203,6 +206,31 @@ export function verifySyncResponse(
           throw new SyncResponseInvalid("acknowledgement");
       } else if (typeof ack.workSessionId !== "string")
         throw new SyncResponseInvalid("acknowledgement");
+    } else if (ack.status === "reviewed") {
+      const review = ack.review;
+      if (
+        ack.commandKind !== sent.kind ||
+        !safeInt(ack.committedAt) ||
+        sent.sequence > payload.committedThroughSequence ||
+        !isRecord(review) ||
+        typeof review.settlementId !== "string" ||
+        typeof review.refusalCode !== "string" ||
+        !safeInt(review.settledAt)
+      )
+        throw new SyncResponseInvalid("acknowledgement");
+      if (ack.decision === "recorded") {
+        if (sent.kind === "ordinary_sale") {
+          // Recorded after review, a sale never posts stock: it waits on a case.
+          if (
+            typeof ack.saleId !== "string" ||
+            ack.stockPosting !== "pending_reconciliation" ||
+            typeof ack.reconciliationCaseId !== "string"
+          )
+            throw new SyncResponseInvalid("acknowledgement");
+        } else if (typeof ack.workSessionId !== "string")
+          throw new SyncResponseInvalid("acknowledgement");
+      } else if (ack.decision !== "not_honoured")
+        throw new SyncResponseInvalid("acknowledgement");
     } else if (ack.status === "held" || ack.status === "rejected") {
       if (
         !isRecord(ack.error) ||
@@ -292,7 +320,7 @@ export function explainSyncIssue(code: string): string {
     case "REPLAY_CONFLICT":
       return "An offline record doesn't match what the server already has. A manager reviews it in the back office.";
     default:
-      return `The server refused an offline record (${code}). A manager reviews it in the back office.`;
+      return `The server refused an offline record (${code}). A manager settles it in the back office (Refused offline records); this counter carries on by itself within a minute of that.`;
   }
 }
 
@@ -302,7 +330,9 @@ export function explainSyncIssue(code: string): string {
  *
  * - Entries go in sequence order from the first one not yet accepted, with every staff sign-in they
  *   cite, in batches. A refused entry stops the upload where the server stopped: `held` ones are
- *   sent again (the next cycle may repair them), `rejected` ones never are — they wait for review.
+ *   sent again (the next cycle may repair them). A `rejected` one is never judged again: it is
+ *   sent alone, at most once a minute, and the server answers from its record — still refused, or
+ *   `reviewed` once a manager has settled it (slice 4), after which the rest follows.
  * - Only a verified, signed reply marks an entry accepted, with its acknowledgement kept beside it.
  *   A lost reply is recovered by sending the same entries again: the server answers `duplicate`
  *   with the original receipt.
@@ -505,7 +535,7 @@ export function createOfflineJournalSync(deps: OfflineJournalSyncDeps) {
   async function send(
     identity: TerminalIdentity,
     rows: CommandRow[],
-  ): Promise<{ complete: boolean; more: boolean }> {
+  ): Promise<{ complete: boolean; more: boolean; allAccepted: boolean }> {
     const commands = rows.map(
       (row) => JSON.parse(row.envelope_json) as Signed<OfflineJournalCommand>,
     );
@@ -540,11 +570,15 @@ export function createOfflineJournalSync(deps: OfflineJournalSyncDeps) {
     const allAccepted =
       response.acknowledgements.length === rows.length &&
       response.acknowledgements.every(
-        (a) => a.status === "committed" || a.status === "duplicate",
+        (a) =>
+          a.status === "committed" ||
+          a.status === "duplicate" ||
+          a.status === "reviewed",
       );
     return {
       complete,
       more: !complete && rows.length === JOURNAL_BATCH && allAccepted,
+      allAccepted,
     };
   }
 
@@ -584,17 +618,23 @@ export function createOfflineJournalSync(deps: OfflineJournalSyncDeps) {
     const enrollmentId = identity.enrollmentId;
     alignLastSync(enrollmentId);
     let rows = unsynced(enrollmentId);
-    // A refused entry blocks the chain until it is reviewed; resending it changes nothing.
-    if (rows[0]?.sync_status === "failed") return "skipped";
     if (!rows.length && !force && !confirmDue(enrollmentId)) return "skipped";
     setMeta(deps.db, SYNC_IN_PROGRESS_KEY, "1", iso());
     try {
       for (let batch = 0; batch < MAX_BATCHES; batch++) {
+        // A refused entry blocks the chain until a manager settles it. It goes alone (the server
+        // stops at it anyway) and is answered from the server's record; the cycle then reports an
+        // issue, so the next probe is a minute away.
+        const probe = rows[0]?.sync_status === "failed";
         const result = await send(
           identity,
-          rows.filter((row) => row.sync_status === "pending"),
+          probe
+            ? rows.slice(0, 1)
+            : rows.filter((row) => row.sync_status === "pending"),
         );
-        if (!result.more) break;
+        // Settled: carry on with what waited behind it in the same cycle.
+        if (!(probe ? result.allAccepted && !result.complete : result.more))
+          break;
         rows = unsynced(enrollmentId);
         if (!rows.length || rows[0]!.sync_status !== "pending") break;
       }

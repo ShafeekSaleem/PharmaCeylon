@@ -5,6 +5,7 @@ import { goodsReturnMaterial, preparedReceiptMaterial } from "./receiving-approv
 import { transferApprovalMaterial } from "./transfer-approval-material";
 import { saleRefundMaterial } from "./sale-refund-approval-material";
 import { lockOfflineStockResolution, offlineStockResolutionFacts } from "./offline-stock-resolution-approval-material";
+import { lockOfflineJournalSettlement, offlineJournalSettlementFacts } from "./offline-journal-settlement-approval-material";
 import { BadRequestException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import type { ApprovalDocumentIdentity } from "@pharmaceylon/shared";
@@ -65,6 +66,15 @@ export const APPROVAL_ACTIONS = {
     approvalPermission: "inventory.resolve_stock_cases",
     executionPermission: "inventory.manage",
     operation: "POST /api/v1/offline-stock-cases/resolutions/:id/execute",
+  },
+  // P5 #51 slice 4: settling a refused offline journal entry is a records decision, written on
+  // approval from anywhere. Nothing physical moves: a recorded sale's stock waits on a stock case,
+  // which is settled at the counter under offline_stock_resolution.execute.
+  "offline_journal_settlement.execute": {
+    documentType: "offline_journal_settlement",
+    approvalPermission: "sales.review_offline_entries",
+    executionPermission: "sales.review_offline_entries",
+    operation: "POST /api/v1/offline-journal-reviews/settlements/:id/approve",
   },
 } as const;
 export type ApprovalAction = keyof typeof APPROVAL_ACTIONS;
@@ -196,6 +206,15 @@ export async function approvalDocument(
     if (!doc || !(use === "execution" ? ["approved"] : ["prepared", "approved"]).includes(doc.status)) denied("APPROVAL_INVALID");
     const facts = await offlineStockResolutionFacts(tx, doc);
     if (!facts || facts.case.status !== "open") denied("APPROVAL_INVALID");
+    version = doc.approvalVersion; requester = doc.requestedBy; material = facts.material;
+  } else if (policy.documentType === "offline_journal_settlement") {
+    // The settlement first; the settling caller takes the enrollment's journal lock next.
+    if (!(await lockOfflineJournalSettlement(tx, tenantId, branchId, documentId))) denied("APPROVAL_INVALID");
+    const doc = await tx.offlineJournalSettlement.findFirst({ where: { tenantId, branchId, id: documentId } });
+    // Approval and settlement are one step: only a prepared settlement is approved.
+    if (!doc || doc.status !== "prepared") denied("APPROVAL_INVALID");
+    const facts = await offlineJournalSettlementFacts(tx, doc);
+    if (!facts) denied("APPROVAL_INVALID");
     version = doc.approvalVersion; requester = doc.requestedBy; material = facts.material;
   } else if (policy.documentType === "prepared_receipt") {
     // Same order as every receiving path: the purchase order first, then the prepared receipt.

@@ -34,8 +34,15 @@ export async function nextDocumentNumber(
 }
 
 /**
- * Tenant-scoped sequence stored against an arbitrary branch row
+ * Tenant-scoped sequence stored against one branch row
  * (docType is prefixed so it never collides with branch-local counters).
+ *
+ * The counter stays on the branch that already holds it. Choosing "the tenant's first branch"
+ * afresh on every call was not stable: branches created together tie on `created_at`, and which
+ * tied row Postgres returns first depends on the plan (an index scan on `(tenant_id, id)` and a
+ * sequential scan disagree), so the counter could move to the other branch and start again at 1.
+ * That number is already taken, and the unique index refuses it on every retry. A tenant whose
+ * counter already split that way keeps the higher one, which is past every number either issued.
  */
 export async function nextTenantDocumentNumber(
   tx: Prisma.TransactionClient,
@@ -44,13 +51,23 @@ export async function nextTenantDocumentNumber(
   prefix: string,
   pad = 5,
 ): Promise<string> {
-  const anyBranch = await tx.branch.findFirst({
-    where: { tenantId },
-    select: { id: true },
-    orderBy: { createdAt: "asc" },
+  const key = `tenant:${docType}`;
+  const held = await tx.documentSequence.findFirst({
+    where: { tenantId, docType: key },
+    select: { branchId: true },
+    orderBy: [{ nextValue: "desc" }, { branchId: "asc" }],
   });
-  if (!anyBranch) {
+  const branchId =
+    held?.branchId ??
+    (
+      await tx.branch.findFirst({
+        where: { tenantId },
+        select: { id: true },
+        orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+      })
+    )?.id;
+  if (!branchId) {
     throw new Error("No branch available for document sequence");
   }
-  return nextDocumentNumber(tx, tenantId, anyBranch.id, `tenant:${docType}`, prefix, pad);
+  return nextDocumentNumber(tx, tenantId, branchId, key, prefix, pad);
 }

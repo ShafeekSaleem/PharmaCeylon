@@ -20,6 +20,7 @@ import {
   type OfflineStaffSignIn,
   type OfflineUsage,
   type Signed,
+  type StockPostingOutcome,
   type SyncAcknowledgement,
   type SyncResponse,
   type TerminalErrorCode,
@@ -40,7 +41,14 @@ import {
   parseSyncRequest,
   type JournalItem,
 } from "./offline-journal-wire";
-import { authenticateJournalUploader, lockEnrollmentJournal } from "./journal-uploader";
+import {
+  OFFLINE_JOURNAL_OPERATION,
+  isReviewedReceipt,
+  lockOfflineJournal,
+  offlineJournalHead,
+  storedCommand,
+} from "./journal-chain";
+import { authenticateJournalUploader } from "./journal-uploader";
 import { commitOfflineSale, resolveSaleLines } from "./offline-sale-commit";
 import { localOpenShift, readTillShiftState, replayShiftClose, replayShiftOpen } from "./offline-shift-replay";
 
@@ -48,8 +56,7 @@ type Tx = Prisma.TransactionClient;
 type CommandItem = JournalItem<OfflineJournalCommand>;
 type SupportAcknowledgement = SyncResponse["supportAcknowledgements"][number];
 
-/** Receipts for accepted offline journal commands carry this operation prefix. */
-export const OFFLINE_JOURNAL_OPERATION = "offline_journal:";
+export { OFFLINE_JOURNAL_OPERATION } from "./journal-chain";
 const IDENTITY_KEYS: ReadonlyArray<keyof TerminalIdentity> = ["tenantId", "branchId", "terminalId", "enrollmentId", "keyId"];
 const sameIdentity = (a: TerminalIdentity, b: TerminalIdentity) => IDENTITY_KEYS.every((k) => a[k] === b[k]);
 const COMMAND_TX = { timeout: 20_000 } as const;
@@ -222,11 +229,11 @@ export class OfflineJournalService {
   ): Promise<SyncAcknowledgement> {
     const { payload: command, hash } = item;
     return this.prisma.$transaction(async (tx) => {
-      // Every journal writer for this enrollment queues here: concurrent identical retries
-      // serialize, and the second finds the first's receipt.
-      await lockEnrollmentJournal(tx, identity.tenantId, identity.enrollmentId);
+      await lockOfflineJournal(tx, identity);
 
-      // Durable receipts first, before any grant, expiry or revocation rule (contract order).
+      // Durable receipts first, before any grant, expiry or revocation rule (contract order). A
+      // manager's settlement of a refused entry (slice 4) is a receipt too: the resend that
+      // finds it is acknowledged `reviewed`.
       const scope = { tenantId: identity.tenantId, enrollmentId: identity.enrollmentId };
       const prior =
         (await tx.terminalCommandReceipt.findUnique({
@@ -249,6 +256,36 @@ export class OfflineJournalService {
         });
       }
 
+      // Recovery of old evidence, never new writes, from a revoked or retired counter.
+      const enrollment = await tx.terminalEnrollment.findFirstOrThrow({
+        where: { tenantId: identity.tenantId, id: identity.enrollmentId },
+        select: { revokedAt: true, publicKeyHex: true, terminal: { select: { retiredAt: true } } },
+      });
+      const revoked = () =>
+        this.refuse(tx, user, identity, item, held("TERMINAL_REVOKED", "This counter was revoked; its journal is kept for review."));
+
+      // A rejection is final for that exact content until a manager settles it (slice 4): the
+      // counter resends the entry to learn the outcome, and a resend is never judged again. The
+      // answer cannot drift (a clock that has caught up, a shift that has since opened). A revoked
+      // or retired counter is told so instead: no manager settles its journal here (D11), and the
+      // stored row keeps its refusal, since a review only escalates.
+      const refused = await tx.offlineJournalReview.findUnique({
+        where: {
+          tenantId_enrollmentId_recordKind_recordHash: {
+            tenantId: identity.tenantId, enrollmentId: identity.enrollmentId, recordKind: "command", recordHash: hash,
+          },
+        },
+        select: { outcome: true, errorCode: true },
+      });
+      if (refused?.outcome === "rejected") {
+        if (enrollment.publicKeyHex !== device.publicKeyHex) denied("IDENTITY_MISMATCH");
+        if (enrollment.revokedAt || enrollment.terminal.retiredAt) return revoked();
+        return this.refuse(tx, user, identity, item, rejected(
+          refused.errorCode as TerminalErrorCode,
+          "This journal entry was refused. A manager reviews it in the back office.",
+        ));
+      }
+
       const head = await this.head(tx, identity);
       const headSequence = head ? Number(head.offlineSequence) : 0;
       if (command.sequence !== headSequence + 1)
@@ -261,17 +298,13 @@ export class OfflineJournalService {
           originalHash: head?.requestDigest ?? null,
         });
 
-      // Recovery of old evidence, never new writes, from a revoked or retired counter.
-      const enrollment = await tx.terminalEnrollment.findFirstOrThrow({
-        where: { tenantId: identity.tenantId, id: identity.enrollmentId },
-        select: { revokedAt: true, publicKeyHex: true, terminal: { select: { retiredAt: true } } },
-      });
       if (enrollment.publicKeyHex !== device.publicKeyHex) denied("IDENTITY_MISMATCH");
-      if (enrollment.revokedAt || enrollment.terminal.retiredAt)
-        return this.refuse(tx, user, identity, item, held("TERMINAL_REVOKED", "This counter was revoked; its journal is kept for review."));
+      if (enrollment.revokedAt || enrollment.terminal.retiredAt) return revoked();
 
       // A trusted counter clock does not run ahead of the server or backwards along its journal.
-      const previousAt = head ? storedCommand(head)?.occurredAt ?? 0 : 0;
+      // An entry a manager settled is not evidence of the clock (it may be the reason it was
+      // refused), so the floor is the latest entry accepted on its own.
+      const previousAt = head ? await this.clockFloor(tx, identity, head) : 0;
       if (command.occurredAt > now + SUPPORT_RECORD_CLOCK_SKEW_MS || command.occurredAt < previousAt)
         return this.refuse(tx, user, identity, item, rejected("CLOCK_UNTRUSTED", "The entry's time is not trustworthy."));
 
@@ -307,12 +340,28 @@ export class OfflineJournalService {
     }, COMMAND_TX);
   }
 
-  /** The highest accepted command; sequences are accepted only contiguously from 1. */
   private head(client: Tx | PrismaService, identity: TerminalIdentity) {
-    return client.terminalCommandReceipt.findFirst({
-      where: { tenantId: identity.tenantId, enrollmentId: identity.enrollmentId, offlineSequence: { not: null } },
-      orderBy: { offlineSequence: "desc" },
-    });
+    return offlineJournalHead(client, identity);
+  }
+
+  /**
+   * `occurredAt` of the latest entry accepted by intake rather than by a manager's settlement.
+   * Normally that is the head itself; past a settled one, earlier receipts are read a page at a time.
+   */
+  private async clockFloor(tx: Tx, identity: TerminalIdentity, head: TerminalCommandReceipt): Promise<number> {
+    if (!isReviewedReceipt(head)) return storedCommand(head)?.occurredAt ?? 0;
+    const page = 20;
+    for (let skip = 1; ; skip += page) {
+      const rows = await tx.terminalCommandReceipt.findMany({
+        where: { tenantId: identity.tenantId, enrollmentId: identity.enrollmentId, offlineSequence: { not: null } },
+        orderBy: { offlineSequence: "desc" },
+        skip,
+        take: page,
+        select: { command: true, result: true },
+      });
+      for (const row of rows) if (!isReviewedReceipt(row)) return storedCommand(row)?.occurredAt ?? 0;
+      if (rows.length < page) return 0;
+    }
   }
 
   private async issuedGrant(tx: Tx, identity: TerminalIdentity, grantId: string): Promise<OfflineGrant | null> {
@@ -365,7 +414,7 @@ export class OfflineJournalService {
     user: RequestUser,
     identity: TerminalIdentity,
     item: JournalItem<OfflineSaleCommand>,
-  ): Promise<Refusal | { resource: Pick<CommittedCommandReceipt & { commandKind: "ordinary_sale" }, "commandKind" | "saleId" | "stockPosting" | "reconciliationCaseId">; actorUserId: string }> {
+  ): Promise<Refusal | { resource: { commandKind: "ordinary_sale"; saleId: string } & StockPostingOutcome; actorUserId: string }> {
     const command = item.payload;
     const grant = await this.issuedGrant(tx, identity, command.grantId);
     if (!grant) return rejected("GRANT_INVALID", "No such grant was issued to this counter.");
@@ -612,19 +661,34 @@ export class OfflineJournalService {
   }
 }
 
-function storedCommand(receipt: TerminalCommandReceipt): OfflineJournalCommand | null {
-  const envelope = receipt.command as unknown as Signed<OfflineJournalCommand> | null;
-  return envelope && typeof envelope === "object" && envelope.payload ? envelope.payload : null;
-}
-
 /** The stored offline receipt, or null for a receipt that is not an offline journal entry. */
 function storedReceipt(receipt: TerminalCommandReceipt): CommittedCommandReceipt | null {
   if (receipt.offlineSequence === null || !receipt.operation.startsWith(OFFLINE_JOURNAL_OPERATION)) return null;
   return receipt.result as unknown as CommittedCommandReceipt;
 }
 
-function acknowledge(receipt: CommittedCommandReceipt, status: "committed" | "duplicate"): SyncAcknowledgement {
+export function acknowledge(receipt: CommittedCommandReceipt, status: "committed" | "duplicate"): SyncAcknowledgement {
   const base = { commandId: receipt.commandId, commandHash: receipt.commandHash, sequence: receipt.sequence };
+  // Settled by a manager (slice 4): `reviewed` however often it is resent, with exactly the
+  // fields of its outcome (the response is signed as canonical JSON).
+  if ("review" in receipt) {
+    const review = {
+      settlementId: receipt.review.settlementId,
+      refusalCode: receipt.review.refusalCode,
+      settledAt: receipt.review.settledAt,
+    };
+    const head = { ...base, status: "reviewed" as const, committedAt: receipt.committedAt, review };
+    if (receipt.decision === "not_honoured")
+      return { ...head, commandKind: receipt.commandKind, decision: "not_honoured" };
+    if (receipt.commandKind === "ordinary_sale") {
+      const posting =
+        receipt.stockPosting === "posted"
+          ? { stockPosting: "posted" as const, reconciliationCaseId: null }
+          : { stockPosting: "pending_reconciliation" as const, reconciliationCaseId: receipt.reconciliationCaseId };
+      return { ...head, commandKind: "ordinary_sale", decision: "recorded", saleId: receipt.saleId, ...posting };
+    }
+    return { ...head, commandKind: receipt.commandKind, decision: "recorded", workSessionId: receipt.workSessionId };
+  }
   if (receipt.commandKind === "ordinary_sale") {
     const posting =
       receipt.stockPosting === "posted"

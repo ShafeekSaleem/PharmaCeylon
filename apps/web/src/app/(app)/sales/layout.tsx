@@ -6,7 +6,7 @@ import { SALES_ROLES } from "@/lib/role-access";
 
 export default function SalesLayout({ children }: { children: ReactNode }) {
   return (
-    <RolePageGuard roles={SALES_ROLES} permissions={["sales.view"]}>
+    <RolePageGuard roles={SALES_ROLES} permissions={["sales.view", "returns.approve"]}>
       {children}
     </RolePageGuard>
   );

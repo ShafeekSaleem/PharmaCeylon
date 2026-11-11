@@ -616,8 +616,12 @@ describe("restored counter journal recovery (D11)", () => {
       recoveryId: again.recoveryId,
       status: "superseded",
     });
-    // Superseded, never completed or closed: nothing to wait out, and the pair is rebased.
-    await expect(renew(c)).resolves.toMatchObject({
+    // Approved then superseded when the original kept selling: wait out its pre-restore grant.
+    expect(await refusal(renew(c))).toMatchObject({
+      code: "RESTORED_COUNTER_WAIT",
+      availableAt: c.grant.expiresAt,
+    });
+    await expect(renew(c, c.grant.expiresAt)).resolves.toMatchObject({
       snapshot: { payload: { includedThroughSequence: 5 } },
     });
   });

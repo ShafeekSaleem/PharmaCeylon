@@ -104,6 +104,7 @@ Send optional header **`Idempotency-Key`** (max 128 characters, trimmed). Keys a
 | Supplier payment | `supplier_payment` | `POST /api/v1/purchasing/payments`                |
 | Write-off request | `held_adjustment_request` | `POST /api/v1/inventory/adjustment-requests` |
 | Stock adjustment | `stock_adjustment` | `POST /api/v1/inventory/adjustments`              |
+| Refused-entry decision | `offline_journal_settlement_prepare` | `POST /api/v1/offline-journal-reviews/:id/settlements` |
 
 **Semantics**
 
@@ -113,7 +114,7 @@ Send optional header **`Idempotency-Key`** (max 128 characters, trimmed). Keys a
 - `checkout` keys can be sealed: `POST /sales/checkout/resolve` records scope `checkout_sealed`
   for the seller's key once nothing landed under it, and checkout then refuses that key with 409
   `CHECKOUT_SEALED` ("Desktop enrollment and staff sessions", "Unconfirmed sales").
-- `stock_adjustment` keeps the first request's body with the key (`idempotency_record.request_body`) and replays only an identical body at the same branch; any other body is the 400. `held_adjustment_request` compares against the held adjustment's saved payload.
+- `stock_adjustment` keeps the first request's body with the key (`idempotency_record.request_body`) and replays only an identical body at the same branch; any other body is the 400. `held_adjustment_request` compares against the held adjustment's saved payload. `offline_journal_settlement_prepare` keeps `{ reviewId, decision, reason }` and replays the settlement only for the same entry, decision and reason.
 
 ## Private supplier-payment evidence (P1)
 
@@ -989,6 +990,26 @@ is locked, so a revocation that commits first refuses the sale and a later one w
     goods return's `approvedBy` is `null` and the `sale.refunded` audit carries `approvalWaived: true`. `GET /sales/refund-requests?saleId=&status=`
     and `GET /sales/refund-requests/:id` (`sales.refund`) return `status`, `readyAtCounter`,
     `approvalRequired`, `approvalReview` and requester/approver/executor.
+  - **Pending refund approvals (W4/W11).** Sales → Pending approvals consumes the shared
+    `GET /dashboard/work?kind=sale_refund.approve&filter=all&page=1&pageSize=25&q=` projection,
+    including self-approval blockers. `filter=approvals` instead counts/returns only decisions
+    the caller may make. `kind` accepts the shared `DAILY_WORK_KINDS` registry, `pageSize` is
+    optional (default 6, maximum 100), and `q` (maximum 100 characters) searches task reference,
+    detail and title case-insensitively as literal text. Each option only narrows the existing
+    tenant/branch/source-permission scope. Module pending lists use the same source predicates,
+    ordering and snapshot-based list/count/facet query as Daily work; no second inbox SQL/store.
+    Internal notification kind allowlists intersect client kind filters. Task search/kind scope
+    applies before category facets, totals and paging; existing requests without new fields keep
+    their behavior. This is still an active-branch API, not the planned cross-branch overview.
+    Refund tasks link to `/sales?view=pending-approvals&request=<id>`. The old `/refund-approvals`
+    web route redirects there for draft-MR bookmarks; there is no separate sidebar destination.
+    `GET /sales/refund-requests/:id` admits `sales.refund` **or** `returns.approve`, so an
+    approver need not have sale execution/history permissions. Detail includes exact approval
+    evidence, priced lines and nullable `productName`/`batchNo` display labels (outside the digest).
+    The existing approval command and separate counter execution boundary are unchanged.
+    Revoked/missing pinned evidence returns open refunds to pending review even if the threshold
+    is later switched off; notifications use the same task model and omit self-blocked decisions.
+    See `DAILY_WORK_QUEUE_PLAN.md` and W11 #145 for phased cross-app enhancement ownership.
   - **The desktop Returns page** prepares at the counter too: a PIN-opened counter login may call
     `POST /sales/:id/refund-requests` (`@CounterRoute()`), then executes the request through the
     signed operation when it is `readyAtCounter`. Over the threshold, a cashier's request waits
@@ -1563,21 +1584,28 @@ transaction under the enrollment's journal lock:
    (`terminal_command_receipt` with `offline_sequence`). Same identity, ID, digest and sequence
    (`classifyCommandReplay`) is `duplicate` with the original receipt — before any grant, expiry
    or revocation rule, so it works after the grant expired. Anything else under that ID or
-   sequence is `rejected` `REPLAY_CONFLICT`.
-2. **Next in line.** The sequence must be the accepted head + 1 (else `held` `SEQUENCE_GAP`) and
+   sequence is `rejected` `REPLAY_CONFLICT`. A receipt written by a manager's settlement of a
+   rejected entry answers `reviewed` instead
+   ([Refused offline journal entries](#refused-offline-journal-entries-p5-51-slice-4)).
+2. **A rejection stands.** Content this server already rejected (the same digest, outcome
+   `rejected` in `offline_journal_review`) is answered `rejected` with the stored code, never
+   judged again (a clock that has caught up or a shift opened since cannot change the answer),
+   until a manager settles it.
+3. **Next in line.** The sequence must be the accepted head + 1 (else `held` `SEQUENCE_GAP`) and
    `previousCommandHash` must be the head's digest (`null` at sequence 1; else `rejected`
    `REPLAY_CONFLICT`). The digest is SHA-256 of the domain-separated `command` signing text.
-3. **Historical validation**, never against today's catalog or clock: the grant this server
+4. **Historical validation**, never against today's catalog or clock: the grant this server
    issued to this enrollment (`offline_authority_issuance`; else `GRANT_INVALID`) and, for a sale,
    the signed snapshot it cites (`offline_stock_snapshot`; else `SNAPSHOT_INVALID`); the cited
    signed sign-in (missing: `held` `SESSION_INVALID`, so uploading it later repairs the entry);
    a cited D8 acknowledgement and its manager's sign-in (missing: `held`
    `BUSINESS_HOURS_ACK_REQUIRED`); the command's own `occurredAt` as the trusted time (no more
-   than 5 minutes ahead of the server and not before the previous accepted entry, else
+   than 5 minutes ahead of the server and not before the latest entry accepted on its own — a
+   settled entry's time may be why it was refused, so it is not evidence of the clock — else
    `CLOCK_UNTRUSTED`); usage recomputed from the accepted sales on the same snapshot. Sales go
    through `offlineSalePolicyError`, shifts through `offlineShiftTransition`, with state
    `offline`; their codes are returned as `rejected`. Late arrival alone is never a refusal.
-4. **Commit**, in that one transaction: the effect, its audit and the receipt.
+5. **Commit**, in that one transaction: the effect, its audit and the receipt.
 
 Processing **stops at the first `held` or `rejected` command**; later commands get no
 acknowledgement and stay queued on the counter. Every refused upload (held, rejected or conflict)
@@ -1617,6 +1645,24 @@ beside it (`counterExpectedCashMinor`); an assisted close records the manager's 
 reason. Each is replayed once: a resend is a `duplicate`, and a second close of a closed shift is
 `rejected` `SESSION_INVALID`, never a reopen.
 
+**Sync status for managers.** `GET /api/v1/terminals/offline-journal/sync-status`
+(`tenant.management`, live at the branch; `x-branch-id`; not a counter route) returns
+`CounterJournalSyncStatus`: the branch's `timezone` (times on the Counters page read in it) and
+`enrollments`, read in one statement from the server's own tables and scoped by tenant and
+branch: each counter's current enrollment, plus any earlier one (revoked key, retired computer)
+whose journal stopped short or has stock cases open. Per enrollment: `head` (the highest accepted
+`offline_sequence` and its receipt's `recordedAt`), `lastReceivedAt` (the latest accepted entry,
+retained refusal or staff sign-in: the last upload that brought something new; an upload with
+nothing new leaves no trace), `stoppedAt` (the lowest sequence past the head with a retained
+refusal, most severe copy first: sequence, `held` / `rejected` / `conflict`, error code, first
+received) and `openStockCases`. Intake stops at the first refusal, so there is at most one
+stopping point and the server can't say how many entries follow it; a `rejected` or `conflict`
+stop is the issuance's `RECONCILIATION_REQUIRED` rule. Refusals at or below the head are history.
+The server sees only what a counter has sent; a counter offline now may hold more. Daily work
+lists a current counter stopped on a `rejected` entry as `offline_journal.review` ("Review
+refused offline entry", for `tenant.management`); conflicts and revoked or retired counters are
+left to D11 journal recovery.
+
 **Support acknowledgements.** `accepted` / `duplicate` for an accepted record; otherwise the
 record is stored but still `held`, acknowledged `held` with `RECONCILIATION_REQUIRED` (its held
 reason in the message), or `REPLAY_CONFLICT` for changed content under a used record ID. Gating
@@ -1632,9 +1678,10 @@ with every staff sign-in they cite. With nothing waiting, it sends an empty uplo
   `sync_response`) and names this identity. Its acknowledgements must match what was sent: one
   each, in order, with the exact hash, sequence and kind, nothing after a refusal and nothing
   committed past the watermark. Otherwise nothing in it is applied.
-- **Outcomes.** `committed` / `duplicate` entries are marked accepted, with the acknowledgement
-  kept. `held` ones are resent after a minute; `rejected` ones never are. A lost reply is
-  recovered by resending the same entries.
+- **Outcomes.** `committed` / `duplicate` / `reviewed` entries are marked accepted, with the
+  acknowledgement kept. `held` ones are resent after a minute. A `rejected` one is sent alone,
+  at most once a minute, to learn whether a manager has settled it; nothing after it is sent
+  until then. A lost reply is recovered by resending the same entries.
 - **Watermark.** It is recorded only if it names this computer's own chain. One naming entries
   this computer doesn't have (`JOURNAL_MISMATCH`, e.g. a restored backup) is never adopted, and
   no new outage may start until it is recovered. Only a verified reply sets or clears it: a
@@ -1649,7 +1696,6 @@ with every staff sign-in they cite. With nothing waiting, it sends an empty uplo
 
 **Not yet (later P5 slices).**
 
-- Review of a rejected journal entry.
 - Support-record gating of dependent commands.
 - Making and restoring backups (D11 recovers whatever a restore brings back).
 - The retention policy for journal evidence (nothing is deleted today).
@@ -1726,6 +1772,94 @@ are kept as evidence and never posted.
 
 Audit: `terminal.journal_recovery_reported`, `_approved`, `_completed`, `_closed`,
 `terminal.offline_journal_signed_off`.
+
+## Refused offline journal entries (P5 #51 slice 4)
+
+A command the server **rejected** stops its counter: entries are accepted only at head + 1, so
+nothing after it can be accepted, and issuance refuses `RECONCILIATION_REQUIRED` while it stands.
+A manager settles it here, remotely, so the counter can finish synchronising (approved D12).
+Held entries are not settled here (the counter repairs them), and neither are conflicts with the
+accepted chain or a revoked counter's journal (D11 journal recovery).
+
+| Route | Permission | Notes |
+| --- | --- | --- |
+| `GET /offline-journal-reviews?status=open\|closed` | `sales.review_offline_entries` | The branch's rejected commands, newest first: `open` while one blocks its counter (unsettled, its sequence past the accepted head; never capped), `closed` once `settled` or `superseded` (overtaken; the newest 200). `occurredAt` is `null` where the counter's clock gave no date; `collectedNotSoldMinor` is the card money a not-honoured sale took |
+| `GET /offline-journal-reviews/:id` | `sales.review_offline_entries` | The entry as signed, decoded (staff, shift, and for a sale its lines at the snapshot's prices with product and batch, and its payments); the refusal code with an explanation; attempts; the accepted head; `settleBlocker`; `recordable`; `notHonoured` (`{ ok, message }`: whether it may be not honoured, and what that leaves behind or why it must be recorded); every settlement with its approval evidence, `approvalReview` and `collectedPayments` |
+| `POST /offline-journal-reviews/:id/settlements` | `sales.review_offline_entries` | Prepare `{ decision: "recorded" \| "not_honoured", reason }` (a reason is required, up to 500 characters); one waiting per entry. A preparer who may approve their own requests settles it at once. Optional `Idempotency-Key` (scope `offline_journal_settlement_prepare`): a retry replays the settlement, another decision or reason under the key is 400 |
+| `POST /offline-journal-reviews/settlements/:id/approve` | `sales.review_offline_entries` | `{ approvalId, expectedVersion, expectedDigest }` from `approvalReview`. Approving settles; a retry with the same `approvalId` returns the settlement |
+| `POST /offline-journal-reviews/settlements/:id/cancel` | `sales.review_offline_entries` | A decision still waiting for approval |
+
+**Decisions.**
+
+- `recorded` — the entry's effect is written as the counter recorded it, under the enrollment's
+  journal lock, every condition checked again at approval:
+  - **A sale** needs the grant and snapshot this server issued to the counter, the uploaded
+    sign-in (this counter's, for the entry's own person and shift), the grant's register and
+    till, figures that are exactly the snapshot's (lines in it, none repeated, its price, no
+    discount, half-up tax per line, the total, cash tendered less change equal to the amount, a
+    card's provider reference, payments equal to the total), its batches still at the branch,
+    and its shift open on the server and the seller's own, opened on this counter. It is created
+    as at intake (snapshot prices, seller, shift, payments, `offlineCommandId`), dated at `occurredAt` but
+    never after the server first received the entry, and **always** `pending_reconciliation`: an
+    offline stock case opens with every batch blocked (line reason `entry_reviewed`, or
+    `shortfall` / `batch_under_review` where those apply). No stock moves on a remote approval;
+    the case is resolved at the counter as in
+    [Offline stock case resolution](#offline-stock-case-resolution-p5-51).
+  - **A `shift_open`** needs no shift open on the till and its work session ID unused; it is
+    replayed as at intake.
+  - **A `shift_close`** needs the same shift still open (same till, register and cashier); it is
+    replayed as at intake, its variance against the server's expected cash. An assisted close is
+    signed in by the manager who closed it, on the same register and till.
+  - Shift entries also need the uploaded sign-in, matched as for a sale.
+  - Shift times are dated like a sale's, and a close never before its open. A counter time that
+    is no date at all is dated when the server first received the entry.
+  - The till is judged under intake's own locks, taken after the journal lock in intake's order
+    (the counter row, and the shift for a close, `FOR UPDATE`; a sale's shift `FOR SHARE`), so
+    a shift opened or closed by intake meanwhile is seen, not raced; a till whose shifts changed
+    under a write anyway is 409.
+  - Otherwise 409 with the reason; `recordable.blocker` is one of `grant_unknown`,
+    `snapshot_unknown`, `sign_in_missing`, `lines_unknown`, `prices_differ`, `totals_differ`,
+    `payments_differ`, `batch_missing`, `shift_not_open`, `shift_not_theirs`,
+    `sign_in_mismatch`, `till_mismatch`, `till_has_open_shift` or `shift_id_used`.
+- `not_honoured` — no sale, stock or shift change is written. Cash the counter took for a
+  refused sale shows in that shift's variance when it closes. A card payment it took is kept as
+  an `offline_collected_payment` (collected, not sold: method, amount, provider reference,
+  approval code, the shift if the server has it, the seller), retained, for a refund or a
+  re-sale at the counter; the settlement lists it as `collectedPayments`. **A shift record the
+  till can take is recorded**: not honouring it is 409 (`notHonoured.ok: false`), because every
+  later record in that shift would then be unrecordable.
+
+**What every settlement writes**, in one transaction: the `terminal_command_receipt` at the
+entry's own sequence with its own digest (operation `offline_journal:<kind>`, actor the
+approver), whose result carries `review: { settlementId, refusalCode, settledAt }` and the
+decision's outcome; the `offline_journal_settlement` (immutable apart from its progress; one
+settled per entry and per sequence); and audit `offline_journal_settlement.settled` (with
+`.prepared` and `.cancelled`; the sale's and shift's own audits carry `journalSettlementId`).
+Later entries chain on that receipt like any other. Usage for later sales on the same snapshot
+still counts a recorded sale.
+
+**Nothing to settle** (`settleBlocker`, 409 on prepare or approve): `not_rejected`, `settled`,
+`not_next` (the entry no longer follows the accepted head, or its command ID was accepted with
+other content), `forked` (the counter also sent a different entry refused at the same sequence,
+as after a restored backup: D11) and `counter_revoked` (a revoked or retired counter: D11).
+
+**Approval** uses exact approval (`management_approval`, document type
+`offline_journal_settlement`, action `offline_journal_settlement.execute`). The material is the
+entry (review, identity, command ID, sequence, digest, outcome), the decision and reason, and the
+accepted head it follows, so a different entry taking its place makes the approval
+`APPROVAL_STALE`. `sales.review_offline_entries` (owner and manager by default) prepares and
+approves, under the tenant's self-approval policy. It is management work: no counter, and no
+stock moves.
+
+**The counter learns it by resending.** Resending the refused content returns the stored refusal
+until it is settled (a revoked or retired counter is answered `held` `TERMINAL_REVOKED` instead,
+and the stored refusal stands). Then step 1 finds the settlement's receipt and acknowledges it
+`status: "reviewed"` with `committedAt`, `review`, `commandKind` and `decision`; a recorded
+sale adds `saleId`, `stockPosting: "pending_reconciliation"` and `reconciliationCaseId`, a
+recorded shift entry `workSessionId`. The desktop accepts `reviewed` only from a verified reply
+(a recorded sale must be pending on a case), marks the entry accepted and carries on with the rest
+in the same cycle. Once the journal is accepted, issuance no longer refuses and the drain
+finishes.
 
 ## Offline stock case resolution (P5 #51)
 

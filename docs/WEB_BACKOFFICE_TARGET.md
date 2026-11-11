@@ -88,6 +88,20 @@ deliver it; W1's foundation is built (see "Built in W1"), the rest is not yet.
   live branch no dashboard link opens `/pos`, the held-bills widget is hidden and the cashier
   dashboard shrinks to its own figures with a counter handoff.
 
+## Daily work and module review — 2026-11-09
+
+Daily work discovers and prioritizes tasks across modules. Each owning module keeps its pending
+approval/status view and domain-specific review evidence. Refund approval review therefore belongs
+inside Sales, not in a separate sidebar page, and notifications deep-link to the owning module.
+Module pending lists reuse the common task projection; they do not maintain duplicate tasks.
+
+[W11 #145](https://github.com/ShafeekSaleem/PharmaCeylon/issues/145) owns the shared contract,
+source adapters, cross-branch manager view, priority signals and web/desktop/mobile alignment.
+W9 owns presentation and notifications; W4/W5 own their domain evidence and commands;
+P2/P2b/P6 retain counter and execution boundaries. Native mobile approval depends on native auth,
+tenant and branch context first. See [DAILY_WORK_QUEUE_PLAN.md](DAILY_WORK_QUEUE_PLAN.md) for the
+phased impact and acceptance plan.
+
 ## Page by page
 
 | Page | Route | Stays on the web | Moves to the counter | Web shows instead | Epic |

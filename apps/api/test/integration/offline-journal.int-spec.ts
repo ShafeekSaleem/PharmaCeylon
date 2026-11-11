@@ -1,6 +1,6 @@
 import { randomBytes, randomUUID, verify } from "node:crypto";
 import { RoleName, StockMovementType } from "@prisma/client";
-import { terminalSigningText, type Signed } from "@pharmaceylon/shared";
+import { MAX_OFFLINE_JOURNAL_SYNC_COMMANDS, terminalSigningText, type Signed } from "@pharmaceylon/shared";
 import { acceptedJournalState, issueOfflineAuthority } from "../../src/terminals/offline-authority-issuance";
 import { commandText, sha256 } from "../../src/terminals/terminal-wire";
 import { terminalDevice } from "../fixtures/terminal-device";
@@ -459,5 +459,29 @@ describe("offline journal intake (P5 #51)", () => {
     // Nor can anything else: the table only lets an outcome escalate.
     await expect(prisma.offlineJournalReview.update({ where: { id: row.id }, data: { outcome: "held" } }))
       .rejects.toThrow(/only escalates/);
+  });
+
+  it("accepts more than one sync page of commands through the real sync path", async () => {
+    const c = await counter({ main: 500 });
+    const j = offlineJournal(c);
+    const workSessionId = randomUUID();
+    const cashierIn = j.signIn(c.cashier.userId, workSessionId);
+    const open = j.open(cashierIn, 0);
+    const extra = 6;
+    const saleCount = MAX_OFFLINE_JOURNAL_SYNC_COMMANDS - 1 + extra;
+    const sales = Array.from({ length: saleCount }, () => j.sale(cashierIn, [[c.batches.main, 1]]));
+
+    const first = await sync(c, {
+      staffSignIns: [cashierIn],
+      commands: [open, ...sales.slice(0, MAX_OFFLINE_JOURNAL_SYNC_COMMANDS - 1)],
+    });
+    expect(first.payload.acknowledgements.every((a) => a.status === "committed")).toBe(true);
+    expect(first.payload.committedThroughSequence).toBe(MAX_OFFLINE_JOURNAL_SYNC_COMMANDS);
+
+    const second = await sync(c, { commands: sales.slice(MAX_OFFLINE_JOURNAL_SYNC_COMMANDS - 1) });
+    expect(second.payload.acknowledgements).toHaveLength(extra);
+    expect(second.payload.acknowledgements.every((a) => a.status === "committed")).toBe(true);
+    expect(second.payload.committedThroughSequence).toBe(saleCount);
+    expect(await onHand(c.batches.main)).toBe(500 - saleCount);
   });
 });

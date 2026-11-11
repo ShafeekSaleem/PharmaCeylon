@@ -169,7 +169,7 @@ and only then sells again.
 | Upload (desktop) | `main/terminal/offline-journal-sync.ts`: every 15 s while someone is signed in, entries not yet accepted go to `POST /terminals/offline-journal/sync` in sequence order, 50 per request and up to 20 requests per cycle, with every staff sign-in they cite. With nothing waiting, an empty upload every 5 minutes has the server confirm the whole journal |
 | Trust | `verifySyncResponse`: the offline authority key, purpose `sync_response`, this exact identity, a canonical watermark, and one acknowledgement per entry sent, in order, with its exact hash, sequence and kind, nothing after a refusal and nothing committed past the watermark. A reply that fails any check applies nothing (`RESPONSE_INVALID`) |
 | Local state (migration 16) | `offline_journal_command` gains `acknowledgement_json`, `acknowledged_at`, `last_error_code`; `offline_journal_sync` keeps the server-confirmed watermark (sequence and hash set together, only moving forward), the last confirmation, the current issue and the last drained outage |
-| Outcomes | `committed` / `duplicate` → `synced` with the acknowledgement kept; `held` stays `pending` and is resent after 60 s; `rejected` → `failed`, never resent, and nothing after it is sent. A lost reply is recovered by resending the same entries: the server answers `duplicate` |
+| Outcomes | `committed` / `duplicate` → `synced` with the acknowledgement kept; `held` stays `pending` and is resent after 60 s; `rejected` → `failed`, and nothing after it is sent (slice 4: resent alone once a minute until a manager settles it). A lost reply is recovered by resending the same entries: the server answers `duplicate` |
 | Drain (D12) | `main/terminal/reconnect-drain.ts`: `mayResumeOnlineCheckout` over trusted local facts (journal accepted through the head, no `submitted` / `uncertain` checkout drafts or signed actions, the fresh pair's snapshot and review blocks). Once the journal is accepted the coordinator asks for a fresh pair at once (`renewNow`); installing it ends the outage in the same transaction. If the server refuses the counter offline authority (not nominated, `GRANT_INVALID`), the drain ends without a pair, because online checkout checks stock centrally |
 | Pause | `CheckoutService.submit` refuses `SYNC_PAUSED` while an outage is draining or entries wait; confirming an unconfirmed sale (`retry`) still works. Sell shows "Synchronising offline sales" over the kept cart (`SyncBlock`), and readiness has a real Synchronisation row |
 | Installer | The pair is installed only if its watermark is exactly the local head (`journalCoverage`): `behind` → `local_usage` (upload first), `mismatch` → `journal_mismatch` (never installed), and during a drain with something unconfirmed → `drain_incomplete`. Installing resets the replaced snapshot's usage, which the new snapshot already includes |
@@ -337,10 +337,108 @@ Web: `journal-recovery-card.spec.tsx` (sign-off waiting for the grant, the exact
 a stale sign-off, reviewing and approving exactly the unmatched records, partial evidence
 keeping Approve off, closing under StrictMode, a refusal kept in the dialog). Shared: `offline-journal-recovery.test.cjs`.
 
+## Slice 4 — manager settlement of refused journal entries (built)
+
+A command the server rejected used to stop its counter for good: the desktop marked it `failed`
+and sent nothing after it, the server accepts only head + 1, and issuance refused
+`RECONCILIATION_REQUIRED`, so the drain never finished. A manager now settles it, remotely, and
+the counter carries on within a minute.
+
+| Area | What exists |
+| --- | --- |
+| Routes | `apps/api/src/journal-reviews/`: `GET /offline-journal-reviews`, `GET /:id`, `POST /:id/settlements`, `POST /settlements/:id/approve`, `POST /settlements/:id/cancel`, all `sales.review_offline_entries` and `management` in the mutation inventory. Contract: [API_CONTRACT.md](API_CONTRACT.md#refused-offline-journal-entries-p5-51-slice-4) |
+| Decisions | `recorded` (as it happened, only if its figures are exactly the snapshot's and the till and shift allow it) or `not_honoured` (no sale or stock; a card sale's payments kept as collected, not sold), a reason either way. A shift record the till can take is always recorded. Rules in `journal-reviews/journal-entry-settlement.ts` |
+| Exact approval | `management_approval`, document `offline_journal_settlement`, action `offline_journal_settlement.execute`; material in `security/offline-journal-settlement-approval-material.ts` (the entry, the decision and reason, the accepted head it follows) |
+| The chain | The settlement writes the server's receipt at the entry's own sequence and digest (`terminals/journal/journal-chain.ts` holds the journal lock, the head, and the till locks intake takes, in intake's order, so both writers judge the till alike). Later entries chain onto it; the clock floor skips settled receipts |
+| Intake | A rejected entry's content is never judged again: a resend returns the stored refusal until it is settled, then `reviewed` from the receipt |
+| Shared contract | `ReviewedEntryOutcome`; `SyncAcknowledgement` and `CommittedCommandReceipt` gain `status: "reviewed"` |
+| Desktop | `offline-journal-sync.ts` sends a `failed` entry alone (the existing 60 s issue back-off paces it), verifies `reviewed` (kind, `committedAt`, the watermark, the review fields, and a recorded sale pending on a case), marks it synced and continues in the same cycle |
+| Web | Inventory → Refused offline records (`/inventory/offline-records`): the list, the entry decoded, why it was refused, whether it can be recorded and what not honouring it leaves behind, the decision form (prepared with an `Idempotency-Key`), approval evidence, card money collected, not sold, and a link to a recorded sale's stock case. Stock cases show the `entry_reviewed` reason |
+
+### Decisions taken in this slice (asked 2026-11-10)
+
+- **Both decisions, with a reason.** Record it as it happened, only if its amounts add up, or
+  don't honour it. Not honouring writes no sale or stock; the cash the counter took shows as
+  that shift's variance.
+- **A not-honoured card sale keeps its card money as collected, not sold** (asked 2026-11-10,
+  review follow-up). The customer was charged, so each card payment is written as an
+  `offline_collected_payment` (provider reference, approval code, shift) for a refund or a
+  re-sale at the counter, rather than vanishing. Showing it in the shift summary is a follow-up.
+- **A recorded sale always waits on a case, settled on the web.** It opens an
+  `offline_stock_discrepancy` case and blocks its batches until the case is resolved at the
+  counter (slice 2); no stock moves on a remote approval. Approval and settlement happen on the
+  web, and the counter resumes within a minute.
+- **A new permission**, `sales.review_offline_entries`, owner and manager by default (migration
+  `20261110100000_offline_journal_settlement`), with exact approval and the tenant's
+  self-approval rules.
+- **Shift entries are recorded when the till allows it**: an open if no other shift is open on
+  the till and its ID is unused, a close if that shift is still open. **A shift record the till
+  can take must be recorded** (review follow-up): not honouring it would leave every later
+  record in that shift unrecordable. It is not honoured only when it can't be recorded, and the
+  page says what follows (later sales can then only be not honoured; a shift left open must be
+  closed on the server).
+- **A sale is recorded only as intake would have taken it** (review follow-up): onto the
+  seller's own shift opened on this counter, under a sign-in that is this counter's, for the
+  entry's own person and shift (an assisted close: the manager who closed it, on the same
+  till).
+- **A rejection is final for that content until settled**, so the answer the counter gets never
+  drifts with the clock or the till. Recorded entries are dated at the counter's time but never
+  after the server first saw them (a clock ahead of the server is one reason to refuse).
+- **Out of scope here:** held entries (the counter repairs them), conflicts with the accepted
+  chain, forked journals (two different entries refused at the same sequence, as after a
+  restored backup) and revoked or retired counters (D11 journal recovery).
+- **No new daily-work kind.** Approval is classified `management`, so the daily-work kind
+  rule for physical approvals does not apply. The sync-status work lists rejected entries past
+  the head; a settled entry has a receipt, so it drops out on its own.
+
+### Schema (migrations `20261110100000_offline_journal_settlement`, `20261110100100_offline_journal_settlement_validate`)
+
+- `offline_journal_settlement`: the review it settles, the entry's enrollment, command ID,
+  sequence and digest, the decision and reason, `prepared` → `settled` | `cancelled`, the
+  approval and result. A shape check ties each status to its fields; partial unique indexes allow
+  one waiting and one settled per review and one settled per enrollment and sequence; a trigger
+  keeps everything but the progress immutable; tenant isolation policy. The approver, canceller
+  and execution approval are foreign keys.
+- `offline_collected_payment`: a not-honoured sale's card payments (method, amount as
+  `BIGINT`, provider reference, approval code, shift, seller, when collected), one per payment
+  index per settlement, tied to the settlement and the shift; retained by trigger, tenant
+  isolation policy.
+- `offline_stock_discrepancy_line.reason` gains `entry_reviewed`;
+  `management_approval_shape` gains the new document and action.
+- `sales.review_offline_entries` is inserted and granted to the built-in owner and manager roles.
+
+### Tests
+
+- API unit: `journal-entry-settlement.spec.ts` (money checks, dating including a clock that
+  gives no date, decision and reason parsing, explanations, the sign-in match including an
+  assisted close, when a shift record must be recorded, what not honouring leaves behind);
+  `offline-sale-commit.spec.ts` (a reviewed entry never posts).
+- API (PostgreSQL), `offline-journal-reviews.int-spec.ts`:
+  - A sale refused after the grant expired: issuance refused and resends answered with the
+    refusal; review and detail; the cashier refused; reason required; exact approval with
+    self-approval off for managers, a stale digest and an idempotent retry. Then a pending sale
+    with an `entry_reviewed` case, the receipt at its sequence and the audit; the counter's
+    resend answered `reviewed` in a verified signed response with the next entry committed;
+    issuance rebased past it.
+  - Not honoured: no sale, stock or case, and the cash shows as variance.
+  - Figures that differ and a second shift open on a till: recording refused, not honouring
+    allowed. A revoked counter: nothing to settle.
+  - A shift open on a clock ahead of the server, dated when it arrived; the next, earlier entry
+    is accepted.
+  - Concurrent approvals settle once; a cancelled decision can't be approved.
+  - Review follow-ups: a held-then-rejected entry settles; a not-honoured card sale keeps its
+    payment as collected, not sold (retained); a close after the grant expired must be recorded;
+    a sale onto someone else's shift, or under a forged sign-in, can't be recorded; a forked
+    journal is `forked`; concurrent prepares with one `Idempotency-Key` settle once and
+    replay; more than 200 overtaken entries don't hide an open one, and a clock that gives no
+    date lists as `null` and is dated when it arrived.
+- Desktop: `offline-journal-sync.spec.ts` — the probe once a minute, carrying on once settled,
+  and the `reviewed` acknowledgement checks.
+- Web: `record-detail.spec.tsx` (also the key per decision and reason, a recordable shift that
+  can't be not honoured,   and collected payments).
+
 ## Later slices (not built)
 
-- Review of a rejected journal entry, so a counter stuck on one can finish synchronising
-  (today issuance stays `RECONCILIATION_REQUIRED` and the counter's drain waits).
 - Making and restoring backups of the counter's store. D11 recovers whatever a restore brings
   back; nothing takes or restores a backup yet.
 - Settling a recovery's unmatched entries in place (today the approver records how stock and
@@ -356,3 +454,52 @@ keeping Approve off, closing under StrictMode, a refusal kept in the dialog). Sh
   installer has to refuse (`drain_incomplete`) while an offline tender is open, and a flapping
   connection must not split one outage into two (epic: "a single probe cannot interrupt tender").
 - A concrete retention policy for journal evidence (nothing is deleted today).
+
+## Counter sync status for managers (built)
+
+Until now only the counter knew how far its journal had reached the server (its readiness
+Synchronisation row). Managers now see it per counter, from the server's own records.
+
+| Area | What exists |
+| --- | --- |
+| Read | `GET /terminals/offline-journal/sync-status` (`tenant.management`, live at the branch): the branch's timezone and, per enrollment, the accepted head and when it was accepted, when an upload last brought something, where the journal stopped (the first refused entry past the head) and open stock cases. One statement over `terminal_command_receipt`, `offline_journal_review`, `offline_staff_sign_in` and `offline_stock_discrepancy`, every read scoped by tenant and branch; the head and the stopping point are shared SQL fragments (`journal/counter-journal-status.ts`) |
+| Counters page | Settings → Counters has an "Offline sales" column: "All on the server, last received 14:02" or "Stopped at entry 42" with what moves it on (the counter repairs a held entry; a refused one needs review; a conflict needs journal recovery), a link to Inventory → Stock cases for open cases, and an earlier revoked key or retired computer of the same counter while its journal stops short. Times read in the branch's timezone, as Daily work does. A failed status read leaves the counters list working ("Couldn't check") |
+| Daily work | `offline_journal.review`, "Review refused offline entry": a current counter stopped on a rejected entry, for `tenant.management`, linking to Counters |
+
+### Decisions
+
+- **The server's records, not the counter's word.** Nothing here is reported by the counter; it
+  is what the server accepted and retained. So "all on the server" means every entry the counter
+  has sent was accepted: a counter that is offline now may hold sales it hasn't sent yet, and the
+  page says so.
+- **"Last received", not "last sync".** It is the last upload that brought the server something
+  new. An empty confirmation upload (slice 3 sends one every 5 minutes) writes nothing, so it
+  can't be seen; the status stays read-only rather than writing on every upload.
+- **Where it stopped, not how many wait.** Intake stops at the first refusal and retains only
+  that entry, so the server holds nothing after it and can't count what follows. The status names
+  the lowest refused sequence past the head (a conflicting copy before a rejected one before a
+  held one). Refusals at or below the head are kept as evidence but are not status: a conflict on
+  an accepted entry leaves the accepted one standing.
+- **Daily work lists only what can be settled from it.** A held entry is the counter's to repair.
+  A rejected one on a current counter is what slice 4 (#155) settles: its settlement writes the
+  receipt at that sequence, the head moves past it and the item drops out. Conflicts, and revoked
+  or retired counters, go to D11 journal recovery (#154), so they stay on the Counters page but
+  are not listed as work nothing here clears.
+- **Existing permission.** `tenant.management` is what the Counters page already requires. Slice
+  4's `sales.review_offline_entries` is not in `develop` yet (a key outside the catalog is granted
+  to nobody), so the Daily work source carries a TODO(#155) to switch to it and link
+  `/inventory/offline-records`.
+- This covers "sync lag visible centrally" from the later slices list.
+
+### Tests
+
+Unit: `journal/counter-journal-status.spec.ts` (row mapping, which enrollments are listed, every
+read of every table in the status query and the Daily work source joined on the enrollment's
+tenant and branch, the service's permission and timezone), `terminal-routes.spec.ts`,
+`daily-work-kinds.spec.ts`. PostgreSQL: `test/integration/counter-journal-status.int-spec.ts` —
+head and last receipt, a held entry stopping the journal until it is accepted, a rejected entry
+stopping it (and the Daily work item, only with `tenant.management`), the tenant's other branch
+seeing only its own computer and no item, a conflict at the head not counted, a fork past the
+head stopping it but left out of Daily work, open stock cases, a revoked counter listed only
+while its journal stops short, another tenant, and refusal without the permission. Web:
+`settings/counters/page.spec.tsx`, `offline-sync.spec.tsx` (including branch-timezone times).

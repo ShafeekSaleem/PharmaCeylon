@@ -77,13 +77,16 @@ export async function restoredCounterResumesAt(
       tenantId: scope.tenantId,
       enrollmentId: scope.enrollmentId,
       kind: "counter_restore",
-      status: { in: ["recovered", "closed"] },
       approvedAt: { not: null },
+      status: { in: ["recovered", "closed", "superseded"] },
     },
-    select: { completedAt: true, closedAt: true },
+    select: { status: true, completedAt: true, closedAt: true, supersededAt: true },
   });
   const ends = restores
-    .map((r) => (r.completedAt ?? r.closedAt)?.getTime())
+    .map((r) => {
+      if (r.status === "superseded") return r.supersededAt?.getTime();
+      return (r.completedAt ?? r.closedAt)?.getTime();
+    })
     .filter((t): t is number => t !== undefined);
   if (!ends.length) return null;
   const finished = Math.max(...ends);
