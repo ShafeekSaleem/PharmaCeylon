@@ -9,6 +9,7 @@ import { businessToday, safeTimeZone } from "../common/business-date.util";
 import { PrismaService } from "../prisma/prisma.service";
 import { AccessService } from "../security/access.service";
 import { RequestUser } from "../security/interfaces/authenticated-request.interface";
+import { stuckJournalWorkSource } from "../terminals/journal/counter-journal-status";
 import { POS_ROLLOUT_SELECT, resolvePosRollout } from "../tenant/pos-rollout";
 import { counterKinds } from "./daily-work-kinds";
 import { DailyWorkQueryDto } from "./dto/daily-work-query.dto";
@@ -220,6 +221,13 @@ export class DailyWorkService {
           AND ((${actor.has("inventory.resolve_stock_cases")} AND NOT ${ready})
             OR (${actor.has("inventory.manage")} AND ${ready}))`);
     }
+    // P5 #51: a current counter's offline journal stopped on an entry the server rejected.
+    // Nothing after it can be accepted, so its later offline sales stay off the server until the
+    // entry is settled. Conflicts and revoked or retired counters are D11 recovery's (#154).
+    // TODO(#155): gate on `sales.review_offline_entries` once slice 4 adds it to the catalog; it
+    // isn't in `develop` yet, and AccessService grants a key outside the catalog to nobody.
+    if (actor.has("tenant.management"))
+      sources.push(stuckJournalWorkSource(tenant, branchId));
     // Held bills live in the web POS. At a live branch it is hidden, so they leave the web (W9);
     // during a fallback the web POS is back and so are its holds.
     if (allowed("sales.pos_use") && rollout !== "live") {

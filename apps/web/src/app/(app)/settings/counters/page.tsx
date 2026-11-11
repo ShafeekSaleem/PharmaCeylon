@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import type {
+  CounterJournalSyncStatus,
   TerminalCounterView,
   TerminalEnrollmentCodeIssued,
   TerminalEnrollmentCodeView,
@@ -12,6 +13,7 @@ import { FormField, Modal, ModalButton, ModalFooter, PageHeader, StatusBadge } f
 import { useAuth } from "@/lib/use-auth";
 import css from "../settings.module.css";
 import { countersApi } from "./counters-api";
+import { CounterOfflineSales } from "./offline-sync";
 
 const CODE_LIFETIMES = [
   { minutes: 30, label: "30 minutes" },
@@ -67,8 +69,18 @@ function Counters() {
   const [issued, setIssued] = useState<TerminalEnrollmentCodeIssued | null>(null);
   const [pending, setPending] = useState<PendingAction | null>(null);
   const [revoking, setRevoking] = useState<string | null>(null);
+  const [journal, setJournal] = useState<CounterJournalSyncStatus | null>(null);
+  const [journalFailed, setJournalFailed] = useState(false);
 
   const load = useCallback(async () => {
+    // The sync status is extra: if it can't be read, the counters still can.
+    const journalRead = countersApi.journalStatus().then(
+      (status) => {
+        setJournal(status);
+        setJournalFailed(false);
+      },
+      () => setJournalFailed(true),
+    );
     try {
       const [list, codeList] = await Promise.all([countersApi.counters(), countersApi.codes()]);
       setCounters(list);
@@ -76,6 +88,7 @@ function Counters() {
     } catch (err) {
       setError(message(err, "Couldn't load the counters."));
     }
+    await journalRead;
   }, []);
   useEffect(() => {
     void load();
@@ -134,6 +147,7 @@ function Counters() {
                 <th>Counter</th>
                 <th>Computer</th>
                 <th>Status</th>
+                <th>Offline sales</th>
                 <th aria-label="Actions" />
               </tr>
             </thead>
@@ -164,6 +178,14 @@ function Counters() {
                     </td>
                     <td>
                       <StatusBadge status={status.status} label={status.label} variant={status.variant} />
+                    </td>
+                    <td>
+                      <CounterOfflineSales
+                        counter={counter}
+                        journal={journal?.enrollments ?? null}
+                        timeZone={journal?.timezone ?? "Asia/Colombo"}
+                        failed={journalFailed}
+                      />
                     </td>
                     <td>
                       <div className={css.chipRow}>
@@ -208,6 +230,16 @@ function Counters() {
             Add counter
           </ModalButton>
         </form>
+        {counters && counters.length > 0 ? (
+          <p className={css.rowHint}>
+            Offline sales shows what each counter has sent the server, with times in the
+            branch&apos;s timezone. &ldquo;Last received&rdquo; is the last upload that brought the
+            server something new; a counter that has sold nothing offline since sends nothing new.
+            A counter that is offline right now may still hold sales it hasn&apos;t sent, and when
+            a journal stops at an entry, nothing after it reaches the server, so the server
+            can&apos;t tell how many sales follow.
+          </p>
+        ) : null}
         <p className={css.rowHint}>
           Offline selling is set in <Link href="/settings/offline-policy">Offline policy</Link>.
           Staff PINs and which counters each person has prepared are under each person in{" "}

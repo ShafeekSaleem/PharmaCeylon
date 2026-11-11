@@ -75,5 +75,6 @@ describe("daily-work kinds", () => {
     expect(workPlace("stocktake.prepare", true)).toBe("web");
     expect(workPlace("sale_refund.execute", true)).toBe("counter");
     expect(workPlace("sale_refund.approve", true)).toBe("web");
+    expect(workPlace("offline_journal.review", true)).toBe("web");
   });
 });

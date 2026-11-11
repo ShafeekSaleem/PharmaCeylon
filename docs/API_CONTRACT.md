@@ -1633,6 +1633,24 @@ beside it (`counterExpectedCashMinor`); an assisted close records the manager's 
 reason. Each is replayed once: a resend is a `duplicate`, and a second close of a closed shift is
 `rejected` `SESSION_INVALID`, never a reopen.
 
+**Sync status for managers.** `GET /api/v1/terminals/offline-journal/sync-status`
+(`tenant.management`, live at the branch; `x-branch-id`; not a counter route) returns
+`CounterJournalSyncStatus`: the branch's `timezone` (times on the Counters page read in it) and
+`enrollments`, read in one statement from the server's own tables and scoped by tenant and
+branch: each counter's current enrollment, plus any earlier one (revoked key, retired computer)
+whose journal stopped short or has stock cases open. Per enrollment: `head` (the highest accepted
+`offline_sequence` and its receipt's `recordedAt`), `lastReceivedAt` (the latest accepted entry,
+retained refusal or staff sign-in: the last upload that brought something new; an upload with
+nothing new leaves no trace), `stoppedAt` (the lowest sequence past the head with a retained
+refusal, most severe copy first: sequence, `held` / `rejected` / `conflict`, error code, first
+received) and `openStockCases`. Intake stops at the first refusal, so there is at most one
+stopping point and the server can't say how many entries follow it; a `rejected` or `conflict`
+stop is the issuance's `RECONCILIATION_REQUIRED` rule. Refusals at or below the head are history.
+The server sees only what a counter has sent; a counter offline now may hold more. Daily work
+lists a current counter stopped on a `rejected` entry as `offline_journal.review` ("Review
+refused offline entry", for `tenant.management`); conflicts and revoked or retired counters are
+left to D11 journal recovery.
+
 **Support acknowledgements.** `accepted` / `duplicate` for an accepted record; otherwise the
 record is stored but still `held`, acknowledged `held` with `RECONCILIATION_REQUIRED` (its held
 reason in the message), or `REPLAY_CONFLICT` for changed content under a used record ID. Gating

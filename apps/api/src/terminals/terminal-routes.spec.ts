@@ -1,5 +1,6 @@
 import { PERMISSION_KEY } from "../security/decorators/require-permission.decorator";
 import { EnrollmentCodesController } from "./enrollment-codes.controller";
+import { OfflineJournalController } from "./journal/offline-journal.controller";
 import { TerminalEnrollmentController } from "./terminal-enrollment.controller";
 
 const permissions = (controller: { prototype: object }, method: string) =>
@@ -33,6 +34,9 @@ describe("terminal route permissions", () => {
       expect(permissions(TerminalEnrollmentController, method)).toEqual(["tenant.management"]);
     for (const method of ["list", "issue", "revoke"])
       expect(permissions(EnrollmentCodesController, method)).toEqual(["tenant.management"]);
+    // P5 #51: the counters' journal sync status is for whoever manages the counters.
+    expect(permissions(OfflineJournalController, "syncStatus")).toEqual(["tenant.management"]);
+    expect(permissions(OfflineJournalController, "sync")).toEqual(["terminal.execute"]);
   });
 
   it("gates the staff steps at the counter on terminal.execute", () => {

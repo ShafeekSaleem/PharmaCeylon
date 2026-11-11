@@ -54,6 +54,9 @@ export const DAILY_WORK_KIND_DEFS: Readonly<Record<DailyWorkKind, KindDef>> = {
   // the counter counts, corrects and posts it.
   "offline_stock_case.review": { executes: null },
   "offline_stock_case.resolve": { approvalAction: "offline_stock_resolution.execute" },
+  // P5 #51: a counter's journal stopped on an entry the server rejected or that conflicts with
+  // what it accepted. Nothing after it syncs until someone reviews it.
+  "offline_journal.review": { executes: null },
 };
 
 export function kindOperation(kind: DailyWorkKind): MutationKey | null {
