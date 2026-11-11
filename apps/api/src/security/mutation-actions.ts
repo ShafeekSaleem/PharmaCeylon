@@ -58,6 +58,7 @@ export const MUTATION_ACTIONS = Object.freeze({
   "POST /api/v1/inventory/held-adjustments/:id/post": "stock",
   "POST /api/v1/inventory/held-adjustments/:id/reject": "management",
   "POST /api/v1/inventory/quarantine-expired": "stock",
+  "POST /api/v1/offline-counter-restores/:id/acknowledge": "management",
   "POST /api/v1/offline-journal-recoveries/:id/approve": "management",
   "POST /api/v1/offline-journal-recoveries/:id/close": "management",
   "POST /api/v1/offline-journal-recoveries/missing-journal": "management",
@@ -262,6 +263,9 @@ export const MUTATION_ACTIONS = Object.freeze({
   "POST /api/v1/terminals/offline-journal/recovery/report": "local_record",
   "POST /api/v1/terminals/offline-journal/recovery/status": "local_record",
   "POST /api/v1/terminals/offline-journal/recovery/:recoveryId/complete": "local_record",
+  // A restored counter's device-signed restore report, and asking whether it was acknowledged.
+  "POST /api/v1/terminals/offline-journal/restore/report": "local_record",
+  "POST /api/v1/terminals/offline-journal/restore/status": "local_record",
   "POST /api/v1/terminals/offline-assignment/activate": "local_record",
   "POST /api/v1/terminals/offline-assignment/activate/challenge": "identity",
   "POST /api/v1/terminals/offline-assignment/authorizations": "management",

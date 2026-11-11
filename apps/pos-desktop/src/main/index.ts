@@ -8,7 +8,9 @@ import { classifyWindowsSession, createWindowsSessionReader } from "./attendance
 import type { SecretProtector } from "./db/key-store";
 import { migrations } from "./db/migrations";
 import { registerIpcHandlers } from "./ipc/handle";
-import { openLocalStore, type LocalStore } from "./local-store";
+import type { LocalStore } from "./local-store";
+import { openStoreAtStartup, type RestorePrompt } from "./backup/startup-restore";
+import { startStoreBackups, type StoreBackup } from "./backup/store-backup";
 import { createLogger } from "./logging/logger";
 import { printTestReceipt } from "./printing/test-receipt";
 import { printHtml } from "./printing/print-html";
@@ -76,6 +78,43 @@ const protector: SecretProtector = {
   isAvailable: () => safeStorage.isEncryptionAvailable(),
   protect: (plain) => safeStorage.encryptString(plain),
   unprotect: (blob) => safeStorage.decryptString(blob),
+};
+
+/** P5 #51: offered only where a restore is allowed (a broken or empty store); native dialogs, no window yet. */
+const backupLabel = ({ manifest }: StoreBackup) => {
+  const at = new Date(manifest.takenAt);
+  const counter = [manifest.counterLabel, manifest.branchName].filter(Boolean).join(", ");
+  const time = at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return `${at.toLocaleDateString()} ${time}${counter ? ` (${counter})` : ""}`;
+};
+function chooseBackup(message: string, detail: string, backups: readonly StoreBackup[], cancel: string): StoreBackup | null {
+  const offered = backups.slice(0, 6);
+  const answer = dialog.showMessageBoxSync({
+    type: "warning",
+    title: "PharmaCeylon POS",
+    message,
+    detail,
+    buttons: [...offered.map((b, i) => `${i === 0 ? "Restore the newest backup" : "Restore the backup"} from ${backupLabel(b)}`), cancel],
+    defaultId: 0,
+    cancelId: offered.length,
+    noLink: true,
+  });
+  return offered[answer] ?? null;
+}
+const restoreDetail = [
+  "Anything recorded on this computer after the backup was taken is not in it.",
+  "After a restore, staff sign in online again, and offline selling stays off until the owner or a delegated manager acknowledges the restore in the back office.",
+].join(" ");
+const restorePrompt: RestorePrompt = {
+  afterFailure: (error, backups) =>
+    chooseBackup(
+      "The local database could not be opened.",
+      [error instanceof Error ? error.message : "", "This computer has backups of its store.", restoreDetail].filter(Boolean).join("\n\n"),
+      backups,
+      "Quit and contact support",
+    ),
+  forEmptyStore: (backups) =>
+    chooseBackup("This computer has no counter set up, but it has backups of one.", restoreDetail, backups, "Set up as a new counter"),
 };
 
 let mainWindow: BrowserWindow | null = null;
@@ -451,6 +490,27 @@ function registerIpc(schemaVersion: number, logger: ReturnType<typeof createLogg
   );
 }
 
+function showStartupError(error: unknown): void {
+  dialog.showErrorBox(
+    "PharmaCeylon POS cannot start",
+    `${error instanceof Error ? error.message : "The local database could not be opened."}\n\n` +
+      "Do not delete or move any files. Contact support.",
+  );
+}
+
+/**
+ * Anything `start` throws ends in an error box and an exit. Left alone, the process would keep the
+ * single-instance lock with no window, so that starting the app again does nothing (P5 #51).
+ */
+function failStartup(error: unknown): void {
+  console.error("startup.failed", error);
+  try {
+    showStartupError(error);
+  } finally {
+    app.exit(1);
+  }
+}
+
 async function start(): Promise<void> {
   const logger = createLogger(join(app.getPath("userData"), "logs"));
   const dataDir = join(app.getPath("userData"), "data");
@@ -466,21 +526,44 @@ async function start(): Promise<void> {
     return;
   }
 
-  try {
-    store = openLocalStore(dataDir, protector, migrations);
-  } catch (error) {
+  // P5 #51: backups of the store stay on this computer, beside its data (decisions of 2026-11-10).
+  const backupsDir = join(app.getPath("userData"), "backups");
+  const opened = openStoreAtStartup({
+    dataDir,
+    backupsDir,
+    protector,
+    migrations,
+    appVersion: app.getVersion(),
+    prompt: restorePrompt,
+    report: (event, detail) => logger.warn(event, detail),
+  });
+  if (opened.kind === "restored") {
+    // Start again on the restored store, from the top: nothing here has seen it yet.
+    await logger.flush();
+    app.relaunch();
+    app.exit(0);
+    return;
+  }
+  if (opened.kind === "failed") {
+    const error = opened.error;
     // Unsafe to continue: no window is created, so nothing can be sold
     // against a database that is missing, unreadable or half-upgraded.
     logger.error("startup.local_store_failed", { error });
     await logger.flush();
-    dialog.showErrorBox(
-      "PharmaCeylon POS cannot start",
-      `${error instanceof Error ? error.message : "The local database could not be opened."}\n\n` +
-        "Do not delete or move any files. Contact support.",
-    );
+    showStartupError(error);
     app.exit(1);
     return;
   }
+  store = opened.store;
+  const backups = startStoreBackups({
+    db: store.db,
+    keyPath: store.keyPath,
+    backupsDir,
+    protector,
+    appVersion: app.getVersion(),
+    report: (error) => logger.warn("store_backup.failed", { error }),
+  });
+  app.once("before-quit", () => backups.stop());
 
   logger.info("startup.ready", { appVersion: app.getVersion(), schemaVersion: store.schemaVersion });
   const deviceStore = new DeviceStore(store.db);
@@ -563,5 +646,5 @@ if (!smokeMode && !app.requestSingleInstanceLock()) {
   app.on("window-all-closed", () => app.quit());
   app.on("will-quit", () => store?.db.close());
 
-  void app.whenReady().then(start);
+  void app.whenReady().then(start).catch(failStartup);
 }

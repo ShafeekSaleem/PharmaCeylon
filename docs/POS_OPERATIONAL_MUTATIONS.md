@@ -202,6 +202,16 @@ counter below, and a not-honoured card sale's payments are kept as collected, no
 takes an `Idempotency-Key`. Contract:
 [API_CONTRACT.md](API_CONTRACT.md#refused-offline-journal-entries-p5-51-slice-4).
 
+## P5 counter store restore
+
+`POST /terminals/offline-journal/restore/report` and `…/status` are `local_record`: a counter
+that restored its encrypted store from one of its own backups reports the restore, device-signed,
+and asks whether it was acknowledged. Neither accepts a journal entry, moves stock or cash, or
+issues a grant. `POST /offline-counter-restores/:id/acknowledge` is `management`: an owner or
+delegated manager acknowledges the restore after checking receipts, cash and stock since the
+backup, from anywhere; until then the counter is issued no offline authority. Contract:
+[API_CONTRACT.md](API_CONTRACT.md#counter-store-restore-p5-51).
+
 ## P5 offline stock case resolution
 
 `POST /offline-stock-cases/:id/resolutions`, `resolutions/:id/approve` and `resolutions/:id/cancel`

@@ -200,7 +200,13 @@ restored counter's journal recovery and signs off a missing journal; a person al
 even when the evidence shows nothing is missing; the missing-journal sign-off waits out the old
 counter's last issued grant even when it was revoked or retired; local entries the server never
 accepted are kept as evidence on the counter and the server, never posted as sales, and the
-approver records how their stock and cash were settled. A restored counter is issued offline
+approver records how their stock and cash were settled (`docs/POS_P5_IMPLEMENTATION.md`).
+Store backup and restore decisions (2026-11-10): backups stay on the counter computer, each under
+its own key only that Windows user there can unlock, with PIN verifiers removed; anyone at the
+computer may restore, but only onto a store that cannot be opened or holds no counter; the
+restored counter removes its offline pair and renewal requests and gets no offline authority until
+the owner or a delegated manager acknowledges the restore in the back office; online selling
+continues meanwhile unless the backup was taken mid-outage. A restored counter is issued offline
 authority again only once the grant issued before its restore has expired, since the computer it
 was copied from may still hold it; online selling is not held. A restore that will never complete
 is closed by the same authority, with a reason (`docs/POS_P5_IMPLEMENTATION.md`).

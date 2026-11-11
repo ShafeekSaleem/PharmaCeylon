@@ -71,6 +71,8 @@ export function explainRefreshFailure(code: string): string {
       return "Offline sales recorded on this computer must be synchronised first. That happens by itself while someone is signed in.";
     case "journal_mismatch":
       return "The server holds offline records from this counter that this computer doesn't. Contact support.";
+    case "restore_unacknowledged":
+      return "This computer was restored from a backup. The owner or a delegated manager acknowledges the restore in the back office first.";
     case "drain_incomplete":
       return "Confirm the unconfirmed sales and actions first; synchronisation then finishes by itself.";
     case "invalid":
@@ -154,7 +156,7 @@ function syncRow(facts: ReadinessFacts, now: Date): Row {
   const { view } = sync;
   const at = (iso: string) => clockTime(Date.parse(iso), now);
   const waiting = `${view.waiting} offline ${view.waiting === 1 ? "record" : "records"} waiting to reach the server.`;
-  if (view.refused > 0 || view.issue?.code === "JOURNAL_MISMATCH")
+  if (view.refused > 0 || view.issue?.code === "JOURNAL_MISMATCH" || view.issue?.code === "STORE_RESTORED")
     return { status: "failed", detail: `${view.issue?.message ?? "An offline record was refused."}${view.waiting ? ` ${waiting}` : ""}` };
   if (view.pause) {
     const { sales, actions } = view.pause.unconfirmed;

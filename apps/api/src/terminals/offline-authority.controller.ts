@@ -13,6 +13,7 @@ import {
   acceptedJournalState,
   isNominated,
   issueOfflineAuthority,
+  counterRestoreOpen,
   refuseUnsettledJournal,
 } from "./offline-authority-issuance";
 import { TerminalErrorFilter } from "./terminal-error.filter";
@@ -63,6 +64,8 @@ export class OfflineAuthorityController {
         select: { snapshotId: true },
       });
       if (!issued) await refuseUnsettledJournal(tx, command.identity);
+      // Nothing at all while a store restore awaits acknowledgement, not even a replay (P5 #51).
+      if (await counterRestoreOpen(tx, command.identity)) denied("RECONCILIATION_REQUIRED");
       return command;
     });
   }

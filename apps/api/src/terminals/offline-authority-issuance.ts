@@ -63,6 +63,36 @@ export async function assertJournalNotStuck(
 }
 
 /**
+ * Whether this enrollment restored its store from a backup and the restore is not yet
+ * acknowledged in the back office (P5 #51, decisions of 2026-11-10). Anything the counter
+ * recorded after the backup and never uploaded is gone from it, so it gets no offline authority
+ * until the owner or a delegated manager has checked receipts, cash and stock since the backup.
+ */
+export async function counterRestoreOpen(
+  tx: Prisma.TransactionClient,
+  identity: Pick<TerminalIdentity, "tenantId" | "enrollmentId">,
+): Promise<boolean> {
+  const open = await tx.offlineCounterRestore.findFirst({
+    where: { tenantId: identity.tenantId, enrollmentId: identity.enrollmentId, status: "awaiting_acknowledgement" },
+    select: { id: true },
+  });
+  return open !== null;
+}
+
+/** The highest offline authority version issued to this enrollment (grant and snapshot share it), or 0. */
+export async function latestIssuedGrantVersion(
+  tx: Prisma.TransactionClient,
+  identity: Pick<TerminalIdentity, "tenantId" | "branchId" | "enrollmentId">,
+): Promise<number> {
+  const latest = await tx.offlineStockSnapshot.findFirst({
+    where: { tenantId: identity.tenantId, branchId: identity.branchId, enrollmentId: identity.enrollmentId, issuances: { some: {} } },
+    orderBy: { version: "desc" },
+    select: { version: true },
+  });
+  return latest?.version ?? 0;
+}
+
+/**
  * The journal baseline for a new issuance or renewal, read in the issuance's own repeatable-read
  * view, together with the stock it signs (P5 #51, the rebase). Each offline command an
  * enrollment uploads is accepted as a `terminal_command_receipt` with its `offline_sequence`, in
@@ -80,7 +110,8 @@ export async function assertJournalNotStuck(
  * whose journal recovery (D11) still describes the journal (`restoreRecoveryHolds`, which
  * supersedes one that no longer does): it gets a pair only once it has completed the recovery,
  * and then only once the grants issued before the restore have expired
- * (`RESTORED_COUNTER_WAIT`).
+ * (`RESTORED_COUNTER_WAIT`). And so is a counter whose store restore awaits acknowledgement
+ * (`counterRestoreOpen`).
  *
  * The review blocks are the branch's open batch sale blocks, whichever counter's journal opened
  * them (e.g. the counter this one replaced): those batches are never sellable offline either.
@@ -91,6 +122,7 @@ export async function acceptedJournalState(
   now = Date.now(),
 ): Promise<SnapshotState> {
   const head = await refuseUnsettledJournal(tx, identity, now);
+  if (await counterRestoreOpen(tx, identity)) denied("RECONCILIATION_REQUIRED");
   return {
     includedThroughSequence: head.sequence,
     includedThroughHash: head.hash,
@@ -188,8 +220,11 @@ export async function issueOfflineAuthority(
     });
     if (previous) {
       // A replay hands back what was already issued, but never to a counter that has since been
-      // replaced, revoked or retired.
+      // replaced, revoked or retired, and never while a store restore awaits acknowledgement: a
+      // restored counter has no lost response to recover. (An older request still replays its own
+      // version; a restored counter refuses any pair at or below the server's latest version.)
       if (!(await isNominated(tx, identity))) denied("IDENTITY_MISMATCH");
+      if (await counterRestoreOpen(tx, identity)) denied("RECONCILIATION_REQUIRED");
       const snapshot = await tx.offlineStockSnapshot.findFirstOrThrow({
         where: { ...scope, id: previous.snapshotId },
         select: { envelope: true },

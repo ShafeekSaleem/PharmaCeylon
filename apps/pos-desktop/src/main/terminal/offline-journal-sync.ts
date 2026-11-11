@@ -20,6 +20,12 @@ import {
 } from "./offline-journal";
 import type { OfflineAuthorityRefresh } from "./offline-authority-refresh";
 import {
+  createStoreRestoreSync,
+  explainStoreRestore,
+  restoresAwaitingAcknowledgement,
+  type StoreRestoreSync,
+} from "./store-restore-sync";
+import {
   createJournalRecovery,
   explainRecovery,
   readLocalRecovery,
@@ -743,6 +749,9 @@ export function readJournalSyncView(
     row?.issue_code === "JOURNAL_MISMATCH"
       ? explainRecovery(readLocalRecovery(db, enrollmentId))
       : null;
+  // P5 #51: a restored store waiting for the back office, unless D11 recovery comes first.
+  const restored =
+    row?.issue_code === "JOURNAL_MISMATCH" ? undefined : restoresAwaitingAcknowledgement(db, enrollmentId)[0];
   return {
     recorded: head.sequence,
     accepted: accepted.sequence,
@@ -750,7 +759,14 @@ export function readJournalSyncView(
     refused,
     syncing,
     lastSuccessAt: row?.last_success_at ?? null,
-    issue: row?.issue_code
+    issue: restored
+      ? {
+          code: "STORE_RESTORED",
+          message: explainStoreRestore(restored),
+          sequence: null,
+          at: new Date(restored.restoredAt).toISOString(),
+        }
+      : row?.issue_code
       ? {
           code: row.issue_code,
           message:
@@ -790,13 +806,16 @@ const NO_OFFLINE_AUTHORITY = new Set(["GRANT_INVALID"]);
  * nothing sent is uncertain, ask for a fresh pair at once (installing it finishes the drain); if
  * the server refuses this counter offline authority altogether, finish the drain without one.
  * A journal the server says is not its own goes through the D11 recovery instead, and a fresh
- * pair is asked for as soon as that completes.
+ * pair is asked for as soon as that completes; so is one once the back office acknowledges a
+ * store restore.
  * Each step reads trusted local state; none relies on the previous one having run.
  */
 export function createSyncCoordinator(deps: {
   db: PosDatabase;
   sync: Pick<OfflineJournalSync, "tick">;
   recovery?: Pick<JournalRecovery, "tick"> | null;
+  /** P5 #51: reporting a store restore and waiting for the back office to acknowledge it. */
+  restore?: Pick<StoreRestoreSync, "tick"> | null;
   refresh: Pick<OfflineAuthorityRefresh, "tick" | "status" | "renewNow"> | null;
   terminal: Pick<TerminalService, "current">;
   now?: () => number;
@@ -807,6 +826,8 @@ export function createSyncCoordinator(deps: {
   return async function cycle(): Promise<void> {
     await deps.sync.tick();
     if (deps.recovery && (await deps.recovery.tick()) === "recovered")
+      deps.refresh?.renewNow();
+    if (deps.restore && (await deps.restore.tick()) === "acknowledged")
       deps.refresh?.renewNow();
     const current = deps.terminal.current();
     if (!current || !deps.refresh) return;
@@ -850,10 +871,12 @@ export function startOfflineJournalSync(
 ): { sync: OfflineJournalSync; stop: () => void } {
   const sync = createOfflineJournalSync(deps);
   const recovery = createJournalRecovery(deps);
+  const restore = createStoreRestoreSync(deps);
   const cycle = createSyncCoordinator({
     db: deps.db,
     sync,
     recovery,
+    restore,
     refresh: deps.refresh,
     terminal: deps.terminal,
     now: deps.now,
