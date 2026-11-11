@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import SalesPage from "./page";
+import SalesPage from "./sales-history";
 import { apiJson } from "@/lib/auth-client";
 import type { SaleListRow, SalesHistoryPage } from "./types";
 

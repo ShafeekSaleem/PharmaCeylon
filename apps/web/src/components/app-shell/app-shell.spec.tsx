@@ -237,7 +237,7 @@ describe("W3 back-office web scope", () => {
     await renderShell();
     expect(screen.queryByText("Page body")).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Use PharmaCeylon POS" })).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "Sales history" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Sales", exact: true })).not.toBeInTheDocument();
     expect(quickSale()).not.toBeInTheDocument();
     fireEvent.keyDown(document, {
       code: "KeyP",

@@ -850,12 +850,12 @@ export class NotificationsService {
       { filter: "all", page: 1 },
       {
         pageSize: MAX_ACTION_ITEMS,
-        kinds: [...approvedWaitingKinds(), "goods_return.approve"],
+        kinds: [...approvedWaitingKinds(), "goods_return.approve", "sale_refund.approve"],
       },
     );
     return work.items
       .filter((item) =>
-        item.kind === "goods_return.approve"
+        item.kind === "goods_return.approve" || item.kind === "sale_refund.approve"
           ? item.approval && !item.blocked
           : item.where === "counter",
       )

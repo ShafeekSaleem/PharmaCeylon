@@ -4,6 +4,10 @@
   gap: 1rem;
 }
 
+.workspaceTabs { display: flex; gap: 1rem; border-bottom: 1px solid var(--pc-border); }
+.workspaceTabs a { padding: 0.6rem 0; color: var(--pc-muted-fg); text-decoration: none; }
+.workspaceTabs a[aria-current="page"] { color: var(--pc-primary); border-bottom: 2px solid var(--pc-primary); font-weight: 600; }
+
 .toolbar {
   display: flex;
   flex-wrap: wrap;
