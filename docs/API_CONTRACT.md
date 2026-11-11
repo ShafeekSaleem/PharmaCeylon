@@ -196,7 +196,8 @@ selling hours for operations that sell or open a shift: the structured weekly ho
 exceptions including confirmed gazette holidays, the owner's mandatory limits and unrevoked
 business extensions, in the branch's timezone at authorization time. Back-room stock operations
 (stocktake post, held write-off post, held delivery post, import stock post and undo, transfer
-dispatch and receipt, prepared receipt post, supplier return completion and direct adjustments)
+dispatch and receipt, prepared receipt post, supplier return completion, direct adjustments, and
+quarantine/release)
 are reviewed as not selling-time restricted; every other operation,
 including any added later and not reviewed, is hours-checked. Online commands never carry an
 hours exception: `operatingHoursExceptionId` must be `null` (`INVALID_COMMAND` otherwise). The
@@ -239,6 +240,8 @@ transaction.
 | `POST /api/v1/purchasing/prepared-receipts/:id/post` | `{ preparedReceiptId }` | the prepared delivery's current approval | `purchasing.receive` |
 | `POST /api/v1/returns/:id/complete` | `{ goodsReturnId }` | the return's latest approval | `returns.process` |
 | `POST /api/v1/inventory/adjustments` | `{ kind, movementType, productId, batchId, newBatch, qty, reason, fromQuarantine }` | `null` | `inventory.manage` to add stock, `inventory.write_off` to write it off |
+| `POST /api/v1/inventory/batches/:id/quarantine` | `{ batchId, qty, reasonCode, reason }` | `null` | `inventory.quarantine` |
+| `POST /api/v1/inventory/batches/:id/release-quarantine` | `{ batchId, qty, reason }` | `null` | `inventory.release_quarantine` |
 | `POST /api/v1/prescriptions` | `{ rxNumber, patientName, doctorName, doctorRegNo, issuedOn, validUntil, customerId, notes }` | `null` | `prescriptions.create`, plus a current SLMC registration; with a pharmacist's co-sign, `sales.pos_use` and the co-signer's registration (below) |
 | `POST /api/v1/offline-stock-cases/resolutions/:id/execute` | `{ resolutionId, counts: [{ batchId, countedQty }] }` (`counts` empty unless the plan is `count_and_correct`) | the plan's `executionApprovalId` (always required) | `inventory.manage` ([P5 #51](#offline-stock-case-resolution-p5-51)) |
 
@@ -248,10 +251,33 @@ a `correction` (which also needs a `reason`) and `null` otherwise. `batchId` is 
 which only an increase may carry; prices are LKR minor units. `reason` and `batchNo` are exact,
 trimmed text; `fromQuarantine` is a write-off option. The grant follows the signed direction. A
 write-off that needs approval is refused (`WRITE_OFF_APPROVAL_REQUIRED`) with no effect, receipt
-or spent nonce; it goes through a held request instead. Each command is its own adjustment: a
+or spent nonce; it goes through a held request instead (**held over-limit write-off**, below).
+Each command is its own adjustment: a
 retry of the same command replays the original result (`stock_adjustment.posted` with `batchId`,
 `movementType`, `qty`, `stockReferenceId`), and a distinct command adjusts again. The
 `inventory.adjustment` audit carries the command provenance.
+
+Quarantine and release (P6 #173): every key is present on both signed bodies. `qty: null` means
+"all available to hold" (quarantine) or "all held" (release), matching the browser routes. `reason`
+is exact trimmed text (max 512) or `null`; it is required (non-null, non-empty after trim) when
+`reasonCode` is `other`. `approvalEvidenceId` must be `null`. A batch with nothing left to hold, an
+expired batch on release, or a missing batch is refused before stock moves. Results are
+`batch.quarantined` and `batch.quarantine_released` with `stockReferenceId`; a retry replays the
+original receipt. The `batch.quarantined` / `batch.quarantine_released` audits carry command
+provenance when posted through a signed command. **Offline (counter client):** quarantine and
+release are not offline journal commands (`docs/POS_OPERATIONAL_MUTATIONS.md` — general stock
+operations stay blocked offline). The desktop never queues them on the sale journal; it posts
+through `SignedCommandService`, which calls `POST /terminal-commands/prepare` and `execute` only
+while `terminalConnectivity` in `packages/shared/src/terminal-contracts.ts` is `online`
+(`partial_outage` until the API is reachable, the staff session is authenticated and journal sync
+is complete — see `packages/shared/test/terminal-contracts.test.cjs`).
+
+**Held over-limit write-off:** over-threshold or unauthorised direct write-offs at the counter are
+refused (`WRITE_OFF_APPROVAL_REQUIRED`) with no held row. The web holds the request
+(`adjustment-requests`, management). After `accept`, the item appears in Counter work; posting is
+signed `held-adjustments/:id/post` with the displayed approval. Error states match other held
+documents: stale approval on post, permission on prepare/execute, insufficient stock leaves the
+approval intact.
 
 Prescriptions (clinical): a current SLMC registration recorded by an owner
 (`admin/pharmacist-registrations`) at the branch, with an active account and a role there, is
@@ -1176,14 +1202,14 @@ Stock status (`ok` / `low` / `out`) is computed from **available**.
 | `GET /inventory/summary` | `inventory.view` | Adds `availableUnits`, `quarantinedUnits`, `reservedUnits`, `expiredUnits`, `expiryReview`, `incomingTransfers`. `stockValue` is **null** without `costs.view`. |
 | `GET /inventory/movements` | `inventory.view` | Filters `productId`, `batchId`, `category` (adds `stocktakes`, `opening`, `quarantine`), `userId`, `from`/`to` (tenant-local dates), `referenceType`/`referenceId`. Quarantine moves appear once with `qtyDelta: 0` and a signed `quarantineDelta`; legacy reservation rows are hidden. `balanceAvailable` says whether before/after balances are meaningful (one product or batch, no other filters). |
 | `GET /inventory/movement-actors` | `inventory.view` | Users who moved stock at the branch in the last year. |
-| `POST /inventory/batches/:id/quarantine` | `inventory.quarantine` | Body `{ qty?, reasonCode: expired\|damaged\|recall\|inspection\|other, reason? }`. `qty` defaults to everything not already held or reserved; `reason` required for `other`. |
-| `POST /inventory/batches/:id/release-quarantine` | `inventory.release_quarantine` | Body `{ qty?, reason? }`. Refused for expired batches. |
+| `POST /inventory/batches/:id/quarantine` | `inventory.quarantine` | Body `{ qty?, reasonCode: expired\|damaged\|recall\|inspection\|other, reason? }`. `qty` defaults to everything not already held or reserved; `reason` required for `other`. **Physical (counter):** signed command `{ batchId, qty, reasonCode, reason }` with every key present (`qty` and `reason` may be `null`). Result: `{ type: "batch.quarantined", batchId, productId, qty, reasonCode, stockReferenceId }`. Counter-only path via online signed commands (not the offline sale journal; client blocks while connectivity is `partial_outage`). The web back office keeps using this browser route until Stage 2 moves quarantine UI. |
+| `POST /inventory/batches/:id/release-quarantine` | `inventory.release_quarantine` | Body `{ qty?, reason? }`. Refused for expired batches. **Physical (counter):** signed command `{ batchId, qty, reason }` with every key present (`qty` and `reason` may be `null`). Result: `{ type: "batch.quarantine_released", batchId, productId, qty, stockReferenceId }`. Same counter online signed-command path as quarantine. |
 | `POST /inventory/quarantine-expired` | `inventory.manage_bulk` | Holds every sellable unit on expired batches. Returns `{ quarantined, units, batchIds }`. |
 | `POST /inventory/adjustments` | `inventory.manage` (increase) or `inventory.write_off` (decrease) | Counter work (`stock`): posts now or not at all, returning `{ held: false, ok, referenceId, batchId }`. Body `{ kind, productId, batchId \| newBatch, qty, reason? }`. `kind` says what happened: `found`, `opening` (in), `damaged`, `expired`, `lost` (out), `correction` (either way — send `movementType`, and a `reason`). Damaged and expired units come out of quarantine first. A decrease that needs approval — the caller lacks `inventory.write_off`, or its value reaches `TenantSettings.approvalRequiredWriteOffThreshold` and the caller's role may not approve its own requests — is refused with **409 `WRITE_OFF_APPROVAL_REQUIRED`** before anything moves; nothing is held. Send it to `adjustment-requests`. Authority and the policy are read live, and again after the batch lock. Callers without `kind` keep the old shape (`movementType`, `reason` for decreases, `fromQuarantine`). Accepts `Idempotency-Key` (scope `stock_adjustment`): the key, the movement and its `inventory.adjustment` audit commit together, and a resend of the same body at the same branch returns the first `{ held: false, ok, referenceId, batchId }` and moves nothing. The key with any other body, or at another branch, is **400** "Idempotency-Key already used for a different stock adjustment". Identical requests sent together serialize on the key, so stock moves once. A refused or failed attempt (including the 409) leaves the key unused. The web sends one key per adjustment as entered, distinct from the key it sends the same entry to `adjustment-requests` under. Also a signed terminal command (below), which replays through its command receipt instead. |
 | `POST /inventory/adjustment-requests` | `inventory.manage` or `inventory.write_off` | Remote (`management`). The same body, for a decrease only (`newBatch` and increases are refused). Records a held write-off and moves no stock, whoever sends it: `{ held: true, heldAdjustment, notified }`. Accepts `Idempotency-Key` (scope `held_adjustment_request`): a resend of the same body at the same branch returns the first request's `heldAdjustment` with `notified: 0` (nobody is told twice), and the key with any other body is **400** "Idempotency-Key already used for a different write-off request". Identical requests sent together serialize on the key, so one is held. The web sends one key per write-off as entered. The request and its `inventory.write_off_held` audit commit together; people with `inventory.write_off` are notified after commit. Accept and post it through `held-adjustments/:id/*`. |
 | `GET /inventory/held-adjustments` | `inventory.view` | Awaiting/approved write-offs at the branch: kind, qty, `value` (**null** without `costs.view`), note, product, batch, requester, `approvalReview: { expectedVersion, expectedDigest }`, `executionApprovalId` and execution stamps. |
 | `POST /inventory/held-adjustments/:id/accept` | `inventory.write_off` | Requires `{ approvalId, expectedVersion, expectedDigest }` from the displayed preview. Records exact approval only, sets `approved`, and leaves stock unchanged. Existing self-approval rules apply. The stable approval UUID makes identical retries safe; a fresh UUID explicitly replaces unusable evidence. |
-| `POST /inventory/held-adjustments/:id/post` | `inventory.write_off` | Body `{ approvalId }` pins the displayed approval. Posts the saved adjustment in the same transaction as reference/status/audit, after current executor/approver and exact-material checks under locks. Repeats return the original posted record. Insufficient stock leaves the approval intact for review. |
+| `POST /inventory/held-adjustments/:id/post` | `inventory.write_off` | Body `{ approvalId }` pins the displayed approval. Posts the saved adjustment in the same transaction as reference/status/audit, after current executor/approver and exact-material checks under locks. Repeats return the original posted record. Insufficient stock leaves the approval intact for review. **Held over-limit write-off (P6 #173):** prepare on the web with `POST /inventory/adjustment-requests` (management; online only, no stock effect). A manager accepts with `held-adjustments/:id/accept`, then the counter posts with signed `POST /inventory/held-adjustments/:id/post` and `{ heldAdjustmentId }` plus the request's current `approvalEvidenceId` — or refuses direct `adjustments` at the counter with **409 `WRITE_OFF_APPROVAL_REQUIRED`** when the value needs approval and nothing was held. Stale/replaced approval → **409** on post; already posted → idempotent replay; permission → **403** / `PERMISSION_DENIED` on the signed path. |
 | `POST /inventory/held-adjustments/:id/reject` | `inventory.write_off` | Body `{ reason }`. Nothing moves; the requester is told why. |
 | `GET /inventory/write-offs/policy` | `inventory.view` | `{ threshold }` — the write-off limit (decimal string, or null when off), so the form can say before posting that a write-off will wait. Counter route. |
 | `GET /inventory/write-offs/summary` | `inventory.view` | This month's decreases at the branch by kind: `{ since, rows: [{ kind, label, units, value }] }`. |

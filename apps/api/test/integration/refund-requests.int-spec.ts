@@ -82,7 +82,7 @@ const sales = new SalesService(proxy as never, audit, {} as never, {} as never, 
   undefined, undefined, undefined, undefined, shifts);
 const refunds = new RefundRequestsService(proxy as never, audit, access, approvals, sales, stock);
 const executor = new TerminalCommandExecutor(proxy as never, trust, authorization,
-  new SignedOperations({} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never, refunds, {} as never),
+  new SignedOperations({} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never, refunds, {} as never),
   audit, access);
 const EXECUTE = "POST /api/v1/sales/refund-requests/:id/execute" satisfies SignedPhysicalOperation;
 

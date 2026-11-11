@@ -111,8 +111,8 @@ const authorization = new OperationAuthorizationService(access, trust,
 const prescriptions = new PrescriptionsService(proxy as never, audit);
 const notifications = { notifyByPermission: jest.fn().mockResolvedValue(1), notifyUser: jest.fn().mockResolvedValue(undefined) };
 const stocktakes = new StocktakesService(proxy as never, audit, stock, access, approvals);
-const adjustments = new AdjustmentService(proxy as never,
-  new InventoryService(proxy as never, audit, stock, read), notifications as never, audit, access, approvals);
+const inventory = new InventoryService(proxy as never, audit, stock, read);
+const adjustments = new AdjustmentService(proxy as never, inventory, notifications as never, audit, access, approvals);
 const deliveries = new HeldDeliveryService(proxy as never,
   new PurchasingService(proxy as never, audit, stock, read), notifications as never, audit, access, approvals);
 const importStock = new ImportStockService(proxy as never, stock, audit, access);
@@ -121,7 +121,7 @@ const imports = new ProductImportService(proxy as never, audit, new CategoryTaxo
   { start: (_j: string, _t: string, id: string, work: (ctx: unknown) => Promise<void>) => {
     runImport = () => work({ jobId: id, importId: id, progress: () => {} });
   } } as never, { refresh: async () => {} } as never, stock, new WorkerAuthority(access));
-const operations = new SignedOperations(stocktakes, adjustments, deliveries, importStock, imports, {} as never, {} as never, {} as never, {} as never, prescriptions);
+const operations = new SignedOperations(stocktakes, adjustments, inventory, deliveries, importStock, imports, {} as never, {} as never, {} as never, {} as never, prescriptions);
 const executor = new TerminalCommandExecutor(proxy as never, trust, authorization, operations, audit, access);
 const pinApprovals = new PharmacistApprovalService(proxy as never, audit,
   new PermissionsService(proxy as never, { get: () => 30 } as never), registrations,
@@ -667,6 +667,115 @@ describe("direct adjustments through signed commands", () => {
   });
 });
 
+describe("quarantine and release through signed commands (P6 #173)", () => {
+  const QUARANTINE = "POST /api/v1/inventory/batches/:id/quarantine" as const;
+  const RELEASE = "POST /api/v1/inventory/batches/:id/release-quarantine" as const;
+
+  it("quarantines once, records command provenance and replays the original result", async () => {
+    const counter = await counterFor(fx.managerId);
+    const batchId = await createStockedBatch(prisma, stock, fx, { qty: 12 });
+    const body = { batchId, qty: 5, reasonCode: "damaged" as const, reason: "Crushed box" };
+    const { payload, request } = await signedCommand(counter, QUARANTINE, body, null);
+    const [a, b] = await Promise.all([run(counter, request), run(counter, request)]);
+    expect(a.receiptId).toBe(b.receiptId);
+    expect(a.result).toMatchObject({
+      type: "batch.quarantined",
+      batchId,
+      productId: fx.productId,
+      qty: 5,
+      reasonCode: "damaged",
+      stockReferenceId: expect.any(String),
+    });
+    expect(await batchTotals(prisma, batchId)).toMatchObject({ onHand: 12, quarantined: 5, available: 7 });
+    const event = await prisma.auditEvent.findFirstOrThrow({
+      where: { tenantId: fx.tenantId, eventName: "batch.quarantined", entityId: batchId },
+    });
+    expect(event.payload).toMatchObject({
+      command: { commandId: payload.commandId, terminalId: counter.identity.terminalId },
+    });
+  });
+
+  it("releases held units and refuses to release an expired batch", async () => {
+    const counter = await counterFor(fx.managerId);
+    const batchId = await createStockedBatch(prisma, stock, fx, { qty: 8 });
+    await signedCommand(counter, QUARANTINE, { batchId, qty: 3, reasonCode: "inspection", reason: null }, null)
+      .then(({ request }) => run(counter, request));
+    const { request } = await signedCommand(counter, RELEASE, { batchId, qty: 2, reason: "OK" }, null);
+    const receipt = await run(counter, request);
+    expect(receipt.result).toMatchObject({ type: "batch.quarantine_released", qty: 2 });
+    expect(await batchTotals(prisma, batchId)).toMatchObject({ quarantined: 1, available: 7 });
+
+    await prisma.batch.update({ where: { id: batchId }, data: { expiryDate: daysFromToday(-1) } });
+    const expired = await signedCommand(counter, RELEASE, { batchId, qty: null, reason: null }, null);
+    await expect(run(counter, expired.request)).rejects.toThrow(/can't go back on sale/);
+    expect(await receiptsFor(expired.payload.commandId)).toBe(0);
+  });
+
+  it("refuses signed quarantine when the batch belongs to another branch or tenant", async () => {
+    const counter = await counterFor(fx.managerId);
+    for (const batchId of [
+      await createStockedBatch(prisma, stock, fx, { qty: 9, branchId: fx.otherBranchId }),
+      await createStockedBatch(prisma, stock, foreign, { qty: 9, branchId: foreign.mainBranchId }),
+    ]) {
+      const { payload, request } = await signedCommand(counter, QUARANTINE,
+        { batchId, qty: 1, reasonCode: "damaged", reason: null }, null);
+      const before = await batchTotals(prisma, batchId);
+      await expect(run(counter, request)).rejects.toThrow(/Batch not found/);
+      expect(await batchTotals(prisma, batchId)).toEqual(before);
+      expect(await receiptsFor(payload.commandId)).toBe(0);
+    }
+  });
+
+  it("refuses signed release when the batch belongs to another branch or tenant", async () => {
+    const counter = await counterFor(fx.managerId);
+    const otherBranchBatch = await createStockedBatch(prisma, stock, fx, { qty: 6, branchId: fx.otherBranchId });
+    await inventory.quarantineBatch(fx.tenantId, fx.otherBranchId, fx.managerId, otherBranchBatch, { qty: 2, reasonCode: "damaged" });
+    const foreignBatch = await createStockedBatch(prisma, stock, foreign, { qty: 6, branchId: foreign.mainBranchId });
+    await inventory.quarantineBatch(foreign.tenantId, foreign.mainBranchId, foreign.managerId, foreignBatch, { qty: 2, reasonCode: "damaged" });
+    for (const batchId of [otherBranchBatch, foreignBatch]) {
+      const { payload, request } = await signedCommand(counter, RELEASE, { batchId, qty: 1, reason: null }, null);
+      const before = await batchTotals(prisma, batchId);
+      await expect(run(counter, request)).rejects.toThrow(/Batch not found/);
+      expect(await batchTotals(prisma, batchId)).toEqual(before);
+      expect(await receiptsFor(payload.commandId)).toBe(0);
+    }
+  });
+
+  it("quarantines with reasonCode other and refuses qty beyond available", async () => {
+    const counter = await counterFor(fx.managerId);
+    const batchId = await createStockedBatch(prisma, stock, fx, { qty: 6 });
+    const { request } = await signedCommand(counter, QUARANTINE, {
+      batchId, qty: 2, reasonCode: "other", reason: "Supplier recall notice",
+    }, null);
+    await run(counter, request);
+    expect(await batchTotals(prisma, batchId)).toMatchObject({ quarantined: 2, available: 4 });
+
+    const over = await signedCommand(counter, QUARANTINE, { batchId, qty: 100, reasonCode: "damaged", reason: null }, null);
+    const before = await batchTotals(prisma, batchId);
+    await expect(run(counter, over.request)).rejects.toThrow(/Only 4 available/);
+    expect(await batchTotals(prisma, batchId)).toEqual(before);
+    expect(await receiptsFor(over.payload.commandId)).toBe(0);
+  });
+
+  it("refuses quarantine without inventory.quarantine", async () => {
+    const batchId = await createStockedBatch(prisma, stock, fx, { qty: 6 });
+    await prisma.userBranchRole.updateMany({
+      where: { tenantId: fx.tenantId, branchId: branch(), userId: fx.managerId },
+      data: { role: "cashier", roleId: null },
+    });
+    try {
+      const counter = await counterFor(fx.managerId);
+      await expect(signedCommand(counter, QUARANTINE, { batchId, qty: 1, reasonCode: "damaged", reason: null }, null))
+        .rejects.toMatchObject({ response: { code: "PERMISSION_DENIED" } });
+    } finally {
+      await prisma.userBranchRole.updateMany({
+        where: { tenantId: fx.tenantId, branchId: branch(), userId: fx.managerId },
+        data: { role: "manager", roleId: null },
+      });
+    }
+  });
+});
+
 describe("remote callers, stale commands and stale authority (P1 #47 acceptance)", () => {
   const POST = "POST /api/v1/stocktakes/:id/post" as const;
   const setRole = (userId: string, data: Prisma.UserBranchRoleUncheckedUpdateManyInput) =>
@@ -1069,12 +1178,12 @@ describe("production providers stay fail-closed", () => {
     const productionTrust = new TerminalTrustService(access, audit, new LocalAttendanceVerifier());
     const production = new TerminalCommandExecutor(proxy as never, productionTrust,
       new OperationAuthorizationService(access, productionTrust, new MandatoryOperationEvidence(), approvals),
-      new SignedOperations(stocktakes, adjustments, deliveries, importStock, imports, {} as never, {} as never, {} as never, {} as never, prescriptions), audit, access);
+      new SignedOperations(stocktakes, adjustments, inventory, deliveries, importStock, imports, {} as never, {} as never, {} as never, {} as never, prescriptions), audit, access);
     await expect(production.execute(counter.staff, branch(), request)).rejects.toMatchObject({
       response: { code: "LOCAL_ATTENDANCE_UNAVAILABLE" } });
     const hoursOnly = new TerminalCommandExecutor(proxy as never, trust,
       new OperationAuthorizationService(access, trust, new MandatoryOperationEvidence(), approvals),
-      new SignedOperations(stocktakes, adjustments, deliveries, importStock, imports, {} as never, {} as never, {} as never, {} as never, prescriptions), audit, access);
+      new SignedOperations(stocktakes, adjustments, inventory, deliveries, importStock, imports, {} as never, {} as never, {} as never, {} as never, prescriptions), audit, access);
     await expect(hoursOnly.execute(counter.staff, branch(), request)).rejects.toMatchObject({
       response: { code: "BRANCH_HOURS_NOT_CONFIGURED" } });
     expect((await batchTotals(prisma, st.batchId)).onHand).toBe(50);

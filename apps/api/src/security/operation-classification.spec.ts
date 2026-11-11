@@ -40,6 +40,12 @@ describe("P1 server action classification", () => {
     expect(route("inventory/adjustments")).toMatchObject({ effects: ["physical_stock"], requiresLocalTerminal: true, needsApprovalExecutionSplit: false });
   });
 
+  it("keeps quarantine and release physical at the counter (P6 #173)", () => {
+    for (const path of ["inventory/batches/:id/quarantine", "inventory/batches/:id/release-quarantine"]) {
+      expect(route(path)).toMatchObject({ effects: ["physical_stock"], requiresLocalTerminal: true, needsApprovalExecutionSplit: false });
+    }
+  });
+
   it("separates management import drafts from physical posting and legacy stock undo", () => {
     for (const path of ["products/import/stage", "products/import/:importId/stock/replace", "products/import/:importId/undo"]) expect(route(path).requiresLocalTerminal).toBe(false);
     for (const path of ["products/import/:importId/stock/post", "products/import/:importId/undo-stock"]) expect(route(path)).toMatchObject({ requiresLocalTerminal: true, needsApprovalExecutionSplit: false });

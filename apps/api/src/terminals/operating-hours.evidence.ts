@@ -43,6 +43,9 @@ export const OPERATIONS_WITHOUT_SELLING_HOURS: ReadonlySet<string> = new Set<Sig
   "POST /api/v1/returns/:id/complete",
   // P1: a direct adjustment is the same back-room stock work as posting a held one.
   "POST /api/v1/inventory/adjustments",
+  // P6 #173: quarantine and release are back-room stock work (reviewed 2026-11-11).
+  "POST /api/v1/inventory/batches/:id/quarantine",
+  "POST /api/v1/inventory/batches/:id/release-quarantine",
 ]);
 
 /**

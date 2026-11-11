@@ -99,6 +99,7 @@ function setup(existing: Record<string, unknown> | null = null) {
     {} as never,
     {} as never,
     {} as never,
+    {} as never,
   );
   const authorization = {
     authorize: jest.fn(async (_tx: unknown, _u: unknown, _b: unknown, _d: unknown,
@@ -360,7 +361,7 @@ describe("TerminalCommandExecutor", () => {
 });
 
 describe("SignedOperations body parsers", () => {
-  const ops = new SignedOperations({} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never);
+  const ops = new SignedOperations({} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never);
   const parse = (body: unknown) =>
     ops.get("POST /api/v1/products/import/:importId/stock/post").descriptor.parseBody(body);
   const importId = randomUUID();
@@ -391,6 +392,8 @@ describe("SignedOperations body parsers", () => {
   it("lists exactly the v1 physical operations", () => {
     expect(ops.operations().sort()).toEqual([
       "POST /api/v1/inventory/adjustments",
+      "POST /api/v1/inventory/batches/:id/quarantine",
+      "POST /api/v1/inventory/batches/:id/release-quarantine",
       "POST /api/v1/inventory/held-adjustments/:id/post",
       "POST /api/v1/offline-stock-cases/resolutions/:id/execute",
       "POST /api/v1/prescriptions",
@@ -588,6 +591,48 @@ describe("SignedOperations body parsers", () => {
     });
     expect(ops.get("POST /api/v1/returns/:id/complete").descriptor).toMatchObject({
       permission: "returns.process", approval: { action: "goods_return.complete" },
+    });
+  });
+
+  describe("quarantine and release bodies (P6 #173)", () => {
+    const quarantine = ops.get("POST /api/v1/inventory/batches/:id/quarantine").descriptor;
+    const release = ops.get("POST /api/v1/inventory/batches/:id/release-quarantine").descriptor;
+    const batchId = randomUUID();
+
+    it("accepts null qty and reason for a standard hold", () => {
+      const body = { batchId, qty: null, reasonCode: "inspection", reason: null };
+      expect(quarantine.parseBody(body)).toBe(body);
+      expect(quarantine).toMatchObject({ permission: "inventory.quarantine" });
+      expect(quarantine.approval).toBeUndefined();
+    });
+
+    it("accepts an explicit qty and a trimmed release note", () => {
+      expect(quarantine.parseBody({ batchId, qty: 2, reasonCode: "damaged", reason: null })).toEqual({
+        batchId, qty: 2, reasonCode: "damaged", reason: null,
+      });
+      expect(release.parseBody({ batchId, qty: 2, reason: "Cleared inspection" })).toEqual({
+        batchId, qty: 2, reason: "Cleared inspection",
+      });
+      expect(release).toMatchObject({ permission: "inventory.release_quarantine" });
+    });
+
+    it.each([
+      { batchId, qty: null, reasonCode: "other", reason: null },
+      { batchId, qty: 0, reasonCode: "damaged", reason: null },
+      { batchId, qty: "2", reasonCode: "damaged", reason: null },
+      { batchId, qty: null, reasonCode: "nope", reason: null },
+      { batchId, qty: null, reasonCode: "damaged", reason: " padded " },
+      { batchId, qty: null, reasonCode: "damaged", extra: 1 },
+    ])("rejects quarantine %j", (body) => {
+      expect(() => quarantine.parseBody(body)).toThrow();
+    });
+
+    it.each([
+      { batchId, qty: -1, reason: null },
+      { batchId, qty: null, reason: " padded " },
+      { batchId, reason: null },
+    ])("rejects release %j", (body) => {
+      expect(() => release.parseBody(body)).toThrow();
     });
   });
 });
