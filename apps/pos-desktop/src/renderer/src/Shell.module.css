@@ -121,6 +121,29 @@
   color: var(--pos-text-2);
 }
 
+/* Narrow windows: keep the title bar on one line (1366 × 768 and 1024 × 640). */
+@media (max-width: 1200px) {
+  .tag {
+    display: none;
+  }
+
+  .where {
+    max-width: min(36vw, 280px);
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .connDetail {
+    display: none;
+  }
+}
+
+@media (max-width: 1060px) {
+  .where {
+    max-width: min(42vw, 240px);
+  }
+}
+
 .dot {
   width: 7px;
   height: 7px;
@@ -468,5 +491,16 @@
 @media (max-width: 1200px) {
   .sbLabel {
     display: none;
+  }
+}
+
+@media (max-width: 1060px) {
+  .statusbar {
+    font-size: 11px;
+  }
+
+  .sb {
+    padding: 0 8px;
+    gap: 4px;
   }
 }

@@ -1,5 +1,5 @@
-import type { ApiReachability, JournalSync } from "../../shared/ipc-contract";
-import { timeWithSeconds } from "./format";
+import type { ApiReachability, JournalSync, OfflineBackup } from "../../shared/ipc-contract";
+import { time, timeWithSeconds } from "./format";
 
 /** Relative sync age for the title bar pill, matching the mockup's "8 s ago" style. */
 export function formatSyncedAgo(from: Date, now: Date): string {
@@ -39,4 +39,12 @@ export function lastSyncLabels(lastSuccessAt: string, now: Date): {
     detailAgo: `synced ${formatSyncedAgo(at, now)}`,
     detailClock: `last sync ${timeWithSeconds(at)}`,
   };
+}
+
+/** The status bar's offline-backup segment (mockup #103): grant expiry from the readiness report. */
+export function offlineBackupReadyUntil(
+  backup: OfflineBackup | null | undefined,
+): string | null {
+  if (!backup?.grantExpiresAt || !backup.usable) return null;
+  return `ready until ${time(new Date(backup.grantExpiresAt))}`;
 }

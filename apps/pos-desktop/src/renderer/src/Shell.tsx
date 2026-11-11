@@ -4,11 +4,13 @@ import type {
   DeviceState,
   JournalSync,
   LocalShift,
+  OfflineBackup,
   Printer,
 } from "../../shared/ipc-contract";
 import type { ReactNode } from "react";
 import {
   lastSyncLabels,
+  offlineBackupReadyUntil,
   showLastSyncPill,
 } from "./connection-sync";
 import { initials, shortDay, shortName, time, timeWithSeconds, useNow, useSecondNow } from "./format";
@@ -279,6 +281,7 @@ export function StatusBar({
   state,
   api,
   journal = null,
+  offlineBackup = null,
   printer,
   info,
   shift = null,
@@ -286,6 +289,8 @@ export function StatusBar({
   state: DeviceState;
   api: ApiReachability | null;
   journal?: JournalSync | null;
+  /** Installed offline authority summary from readiness (grant expiry for the status bar). */
+  offlineBackup?: OfflineBackup | null;
   printer: Printer | null | undefined;
   info: AppInfo | null;
   /** The shift open on this till (this counter's copy). */
@@ -294,6 +299,7 @@ export function StatusBar({
   const session = state.staffSession;
   const local = atTheComputer(state);
   const syncPill = showLastSyncPill(state.enrollment?.status, api, journal);
+  const backupUntil = offlineBackupReadyUntil(offlineBackup);
   return (
     <footer className={styles.statusbar}>
       {syncPill && journal?.lastSuccessAt ? (
@@ -342,6 +348,12 @@ export function StatusBar({
         <span className={styles.sb}>
           <Icon name="printer" />
           {printer ? printer.displayName : "No printer installed"}
+        </span>
+      )}
+      {backupUntil && (
+        <span className={styles.sb}>
+          <Icon name="shield-check" />
+          Offline backup · {backupUntil}
         </span>
       )}
       <span className={ui.grow} />
