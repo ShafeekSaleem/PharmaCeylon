@@ -312,12 +312,12 @@ const railSession = {
 };
 
 describe("Rail Counter work (epic #103)", () => {
-  it("hides Counter work when the signed-in role lacks terminal.execute", () => {
+  it("hides Counter work when showWork is false", () => {
     renderWithKeys(
       <Rail
         page="sell"
         onPage={() => undefined}
-        workCount={3}
+        workCount={0}
         showWork={false}
         session={railSession}
         personOpen={false}
@@ -326,6 +326,23 @@ describe("Rail Counter work (epic #103)", () => {
       />,
     );
     expect(screen.queryByRole("button", { name: /Counter work/i })).toBeNull();
+  });
+
+  it("shows Counter work for a restricted role when waiting work keeps showWork true", () => {
+    renderWithKeys(
+      <Rail
+        page="sell"
+        onPage={() => undefined}
+        workCount={3}
+        showWork
+        session={railSession}
+        personOpen={false}
+        onPerson={() => undefined}
+        onLock={() => undefined}
+      />,
+    );
+    expect(screen.getByRole("button", { name: /Counter work/i })).toBeTruthy();
+    expect(screen.getByText("3")).toBeTruthy();
   });
 
   it("shows Counter work with its waiting count when the role may execute", () => {

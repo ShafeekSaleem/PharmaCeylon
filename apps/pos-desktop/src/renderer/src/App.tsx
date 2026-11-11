@@ -23,7 +23,10 @@ import shell from "./Shell.module.css";
 import { SignInScreen } from "./SignIn";
 import { ThisCounterPage } from "./ThisCounter";
 import ui from "./ui.module.css";
-import { showCounterWorkNav } from "./counter-work-nav";
+import {
+  shouldRedirectFromWorkPage,
+  showCounterWorkRail,
+} from "./counter-work-nav";
 import { useShellReadinessPoll } from "./shell-readiness";
 import { cx } from "./useAction";
 
@@ -157,8 +160,10 @@ export function App() {
   useShellReadinessPoll(shellActive, refreshReadiness, api?.reachable);
 
   useEffect(() => {
-    if (!showCounterWorkNav(sessionRole) && page === "work") setPage("sell");
-  }, [sessionRole, page]);
+    if (page === "work" && shouldRedirectFromWorkPage(sessionRole, workCount)) {
+      setPage("sell");
+    }
+  }, [sessionRole, page, workCount]);
 
   // Each sign-in opens on Sell. Someone whose PIN isn't set or prepared here gets their panel
   // straight away, since they can't lock the counter without it.
@@ -273,7 +278,7 @@ export function App() {
                 page={page}
                 onPage={setPage}
                 workCount={workCount}
-                showWork={showCounterWorkNav(sessionRole)}
+                showWork={showCounterWorkRail(sessionRole, workCount, page)}
                 session={session}
                 personOpen={personOpen}
                 onPerson={() =>

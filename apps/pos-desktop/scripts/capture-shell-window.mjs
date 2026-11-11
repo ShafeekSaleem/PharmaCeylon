@@ -1,9 +1,9 @@
 /**
  * Captures the built screenshot fixture at exact counter window sizes (scale 1).
- * Usage: npm run build -w pos-desktop && node apps/pos-desktop/scripts/capture-shell-window.mjs
+ * Usage: npm run build:screenshot -w pos-desktop && npm run capture:shell -w pos-desktop
  */
 import { createServer } from "node:http";
-import { readFile } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import { createReadStream, existsSync } from "node:fs";
 import { join, extname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -11,7 +11,9 @@ import { chromium } from "playwright";
 
 const appDir = join(fileURLToPath(new URL(".", import.meta.url)), "..");
 const dist = join(appDir, "dist/renderer");
-const outDir = "/opt/cursor/artifacts/pos-desktop-shell-layout";
+const repoRoot = join(appDir, "../..");
+const docDir = join(repoRoot, "docs/design/desktop-app/screenshots/pr170");
+const outDir = docDir;
 
 const MIME = {
   ".html": "text/html",
@@ -36,6 +38,13 @@ const sizes = [
   { width: 1366, height: 768, tag: "1366x768" },
   { width: 1024, height: 640, tag: "1024x640" },
 ];
+
+await mkdir(docDir, { recursive: true });
+
+if (!existsSync(join(dist, "screenshot.html"))) {
+  console.error("Missing dist/renderer/screenshot.html — run npm run build:screenshot -w pos-desktop first");
+  process.exit(1);
+}
 
 const server = serve(dist);
 await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));

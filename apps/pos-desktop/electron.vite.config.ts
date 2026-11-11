@@ -6,6 +6,8 @@ import { defineConfig } from "electron-vite";
 // see through; bundle its TypeScript source instead so named runtime imports resolve.
 const shared = { "@pharmaceylon/shared": resolve(__dirname, "../../packages/shared/src/index.ts") };
 
+const screenshotBuild = process.env.POS_SCREENSHOT_BUILD === "1";
+
 // Output goes to dist/ (not electron-vite's default out/) so the root turbo
 // `build` task caches it with the same `dist/**` glob the other workspaces use.
 export default defineConfig({
@@ -31,10 +33,14 @@ export default defineConfig({
     build: {
       outDir: resolve(__dirname, "dist/renderer"),
       rollupOptions: {
-        input: {
-          index: resolve(__dirname, "src/renderer/index.html"),
-          screenshot: resolve(__dirname, "src/renderer/screenshot.html"),
-        },
+        input: screenshotBuild
+          ? {
+              index: resolve(__dirname, "src/renderer/index.html"),
+              screenshot: resolve(__dirname, "src/renderer/screenshot.html"),
+            }
+          : {
+              index: resolve(__dirname, "src/renderer/index.html"),
+            },
       },
     },
     server: {
