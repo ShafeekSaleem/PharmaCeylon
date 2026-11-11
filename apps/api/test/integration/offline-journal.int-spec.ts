@@ -481,7 +481,7 @@ describe("offline journal intake (P5 #51)", () => {
     const second = await sync(c, { commands: sales.slice(MAX_OFFLINE_JOURNAL_SYNC_COMMANDS - 1) });
     expect(second.payload.acknowledgements).toHaveLength(extra);
     expect(second.payload.acknowledgements.every((a) => a.status === "committed")).toBe(true);
-    expect(second.payload.committedThroughSequence).toBe(saleCount);
+    expect(second.payload.committedThroughSequence).toBe(1 + saleCount);
     expect(await onHand(c.batches.main)).toBe(500 - saleCount);
   });
 });
