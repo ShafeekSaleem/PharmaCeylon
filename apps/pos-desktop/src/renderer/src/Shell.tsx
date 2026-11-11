@@ -313,7 +313,7 @@ export function StatusBar({
           <span className={styles.sb}>
             <Icon name="clock" />
             {/* One run of text, so the bar's flex gap doesn't space out its words. */}
-            <span>
+            <span className={styles.sbShrink}>
               Shift {shift.shiftNumber && <b>{shift.shiftNumber}</b>}
               {shift.shiftNumber && " · "}
               {shortName(shift.staffName)}
@@ -324,7 +324,7 @@ export function StatusBar({
           </span>
           <span className={styles.sb}>
             <Icon name="wallet" />
-            <span>
+            <span className={styles.sbShrink}>
               <span className={styles.sbLabel}>Drawer expected </span>
               <b>Rs {money(shift.expectedCashMinor)}</b>
             </span>
@@ -348,7 +348,9 @@ export function StatusBar({
       {printer !== undefined && (
         <span className={styles.sb}>
           <Icon name="printer" />
-          {printer ? printer.displayName : "No printer installed"}
+          <span className={styles.sbShrink}>
+            {printer ? printer.displayName : "No printer installed"}
+          </span>
         </span>
       )}
       {backupUntil && (

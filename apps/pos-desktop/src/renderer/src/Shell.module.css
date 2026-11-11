@@ -429,21 +429,11 @@
 }
 
 .sbBackup {
-  flex-shrink: 1;
-  min-width: 0;
-  max-width: 14rem;
+  flex-shrink: 0;
 }
 
 .sbBackupText {
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-@media (max-width: 1060px) {
-  .sbBackup {
-    max-width: 7.5rem;
-  }
 }
 
 /* ---------- pages ---------- */
@@ -530,5 +520,24 @@
   .sb {
     padding: 0 8px;
     gap: 4px;
+  }
+
+  .sbShrink {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+  }
+
+  .statusbar > .sb:not(.sbBackup):not(:nth-last-child(-n+2)) {
+    flex: 1 1 0;
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  .statusbar > .sb:not(.sbBackup):not(:nth-last-child(-n+2)) > :not(:global(.pos-ic)):not(.d) {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
   }
 }

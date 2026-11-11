@@ -30,7 +30,12 @@ export default defineConfig({
     plugins: [react()],
     build: {
       outDir: resolve(__dirname, "dist/renderer"),
-      rollupOptions: { input: resolve(__dirname, "src/renderer/index.html") },
+      rollupOptions: {
+        input: {
+          index: resolve(__dirname, "src/renderer/index.html"),
+          screenshot: resolve(__dirname, "src/renderer/screenshot.html"),
+        },
+      },
     },
     server: {
       // The renderer imports the PMS design tokens straight from apps/web.
