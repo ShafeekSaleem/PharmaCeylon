@@ -339,7 +339,11 @@ describe("refreshing in the background", () => {
     await r.loop.tick();
     expect(r.requests).toEqual([]);
     expect(r.attendCommand).not.toHaveBeenCalled();
-    expect(r.loop.status().lastFailure?.code).toBe("restore_unacknowledged");
+    // A quiet wait, like journal entries still to upload: no attendance proof spent, no failure.
+    expect(r.loop.status()).toMatchObject({
+      consecutiveFailures: 0,
+      lastFailure: null,
+    });
   });
 
   it("leaves the installed pair alone while offline use is recorded, and says so", async () => {
