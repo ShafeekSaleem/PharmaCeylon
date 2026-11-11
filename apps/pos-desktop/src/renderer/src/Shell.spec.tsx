@@ -1,13 +1,15 @@
 /** @jest-environment jsdom */
 import { afterEach, describe, expect, it, jest } from "@jest/globals";
 
+const titleTick = new Date("2026-11-09T14:32:16.000Z");
+const statusBarNow = { current: titleTick };
+
 jest.mock("./format", () => {
   const actual = jest.requireActual<typeof import("./format")>("./format");
-  const tick = new Date("2026-11-09T14:32:16.000Z");
   return {
     ...actual,
-    useSecondNow: () => tick,
-    useNow: () => tick,
+    useSecondNow: () => statusBarNow.current,
+    useNow: () => titleTick,
   };
 });
 
@@ -23,9 +25,12 @@ import {
   ids,
   renderWithKeys,
 } from "../test/harness";
-import { StatusBar, SyncBlock, TitleBar } from "./Shell";
+import { Rail, StatusBar, SyncBlock, TitleBar } from "./Shell";
 
-afterEach(cleanup);
+afterEach(() => {
+  statusBarNow.current = titleTick;
+  cleanup();
+});
 
 const enrollmentBase = {
   status: "active" as const,
@@ -147,7 +152,149 @@ describe("TitleBar connection display (P2b #103)", () => {
     expect(screen.getByRole("status").textContent).not.toContain("Online");
   });
 
-  it("does not use api.checkedAt as the sync time in the status bar lead", () => {
+  it("shows Offline backup · ready until 22:00 from readiness.offlineBackup", () => {
+    const grant = new Date(2026, 10, 9, 22, 0, 0).toISOString();
+    renderWithKeys(
+      <StatusBar
+        state={deviceState({ enrollment: enrollmentBase, staffSession: { workSessionId: ids.session, staffUserId: ids.ana, staffName: "Ana", openedAt: "2026-11-09T08:00:00.000Z" } })}
+        api={apiOk}
+        journal={journalSynced("2026-11-09T14:32:08.000Z")}
+        offlineBackup={{
+          grantExpiresAt: grant,
+          snapshotGeneratedAt: "2026-11-09T14:00:00.000Z",
+          authorizedStaff: 4,
+          usable: true,
+          failures: 0,
+          failure: null,
+        }}
+        printer={null}
+        info={null}
+      />,
+    );
+    expect(screen.getByText(/Offline backup · ready until 22:00/)).toBeTruthy();
+  });
+
+  it("hides the offline-backup line after the grant expires on the clock", () => {
+    const grant = new Date(2026, 10, 9, 22, 0, 0).toISOString();
+    statusBarNow.current = new Date(2026, 10, 9, 21, 0, 0);
+    const backupProps = {
+      grantExpiresAt: grant,
+      snapshotGeneratedAt: "2026-11-09T14:00:00.000Z",
+      authorizedStaff: 4,
+      usable: true,
+      failures: 0,
+      failure: null,
+    };
+    const bar = (
+      <StatusBar
+        state={deviceState({ enrollment: enrollmentBase, staffSession: { workSessionId: ids.session, staffUserId: ids.ana, staffName: "Ana", openedAt: "2026-11-09T08:00:00.000Z" } })}
+        api={apiOk}
+        journal={journalSynced("2026-11-09T14:32:08.000Z")}
+        offlineBackup={backupProps}
+        printer={null}
+        info={null}
+      />
+    );
+    const { rerender } = renderWithKeys(bar);
+    expect(screen.getByText(/ready until 22:00/)).toBeTruthy();
+    statusBarNow.current = new Date(2026, 10, 9, 22, 0, 1);
+    rerender(bar);
+    expect(screen.queryByText(/ready until 22:00/)).toBeNull();
+  });
+
+  it("hides the offline-backup line when a re-read marks the backup not usable", () => {
+    const grant = new Date(2026, 10, 9, 22, 0, 0).toISOString();
+    statusBarNow.current = new Date(2026, 10, 9, 21, 0, 0);
+    const base = deviceState({
+      enrollment: enrollmentBase,
+      staffSession: { workSessionId: ids.session, staffUserId: ids.ana, staffName: "Ana", openedAt: "2026-11-09T08:00:00.000Z" },
+    });
+    const { rerender } = renderWithKeys(
+      <StatusBar
+        state={base}
+        api={apiOk}
+        journal={journalSynced("2026-11-09T14:32:08.000Z")}
+        offlineBackup={{
+          grantExpiresAt: grant,
+          snapshotGeneratedAt: "2026-11-09T14:00:00.000Z",
+          authorizedStaff: 4,
+          usable: true,
+          failures: 0,
+          failure: null,
+        }}
+        printer={null}
+        info={null}
+      />,
+    );
+    expect(screen.getByText(/ready until 22:00/)).toBeTruthy();
+    rerender(
+      <StatusBar
+        state={base}
+        api={apiOk}
+        journal={journalSynced("2026-11-09T14:32:08.000Z")}
+        offlineBackup={{
+          grantExpiresAt: grant,
+          snapshotGeneratedAt: "2026-11-09T14:00:00.000Z",
+          authorizedStaff: 4,
+          usable: false,
+          failures: 0,
+          failure: null,
+        }}
+        printer={null}
+        info={null}
+      />,
+    );
+    expect(screen.queryByText(/ready until 22:00/)).toBeNull();
+  });
+
+  it("tags the lead status word so narrow layouts ellipsize detail before the word", () => {
+    renderWithKeys(
+      <StatusBar
+        state={deviceState({ enrollment: enrollmentBase })}
+        api={apiOk}
+        journal={journalSynced("2026-11-09T14:32:08.000Z")}
+        offlineBackup={{
+          grantExpiresAt: new Date(2099, 0, 1, 22, 0, 0).toISOString(),
+          snapshotGeneratedAt: "2026-11-09T14:00:00.000Z",
+          authorizedStaff: 4,
+          usable: true,
+          failures: 0,
+          failure: null,
+        }}
+        printer={{ name: "EPSON", displayName: "EPSON TM-T82III" }}
+        info={{ appVersion: "1.0.0", electronVersion: "44", schemaVersion: 1, packaged: false }}
+        shift={{
+          workSessionId: ids.session,
+          shiftNumber: "S-0412",
+          staffUserId: ids.ana,
+          staffName: "Sachini Rathnayake",
+          openedAt: "2026-11-09T08:02:00.000Z",
+          openingCashMinor: 0,
+          openingCount: [],
+          status: "open",
+          sync: "synced",
+          error: null,
+          expectedCashMinor: 2_485_000,
+          closedAt: null,
+          closedByName: null,
+          closingCashCountMinor: null,
+          serverExpectedCashMinor: null,
+          varianceMinor: null,
+          varianceNote: null,
+          assistanceReason: null,
+          needsManagerPin: false,
+          summary: null,
+          summaryAt: null,
+        }}
+      />,
+    );
+    const word = screen.getByText("Online");
+    expect(word.tagName).toBe("B");
+    expect(word.className).toMatch(/sbStatusWord/);
+    expect(word.textContent).toBe("Online");
+  });
+
+  it("does not use api.checkedAt as last sync in the status bar lead", () => {
     const lastAt = "2026-11-09T14:32:08.000Z";
     renderWithKeys(
       <StatusBar
@@ -175,6 +322,65 @@ describe("TitleBar connection display (P2b #103)", () => {
       />,
     );
     expect(screen.getByText(/Offline/).parentElement?.textContent).toContain("last sync 14:32:08");
+  });
+});
+
+const railSession = {
+  workSessionId: ids.session,
+  staffUserId: ids.ana,
+  staffName: "Ana Perera",
+  openedAt: "2026-11-09T08:00:00.000Z",
+};
+
+describe("Rail Counter work (epic #103)", () => {
+  it("hides Counter work when showWork is false", () => {
+    renderWithKeys(
+      <Rail
+        page="sell"
+        onPage={() => undefined}
+        workCount={0}
+        showWork={false}
+        session={railSession}
+        personOpen={false}
+        onPerson={() => undefined}
+        onLock={() => undefined}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: /Counter work/i })).toBeNull();
+  });
+
+  it("shows Counter work for a restricted role when waiting work keeps showWork true", () => {
+    renderWithKeys(
+      <Rail
+        page="sell"
+        onPage={() => undefined}
+        workCount={3}
+        showWork
+        session={railSession}
+        personOpen={false}
+        onPerson={() => undefined}
+        onLock={() => undefined}
+      />,
+    );
+    expect(screen.getByRole("button", { name: /Counter work/i })).toBeTruthy();
+    expect(screen.getByText("3")).toBeTruthy();
+  });
+
+  it("shows Counter work with its waiting count when the role may execute", () => {
+    renderWithKeys(
+      <Rail
+        page="sell"
+        onPage={() => undefined}
+        workCount={7}
+        showWork
+        session={railSession}
+        personOpen={false}
+        onPerson={() => undefined}
+        onLock={() => undefined}
+      />,
+    );
+    expect(screen.getByRole("button", { name: /Counter work/i })).toBeTruthy();
+    expect(screen.getByText("7")).toBeTruthy();
   });
 });
 

@@ -1,4 +1,4 @@
-import type { ApiReachability, JournalSync } from "../../shared/ipc-contract";
+import type { ApiReachability, JournalSync, OfflineBackup } from "../../shared/ipc-contract";
 import { longDayColombo, shortDay, time, timeColomboWithSeconds, timeWithSeconds } from "./format";
 
 /** Approved overdue threshold (Shafeek, 11 Nov 2026). */
@@ -20,12 +20,12 @@ export type DerivedSync = {
   tooltip: string;
   ariaLabel: string;
   caseId: string;
-  /**
-   * Journal issue / refused: tooltip carries `journal.issue.message`; pill/status copy is TODO (Emma).
-   * Visible UI keeps the timestamp state (synced / overdue / …) until design approves attention copy.
-   */
+  /** Online sales-attention state (refused / journal issue), approved 11 Nov 2026. */
   attentionPending?: boolean;
 };
+
+/** Approved pill detail (Shafeek, option A, 11 Nov 2026 3:39 PM Asia/Colombo). */
+export const SALES_ATTENTION_PILL = "sales need attention";
 
 export function formatSyncedAgo(from: Date, now: Date): string {
   const s = Math.max(0, Math.floor((now.getTime() - from.getTime()) / 1000));
@@ -74,20 +74,68 @@ export function syncNeedsAttention(journal: JournalSync): boolean {
   return journal.refused > 0 || journal.issue !== null;
 }
 
-/** Appends `journal.issue.message` to the tooltip; does not change pill/status (design TODO). */
-export function attachJournalAttention(state: DerivedSync, journal: JournalSync): DerivedSync {
-  if (!syncNeedsAttention(journal)) return state;
-  let tooltip = state.tooltip;
-  const msg = journal.issue?.message;
-  if (msg && !tooltip.includes(msg)) {
-    const parts = tooltip.split(" · ").filter(Boolean);
-    const server = parts.find((p) => p.startsWith("Server checked:"));
-    const body = parts.filter((p) => p !== server);
-    body.push(msg);
-    if (server) body.push(server);
-    tooltip = body.join(" · ");
+/** Reason text already on `JournalSync` from main (issue.message, or recovery copy for mismatch). */
+export function journalAttentionReason(journal: JournalSync): string {
+  return journal.issue?.message?.trim() ?? "";
+}
+
+function stockStatusParts(
+  stockAt: string | null,
+  stock: DirState | null,
+  now: Date,
+): TextPart[] {
+  if (!stock) return [];
+  if (stock === "never") return [{ text: "⚠ Stock not updated yet", tone: "warn" }];
+  if (!stockAt) return [];
+  if (stock === "overdue") {
+    return [{ text: `⚠ Stock updated ${formatDirectionClock(stockAt, now)}, overdue`, tone: "warn" }];
   }
-  return { ...state, tooltip, attentionPending: true };
+  return [{ text: `Stock updated ${formatDirectionClock(stockAt, now)}` }];
+}
+
+function deriveOnlineAttentionState(
+  journal: JournalSync,
+  twoWay: boolean,
+  salesAt: string | null,
+  stockAt: string | null,
+  stock: DirState | null,
+  api: ApiReachability | null,
+  now: Date,
+): DerivedSync {
+  const reason = journalAttentionReason(journal);
+  const salesStatus = reason
+    ? `⚠ Sales not sent · ${reason}`
+    : "⚠ Sales not sent";
+  const statusParts: TextPart[] = [{ text: salesStatus, tone: "warn" }, ...stockStatusParts(stockAt, stock, now)];
+  const tipLines = [
+    salesAt ? `Sales sent: ${tooltipStamp(salesAt)}` : "",
+    twoWay && stockAt ? `Stock updated: ${tooltipStamp(stockAt)}` : "",
+    twoWay && !stockAt ? "Stock updated: not yet on this counter" : "",
+    reason,
+  ];
+  const tooltip = [...tipLines, serverChecked(api)].filter(Boolean).join(" · ");
+  return {
+    active: true,
+    tone: "warn",
+    pulse: false,
+    titleLead: "Online",
+    titleDetail: SALES_ATTENTION_PILL,
+    statusLead: "Online",
+    statusParts,
+    tooltip,
+    ariaLabel: "Online, sales need attention",
+    caseId: "attention",
+    attentionPending: true,
+  };
+}
+
+function offlineTooltip(base: string, journal: JournalSync, api: ApiReachability | null): string {
+  const lines = [base];
+  const reason = journalAttentionReason(journal);
+  if (syncNeedsAttention(journal) && reason) lines.push(reason);
+  const checked = serverChecked(api);
+  if (checked) lines.push(checked);
+  return lines.filter(Boolean).join(" · ");
 }
 
 type DirState = "fresh" | "overdue" | "never";
@@ -133,10 +181,7 @@ export function deriveSyncState(
   showJournalSyncing: boolean,
 ): DerivedSync | null {
   if (enrollmentStatus !== "active" || !journal) return null;
-  return attachJournalAttention(
-    deriveSyncStateUi(enrollmentStatus, api, journal, now, showJournalSyncing),
-    journal,
-  );
+  return deriveSyncStateUi(enrollmentStatus, api, journal, now, showJournalSyncing);
 }
 
 function deriveSyncStateUi(
@@ -183,7 +228,11 @@ function deriveSyncStateUi(
 
   const reachable = api.reachable;
 
-  // Offline (3, 4, 5, T6)
+  if (reachable && syncNeedsAttention(journal)) {
+    return deriveOnlineAttentionState(journal, twoWay, salesAt, stockAt, stock, api, now);
+  }
+
+  // Offline (3, 4, 5, T6) — red wins even when journal.issue is set
   if (!reachable) {
     if (twoWay && (salesAt || stockAt)) {
       const older = olderIso(salesAt, stockAt);
@@ -199,11 +248,17 @@ function deriveSyncStateUi(
         titleDetail: pillAge ? `last synced ${pillAge}` : undefined,
         statusLead: "Offline",
         statusParts,
-        tooltip: baseTooltip([
-          "Can't reach the server",
-          salesAt ? `Sales sent: ${tooltipStamp(salesAt)}` : "",
-          stockAt ? `Stock updated: ${tooltipStamp(stockAt)}` : "",
-        ]),
+        tooltip: offlineTooltip(
+          [
+            "Can't reach the server",
+            salesAt ? `Sales sent: ${tooltipStamp(salesAt)}` : "",
+            stockAt ? `Stock updated: ${tooltipStamp(stockAt)}` : "",
+          ]
+            .filter(Boolean)
+            .join(" · "),
+          journal,
+          api,
+        ),
         ariaLabel: older
           ? `Offline, last sync ${time(new Date(older))}`
           : "Offline",
@@ -237,10 +292,11 @@ function deriveSyncStateUi(
       titleDetail: `last synced ${age}`,
       statusLead: "Offline",
       statusParts: [{ text: `last sync ${formatStatusSyncClock(salesAt, now)}` }],
-      tooltip: baseTooltip([
-        "Can't reach the server",
-        `Last sync: ${tooltipStamp(salesAt)}`,
-      ]),
+      tooltip: offlineTooltip(
+        `Can't reach the server · Last sync: ${tooltipStamp(salesAt)}`,
+        journal,
+        api,
+      ),
       ariaLabel: `Offline, last sync ${time(new Date(salesAt))}`,
       caseId: sameLocalDay(new Date(salesAt), now) ? "5" : "5b",
     };
@@ -542,4 +598,15 @@ function deriveSyncStateUi(
     ariaLabel: "Online, synchronisation paused",
     caseId: "0-blocked",
   };
+}
+
+/** The status bar's offline-backup segment (mockup #103): grant expiry from the readiness report. */
+export function offlineBackupReadyUntil(
+  backup: OfflineBackup | null | undefined,
+  now = new Date(),
+): string | null {
+  if (!backup?.grantExpiresAt || !backup.usable) return null;
+  const expiresMs = Date.parse(backup.grantExpiresAt);
+  if (Number.isNaN(expiresMs) || now.getTime() >= expiresMs) return null;
+  return `ready until ${time(new Date(expiresMs))}`;
 }

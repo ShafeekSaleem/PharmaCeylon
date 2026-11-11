@@ -46,9 +46,10 @@ const NOW = Date.UTC(2026, 10, 11, 9, 10, 0);
 function signed<T>(purpose: "grant" | "snapshot", payload: T): Signed<T> {
   const body = terminalSigningText(purpose, payload);
   return {
+    algorithm: "Ed25519",
     payload,
     keyId: signer.keyId,
-    signature: sign(null, Buffer.from(body), server.privateKey).toString("base64"),
+    signature: sign(null, Buffer.from(body), server.privateKey).toString("base64url"),
   };
 }
 
@@ -70,7 +71,15 @@ function authority(generatedAt: number) {
     kind: "offline_grant",
     identity,
     ...device,
-    authorizedStaff: [],
+    authorizedStaff: [
+      {
+        staffUserId: randomUUID(),
+        staffAuthorizationId: randomUUID(),
+        credentialVersion: 1,
+        signInMethod: "personal_pin",
+        offlineManagerActions: [],
+      },
+    ],
     grantId: randomUUID(),
     grantVersion: 1,
     nominationVersion: 1,
@@ -98,7 +107,7 @@ describe("journalSyncForRenderer", () => {
     dir = mkdtempSync(join(tmpdir(), "journal-sync-renderer-"));
     local = openLocalStore(dir, protector, migrations);
     resetJournalSyncRendererCache();
-    installOfflineAuthority(local.db, authority(NOW), expected());
+    expect(installOfflineAuthority(local.db, authority(NOW), expected())).toBe("installed");
   });
 
   afterEach(() => {

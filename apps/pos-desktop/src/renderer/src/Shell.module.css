@@ -135,6 +135,29 @@
   color: var(--pos-text-2);
 }
 
+/* Narrow windows: keep the title bar on one line (1366 × 768 and 1024 × 640). */
+@media (max-width: 1200px) {
+  .tag {
+    display: none;
+  }
+
+  .where {
+    max-width: min(36vw, 280px);
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .connDetail {
+    display: none;
+  }
+}
+
+@media (max-width: 1060px) {
+  .where {
+    max-width: min(42vw, 240px);
+  }
+}
+
 .dot {
   width: 7px;
   height: 7px;
@@ -376,6 +399,16 @@
   color: var(--pos-text-2);
 }
 
+.statusbar > :global(.grow) {
+  flex: 1 1 auto;
+  min-width: 8px;
+}
+
+.statusbar > .sb:last-child,
+.statusbar > .sb:nth-last-child(2) {
+  flex-shrink: 0;
+}
+
 .sb {
   display: flex;
   align-items: center;
@@ -443,6 +476,37 @@
 
 .sbMuted {
   color: var(--pos-text-3);
+}
+
+.sbBackup {
+  flex-shrink: 0;
+}
+
+.sbBackupText {
+  white-space: nowrap;
+}
+
+/* Lead sync/reachability segment: the status word never ellipsizes (colour + word). */
+.sbLead {
+  flex-shrink: 0;
+  min-width: 0;
+}
+
+.sbLeadCore {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.sbStatusWord {
+  flex-shrink: 0;
+}
+
+.sbLeadDetail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
 }
 
 /* ---------- pages ---------- */
@@ -518,5 +582,44 @@
 @media (max-width: 1200px) {
   .sbLabel {
     display: none;
+  }
+}
+
+@media (max-width: 1060px) {
+  .statusbar {
+    font-size: 11px;
+  }
+
+  .sb {
+    padding: 0 8px;
+    gap: 4px;
+  }
+
+  .sbShrink {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+  }
+
+  /* Give up horizontal space in order: printer, shift, cash; never the lead status word. */
+  .sbPrinter {
+    flex: 1 1 3.5rem;
+    flex-shrink: 4;
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  .sbShift {
+    flex: 1 1 4rem;
+    flex-shrink: 3;
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  .sbCash {
+    flex: 1 1 4.5rem;
+    flex-shrink: 2;
+    min-width: 0;
+    overflow: hidden;
   }
 }

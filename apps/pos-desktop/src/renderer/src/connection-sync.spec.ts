@@ -2,11 +2,12 @@ import { describe, expect, it } from "@jest/globals";
 import type { JournalSync } from "../../shared/ipc-contract";
 import { timeWithSeconds } from "./format";
 import {
+  SALES_ATTENTION_PILL,
   SYNC_STALE_MS,
-  attachJournalAttention,
   deriveSyncState,
   formatStatusSyncClock,
   formatSyncedAgo,
+  offlineBackupReadyUntil,
 } from "./connection-sync";
 
 const now = new Date("2026-11-11T09:14:16.000Z");
@@ -47,46 +48,95 @@ describe("deriveSyncState — states 0–6 (sales-only)", () => {
     expect(d.statusParts[0]?.text).toMatch(/Sales sent 09:14/);
   });
 
-  it("issue: keeps timestamp UI, not cyan syncing, issue in tooltip", () => {
+  it("attention: issue only — amber pill and status, not syncing", () => {
+    const msg = "A manager reviews it in the back office.";
     const d = deriveSyncState(
       "active",
       apiOk,
-      salesOnly({ issue: { code: "HELD", message: "A manager reviews it in the back office." }, waiting: 2, syncing: true }),
+      salesOnly({ issue: { code: "HELD", message: msg }, waiting: 2, syncing: true }),
       now,
       true,
     )!;
-    expect(d.attentionPending).toBe(true);
-    expect(d.caseId).toBe("T7");
+    expect(d.caseId).toBe("attention");
+    expect(d.tone).toBe("warn");
+    expect(d.titleDetail).toBe(SALES_ATTENTION_PILL);
+    expect(d.statusParts[0]?.text).toBe(`⚠ Sales not sent · ${msg}`);
+    expect(d.tooltip).toContain(msg);
+    expect(d.tooltip).toContain("Sales sent:");
     expect(d.tone).not.toBe("info");
-    expect(d.titleDetail).toContain("synced");
-    expect(d.tooltip).toContain("manager reviews");
-    expect(d.titleDetail).not.toContain("manager");
   });
 
-  it("refused: attentionPending without inventing pill copy", () => {
+  it("attention: refused only", () => {
     const d = deriveSyncState(
       "active",
       apiOk,
-      salesOnly({ refused: 1, waiting: 2, syncing: true }),
+      salesOnly({ refused: 1, issue: { code: "HELD", message: "Held for review." } }),
+      now,
+      false,
+    )!;
+    expect(d.caseId).toBe("attention");
+    expect(d.titleDetail).toBe(SALES_ATTENTION_PILL);
+    expect(d.statusParts[0]?.text).toContain("⚠ Sales not sent");
+  });
+
+  it("attention: journal mismatch only", () => {
+    const msg = "This counter's journal does not match the server.";
+    const d = deriveSyncState(
+      "active",
+      apiOk,
+      baseJournal({
+        issue: { code: "JOURNAL_MISMATCH", message: msg },
+        stockDownloadNominated: true,
+      }),
+      now,
+      false,
+    )!;
+    expect(d.caseId).toBe("attention");
+    expect(d.statusParts[0]?.text).toBe(`⚠ Sales not sent · ${msg}`);
+    expect(d.statusParts[1]?.text).toMatch(/Stock updated/);
+  });
+
+  it("attention: sales-only counter (T7)", () => {
+    const d = deriveSyncState(
+      "active",
+      apiOk,
+      salesOnly({ issue: { code: "NETWORK", message: "Try again shortly." } }),
+      now,
+      false,
+    )!;
+    expect(d.caseId).toBe("attention");
+    expect(d.statusParts).toHaveLength(1);
+    expect(d.statusParts[0]?.text).toContain("⚠ Sales not sent");
+  });
+
+  it("attention: beats syncing (no cyan state 2)", () => {
+    const d = deriveSyncState(
+      "active",
+      apiOk,
+      baseJournal({ syncing: true, waiting: 4, issue: { code: "HELD", message: "Blocked." } }),
       now,
       true,
     )!;
-    expect(d.attentionPending).toBe(true);
-    expect(d.tone).not.toBe("info");
-    expect(d.caseId).not.toBe("2");
+    expect(d.caseId).toBe("attention");
+    expect(d.tone).toBe("warn");
+    expect(d.statusParts[0]?.text).toContain("⚠ Sales not sent");
   });
 
-  it("attachJournalAttention is the attention hook (TODO pill copy)", () => {
-    const base = deriveSyncState("active", apiOk, salesOnly(), now, false)!;
-    expect(base.attentionPending).toBeFalsy();
-    const withIssue = attachJournalAttention(base, {
-      ...salesOnly(),
-      issue: { code: "X", message: "Only in tooltip." },
-      refused: 0,
-    });
-    expect(withIssue.attentionPending).toBe(true);
-    expect(withIssue.tooltip).toContain("Only in tooltip.");
-    expect(withIssue.titleDetail).toBe(base.titleDetail);
+  it("attention: offline with issue stays red (case 5)", () => {
+    const d = deriveSyncState(
+      "active",
+      apiDown,
+      salesOnly({
+        lastSuccessAt: "2026-11-11T09:02:08.000Z",
+        issue: { code: "HELD", message: "Still blocked." },
+      }),
+      now,
+      false,
+    )!;
+    expect(d.tone).toBe("bad");
+    expect(d.caseId).toBe("5");
+    expect(d.statusParts[0]?.text).not.toContain("⚠ Sales not sent");
+    expect(d.tooltip).toContain("Still blocked.");
   });
 
   it("pause uses a reason instead of synced ago", () => {
@@ -312,6 +362,39 @@ describe("formatStatusSyncClock", () => {
     expect(`last sync ${formatStatusSyncClock(at, new Date("2026-11-09T15:00:00.000Z"))}`).toBe(
       "last sync 14:32:08",
     );
+  });
+});
+
+describe("offlineBackupReadyUntil", () => {
+  const backup = (usable: boolean, grantExpiresAt: string) => ({
+    grantExpiresAt,
+    snapshotGeneratedAt: "2026-11-09T14:00:00.000Z",
+    authorizedStaff: 4,
+    usable,
+    failures: 0,
+    failure: null,
+  });
+
+  it("shows ready until 22:00 while the grant is usable and not yet expired", () => {
+    const grant = new Date(2026, 10, 9, 22, 0, 0).toISOString();
+    const now = new Date(2026, 10, 9, 21, 0, 0);
+    expect(offlineBackupReadyUntil(backup(true, grant), now)).toBe("ready until 22:00");
+  });
+
+  it("hides after the grant expiry without waiting for a readiness re-read", () => {
+    const grant = new Date(2026, 10, 9, 22, 0, 0).toISOString();
+    const now = new Date(2026, 10, 9, 22, 0, 1);
+    expect(offlineBackupReadyUntil(backup(true, grant), now)).toBeNull();
+  });
+
+  it("hides when readiness marks the backup not usable even with a future grant", () => {
+    const grant = new Date(2026, 10, 9, 22, 0, 0).toISOString();
+    const now = new Date(2026, 10, 9, 21, 0, 0);
+    expect(offlineBackupReadyUntil(backup(false, grant), now)).toBeNull();
+  });
+
+  it("is omitted when there is no backup", () => {
+    expect(offlineBackupReadyUntil(null)).toBeNull();
   });
 });
 

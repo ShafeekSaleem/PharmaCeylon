@@ -118,3 +118,18 @@ None. D1 and D2 are approved (11 Nov 2026, 14:55 Asia/Colombo).
 
 ## Files
 `index.html` (self-contained), `two-way-light.png`, `two-way-dark.png`, `overview-light.png`, `overview-dark.png`, `overview-both.png`, `context-{1,5}-{light,dark}.png`, `build.py` (generates index.html), `shoot.cjs` (renders PNGs with playwright-core + system Chrome).
+
+## Addendum: refused entries / attention, approved 11 Nov 2026 3:39 PM
+
+Approved by Shafeek (via Emma), option **A**, Asia/Colombo.
+
+**Trigger (online only):** `journal.issue` is set, or `journal.refused > 0`, or a journal mismatch is recorded (`issue.code === "JOURNAL_MISMATCH"`). Applies in **two-way** and **sales-only** modes. Takes precedence over syncing, fresh, and overdue while **reachable**. While **offline**, the approved red Offline states (4/5/T6) win; the tooltip may still append `journal.issue.message` when present.
+
+| Surface | Copy / behaviour |
+|---|---|
+| Title pill | **Online** · sales need attention — tone `--pos-warn` (`.connWarn`), no pulse |
+| Status bar lead | **Online** · ⚠ Sales not sent · `<journal.issue.message>` — amber (`.sbWarn`). In two-way mode, stock segments follow the two-way rules (fresh / overdue / never) unchanged after the sales-attention segment. |
+| Message source | Use `journal.issue.message` from IPC (main fills via `explainSyncIssue` / recovery text when the DB message is empty). Do not invent new user-facing strings in the renderer. |
+| Tooltip | One line per direction (`Sales sent: …` / `Stock updated: …` as elsewhere), then `journal.issue.message` when present, then `Server checked HH:MM:SS · Sri Lanka time`. |
+
+**Precedence (reachable, enrolled):** checking (1) → **attention** → offline would be next but we're online → syncing (2) → never synced (3) → overdue / fresh (0, 6, T1–T7).
