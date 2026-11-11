@@ -7,11 +7,9 @@ import type {
   Printer,
 } from "../../shared/ipc-contract";
 import type { ReactNode } from "react";
-import {
-  lastSyncLabels,
-  showLastSyncPill,
-} from "./connection-sync";
+import { deriveSyncState, type DerivedSync } from "./connection-sync";
 import { initials, shortDay, shortName, time, timeWithSeconds, useNow, useSecondNow } from "./format";
+import { useSyncingLatch } from "./use-syncing-latch";
 import { money } from "./sell-model";
 import { Icon, type IconName } from "./Icon";
 import styles from "./Shell.module.css";
@@ -61,24 +59,88 @@ function serverText(api: ApiReachability | null) {
   return api.reachable ? "Server reachable" : "Server not reachable";
 }
 
-/** Lockstep title-bar pill and status-bar lead segment when the mockup sync state applies (P2b #103). */
-export function LastSyncDisplay({ lastSuccessAt, variant }: { lastSuccessAt: string; variant: "title" | "status" }) {
-  const now = useSecondNow(true);
-  const { detailAgo, detailClock } = lastSyncLabels(lastSuccessAt, now);
-  if (variant === "title") {
-    return (
-      <div role="status" className={styles.conn}>
-        <span className={styles.dot} />
-        Online <span className={styles.connDetail}>· {detailAgo}</span>
-      </div>
-    );
+function connToneClass(tone: DerivedSync["tone"]): string {
+  switch (tone) {
+    case "wait":
+      return styles.connWait ?? "";
+    case "info":
+      return styles.connInfo ?? "";
+    case "warn":
+      return styles.connWarn ?? "";
+    case "bad":
+      return styles.connBad ?? "";
+    default:
+      return "";
   }
+}
+
+function sbToneClass(tone: DerivedSync["tone"]): string {
+  switch (tone) {
+    case "wait":
+      return styles.sbWait ?? "";
+    case "info":
+      return styles.sbInfo ?? "";
+    case "warn":
+      return styles.sbWarn ?? "";
+    case "bad":
+      return styles.sbBad ?? "";
+    default:
+      return styles.sbOk ?? "";
+  }
+}
+
+function SyncTitlePill({ sync }: { sync: DerivedSync }) {
   return (
-    <span className={cx(styles.sb, styles.sbOk)}>
+    <div
+      role="status"
+      aria-label={sync.ariaLabel}
+      title={sync.tooltip}
+      className={cx(styles.conn, connToneClass(sync.tone))}
+    >
+      <span className={cx(styles.dot, sync.pulse && styles.dotPulse)} />
+      {sync.titleLead}
+      {sync.titleDetail ? (
+        <span className={styles.connDetail} aria-hidden="true">
+          {" "}
+          · {sync.titleDetail}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+function SyncStatusLead({ sync }: { sync: DerivedSync }) {
+  return (
+    <span
+      title={sync.tooltip}
+      className={cx(styles.sb, sbToneClass(sync.tone))}
+    >
       <span className={styles.d} />
-      <b>Online</b> · {detailClock}
+      <b>{sync.statusLead}</b>
+      {sync.statusParts.map((part, index) => (
+        <span
+          key={`${part.text}-${index}`}
+          className={cx(
+            part.tone === "warn" && styles.sbWarnText,
+            part.tone === "muted" && styles.sbMuted,
+          )}
+        >
+          {" "}
+          · {part.text}
+        </span>
+      ))}
     </span>
   );
+}
+
+function useDerivedSync(
+  enrollmentStatus: "pending" | "active" | "revoked" | "retired" | undefined,
+  api: ApiReachability | null,
+  journal: JournalSync | null,
+) {
+  const tickNow = useSecondNow(enrollmentStatus === "active" && journal !== null);
+  const showJournalSyncing = useSyncingLatch(journal?.syncing ?? false);
+  return deriveSyncState(enrollmentStatus, api, journal, tickNow, showJournalSyncing);
 }
 
 function ReachabilityPill({ api }: { api: ApiReachability | null }) {
@@ -126,7 +188,7 @@ export function TitleBar({
   const enrollment = state?.enrollment;
   const placed =
     enrollment?.status === "active" || enrollment?.status === "revoked";
-  const syncPill = showLastSyncPill(enrollment?.status, api, journal);
+  const derived = useDerivedSync(enrollment?.status, api, journal);
   return (
     <header className={styles.titlebar}>
       <div className={styles.brand}>
@@ -151,11 +213,7 @@ export function TitleBar({
         )}
       </div>
       <span className={ui.grow} />
-      {syncPill && journal?.lastSuccessAt ? (
-        <LastSyncDisplay lastSuccessAt={journal.lastSuccessAt} variant="title" />
-      ) : (
-        <ReachabilityPill api={api} />
-      )}
+      {derived?.active ? <SyncTitlePill sync={derived} /> : <ReachabilityPill api={api} />}
       <div className={styles.clock}>
         {shortDay(now)} · {time(now)}
       </div>
@@ -293,14 +351,10 @@ export function StatusBar({
 }) {
   const session = state.staffSession;
   const local = atTheComputer(state);
-  const syncPill = showLastSyncPill(state.enrollment?.status, api, journal);
+  const derived = useDerivedSync(state.enrollment?.status, api, journal);
   return (
     <footer className={styles.statusbar}>
-      {syncPill && journal?.lastSuccessAt ? (
-        <LastSyncDisplay lastSuccessAt={journal.lastSuccessAt} variant="status" />
-      ) : (
-        <ReachabilityStatus api={api} />
-      )}
+      {derived?.active ? <SyncStatusLead sync={derived} /> : <ReachabilityStatus api={api} />}
       {shift ? (
         <>
           <span className={styles.sb}>

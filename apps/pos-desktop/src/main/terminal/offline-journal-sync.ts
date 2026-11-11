@@ -11,8 +11,10 @@ import {
   type TerminalIdentity,
 } from "@pharmaceylon/shared";
 import type { JournalSync } from "../../shared/ipc-contract";
-import { ApiError, type ApiSession } from "../api/api-client";
 import type { PosDatabase } from "../db/database";
+import type { OfflineAuthorityRefreshStatus } from "./offline-authority-refresh";
+import { readInstalledOfflineAuthority } from "./offline-authority";
+import { ApiError, type ApiSession } from "../api/api-client";
 import {
   activeOutage,
   journalCoverage,
@@ -899,6 +901,8 @@ export const EMPTY_JOURNAL_SYNC: JournalSync = {
   issue: null,
   pause: null,
   lastDrainAt: null,
+  lastStockDownloadAt: null,
+  stockDownloadNominated: null,
 };
 
 /** The renderer's view of the journal sync: counts, plain words and ISO times only. */
@@ -922,5 +926,27 @@ export function journalSyncState(view: JournalSyncView | null): JournalSync {
       unconfirmed: { ...view.pause.unconfirmed },
     },
     lastDrainAt: view.lastDrain?.drainedAt ?? null,
+    lastStockDownloadAt: null,
+    stockDownloadNominated: null,
+  };
+}
+
+/** Renderer-facing journal sync with stock direction fields from main (desktop IPC only). */
+export function journalSyncForRenderer(
+  view: JournalSyncView | null,
+  db: PosDatabase | null,
+  enrollmentId: string | undefined,
+  refresh: OfflineAuthorityRefreshStatus | null,
+): JournalSync {
+  const base = journalSyncState(view);
+  if (!db || !enrollmentId) return base;
+  const installed = readInstalledOfflineAuthority(db, enrollmentId);
+  const lastStockDownloadAt = installed
+    ? new Date(installed.snapshot.payload.generatedAt).toISOString()
+    : null;
+  return {
+    ...base,
+    lastStockDownloadAt,
+    stockDownloadNominated: refresh?.nominated ?? null,
   };
 }

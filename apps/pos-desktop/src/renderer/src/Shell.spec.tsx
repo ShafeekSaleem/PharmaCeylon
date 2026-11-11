@@ -7,8 +7,20 @@ jest.mock("./format", () => {
   return {
     ...actual,
     useSecondNow: () => tick,
+    useNow: () => tick,
+    timeWithSeconds: (d: Date) => {
+      const h = d.getUTCHours().toString().padStart(2, "0");
+      const m = d.getUTCMinutes().toString().padStart(2, "0");
+      const s = d.getUTCSeconds().toString().padStart(2, "0");
+      return `${h}:${m}:${s}`;
+    },
   };
 });
+
+jest.mock("./use-syncing-latch", () => ({
+  useSyncingLatch: (syncing: boolean) => syncing,
+}));
+
 import { cleanup, screen } from "@testing-library/react";
 import type { JournalSync } from "../../shared/ipc-contract";
 import {
@@ -18,8 +30,6 @@ import {
   renderWithKeys,
 } from "../test/harness";
 import { StatusBar, SyncBlock, TitleBar } from "./Shell";
-import { lastSyncLabels } from "./connection-sync";
-import { timeWithSeconds } from "./format";
 
 afterEach(cleanup);
 
@@ -42,7 +52,7 @@ const enrollmentBase = {
   enrollmentStatusFetchedAt: null,
 };
 
-const journalSynced = (lastSuccessAt: string): JournalSync => ({
+const journalSynced = (lastSuccessAt: string, over: Partial<JournalSync> = {}): JournalSync => ({
   recorded: 0,
   accepted: 0,
   waiting: 0,
@@ -52,6 +62,9 @@ const journalSynced = (lastSuccessAt: string): JournalSync => ({
   issue: null,
   pause: null,
   lastDrainAt: null,
+  lastStockDownloadAt: null,
+  stockDownloadNominated: null,
+  ...over,
 });
 
 const apiOk = {
@@ -100,23 +113,21 @@ describe("TitleBar connection display (P2b #103)", () => {
     expect(pill.textContent).not.toMatch(/sync/i);
   });
 
-  it("shows the mockup Online synced pill when the journal has lastSuccessAt", () => {
-    const lastAt = "2026-11-09T14:32:08.000Z";
-    const now = new Date("2026-11-09T14:32:16.000Z");
+  it("shows the Online synced pill when the journal has lastSuccessAt", () => {
     renderWithKeys(
       <TitleBar
         state={deviceState({ enrollment: enrollmentBase })}
         api={apiOk}
-        journal={journalSynced(lastAt)}
+        journal={journalSynced("2026-11-09T14:32:08.000Z")}
       />,
     );
     const pill = screen.getByRole("status");
     expect(pill.textContent).toContain("Online");
-    expect(pill.textContent).toContain(lastSyncLabels(lastAt, now).detailAgo);
+    expect(pill.textContent).toContain("synced 8 s ago");
     expect(pill.textContent).not.toContain("checked");
   });
 
-  it("falls back to the reachability pill while syncing", () => {
+  it("shows syncing state instead of Server reachable", () => {
     renderWithKeys(
       <TitleBar
         state={deviceState({ enrollment: enrollmentBase })}
@@ -124,8 +135,8 @@ describe("TitleBar connection display (P2b #103)", () => {
         journal={{ ...journalSynced("2026-11-09T14:32:08.000Z"), syncing: true }}
       />,
     );
-    expect(screen.getByRole("status").textContent).toContain("Server reachable");
-    expect(screen.getByRole("status").textContent).not.toContain("Online");
+    expect(screen.getByRole("status").textContent).toContain("syncing");
+    expect(screen.getByRole("status").textContent).not.toContain("Server reachable");
   });
 
   it("keeps revoked counters on the reachability pill", () => {
@@ -142,7 +153,7 @@ describe("TitleBar connection display (P2b #103)", () => {
     expect(screen.getByRole("status").textContent).not.toContain("Online");
   });
 
-  it("does not use api.checkedAt as last sync in the status bar lead", () => {
+  it("does not use api.checkedAt as the sync time in the status bar lead", () => {
     const lastAt = "2026-11-09T14:32:08.000Z";
     renderWithKeys(
       <StatusBar
@@ -153,17 +164,30 @@ describe("TitleBar connection display (P2b #103)", () => {
         info={null}
       />,
     );
-    const clock = `last sync ${timeWithSeconds(new Date(lastAt))}`;
-    expect(screen.getByText(/Online/).parentElement?.textContent).toContain(clock);
+    expect(screen.getByText(/Online/).parentElement?.textContent).toContain("Sales sent 14:32");
     expect(screen.getByText(/Online/).parentElement?.textContent).not.toContain("2099");
     expect(screen.getByText(/Online/).parentElement?.textContent).not.toContain("checked");
+  });
+
+  it("shows exact last sync 14:32:08 when offline (fixed clock, PR 138)", () => {
+    const lastAt = "2026-11-09T14:32:08.000Z";
+    renderWithKeys(
+      <StatusBar
+        state={deviceState({ enrollment: enrollmentBase })}
+        api={{ ...apiOk, reachable: false }}
+        journal={journalSynced(lastAt)}
+        printer={null}
+        info={null}
+      />,
+    );
+    expect(screen.getByText(/Offline/).parentElement?.textContent).toContain("last sync 14:32:08");
   });
 });
 
 describe("SyncBlock (P5 #51)", () => {
   const sync = {
     recorded: 3, accepted: 1, waiting: 2, refused: 0, syncing: true, lastSuccessAt: null,
-    issue: null, lastDrainAt: null,
+    issue: null, lastDrainAt: null, lastStockDownloadAt: null, stockDownloadNominated: null,
     pause: {
       reason: "draining" as const, waiting: 2, outageStartedAt: "2026-11-10T09:00:00.000Z",
       unconfirmed: { sales: 0, actions: 0 },
