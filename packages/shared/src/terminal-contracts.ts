@@ -7,6 +7,10 @@ export const TERMINAL_CONTRACT_VERSION = 1 as const;
 export const MAX_OFFLINE_GRANT_MS = 24 * 60 * 60 * 1000;
 /** Approved D4: saved stock may be at most 15 minutes old at the original outage start. */
 export const MAX_SNAPSHOT_AGE_AT_OUTAGE_MS = 15 * 60 * 1000;
+/** Entries per offline journal sync request; counters page beyond this (P5 #51). */
+export const MAX_OFFLINE_JOURNAL_SYNC_COMMANDS = 25;
+export const MAX_OFFLINE_JOURNAL_SYNC_SIGN_INS = 25;
+export const MAX_OFFLINE_JOURNAL_SYNC_SUPPORT_RECORDS = 25;
 
 /** Deterministic, integer-only wire encoding; callers UTF-8 encode before signing/hash. */
 export function terminalSigningText(purpose: "grant" | "snapshot" | "command" | "sync_response" | "attendance", payload: unknown): string {
@@ -348,6 +352,8 @@ export const TERMINAL_ERROR_RETRYABLE = {
   AUTHORIZATION_ID_CONFLICT: false,
   OFFLINE_AUTHORIZATION_NOT_CURRENT: false,
   D11_CLEARANCE_REQUIRED: false,
+  // A restored counter waits out the grants issued before its restore (D11): `availableAt`.
+  RESTORED_COUNTER_WAIT: false,
   // The API gives these, by HTTP status, to a refusal that carries no code of its own.
   // 401 is AUTHENTICATION_REQUIRED above: refresh the access token, then send again.
   BAD_REQUEST: false, // 400

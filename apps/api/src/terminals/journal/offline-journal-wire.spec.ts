@@ -85,4 +85,17 @@ describe("offline journal wire (P5 #51)", () => {
     expect(() => parseSyncRequest({ ...body, commands: Array(MAX_SYNC_COMMANDS + 1).fill({}) })).toThrow();
     expect(() => parseSyncRequest({ ...body, extra: [] })).toThrow();
   });
+
+  it("accepts each upload page up to the shared cap so a long journal is sent in batches", () => {
+    const body = { contractVersion: 1, identity, staffSignIns: [], commands: [], supportRecords: [] };
+    const unsynced = MAX_SYNC_COMMANDS + 8;
+    const pages = [
+      Array(MAX_SYNC_COMMANDS).fill({}),
+      Array(unsynced - MAX_SYNC_COMMANDS).fill({}),
+    ];
+    for (const commands of pages) {
+      expect(parseSyncRequest({ ...body, commands }).commands).toHaveLength(commands.length);
+    }
+    expect(() => parseSyncRequest({ ...body, commands: Array(unsynced).fill({}) })).toThrow();
+  });
 });

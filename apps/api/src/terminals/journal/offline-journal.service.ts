@@ -48,6 +48,7 @@ import {
   offlineJournalHead,
   storedCommand,
 } from "./journal-chain";
+import { authenticateJournalUploader } from "./journal-uploader";
 import { commitOfflineSale, resolveSaleLines } from "./offline-sale-commit";
 import { localOpenShift, readTillShiftState, replayShiftClose, replayShiftOpen } from "./offline-shift-replay";
 
@@ -171,27 +172,7 @@ export class OfflineJournalService {
     items: ReadonlyArray<JournalItem<unknown>>,
   ): Promise<Device> {
     return this.prisma.$transaction(async (tx) => {
-      const access = await this.access.resolveLive(user, branchId, tx);
-      if (!access.has("terminal.execute")) denied("PERMISSION_DENIED");
-      if (user.counter) {
-        const session = await tx.terminalStaffSession.findFirst({
-          where: { tenantId: user.tenantId, branchId, id: user.counter.workSessionId },
-          select: { enrollmentId: true },
-        });
-        // A counter login uploads only its own counter's journal.
-        if (session?.enrollmentId !== identity.enrollmentId) denied("IDENTITY_MISMATCH");
-      }
-      const enrollment = await tx.terminalEnrollment.findFirst({
-        where: {
-          tenantId: identity.tenantId,
-          branchId: identity.branchId,
-          id: identity.enrollmentId,
-          terminalId: identity.terminalId,
-          keyId: identity.keyId,
-        },
-        select: { publicKeyHex: true },
-      });
-      if (!enrollment) denied("IDENTITY_MISMATCH");
+      const enrollment = await authenticateJournalUploader(tx, this.access, user, branchId, identity);
       for (const item of items) verifySignature(item.envelope, enrollment.publicKeyHex);
       return { publicKeyHex: enrollment.publicKeyHex };
     });

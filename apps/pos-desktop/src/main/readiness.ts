@@ -64,7 +64,9 @@ export function explainRefreshFailure(code: string): string {
     case "BRANCH_HOURS_NOT_CONFIGURED":
       return "The branch's selling hours are not set. A manager sets them in the back office.";
     case "RECONCILIATION_REQUIRED":
-      return "An offline sale from this counter was refused by the server. A manager reviews it in the back office first.";
+      return "An offline sale from this counter was refused by the server, or a restored copy of this counter is waiting for a decision. A manager reviews it in the back office first.";
+    case "RESTORED_COUNTER_WAIT":
+      return "This counter was restored from an older copy. It can sell offline again once the offline permission issued before the restore runs out (at most a day); online selling works meanwhile.";
     case "local_usage":
       return "Offline sales recorded on this computer must be synchronised first. That happens by itself while someone is signed in.";
     case "journal_mismatch":

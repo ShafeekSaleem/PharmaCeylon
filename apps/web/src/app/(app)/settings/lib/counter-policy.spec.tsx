@@ -138,6 +138,9 @@ describe("offline policy", () => {
     let enabled = false;
     (apiJson as jest.Mock).mockImplementation((path: string, init?: { method?: string }) => {
       if (path.endsWith("/counter-settings")) return Promise.resolve(managers(enabled));
+      // The page's journal card (D11) reads its own list.
+      if (path === "/offline-journal-recoveries")
+        return Promise.resolve({ branchId: "branch-a", recoveries: [], offlineCounter: null });
       if (init?.method === "PUT") {
         enabled = true;
         return Promise.resolve({ ...view, version: 5, policy: { ...defaultCounterPolicy(), offlineEnabled: true } });

@@ -195,12 +195,13 @@ export async function counter(stockByBatch: Record<string, number> = { main: 40 
  * The counter's side: a durable offline journal. Each entry takes the next sequence and names
  * the previous entry's hash, exactly as P4 will write it.
  */
-export function offlineJournal(c: Counter) {
-  let sequence = 0;
-  let previous: string | null = null;
-  const offlineStartedAt = Math.max(c.snapshot.generatedAt, c.grant.notBefore) + 1;
-  const offlineSessionId = randomUUID();
-  let clock = offlineStartedAt;
+type JournalState = { sequence: number; previous: string | null; clock: number; offlineStartedAt: number; offlineSessionId: string };
+export function offlineJournal(c: Counter, from?: JournalState) {
+  let sequence = from?.sequence ?? 0;
+  let previous: string | null = from?.previous ?? null;
+  const offlineStartedAt = from?.offlineStartedAt ?? Math.max(c.snapshot.generatedAt, c.grant.notBefore) + 1;
+  const offlineSessionId = from?.offlineSessionId ?? randomUUID();
+  let clock = from?.clock ?? offlineStartedAt;
   const till = { registerId: c.grant.registerId, tillId: c.grant.tillId };
   const signIn = (staffUserId: string, workSessionId: string): Signed<OfflineStaffSignIn> => {
     const staff = c.grant.authorizedStaff.find((s) => s.staffUserId === staffUserId)!;
@@ -240,6 +241,13 @@ export function offlineJournal(c: Counter) {
     till,
     offlineStartedAt,
     get sequence() { return sequence; },
+    /** The hash of the last entry written (null before the first). */
+    get head() { return previous; },
+    /**
+     * Another journal continuing from this one's current entry: what a computer restored from a
+     * backup taken now writes next, while this one carries on elsewhere.
+     */
+    fork: () => offlineJournal(c, { sequence, previous, clock, offlineStartedAt, offlineSessionId }),
     open: (staff: Signed<OfflineStaffSignIn>, openingCashMinor: number, previousClosedWorkSessionId: string | null = null,
       overrides: Partial<OfflineShiftOpenCommand> = {}) =>
       entry<OfflineShiftOpenCommand>(staff, { kind: "shift_open", currency: "LKR", openingCashMinor, previousClosedWorkSessionId }, overrides),

@@ -17,6 +17,7 @@ import {
   OfflineActivationService,
 } from "../../src/terminals/offline-activation.service";
 import { OfflineAssignmentService } from "../../src/terminals/offline-assignment.service";
+import { OfflineJournalRecoveryService } from "../../src/terminals/journal/journal-recovery.service";
 import { TerminalTrustService } from "../../src/terminals/terminal-trust.service";
 import { boundedCanonical, sha256 } from "../../src/terminals/terminal-wire";
 import { terminalDevice } from "../fixtures/terminal-device";
@@ -43,6 +44,12 @@ const activation = new OfflineActivationService(
   assignments,
   new OfflineActivationClearance(),
   audit,
+);
+const recovery = new OfflineJournalRecoveryService(
+  prisma as never,
+  access,
+  audit,
+  assignments,
 );
 const tx = <T>(run: (client: Prisma.TransactionClient) => Promise<T>) =>
   prisma.$transaction(run, { timeout: 15_000 });
@@ -379,19 +386,16 @@ describe("revised D13: remote authorization, local activation on the exact targe
       first.identity.enrollmentId,
     );
 
-    // With P5's journal recovery evidence, the replacement takes over at the next version.
-    class Cleared extends OfflineActivationClearance {
-      protected override async journalRecoveryEvidence() {
-        return true;
-      }
-    }
-    const withEvidence = new OfflineActivationService(
-      prisma as never,
-      trust,
-      assignments,
-      new Cleared(),
-      audit,
-    );
+    // P5's journal half: revoked with no grant ever issued, so nothing is outstanding and its
+    // journal may be signed off at once, but a person must still sign it off (D11 decisions of
+    // 2026-11-10).
+    const signOff = await recovery.signOffMissingJournal(owner, fx.mainBranchId, {
+      enrollmentId: first.identity.enrollmentId,
+      expectedNominationVersion: 1,
+      expectedServerHeadSequence: 0,
+      reason: "Never sold offline; lost before its first offline permission.",
+    });
+    expect(signOff).toMatchObject({ kind: "missing_journal", status: "approved", cutoff: { kind: "device_disabled", lastGrantExpiresAt: null } });
     request = await signedActivation(
       replacement.device,
       replacement.identity,
@@ -400,7 +404,7 @@ describe("revised D13: remote authorization, local activation on the exact targe
       1,
     );
     await expect(
-      withEvidence.activate(manager, fx.mainBranchId, request),
+      activation.activate(manager, fx.mainBranchId, request),
     ).resolves.toMatchObject({ nominationVersion: 2 });
   });
 

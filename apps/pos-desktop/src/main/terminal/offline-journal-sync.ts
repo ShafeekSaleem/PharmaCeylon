@@ -1,5 +1,6 @@
 import { verify, type KeyObject } from "node:crypto";
 import {
+  MAX_OFFLINE_JOURNAL_SYNC_COMMANDS,
   terminalSigningText,
   type OfflineJournalCommand,
   type OfflineStaffSignIn,
@@ -19,6 +20,12 @@ import {
 } from "./offline-journal";
 import type { OfflineAuthorityRefresh } from "./offline-authority-refresh";
 import {
+  createJournalRecovery,
+  explainRecovery,
+  readLocalRecovery,
+  type JournalRecovery,
+} from "./journal-recovery";
+import {
   drainAwaitsFreshSnapshot,
   ensureSyncRow,
   finishDrainWithoutRenewal,
@@ -36,7 +43,7 @@ export const JOURNAL_SYNC_TICK_MS = 15_000;
 /** With nothing waiting, the server confirms the whole journal this often (the "last sync" time). */
 export const JOURNAL_CONFIRM_MS = 5 * 60_000;
 /** Entries per request. The server processes them one transaction each, in order. */
-export const JOURNAL_BATCH = 50;
+export const JOURNAL_BATCH = MAX_OFFLINE_JOURNAL_SYNC_COMMANDS;
 /** Batches per cycle, so one cycle can't run unbounded on a very long journal. */
 const MAX_BATCHES = 20;
 const FIRST_BACKOFF_MS = 15_000;
@@ -296,7 +303,7 @@ export function explainSyncIssue(code: string): string {
     case "RESPONSE_INVALID":
       return "The server's reply did not match this computer's offline key. Contact support.";
     case "JOURNAL_MISMATCH":
-      return "The server holds offline records from this counter that this computer doesn't. Don't sell offline here; contact support.";
+      return "The server holds offline records from this counter that this computer doesn't. Don't sell offline here; this computer reports it to the back office by itself.";
     case "IDENTITY_MISMATCH":
     case "INVALID_SIGNATURE":
       return "The server did not recognise this counter's offline records. Contact support.";
@@ -731,6 +738,11 @@ export function readJournalSyncView(
       }
     | undefined;
   const outage = activeOutage(db, enrollmentId);
+  // P5 #51, D11: while a journal recovery is under way, say where it stands.
+  const recovery =
+    row?.issue_code === "JOURNAL_MISMATCH"
+      ? explainRecovery(readLocalRecovery(db, enrollmentId))
+      : null;
   return {
     recorded: head.sequence,
     accepted: accepted.sequence,
@@ -741,7 +753,8 @@ export function readJournalSyncView(
     issue: row?.issue_code
       ? {
           code: row.issue_code,
-          message: row.issue_message ?? explainSyncIssue(row.issue_code),
+          message:
+            recovery ?? row.issue_message ?? explainSyncIssue(row.issue_code),
           sequence: row.issue_sequence,
           at: row.issue_at ?? "",
         }
@@ -776,11 +789,14 @@ const NO_OFFLINE_AUTHORITY = new Set(["GRANT_INVALID"]);
  * One reconnect cycle (P5 #51, approved D12): upload the journal; once it is all accepted and
  * nothing sent is uncertain, ask for a fresh pair at once (installing it finishes the drain); if
  * the server refuses this counter offline authority altogether, finish the drain without one.
+ * A journal the server says is not its own goes through the D11 recovery instead, and a fresh
+ * pair is asked for as soon as that completes.
  * Each step reads trusted local state; none relies on the previous one having run.
  */
 export function createSyncCoordinator(deps: {
   db: PosDatabase;
   sync: Pick<OfflineJournalSync, "tick">;
+  recovery?: Pick<JournalRecovery, "tick"> | null;
   refresh: Pick<OfflineAuthorityRefresh, "tick" | "status" | "renewNow"> | null;
   terminal: Pick<TerminalService, "current">;
   now?: () => number;
@@ -790,6 +806,8 @@ export function createSyncCoordinator(deps: {
   let renewalAskedFor: { key: string; at: number } | null = null;
   return async function cycle(): Promise<void> {
     await deps.sync.tick();
+    if (deps.recovery && (await deps.recovery.tick()) === "recovered")
+      deps.refresh?.renewNow();
     const current = deps.terminal.current();
     if (!current || !deps.refresh) return;
     const enrollmentId = current.identity.enrollmentId;
@@ -831,9 +849,11 @@ export function startOfflineJournalSync(
   deps: OfflineJournalSyncDeps & { refresh: OfflineAuthorityRefresh | null },
 ): { sync: OfflineJournalSync; stop: () => void } {
   const sync = createOfflineJournalSync(deps);
+  const recovery = createJournalRecovery(deps);
   const cycle = createSyncCoordinator({
     db: deps.db,
     sync,
+    recovery,
     refresh: deps.refresh,
     terminal: deps.terminal,
     now: deps.now,

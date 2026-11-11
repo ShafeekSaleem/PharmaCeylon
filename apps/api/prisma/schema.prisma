@@ -683,6 +683,7 @@ model TerminalEnrollment {
   offlineStaffSignIns             OfflineStaffSignIn[]
   offlineJournalReviews           OfflineJournalReview[]
   offlineStockDiscrepancies       OfflineStockDiscrepancy[]
+  offlineJournalRecoveries        OfflineJournalRecovery[]
 
   @@unique([tenantId, keyId])
   @@unique([tenantId, branchId, terminalId, id, keyId])
@@ -3732,4 +3733,97 @@ model OfflineStockSettlementLink {
   @@unique([settlementId, ledgerEntryId])
   @@index([tenantId, ledgerEntryId])
   @@map("offline_stock_settlement_link")
+}
+
+/// P5 #51, approved D11 (2026-11-10). A restored counter's journal recovery (`counter_restore`:
+/// reported by the counter, approved by the owner or a delegated manager, completed by the
+/// counter) or a missing-journal sign-off for the branch's offline counter (`missing_journal`:
+/// lets another counter take over offline selling). Content is fixed once written; only the
+/// status moves forward (trigger). Nothing is deleted.
+enum OfflineJournalRecoveryKind {
+  counter_restore
+  missing_journal
+}
+
+enum OfflineJournalRecoveryStatus {
+  awaiting_approval
+  approved
+  recovered
+  superseded
+  /// A counter restore the owner or a delegated manager closed with a reason (abandoned).
+  closed
+}
+
+model OfflineJournalRecovery {
+  id                   String                       @id @db.Uuid
+  tenantId             String                       @map("tenant_id") @db.Uuid
+  branchId             String                       @map("branch_id") @db.Uuid
+  terminalId           String                       @map("terminal_id") @db.Uuid
+  enrollmentId         String                       @map("enrollment_id") @db.Uuid
+  keyId                String                       @map("key_id") @db.VarChar(128)
+  kind                 OfflineJournalRecoveryKind
+  status               OfflineJournalRecoveryStatus
+  /// The accepted head when reported (restore) or signed off (missing journal).
+  serverHeadSequence   BigInt                       @map("server_head_sequence")
+  serverHeadHash       String?                      @map("server_head_hash") @db.Char(64)
+  /// Counter restore: the device-signed report and the positions it names.
+  reportId             String?                      @map("report_id") @db.Uuid
+  report               Json?
+  localHeadSequence    BigInt?                      @map("local_head_sequence")
+  localHeadHash        String?                      @map("local_head_hash") @db.Char(64)
+  commonSequence       BigInt?                      @map("common_sequence")
+  commonHash           String?                      @map("common_hash") @db.Char(64)
+  /// Missing journal: the nomination version signed off and the authority cutoff at the time.
+  nominationVersion    Int?                         @map("nomination_version")
+  cutoff               Json?
+  createdAt            DateTime                     @default(now()) @map("created_at")
+  createdByUserId      String                       @map("created_by_user_id") @db.Uuid
+  approvedByUserId     String?                      @map("approved_by_user_id") @db.Uuid
+  approvedAt           DateTime?                    @map("approved_at")
+  approvalReason       String?                      @map("approval_reason")
+  /// "owner" | "delegated_manager" (revised D13)
+  approvalAuthority    String?                      @map("approval_authority") @db.VarChar(24)
+  approvalDelegationId String?                      @map("approval_delegation_id") @db.Uuid
+  completedAt          DateTime?                    @map("completed_at")
+  completion           Json?
+  supersededAt         DateTime?                    @map("superseded_at")
+  /// Counter restore closed without completing: by whom, why, and on what authority (D13).
+  closedByUserId       String?                      @map("closed_by_user_id") @db.Uuid
+  closedAt             DateTime?                    @map("closed_at")
+  closeReason          String?                      @map("close_reason")
+  closeAuthority       String?                      @map("close_authority") @db.VarChar(24)
+  closeDelegationId    String?                      @map("close_delegation_id") @db.Uuid
+  /// Missing journal: the evidence the sign-off saw — retained refusals and restore reports for
+  /// the enrollment. Either growing makes the sign-off stale. Null on a counter restore.
+  refusalsSeen         Int?                         @map("refusals_seen")
+  restoresSeen         Int?                         @map("restores_seen")
+  enrollment           TerminalEnrollment           @relation(fields: [tenantId, branchId, terminalId, enrollmentId, keyId], references: [tenantId, branchId, terminalId, id, keyId], onDelete: Restrict, onUpdate: Restrict, map: "offline_journal_recovery_enrollment_fkey")
+  entries              OfflineJournalRecoveryEntry[]
+
+  @@unique([tenantId, branchId, id])
+  @@unique([tenantId, enrollmentId, reportId])
+  @@index([tenantId, branchId, status])
+  @@index([tenantId, enrollmentId, kind, status])
+  @@map("offline_journal_recovery")
+}
+
+/// A counter restore's evidence: each local entry the server never accepted, and the sign-ins
+/// they cite, exactly as the device signed them. Never posted, never changed.
+model OfflineJournalRecoveryEntry {
+  id         String                 @id @db.Uuid
+  tenantId   String                 @map("tenant_id") @db.Uuid
+  branchId   String                 @map("branch_id") @db.Uuid
+  recoveryId String                 @map("recovery_id") @db.Uuid
+  /// "command" | "staff_sign_in"
+  recordKind String                 @map("record_kind") @db.VarChar(16)
+  recordId   String                 @map("record_id") @db.Uuid
+  sequence   BigInt?
+  recordHash String                 @map("record_hash") @db.Char(64)
+  envelope   Json
+  createdAt  DateTime               @default(now()) @map("created_at")
+  recovery   OfflineJournalRecovery @relation(fields: [tenantId, branchId, recoveryId], references: [tenantId, branchId, id], onDelete: Restrict, onUpdate: Restrict, map: "offline_journal_recovery_entry_recovery_fkey")
+
+  @@unique([recoveryId, recordKind, recordHash])
+  @@index([tenantId, recoveryId])
+  @@map("offline_journal_recovery_entry")
 }

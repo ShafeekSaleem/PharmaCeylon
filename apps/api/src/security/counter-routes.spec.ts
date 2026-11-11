@@ -11,6 +11,7 @@ import { OfflineActivationController } from "../terminals/offline-activation.con
 import { OfflineAssignmentController } from "../terminals/offline-assignment.controller";
 import { OfflineAuthorityController } from "../terminals/offline-authority.controller";
 import { OfflineJournalController } from "../terminals/journal/offline-journal.controller";
+import { OfflineJournalRecoveryController } from "../terminals/journal/journal-recovery.controller";
 import { TerminalEnrollmentController } from "../terminals/terminal-enrollment.controller";
 import { TillShiftsController } from "../terminals/shifts/till-shifts.controller";
 import { COUNTER_ROUTE_KEY } from "./decorators/counter-route.decorator";
@@ -66,6 +67,7 @@ describe("routes a PIN-opened counter login may call", () => {
     [OfflineAuthorityController, ["prepare", "issue"]],
     // P5 #51: the nominated counter uploads its offline journal.
     [OfflineJournalController, ["sync"]],
+    [OfflineJournalRecoveryController, ["chain", "report", "status", "complete"]],
     // P5 #51: approved stock-case plans and the batches to count. Approving stays on the web, and
     // the plan executes through the signed command above, never its own route.
     [StockCasesController, ["ready"]],
