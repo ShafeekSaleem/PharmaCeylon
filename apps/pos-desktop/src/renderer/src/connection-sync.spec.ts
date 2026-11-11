@@ -1,6 +1,6 @@
 import { describe, expect, it } from "@jest/globals";
 import type { JournalSync } from "../../shared/ipc-contract";
-import { time, timeWithSeconds } from "./format";
+import { timeWithSeconds } from "./format";
 import {
   formatSyncedAgo,
   lastSyncLabels,
@@ -45,32 +45,35 @@ describe("lastSyncLabels", () => {
 });
 
 describe("offlineBackupReadyUntil", () => {
-  it("uses grantExpiresAt from readiness when the grant is usable", () => {
-    const expires = new Date(2026, 10, 9, 22, 0, 0);
-    expect(
-      offlineBackupReadyUntil({
-        grantExpiresAt: expires.toISOString(),
-        snapshotGeneratedAt: "2026-11-09T14:00:00.000Z",
-        authorizedStaff: 4,
-        usable: true,
-        failures: 0,
-        failure: null,
-      }),
-    ).toBe(`ready until ${time(expires)}`);
+  const backup = (usable: boolean, grantExpiresAt: string) => ({
+    grantExpiresAt,
+    snapshotGeneratedAt: "2026-11-09T14:00:00.000Z",
+    authorizedStaff: 4,
+    usable,
+    failures: 0,
+    failure: null,
   });
 
-  it("is omitted when there is no grant or it is not usable", () => {
+  it("shows ready until 22:00 while the grant is usable and not yet expired", () => {
+    const grant = new Date(2026, 10, 9, 22, 0, 0).toISOString();
+    const now = new Date(2026, 10, 9, 21, 0, 0);
+    expect(offlineBackupReadyUntil(backup(true, grant), now)).toBe("ready until 22:00");
+  });
+
+  it("hides after the grant expiry without waiting for a readiness re-read", () => {
+    const grant = new Date(2026, 10, 9, 22, 0, 0).toISOString();
+    const now = new Date(2026, 10, 9, 22, 0, 1);
+    expect(offlineBackupReadyUntil(backup(true, grant), now)).toBeNull();
+  });
+
+  it("hides when readiness marks the backup not usable even with a future grant", () => {
+    const grant = new Date(2026, 10, 9, 22, 0, 0).toISOString();
+    const now = new Date(2026, 10, 9, 21, 0, 0);
+    expect(offlineBackupReadyUntil(backup(false, grant), now)).toBeNull();
+  });
+
+  it("is omitted when there is no backup", () => {
     expect(offlineBackupReadyUntil(null)).toBeNull();
-    expect(
-      offlineBackupReadyUntil({
-        grantExpiresAt: "2026-11-09T22:00:00.000Z",
-        snapshotGeneratedAt: null,
-        authorizedStaff: 0,
-        usable: false,
-        failures: 1,
-        failure: "Network",
-      }),
-    ).toBeNull();
   });
 });
 

@@ -299,7 +299,8 @@ export function StatusBar({
   const session = state.staffSession;
   const local = atTheComputer(state);
   const syncPill = showLastSyncPill(state.enrollment?.status, api, journal);
-  const backupUntil = offlineBackupReadyUntil(offlineBackup);
+  const now = useSecondNow(Boolean(offlineBackup?.grantExpiresAt && offlineBackup?.usable));
+  const backupUntil = offlineBackupReadyUntil(offlineBackup, now);
   return (
     <footer className={styles.statusbar}>
       {syncPill && journal?.lastSuccessAt ? (
@@ -351,9 +352,9 @@ export function StatusBar({
         </span>
       )}
       {backupUntil && (
-        <span className={styles.sb}>
+        <span className={cx(styles.sb, styles.sbBackup)} title={backupUntil}>
           <Icon name="shield-check" />
-          Offline backup · {backupUntil}
+          <span className={styles.sbBackupText}>Offline backup · {backupUntil}</span>
         </span>
       )}
       <span className={ui.grow} />

@@ -44,7 +44,10 @@ export function lastSyncLabels(lastSuccessAt: string, now: Date): {
 /** The status bar's offline-backup segment (mockup #103): grant expiry from the readiness report. */
 export function offlineBackupReadyUntil(
   backup: OfflineBackup | null | undefined,
+  now = new Date(),
 ): string | null {
   if (!backup?.grantExpiresAt || !backup.usable) return null;
-  return `ready until ${time(new Date(backup.grantExpiresAt))}`;
+  const expiresMs = Date.parse(backup.grantExpiresAt);
+  if (Number.isNaN(expiresMs) || now.getTime() >= expiresMs) return null;
+  return `ready until ${time(new Date(expiresMs))}`;
 }

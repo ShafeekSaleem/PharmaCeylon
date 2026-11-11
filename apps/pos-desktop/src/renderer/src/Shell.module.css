@@ -369,6 +369,16 @@
   color: var(--pos-text-2);
 }
 
+.statusbar > :global(.grow) {
+  flex: 1 1 auto;
+  min-width: 8px;
+}
+
+.statusbar > .sb:last-child,
+.statusbar > .sb:nth-last-child(2) {
+  flex-shrink: 0;
+}
+
 .sb {
   display: flex;
   align-items: center;
@@ -416,6 +426,24 @@
 
 .sbBad :global(.pos-ic) {
   color: var(--pos-bad);
+}
+
+.sbBackup {
+  flex-shrink: 1;
+  min-width: 0;
+  max-width: 14rem;
+}
+
+.sbBackupText {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 1060px) {
+  .sbBackup {
+    max-width: 7.5rem;
+  }
 }
 
 /* ---------- pages ---------- */
