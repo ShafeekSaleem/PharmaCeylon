@@ -899,6 +899,8 @@ export const EMPTY_JOURNAL_SYNC: JournalSync = {
   issue: null,
   pause: null,
   lastDrainAt: null,
+  lastStockDownloadAt: null,
+  stockDownloadNominated: null,
 };
 
 /** The renderer's view of the journal sync: counts, plain words and ISO times only. */
@@ -922,5 +924,8 @@ export function journalSyncState(view: JournalSyncView | null): JournalSync {
       unconfirmed: { ...view.pause.unconfirmed },
     },
     lastDrainAt: view.lastDrain?.drainedAt ?? null,
+    lastStockDownloadAt: null,
+    stockDownloadNominated: null,
   };
 }
+

@@ -92,6 +92,8 @@ const journal: JournalSync = {
   issue: null,
   pause: null,
   lastDrainAt: null,
+  lastStockDownloadAt: "2026-11-11T14:30:00.000Z",
+  stockDownloadNominated: true,
 };
 
 const shift: LocalShift = {

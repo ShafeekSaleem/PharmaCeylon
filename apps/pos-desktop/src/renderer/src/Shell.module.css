@@ -116,6 +116,20 @@
   --dot: var(--pos-text-3);
 }
 
+.connInfo {
+  border-color: var(--pos-info-line);
+  background: var(--pos-info-soft);
+  color: var(--pos-info-ink);
+  --dot: var(--pos-info);
+}
+
+.connWarn {
+  border-color: var(--pos-warn-line);
+  background: var(--pos-warn-soft);
+  color: var(--pos-warn-ink);
+  --dot: var(--pos-warn);
+}
+
 .connDetail {
   font-weight: 500;
   color: var(--pos-text-2);
@@ -150,6 +164,22 @@
   border-radius: 50%;
   background: var(--dot);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--dot) 22%, transparent);
+}
+
+.dotPulse {
+  animation: pc-sync-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes pc-sync-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dotPulse {
+    animation: none;
+  }
 }
 
 .clock {
@@ -426,6 +456,26 @@
 
 .sbBad :global(.pos-ic) {
   color: var(--pos-bad);
+}
+
+.sbWait {
+  --d: var(--pos-text-3);
+}
+
+.sbInfo {
+  --d: var(--pos-info);
+}
+
+.sbWarn {
+  --d: var(--pos-warn);
+}
+
+.sbWarnText {
+  color: var(--pos-warn-ink);
+}
+
+.sbMuted {
+  color: var(--pos-text-3);
 }
 
 .sbBackup {

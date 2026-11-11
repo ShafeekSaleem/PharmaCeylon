@@ -85,6 +85,16 @@ export const journalSyncSchema = z.object({
     .nullable(),
   /** When the last outage's synchronisation finished, ISO. */
   lastDrainAt: z.string().nullable(),
+  /**
+   * When the installed offline-authority stock snapshot was generated, ISO. Main fills this from the
+   * persisted pair (not the in-memory refresh clock). Null when no snapshot is installed.
+   */
+  lastStockDownloadAt: z.string().nullable(),
+  /**
+   * Whether this counter is the branch's nominated offline counter (receives stock snapshots).
+   * Null until the first server answer; false and null both mean sales-only UI for sync status.
+   */
+  stockDownloadNominated: z.boolean().nullable(),
 });
 export type JournalSync = z.infer<typeof journalSyncSchema>;
 

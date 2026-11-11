@@ -20,11 +20,11 @@ import { CheckoutService } from "./checkout/checkout-service";
 import { DispensingService } from "./checkout/dispensing";
 import { CounterWorkService } from "./terminal/counter-work";
 import { ReturnsService } from "./returns/returns-service";
+import { journalSyncForRenderer } from "./journal-sync-renderer";
 import { readInstalledOfflineAuthority } from "./terminal/offline-authority";
 import { startOfflineAuthorityRefresh, type OfflineAuthorityRefresh } from "./terminal/offline-authority-refresh";
 import { OfflineJournalWriter } from "./terminal/offline-journal-writer";
 import {
-  journalSyncState,
   readJournalSyncView,
   startOfflineJournalSync,
   type OfflineJournalSync,
@@ -455,7 +455,17 @@ function registerIpc(schemaVersion: number, logger: ReturnType<typeof createLogg
       lock: () => act(logger, "lock", (service) => service.lock()),
       unlock: ({ pin }) => act(logger, "unlock", (service) => service.unlock(pin)),
       getShift: () => shifts?.state() ?? { current: null, lastClosed: null, unsynced: [] },
-      getJournalSync: () => journalSyncState(journalSyncFacts().journalSync?.view ?? null),
+      getJournalSync: () => {
+        const enrollmentId = store
+          ? new DeviceStore(store.db).read()?.identity.enrollmentId
+          : undefined;
+        return journalSyncForRenderer(
+          journalSyncFacts().journalSync?.view ?? null,
+          store?.db ?? null,
+          enrollmentId,
+          authorityRefresh?.status() ?? null,
+        );
+      },
       refreshShift: () => act(logger, "refreshShift", () => requireShifts().refresh()),
       openShift: ({ pin, count }) => act(logger, "openShift", () => requireShifts().open(pin, count)),
       closeShift: ({ count, varianceNote, assistance }) =>

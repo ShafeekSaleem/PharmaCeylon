@@ -4,6 +4,10 @@ Mockups for the Electron counter app (`apps/pos-desktop`), drawn at 1600 × 1000
 
 Open `pharmaceylon-pos-desktop.html` in a browser and use the switcher at the bottom right to change screen and theme. Add `?screen=<name>&theme=light|dark` to open one directly.
 
+### Last-sync states (title bar + status bar, epic #103)
+
+Approved by Shafeek **11 Nov 2026** (colours, 15-minute overdue, two-way sync, sales-only for non–offline counters). Source package: [`last-sync-states/`](last-sync-states/) — `SPEC.md`, self-contained `index.html` (`?theme=light|dark|both`, `&ctx=<id>`), and overview/two-way PNGs.
+
 | Screen | `screen=` | Images |
 | --- | --- | --- |
 | Sell | `sell` | `pos-desktop-sell-{light,dark}.png` |

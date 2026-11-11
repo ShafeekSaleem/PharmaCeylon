@@ -95,7 +95,7 @@ describe("Sell's unconfirmed sales", () => {
     }));
     await renderSell({
       recorded: 2, accepted: 2, waiting: 0, refused: 0, syncing: false, lastSuccessAt: null,
-      issue: null, lastDrainAt: null,
+      issue: null, lastDrainAt: null, lastStockDownloadAt: null, stockDownloadNominated: null,
       pause: { reason: "draining", waiting: 0, outageStartedAt: null, unconfirmed: { sales: 1, actions: 0 } },
     });
     const block = screen.getAllByRole("status").find((el) => el.textContent?.includes("Synchronising offline sales"));
