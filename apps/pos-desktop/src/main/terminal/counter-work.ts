@@ -1,5 +1,6 @@
 import type {
   CounterWorkItem,
+  HeldWriteOffAtCounter,
   RefundAtCounter,
   RefundExecuted,
   StockCaseAtCounter,
@@ -56,42 +57,150 @@ export class CounterWorkService {
    */
   async list(): Promise<CounterWorkItem[]> {
     const branchId = this.branchId();
+    let items: CounterWorkItem[] = [];
     try {
-      return await this.deps.api.request<CounterWorkItem[]>(
+      items = await this.deps.api.request<CounterWorkItem[]>(
         "GET",
         "/counter-work",
         { branchId },
       );
     } catch (error) {
       if (!(error instanceof ApiError)) throw error;
-      if (error.status === 403) return [];
-      if (error.status !== 404) throw error;
+      if (error.status === 403) items = [];
+      else if (error.status === 404) {
+        items = (await this.readyRefunds(branchId)).map(
+          (r): CounterWorkItem => ({
+            kind: "refund",
+            id: r.id,
+            reference: r.requestNumber,
+            subject: r.invoiceNo,
+            lineCount: 0,
+            amount: r.amount,
+            readyAt: r.approvedAt ?? r.requestedAt ?? new Date(0).toISOString(),
+            requested: r.requester
+              ? { name: r.requester.fullName, at: r.requestedAt ?? null }
+              : null,
+            approved: r.approver
+              ? { name: r.approver.fullName, at: r.approvedAt ?? null }
+              : null,
+            dispatched: null,
+            approval: {
+              evidenceId: r.executionApprovalId,
+              approvedVersion: null,
+              currentVersion: null,
+              state: r.executionApprovalId ? "matches" : "not_needed",
+              changes: [],
+            },
+          }),
+        );
+      } else throw error;
     }
-    return (await this.readyRefunds(branchId)).map(
-      (r): CounterWorkItem => ({
-        kind: "refund",
-        id: r.id,
-        reference: r.requestNumber,
-        subject: r.invoiceNo,
-        lineCount: 0,
-        amount: r.amount,
-        readyAt: r.approvedAt ?? r.requestedAt ?? new Date(0).toISOString(),
-        requested: r.requester
-          ? { name: r.requester.fullName, at: r.requestedAt ?? null }
-          : null,
-        approved: r.approver
-          ? { name: r.approver.fullName, at: r.approvedAt ?? null }
-          : null,
-        dispatched: null,
-        approval: {
-          evidenceId: r.executionApprovalId,
-          approvedVersion: null,
-          currentVersion: null,
-          state: r.executionApprovalId ? "matches" : "not_needed",
-          changes: [],
-        },
-      }),
+    const supplement = await this.heldWriteOffRows();
+    return this.mergeHeldWriteOffs(items, supplement);
+  }
+
+  /** All held write-off rows the counter may read (for detail panes and post pin). */
+  async heldWriteOffsAtCounter(): Promise<HeldWriteOffAtCounter[]> {
+    return this.heldWriteOffRows();
+  }
+
+  async postHeldWriteOff(
+    heldAdjustmentId: string,
+    approvalEvidenceId: string | null,
+  ): Promise<{
+    heldAdjustmentId: string;
+    stockReferenceId: string;
+    alreadyApplied: boolean;
+  }> {
+    const rows = await this.heldWriteOffRows();
+    const row = rows.find((r) => r.id === heldAdjustmentId);
+    const evidence = approvalEvidenceId ?? row?.executionApprovalId ?? null;
+    if (!evidence)
+      throw new ActionFailure(
+        "APPROVAL_REQUIRED",
+        "Approve this write-off before posting.",
+      );
+    const receipt = await this.deps.commands.execute(
+      "POST /api/v1/inventory/held-adjustments/:id/post",
+      { heldAdjustmentId },
+      evidence,
     );
+    return {
+      heldAdjustmentId,
+      stockReferenceId: receipt.result.stockReferenceId,
+      alreadyApplied: receipt.result.effect === "already_applied",
+    };
+  }
+
+  private async heldWriteOffRows(): Promise<HeldWriteOffAtCounter[]> {
+    try {
+      return await this.deps.api.request<HeldWriteOffAtCounter[]>(
+        "GET",
+        "/inventory/held-adjustments",
+        { branchId: this.branchId() },
+      );
+    } catch {
+      return [];
+    }
+  }
+
+  private mergeHeldWriteOffs(
+    items: CounterWorkItem[],
+    rows: HeldWriteOffAtCounter[],
+  ): CounterWorkItem[] {
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    const enriched = items.map((item) => {
+      if (item.kind !== "held_adjustment") return item;
+      const row = byId.get(item.id);
+      if (!row) return item;
+      return { ...item, heldAdjustmentStatus: row.status };
+    });
+    const existing = new Set(
+      enriched.filter((i) => i.kind === "held_adjustment").map((i) => i.id),
+    );
+    const readOnly = rows
+      .filter(
+        (r) =>
+          (r.status === "awaiting_approval" || r.status === "rejected") &&
+          !existing.has(r.id),
+      )
+      .map((r) => this.heldRowToCounterItem(r));
+    return [...enriched, ...readOnly].sort((a, b) =>
+      b.readyAt.localeCompare(a.readyAt),
+    );
+  }
+
+  private heldRowToCounterItem(row: HeldWriteOffAtCounter): CounterWorkItem {
+    const approved =
+      row.status === "approved" && row.executionApprovalId !== null;
+    return {
+      kind: "held_adjustment",
+      id: row.id,
+      reference: row.batch.batchNo,
+      subject: row.product.name,
+      lineCount: 1,
+      amount: row.value,
+      readyAt: row.decidedAt ?? row.requestedAt,
+      requested: { name: row.requester.fullName, at: row.requestedAt },
+      approved: row.decider
+        ? { name: row.decider.fullName, at: row.decidedAt ?? null }
+        : null,
+      dispatched: null,
+      approval: {
+        evidenceId: row.executionApprovalId,
+        approvedVersion: row.approvalReview.expectedVersion,
+        currentVersion: row.approvalReview.expectedVersion,
+        state:
+          row.status === "rejected"
+            ? "revoked"
+            : approved
+              ? "matches"
+              : "not_needed",
+        changes: [],
+      },
+      operation: "POST /api/v1/inventory/held-adjustments/:id/post",
+      heldAdjustmentStatus: row.status,
+    };
   }
 
   private async readyRefunds(branchId: string) {

@@ -340,4 +340,70 @@ export class StockLookupService {
     );
     return { qty: receipt.result.qty, movementType: receipt.result.movementType };
   }
+
+  async quarantine(input: {
+    batchId: string;
+    qty: number | null;
+    reasonCode: SignedOperationBody["POST /api/v1/inventory/batches/:id/quarantine"]["reasonCode"];
+    reason: string | null;
+  }) {
+    const body: SignedOperationBody["POST /api/v1/inventory/batches/:id/quarantine"] = {
+      batchId: input.batchId,
+      qty: input.qty,
+      reasonCode: input.reasonCode,
+      reason: input.reason,
+    };
+    const receipt = await this.deps.commands.execute(
+      "POST /api/v1/inventory/batches/:id/quarantine",
+      body,
+      null,
+    );
+    return {
+      qty: receipt.result.qty,
+      stockReferenceId: receipt.result.stockReferenceId,
+    };
+  }
+
+  async releaseQuarantine(input: {
+    batchId: string;
+    qty: number | null;
+    reason: string | null;
+  }) {
+    const body: SignedOperationBody["POST /api/v1/inventory/batches/:id/release-quarantine"] = {
+      batchId: input.batchId,
+      qty: input.qty,
+      reason: input.reason,
+    };
+    const receipt = await this.deps.commands.execute(
+      "POST /api/v1/inventory/batches/:id/release-quarantine",
+      body,
+      null,
+    );
+    return {
+      qty: receipt.result.qty,
+      stockReferenceId: receipt.result.stockReferenceId,
+    };
+  }
+
+  /** Branch permissions for stock sheets; if the route is unreachable, assume true and let prepare refuse. */
+  async permissions(): Promise<{
+    quarantine: boolean;
+    releaseQuarantine: boolean;
+    writeOff: boolean;
+  }> {
+    try {
+      const branchId = this.branchId();
+      const row = await this.deps.api.request<{
+        permissionKeys: string[];
+      }>("GET", "/tenant/my-permissions", { branchId });
+      const keys = new Set(row.permissionKeys);
+      return {
+        quarantine: keys.has("inventory.quarantine"),
+        releaseQuarantine: keys.has("inventory.release_quarantine"),
+        writeOff: keys.has("inventory.write_off"),
+      };
+    } catch {
+      return { quarantine: true, releaseQuarantine: true, writeOff: true };
+    }
+  }
 }

@@ -149,6 +149,10 @@ beforeEach(() => {
     stockAttention: async () => ({ ok: true, value: attention }),
     productStock: async () => ({ ok: true, value: augmentin }),
     adjustStock: async () => ({ ok: true, value: { qty: 4, movementType: "adjustment_out" } }),
+    stockPermissions: async () => ({
+      ok: true,
+      value: { quarantine: true, releaseQuarantine: true, writeOff: true },
+    }),
   });
 });
 afterEach(() => {
@@ -345,11 +349,10 @@ describe("other branches", () => {
 });
 
 describe("stock actions", () => {
-  it("leaves quarantine disabled, with the reason", async () => {
+  it("opens the quarantine sheet from the batch row", async () => {
     await renderStock();
-    const quarantine = within(batchRow("AUG-7311")).getByRole("button", { name: "Quarantine" });
-    expect((quarantine as HTMLButtonElement).disabled).toBe(true);
-    expect(quarantine.getAttribute("title")).toMatch(/on the web for now/);
+    fireEvent.click(within(batchRow("AUG-7311")).getByRole("button", { name: "Quarantine" }));
+    expect(screen.getByRole("dialog", { name: /Quarantine batch/i })).toBeTruthy();
   });
 
   it("writes off the held expired batch with Ctrl+Enter, under the limit", async () => {
@@ -375,7 +378,7 @@ describe("stock actions", () => {
     expect(screen.getByText("Wrote off 4 tabs of AUG-6904.")).toBeTruthy();
   });
 
-  it("says a manager is needed when the server refuses a write-off over the limit", async () => {
+  it("shows the over-limit sheet when the server refuses the write-off", async () => {
     pos.adjustStock!.mockImplementation(async () => ({
       ok: false,
       error: { code: "WRITE_OFF_APPROVAL_REQUIRED", message: "needs approval" },
@@ -385,8 +388,8 @@ describe("stock actions", () => {
     await settle();
     press("Enter", { ctrlKey: true });
     await settle();
-    expect(screen.getByRole("alert").textContent).toMatch(/needs a manager/);
-    expect(screen.getByRole("dialog")).toBeTruthy();
+    const limitSheet = screen.getByRole("dialog", { name: /Write off needs approval/i });
+    expect(within(limitSheet).getAllByText(/WRITE_OFF_APPROVAL_REQUIRED/).length).toBeGreaterThan(0);
   });
 
   it("asks for a reason before a correction, and Esc closes the form", async () => {

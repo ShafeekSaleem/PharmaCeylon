@@ -13,6 +13,7 @@ function service(reply: (path: string) => unknown) {
   const api = {
     request: async (method: string, path: string, opts: { branchId?: string }) => {
       calls.push({ method, path, branchId: opts.branchId });
+      if (path === "/inventory/held-adjustments") return [];
       const answer = reply(path);
       if (answer instanceof Error) throw answer;
       return answer;
@@ -48,7 +49,10 @@ describe("counter work from the server", () => {
   it("reads this branch's web-approved work from GET /counter-work", async () => {
     const { work, calls } = service(() => [item]);
     await expect(work.list()).resolves.toEqual([item]);
-    expect(calls).toEqual([{ method: "GET", path: "/counter-work", branchId }]);
+    expect(calls).toEqual([
+      { method: "GET", path: "/counter-work", branchId },
+      { method: "GET", path: "/inventory/held-adjustments", branchId },
+    ]);
   });
 
   it("shows nothing waiting to someone the server won't show counter work to", async () => {
@@ -75,7 +79,11 @@ describe("counter work from the server", () => {
           ],
     );
     const list = await work.list();
-    expect(calls.map((c) => c.path)).toEqual(["/counter-work", "/sales/refund-requests"]);
+    expect(calls.map((c) => c.path)).toEqual([
+      "/counter-work",
+      "/sales/refund-requests",
+      "/inventory/held-adjustments",
+    ]);
     expect(list).toEqual([
       expect.objectContaining({
         kind: "refund",

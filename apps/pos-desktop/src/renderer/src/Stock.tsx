@@ -38,6 +38,9 @@ import {
 } from "./stock-model";
 import ui from "./ui.module.css";
 import { cx } from "./useAction";
+import { StockQuarantineSheet } from "./StockQuarantineSheet";
+import { WriteOffLimitSheet } from "./WriteOffLimitSheet";
+import { P6_EXPIRY_REVIEW_OPENS_QUARANTINE_SHEET } from "./p6-config";
 
 /** "Look up" searches everything; the others list this branch's attention items. "expired" has
  * no tab of its own: Needs attention opens it. */
@@ -58,13 +61,12 @@ const TONE: Record<Tone, string> = {
   neutral: ui.neutral!,
 };
 
-/** Quarantine and release have no signed counter operation yet: P6 (#52) wires them. */
-const NOT_YET =
-  "Quarantine and release are done on the web for now. They come to the counter with P6.";
-
 const SEARCH_DELAY_MS = 200;
 
-type Dialog = { mode: "write-off" | "adjust"; batch: StockBatch };
+type Dialog =
+  | { mode: "write-off" | "adjust"; batch: StockBatch }
+  | { mode: "quarantine" | "release"; batch: StockBatch; fromExpiryReview?: boolean }
+  | { mode: "write-off-limit"; batch: StockBatch; qty: number };
 
 /**
  * The write-off and adjust form, over the page. Both post a direct adjustment through the signed
@@ -75,11 +77,13 @@ function AdjustDialog({
   product,
   onClose,
   onDone,
+  onOverLimit,
 }: {
-  dialog: Dialog;
+  dialog: Extract<Dialog, { mode: "write-off" | "adjust" }>;
   product: ProductStock;
   onClose: () => void;
   onDone: (message: string) => void;
+  onOverLimit: (batch: StockBatch, qty: number) => void;
 }) {
   const { batch, mode } = dialog;
   const writeOff = mode === "write-off";
@@ -128,11 +132,11 @@ function AdjustDialog({
     );
     setBusy(false);
     if (!result.ok) {
-      setError(
-        result.error.code === "WRITE_OFF_APPROVAL_REQUIRED"
-          ? "This write-off needs a manager. Ask them to record it on the web for approval; once approved it is posted here from Counter work. Nothing was written off."
-          : result.error.message,
-      );
+      if (result.error.code === "WRITE_OFF_APPROVAL_REQUIRED") {
+        onOverLimit(batch, count);
+        return;
+      }
+      setError(result.error.message);
       return;
     }
     const units = `${result.value.qty} ${unitWord(unit, result.value.qty)}`;
@@ -305,7 +309,7 @@ function footerText(
   if (status.action === "quarantine")
     return {
       title: `${batch.batchNo} should be held`,
-      detail: NOT_YET,
+      detail: "Quarantine held units at this counter.",
     };
   const qty = batch.quarantined > 0 ? batch.quarantined : batch.available;
   const check = writeOffCheck(batch, qty, product.writeOffLimit);
@@ -328,11 +332,13 @@ function footerText(
 export function Stock({
   branchName,
   active = true,
+  online = true,
   onCommandSent,
 }: {
   branchName: string;
   /** Shown. The page reads nothing until it is first shown, and rereads its counts each time. */
   active?: boolean;
+  online?: boolean;
   onCommandSent?: () => void;
 }) {
   const [opened, setOpened] = useState(active);
@@ -353,6 +359,7 @@ export function Stock({
   const [batchId, setBatchId] = useState<string | null>(null);
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [expiryReviewPending, setExpiryReviewPending] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
 
   const loadAttention = useCallback(() => {
@@ -424,6 +431,7 @@ export function Stock({
     () => (product ? sellFirstBatch(product.batches) : null),
     [product],
   );
+
   // The batch the footer acts on: the one picked, or the first that needs doing something.
   const selected = useMemo(() => {
     if (!product) return null;
@@ -435,6 +443,20 @@ export function Stock({
       null
     );
   }, [product, batchId]);
+
+  useEffect(() => {
+    if (
+      !P6_EXPIRY_REVIEW_OPENS_QUARANTINE_SHEET ||
+      !expiryReviewPending ||
+      !selected ||
+      !product
+    )
+      return;
+    if (selected.nearExpiry || selected.needsExpiryReview) {
+      openDialog("quarantine", selected, true);
+    }
+    setExpiryReviewPending(false);
+  }, [expiryReviewPending, selected, product]);
 
   function choose(i: number) {
     const row = rows?.[i];
@@ -450,10 +472,16 @@ export function Stock({
     if (next !== "lookup") setQuery("");
   }
 
-  function openDialog(mode: Dialog["mode"], batch: StockBatch | null) {
+  function openDialog(
+    mode: "write-off" | "adjust" | "quarantine" | "release",
+    batch: StockBatch | null,
+    fromExpiryReview = false,
+  ) {
     if (!batch) return;
     setNotice(null);
-    setDialog({ mode, batch });
+  if (mode === "quarantine" || mode === "release")
+      setDialog({ mode, batch, fromExpiryReview });
+    else setDialog({ mode, batch });
   }
 
   const canWriteOff =
@@ -637,7 +665,11 @@ export function Stock({
                     tone="rose"
                     title={expiringLabel}
                     detail="Review and quarantine before they're sold"
-                    onClick={() => showTab("near_expiry")}
+                    onClick={() => {
+                      if (P6_EXPIRY_REVIEW_OPENS_QUARANTINE_SHEET)
+                        setExpiryReviewPending(true);
+                      showTab("near_expiry");
+                    }}
                   />
                   {attention.expiredBatches > 0 && (
                     <AttentionRow
@@ -860,8 +892,11 @@ export function Stock({
                           <button
                             type="button"
                             className={cx(ui.btn, ui.sm, ui.outline)}
-                            disabled
-                            title={NOT_YET}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setBatchId(b.batchId);
+                              openDialog("quarantine", b);
+                            }}
                           >
                             Quarantine
                           </button>
@@ -970,13 +1005,22 @@ export function Stock({
                     <button
                       type="button"
                       className={cx(ui.btn, ui.ghost, ui.lg)}
-                      disabled
-                      title={NOT_YET}
+                      onClick={() => openDialog("release", selected)}
                     >
                       <Icon name="refresh" />
                       Release
                     </button>
                   )}
+                {selected && batchStatus(selected, false).action === "quarantine" && (
+                  <button
+                    type="button"
+                    className={cx(ui.btn, ui.primary, ui.lg)}
+                    onClick={() => openDialog("quarantine", selected)}
+                  >
+                    <Icon name="alert-triangle" />
+                    Quarantine
+                  </button>
+                )}
                 <button
                   type="button"
                   className={cx(ui.btn, ui.outline, ui.lg)}
@@ -1002,12 +1046,13 @@ export function Stock({
         </div>
       </div>
 
-      {dialog && product && (
+      {dialog && product && (dialog.mode === "write-off" || dialog.mode === "adjust") && (
         <KeyScope layer>
           <AdjustDialog
             dialog={dialog}
             product={product}
             onClose={() => setDialog(null)}
+            onOverLimit={(batch, qty) => setDialog({ mode: "write-off-limit", batch, qty })}
             onDone={(message) => {
               setDialog(null);
               setNotice(message);
@@ -1017,6 +1062,31 @@ export function Stock({
             }}
           />
         </KeyScope>
+      )}
+      {dialog && product && (dialog.mode === "quarantine" || dialog.mode === "release") && (
+        <StockQuarantineSheet
+          mode={dialog.mode}
+          product={product}
+          batch={dialog.batch}
+          online={online}
+          fromExpiryReview={dialog.fromExpiryReview}
+          onClose={() => setDialog(null)}
+          onCommandSent={onCommandSent}
+          onDone={(message) => {
+            setDialog(null);
+            setNotice(message);
+            loadProduct(product.product.productId);
+            loadAttention();
+          }}
+        />
+      )}
+      {dialog && product && dialog.mode === "write-off-limit" && (
+        <WriteOffLimitSheet
+          product={product}
+          batch={dialog.batch}
+          qty={dialog.qty}
+          onClose={() => setDialog(null)}
+        />
       )}
     </section>
   );

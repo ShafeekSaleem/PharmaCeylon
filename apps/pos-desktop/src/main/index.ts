@@ -445,6 +445,31 @@ function registerIpc(schemaVersion: number, logger: ReturnType<typeof createLogg
           if (!stock) throw new ActionFailure("NOT_READY", "The counter is still starting.");
           return stock.adjust(input);
         }),
+      quarantineBatch: (input) =>
+        act(logger, "quarantineBatch", () => {
+          if (!stock) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          return stock.quarantine(input);
+        }),
+      releaseQuarantine: (input) =>
+        act(logger, "releaseQuarantine", () => {
+          if (!stock) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          return stock.releaseQuarantine(input);
+        }),
+      stockPermissions: () =>
+        act(logger, "stockPermissions", () => {
+          if (!stock) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          return stock.permissions();
+        }),
+      heldWriteOffsAtCounter: () =>
+        act(logger, "heldWriteOffsAtCounter", () => {
+          if (!counterWork) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          return counterWork.heldWriteOffsAtCounter();
+        }),
+      postHeldWriteOff: ({ heldAdjustmentId, approvalEvidenceId }) =>
+        act(logger, "postHeldWriteOff", () => {
+          if (!counterWork) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          return counterWork.postHeldWriteOff(heldAdjustmentId, approvalEvidenceId);
+        }),
       confirmTestReceipt: ({ printerName }) =>
         act(logger, "confirmTestReceipt", (service) => service.confirmTestReceipt(printerName)),
       offlineCounter: () => act(logger, "offlineCounter", (service) => service.offlineCounter()),

@@ -181,6 +181,21 @@ describe("StockLookupService", () => {
     await expect(stock.product(productId)).rejects.toMatchObject({ code: "NETWORK" });
   });
 
+  it("posts quarantine with approvalEvidenceId null", async () => {
+    const { stock, commands } = service(() => null);
+    await stock.quarantine({
+      batchId,
+      qty: null,
+      reasonCode: "expired",
+      reason: null,
+    });
+    expect(commands.execute).toHaveBeenCalledWith(
+      "POST /api/v1/inventory/batches/:id/quarantine",
+      { batchId, qty: null, reasonCode: "expired", reason: null },
+      null,
+    );
+  });
+
   it("posts a write-off as the exact signed adjustment body", async () => {
     const { stock, commands } = service(() => null);
     await stock.adjust({ productId, batchId, kind: "expired", qty: 4, fromQuarantine: true });

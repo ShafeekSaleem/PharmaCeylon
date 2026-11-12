@@ -1,7 +1,12 @@
 /** @jest-environment jsdom */
 import { afterEach, beforeEach, describe, expect, it, jest } from "@jest/globals";
 import { act, cleanup, fireEvent, screen, within } from "@testing-library/react";
-import type { CounterWorkItem, RefundAtCounter, StockCaseAtCounter } from "../../shared/ipc-contract";
+import type {
+  CounterWorkItem,
+  HeldWriteOffAtCounter,
+  RefundAtCounter,
+  StockCaseAtCounter,
+} from "../../shared/ipc-contract";
 import { press, renderWithKeys, stubPos } from "../test/harness";
 import { CounterWork, shortName, when } from "./CounterWork";
 import { KeyScope } from "./keymap";
@@ -115,7 +120,7 @@ describe("the counter work list", () => {
     fireEvent.click(tab(/^Stock/));
     expect(tab(/^Stock/).getAttribute("aria-pressed")).toBe("true");
     expect(within(queue()).getAllByRole("button").map((c) => c.querySelector("b")?.textContent)).toEqual(["Write-off"]);
-    expect(screen.getByRole("heading", { level: 2 }).textContent).toBe("B-77 · Augmentin 625mg");
+    expect(screen.getByRole("heading", { level: 2 }).textContent).toBe("B-77 · Over-limit write-off");
 
     fireEvent.click(tab(/^Transfers/));
     expect(within(queue()).getAllByRole("button").map((c) => c.querySelector("b")?.textContent)).toEqual(["Transfer in"]);
@@ -136,7 +141,7 @@ describe("the counter work list", () => {
     await act(async () => undefined);
     expect(screen.getByRole("heading", { level: 2 }).textContent).toBe("TR-0093 · Bambalapitiya");
     fireEvent.click(within(queue()).getAllByRole("button")[3]!);
-    expect(screen.getByRole("heading", { level: 2 }).textContent).toBe("B-77 · Augmentin 625mg");
+    expect(screen.getByRole("heading", { level: 2 }).textContent).toBe("B-77 · Over-limit write-off");
   });
 });
 
@@ -358,6 +363,78 @@ describe("an offline sale's stock (P5 #51)", () => {
     fireEvent.click(screen.getByRole("button", { name: /Settle stock/ }));
     await act(async () => undefined);
     expect(screen.getByRole("alert").textContent).toContain("Stock no longer covers this sale.");
+  });
+});
+
+function heldRow(
+  overrides: Partial<HeldWriteOffAtCounter> & Pick<HeldWriteOffAtCounter, "status">,
+): HeldWriteOffAtCounter {
+  return {
+    id: id(40),
+    executionApprovalId: overrides.status === "approved" ? id(91) : null,
+    kind: "expired",
+    kindLabel: "Expired",
+    qty: 186,
+    value: "6210.00",
+    note: null,
+    requestReason: "Over limit",
+    fromQuarantine: true,
+    product: { id: id(50), name: "Augmentin 625mg Tablets", sku: "AUG625" },
+    batch: { id: id(51), batchNo: "B-77", expiryDate: "2026-08-01" },
+    requester: { id: id(52), fullName: "Shehan Wickramasinghe" },
+    requestedAt: "2026-11-01T05:30:00.000Z",
+    approvalReview: { expectedVersion: 2, expectedDigest: "abc" },
+    ...overrides,
+  };
+}
+
+describe("held over-limit write-offs", () => {
+  it("shows awaiting approval as read-only without a post button", async () => {
+    const pending = work({
+      kind: "held_adjustment",
+      id: id(40),
+      reference: "B-77",
+      subject: "Augmentin 625mg",
+      heldAdjustmentStatus: "awaiting_approval",
+      approval: { evidenceId: null, approvedVersion: null, currentVersion: null, state: "not_needed", changes: [] },
+    });
+    items = [pending];
+    pos.heldWriteOffsAtCounter = jest.fn(async () => ({
+      ok: true,
+      value: [heldRow({ id: id(40), status: "awaiting_approval" })],
+    }));
+    await renderWork();
+    fireEvent.click(tab(/^Stock/));
+    await act(async () => undefined);
+    expect(screen.getByText("Waiting for accept on the web")).toBeTruthy();
+    const post = screen.getByRole("button", { name: /Post write-off/i });
+    expect((post as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText("Read only — approve or reject on the web")).toBeTruthy();
+  });
+
+  it("shows rejected with decision note and a disabled post button", async () => {
+    const rejected = work({
+      kind: "held_adjustment",
+      id: id(41),
+      reference: "B-78",
+      subject: "Panadol",
+      heldAdjustmentStatus: "rejected",
+      approval: { evidenceId: null, approvedVersion: null, currentVersion: null, state: "not_needed", changes: [] },
+    });
+    items = [rejected];
+    pos.heldWriteOffsAtCounter = jest.fn(async () => ({
+      ok: true,
+      value: [heldRow({ id: id(41), status: "rejected", decisionNote: "Not justified" })],
+    }));
+    await renderWork();
+    fireEvent.click(tab(/^Stock/));
+    fireEvent.click(within(queue()).getByRole("button"));
+    await act(async () => undefined);
+    expect(screen.getByText("This request was rejected")).toBeTruthy();
+    expect(screen.getByText(/Not justified/)).toBeTruthy();
+    expect(
+      (screen.getByRole("button", { name: /Post write-off/i }) as HTMLButtonElement).disabled,
+    ).toBe(true);
   });
 });
 
