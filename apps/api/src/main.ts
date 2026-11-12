@@ -53,7 +53,10 @@ async function bootstrap() {
       "x-branch-id",
       "Idempotency-Key",
     ],
-    exposedHeaders: [],
+    exposedHeaders: [
+      "X-PharmaCeylon-Counter-Work-As-Of",
+      "X-PharmaCeylon-Counter-Work-Contract-Version",
+    ],
   });
 
   if (process.env.STRUCTURED_HTTP_LOG === "true") {

@@ -94,6 +94,15 @@ describe("web-approved work waiting at the counter", () => {
       approval: { evidenceId: writeOff.approvalId, state: "matches", changes: [] },
     });
     expect(adj.approval.approvedVersion).toBe(adj.approval.currentVersion);
+    expect(adj.task).toMatchObject({
+      stage: "ready_for_execution",
+      dailyWorkKind: "held_adjustment.post",
+      destination: "held_write_off",
+      destinationStatus: "planned",
+      freshness: { stale: false },
+      signedExecution: { bodyIdKey: "heldAdjustmentId", approvalEvidenceId: writeOff.approvalId },
+    });
+    expect(adj.task.nextAction.executable).toBe(false);
 
     expect(items.find((i) => i.id === delivery.id)).toMatchObject({
       kind: "held_delivery",
@@ -124,6 +133,30 @@ describe("web-approved work waiting at the counter", () => {
     expect(clerk.find((i) => i.id === delivery.id)).toBeDefined();
   });
 
+  it("transfer_receive task pins dispatch approval, not approvalEvidenceId", async () => {
+    const dispatchApprovalId = randomUUID();
+    const transfer = await prisma.transfer.create({
+      data: {
+        tenantId: fx.tenantId,
+        fromBranchId: fx.otherBranchId,
+        toBranchId: branch(),
+        transferNumber: `TR-${randomUUID().slice(0, 8)}`,
+        status: "in_transit",
+        requestedBy: fx.clerkId,
+        dispatchedBy: fx.clerkId,
+        dispatchedAt: new Date(),
+        executionApprovalId: dispatchApprovalId,
+        items: { create: { tenantId: fx.tenantId, productId: fx.productId, qty: 3 } },
+      },
+    });
+    const row = (await work.list(await caller(fx.ownerId), branch())).find((i) => i.id === transfer.id)!;
+    expect(row.kind).toBe("transfer_receive");
+    expect(row.task.signedExecution).toMatchObject({
+      approvalEvidenceId: null,
+      dispatchApprovalId: dispatchApprovalId,
+    });
+  });
+
   it("says what changed after approval, and when the approval was withdrawn", async () => {
     // Editing the document itself clears its approval (a database trigger), so it leaves the
     // queue. What can move underneath it is the order a held delivery was approved against.
@@ -137,6 +170,14 @@ describe("web-approved work waiting at the counter", () => {
     const items = await work.list(await caller(fx.ownerId), branch());
     const moved = items.find((i) => i.id === changed.id)!;
     expect(moved.approval).toMatchObject({ state: "changed", changes: ["the purchase order"] });
-    expect(items.find((i) => i.id === revoked.id)!.approval.state).toBe("revoked");
+    expect(moved.task.stage).toBe("blocked_approval");
+    expect(moved.task.blocker?.code).toBe("APPROVAL_STALE");
+    expect(moved.task.executeErrors).toEqual([
+      { phase: "prepare", code: "APPROVAL_STALE" },
+      { phase: "execute", code: "APPROVAL_STALE" },
+    ]);
+    const revokedItem = items.find((i) => i.id === revoked.id)!;
+    expect(revokedItem.approval.state).toBe("revoked");
+    expect(revokedItem.task.blocker?.code).toBe("APPROVAL_INVALID");
   });
 });

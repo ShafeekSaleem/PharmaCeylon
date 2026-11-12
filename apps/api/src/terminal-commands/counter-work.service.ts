@@ -9,7 +9,12 @@ import {
   StocktakeStatus,
   TransferStatus,
 } from "@prisma/client";
-import type { SignedPhysicalOperation } from "@pharmaceylon/shared";
+import {
+  type CounterWorkKind,
+  type CounterWorkTask,
+  COUNTER_WORK_OPERATION,
+  projectCounterWorkTask,
+} from "@pharmaceylon/shared";
 import { PrismaService } from "../prisma/prisma.service";
 import { RefundRequestsService } from "../sales/refund-requests.service";
 import { AccessService } from "../security/access.service";
@@ -23,17 +28,7 @@ import { transferApprovalMaterial } from "../security/transfer-approval-material
 import { describeMaterialChanges } from "./counter-work-changes";
 import { StockCasesService } from "../stock-cases/stock-cases.service";
 
-export type CounterWorkKind =
-  | "prepared_receipt"
-  | "held_delivery"
-  | "transfer_ship"
-  | "transfer_receive"
-  | "refund"
-  | "stocktake"
-  | "held_adjustment"
-  | "supplier_return"
-  | "import_stock"
-  | "stock_case";
+export type { CounterWorkKind };
 
 type Person = { name: string | null; at: string | null };
 
@@ -72,8 +67,12 @@ export type CounterWorkItem = {
     changes: string[];
   };
   /** The signed operation that executes it at the counter. */
-  operation: SignedPhysicalOperation;
+  operation: (typeof COUNTER_WORK_OPERATION)[CounterWorkKind];
+  /** W11/P6 task state, next action, blocker, freshness and destination (#172). */
+  task: CounterWorkTask;
 };
+
+type CounterWorkItemCore = Omit<CounterWorkItem, "task">;
 
 /** Each kind is listed only to someone who may execute it here (the operation's own permission). */
 const EXECUTE_PERMISSION: Record<CounterWorkKind, string> = {
@@ -138,7 +137,7 @@ export class CounterWorkService {
     private readonly stockCases?: StockCasesService,
   ) {}
 
-  async list(user: RequestUser, branchId: string): Promise<CounterWorkItem[]> {
+  async list(user: RequestUser, branchId: string, asOf = new Date().toISOString()): Promise<CounterWorkItem[]> {
     const access = await this.access.resolve(user, branchId);
     const may = (kind: CounterWorkKind) => access.has(EXECUTE_PERMISSION[kind]);
     const costs = access.has("costs.view");
@@ -155,13 +154,29 @@ export class CounterWorkService {
       may("import_stock") ? this.stagedImports(tenantId, branchId) : [],
       may("stock_case") && this.stockCases ? this.stockCasePlans(tenantId, branchId) : [],
     ]);
-    const items = parts.flat();
-    await this.name(tenantId, items);
+    const rows = parts.flat();
+    await this.name(tenantId, rows);
+    const items: CounterWorkItem[] = [];
+    for (const row of rows) {
+      const task = projectCounterWorkTask({
+        kind: row.kind,
+        id: row.id,
+        approval: row.approval,
+        approvedAt: row.approved?.at ?? null,
+        readyAt: row.readyAt,
+        asOf,
+      });
+      items.push({
+        ...row,
+        operation: COUNTER_WORK_OPERATION[row.kind],
+        task,
+      });
+    }
     return items.sort((a, b) => b.readyAt.localeCompare(a.readyAt));
   }
 
   /** Fills in people's names in one read; until then `name` carries the user id. */
-  private async name(tenantId: string, items: CounterWorkItem[]) {
+  private async name(tenantId: string, items: CounterWorkItemCore[]) {
     const people = items.flatMap((item) => [item.requested, item.approved, item.dispatched]);
     const ids = [...new Set(people.map((p) => p?.name).filter((id): id is string => !!id))];
     if (!ids.length) return;
@@ -205,7 +220,7 @@ export class CounterWorkService {
       },
     });
     const evidence = await this.evidence(tenantId, branchId, rows.map((r) => r.executionApprovalId));
-    return rows.map((row): CounterWorkItem => {
+    return rows.map((row): CounterWorkItemCore => {
       const ev = evidence.get(row.executionApprovalId!);
       const lines = deliveryLines(row.payload);
       return {
@@ -235,7 +250,7 @@ export class CounterWorkService {
       include: { purchaseOrder: { include: { supplier: { select: { name: true } } } } },
     });
     const evidence = await this.evidence(tenantId, branchId, rows.map((r) => r.executionApprovalId));
-    return rows.map((row): CounterWorkItem => {
+    return rows.map((row): CounterWorkItemCore => {
       const ev = evidence.get(row.executionApprovalId!);
       const lines = deliveryLines(row.preparedPayload ?? row.payload);
       return {
@@ -271,7 +286,7 @@ export class CounterWorkService {
       include: { toBranch: { select: { name: true } }, items: { where: { tenantId }, orderBy: { id: "asc" } } },
     });
     const evidence = await this.evidence(tenantId, branchId, rows.map((r) => r.executionApprovalId));
-    return rows.map((row): CounterWorkItem => {
+    return rows.map((row): CounterWorkItemCore => {
       const ev = row.executionApprovalId ? evidence.get(row.executionApprovalId) : undefined;
       return {
         kind: "transfer_ship",
@@ -300,7 +315,7 @@ export class CounterWorkService {
       },
       include: { fromBranch: { select: { name: true } }, items: { where: { tenantId } } },
     });
-    return rows.map((row): CounterWorkItem => ({
+    return rows.map((row): CounterWorkItemCore => ({
       kind: "transfer_receive",
       id: row.id,
       reference: row.transferNumber,
@@ -333,7 +348,7 @@ export class CounterWorkService {
       this.evidence(tenantId, branchId, listed.map((r) => r.executionApprovalId)),
     ]);
     const rowById = new Map(rows.map((row) => [row.id, row]));
-    return listed.map((r): CounterWorkItem => {
+    return listed.map((r): CounterWorkItemCore => {
       const row = rowById.get(r.id)!;
       const ev = r.executionApprovalId ? evidence.get(r.executionApprovalId) : undefined;
       return {
@@ -359,7 +374,7 @@ export class CounterWorkService {
       include: { lines: true, snapshotLines: true, countEntries: true },
     });
     const evidence = await this.evidence(tenantId, branchId, rows.map((r) => r.executionApprovalId));
-    return rows.map((row): CounterWorkItem => {
+    return rows.map((row): CounterWorkItemCore => {
       const ev = evidence.get(row.executionApprovalId!);
       return {
         kind: "stocktake",
@@ -384,7 +399,7 @@ export class CounterWorkService {
       include: { product: { select: { name: true } }, batch: { select: { batchNo: true } } },
     });
     const evidence = await this.evidence(tenantId, branchId, rows.map((r) => r.executionApprovalId));
-    return rows.map((row): CounterWorkItem => {
+    return rows.map((row): CounterWorkItemCore => {
       const ev = evidence.get(row.executionApprovalId!);
       return {
         kind: "held_adjustment",
@@ -428,7 +443,7 @@ export class CounterWorkService {
     for (const row of approvals) if (!latest.has(row.documentId)) latest.set(row.documentId, row);
     return rows
       .filter((row) => latest.has(row.id))
-      .map((row): CounterWorkItem => {
+      .map((row): CounterWorkItemCore => {
         const ev = latest.get(row.id)!;
         return {
           kind: "supplier_return",
@@ -458,7 +473,7 @@ export class CounterWorkService {
       where: { tenantId, branchId, id: { in: plans.map((p) => p.resolutionId) } },
       select: { id: true, requestedBy: true, approvedBy: true },
     });
-    return plans.map((plan): CounterWorkItem => {
+    return plans.map((plan): CounterWorkItemCore => {
       const row = rows.find((r) => r.id === plan.resolutionId)!;
       return {
         kind: "stock_case",
@@ -492,7 +507,7 @@ export class CounterWorkService {
         createdBy: true, createdAt: true, completedAt: true,
       },
     });
-    return rows.map((row): CounterWorkItem => ({
+    return rows.map((row): CounterWorkItemCore => ({
       kind: "import_stock",
       id: row.id,
       reference: row.filename,
