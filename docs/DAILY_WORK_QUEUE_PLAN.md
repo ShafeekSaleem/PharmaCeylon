@@ -102,7 +102,8 @@ app-specific task stores or navigation. W1/W7's closed foundations are reused, n
 
 Do not expose the entire management queue to PIN-opened counter sessions. Define and test a
 restricted counter projection/capability endpoint using the existing Counter work permission
-boundary. Selecting an unsupported action explains where and who can finish it. An owner using
+boundary (`GET /counter-work` task fields and [COUNTER_WORK_COVERAGE.md](COUNTER_WORK_COVERAGE.md),
+#172). Selecting an unsupported action explains where and who can finish it. An owner using
 a browser or phone still cannot bypass local physical execution.
 
 ## Delivery slices and acceptance gates

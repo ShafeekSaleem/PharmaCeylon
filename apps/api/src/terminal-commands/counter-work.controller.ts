@@ -1,4 +1,5 @@
-import { Controller, Get, UseFilters } from "@nestjs/common";
+import { Controller, Get, Res, UseFilters } from "@nestjs/common";
+import type { Response } from "express";
 import { ApiOperation, ApiTags } from "@nestjs/swagger";
 import { CounterRoute } from "../security/decorators/counter-route.decorator";
 import { CurrentUser } from "../security/decorators/current-user.decorator";
@@ -6,6 +7,7 @@ import { RequireBranchId } from "../security/decorators/require-branch.decorator
 import { RequirePermission } from "../security/decorators/require-permission.decorator";
 import { RequestUser } from "../security/interfaces/authenticated-request.interface";
 import { TerminalErrorFilter } from "../terminals/terminal-error.filter";
+import { COUNTER_WORK_CONTRACT_VERSION } from "@pharmaceylon/shared";
 import { CounterWorkService } from "./counter-work.service";
 import { TERMINAL_EXECUTE } from "./terminal-command.executor";
 
@@ -24,7 +26,14 @@ export class CounterWorkController {
   @RequirePermission(TERMINAL_EXECUTE)
   @CounterRoute()
   @Get()
-  list(@CurrentUser() user: RequestUser, @RequireBranchId() branchId: string) {
-    return this.work.list(user, branchId);
+  async list(
+    @CurrentUser() user: RequestUser,
+    @RequireBranchId() branchId: string,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const asOf = new Date().toISOString();
+    res.setHeader("X-PharmaCeylon-Counter-Work-As-Of", asOf);
+    res.setHeader("X-PharmaCeylon-Counter-Work-Contract-Version", String(COUNTER_WORK_CONTRACT_VERSION));
+    return this.work.list(user, branchId, asOf);
   }
 }

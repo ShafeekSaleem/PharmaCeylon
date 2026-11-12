@@ -21,3 +21,4 @@ export * from "./terminal-attendance";
 export * from "./terminal-enrollment";
 export * from "./offline-journal-recovery";
 export * from "./offline-counter-restore";
+export * from "./counter-work";
