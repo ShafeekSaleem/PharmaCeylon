@@ -380,8 +380,10 @@ what, in words), `revoked`, or `not_needed`. Execution itself still goes through
 `task.signedExecution.operation`, which re-checks everything.
 
 Response headers: `X-PharmaCeylon-Counter-Work-As-Of` (ISO snapshot time for the whole list) and
-`X-PharmaCeylon-Counter-Work-Contract-Version` (`1` today). Types and the W11/P6 coverage matrix
-live in `@pharmaceylon/shared` (`counter-work.ts`) and [COUNTER_WORK_COVERAGE.md](COUNTER_WORK_COVERAGE.md).
+`X-PharmaCeylon-Counter-Work-Contract-Version` (`1` today), exposed through CORS on the API.
+`task.freshness.asOf` duplicates the snapshot time for same-origin and counter clients. Types and
+the W11/P6 coverage matrix live in `@pharmaceylon/shared` (`counter-work.ts`) and
+[COUNTER_WORK_COVERAGE.md](COUNTER_WORK_COVERAGE.md).
 
 **`task` (additive, contract v1).** Aligns Counter work with W11 daily-work kinds and P6 operation
 screens without a second task store:
@@ -395,16 +397,23 @@ screens without a second task store:
   other kinds are `planned` until P6 Stage 2).
 - `nextAction`: `{ label, executable }` — human text for the card/header; `executable` is false when
   approval is blocked or the P6 screen is still `planned`.
-- `blocker`: `null`, or `{ code, message }` with existing terminal codes (`APPROVAL_STALE`,
-  `APPROVAL_INVALID`) and a short staff-facing explanation.
+- `blocker`: `null`, or `{ code, message }` on the row. Only `APPROVAL_STALE` and
+  `APPROVAL_INVALID` appear here (list rows are executable documents or broken approval).
+  `PERMISSION_DENIED`, `ONLINE_REQUIRED`, `TERMINAL_REQUIRED` and the rest surface only at
+  prepare/execute, not as row blockers.
 - `freshness`: `{ asOf, evidenceAt, stale }` — `asOf` matches the list response header;
-  `stale` is true when approval no longer matches.
+  `evidenceAt` is the approval timestamp when known (`approved.at`), otherwise `null` (never
+  `readyAt`); `stale` is true when approval no longer matches.
 - `offline`: `list` and `execution` are `online_only`; while `terminalConnectivity` is
   `partial_outage`, the client may show the last successful list as **read-only** keyed off
   `freshness.asOf` and must not invent central completion or refresh approval offline.
-- `signedExecution`: `{ operation, approvalEvidenceId, bodyIdKey }` — the operation route, the
-  evidence id to pin when `approval.state` is `matches` (otherwise `null`), and the exact body key
-  for this document id (retry and stale-evidence display only; full bodies still come from prepare).
+- `signedExecution`: `{ operation, approvalEvidenceId, dispatchApprovalId, bodyIdKey }` — the
+  operation route, evidence to pin on prepare/execute, and the exact body key for this document id
+  (retry and stale-evidence display only; full bodies still come from prepare). For every kind
+  except `transfer_receive`, `approvalEvidenceId` is the management evidence when
+  `approval.state` is `matches`, otherwise `null`. For `transfer_receive`,
+  `approvalEvidenceId` is always `null`; the dispatch approval is `dispatchApprovalId`
+  (the transfer's `executionApprovalId`, or `null` when waived).
 - `executeErrors`: when `blocker` is set, the `prepare` and `execute` phases that would refuse with
   the same `code` (no new error codes).
 

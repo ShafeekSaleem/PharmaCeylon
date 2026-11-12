@@ -133,6 +133,30 @@ describe("web-approved work waiting at the counter", () => {
     expect(clerk.find((i) => i.id === delivery.id)).toBeDefined();
   });
 
+  it("transfer_receive task pins dispatch approval, not approvalEvidenceId", async () => {
+    const dispatchApprovalId = randomUUID();
+    const transfer = await prisma.transfer.create({
+      data: {
+        tenantId: fx.tenantId,
+        fromBranchId: fx.otherBranchId,
+        toBranchId: branch(),
+        transferNumber: `TR-${randomUUID().slice(0, 8)}`,
+        status: "in_transit",
+        requestedBy: fx.clerkId,
+        dispatchedBy: fx.clerkId,
+        dispatchedAt: new Date(),
+        executionApprovalId: dispatchApprovalId,
+        items: { create: { tenantId: fx.tenantId, productId: fx.productId, qty: 3 } },
+      },
+    });
+    const row = (await work.list(await caller(fx.ownerId), branch())).find((i) => i.id === transfer.id)!;
+    expect(row.kind).toBe("transfer_receive");
+    expect(row.task.signedExecution).toMatchObject({
+      approvalEvidenceId: null,
+      dispatchApprovalId: dispatchApprovalId,
+    });
+  });
+
   it("says what changed after approval, and when the approval was withdrawn", async () => {
     // Editing the document itself clears its approval (a database trigger), so it leaves the
     // queue. What can move underneath it is the order a held delivery was approved against.

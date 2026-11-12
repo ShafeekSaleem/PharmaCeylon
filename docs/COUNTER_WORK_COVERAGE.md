@@ -42,6 +42,13 @@ These use signed commands but are not web-approved queue rows on this endpoint:
 Permissions match #122: each kind is listed only when the caller holds that operation's permission
 at the branch (`terminal.execute` gates the route).
 
+## Signed evidence pinning
+
+| Kind | `task.signedExecution.approvalEvidenceId` | `task.signedExecution.dispatchApprovalId` |
+| --- | --- | --- |
+| All except `transfer_receive` | evidence when `approval.state` is `matches` | always `null` |
+| `transfer_receive` | always `null` | transfer `executionApprovalId` when not blocked (`null` when waived) |
+
 ## Offline
 
 Counter work list and all signed executions require `terminalConnectivity: online`. With

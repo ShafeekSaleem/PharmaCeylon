@@ -78,6 +78,20 @@ test('planned P6 screens still list as ready_for_execution with non-executable n
   assert.match(task.nextAction.label, /screen planned/);
 });
 
+test('transfer_receive pins dispatch approval, not approvalEvidenceId', () => {
+  const dispatchId = '00000000-0000-4000-8000-0000000000aa';
+  const task = c.projectCounterWorkTask({
+    kind: 'transfer_receive',
+    id: '00000000-0000-4000-8000-000000000020',
+    approval: { evidenceId: dispatchId, state: 'matches', changes: [] },
+    approvedAt: null,
+    readyAt: '2026-11-11T08:00:00.000Z',
+    asOf,
+  });
+  assert.equal(task.signedExecution.approvalEvidenceId, null);
+  assert.equal(task.signedExecution.dispatchApprovalId, dispatchId);
+});
+
 test('coverage matrix includes every counter-work kind', () => {
   for (const kind of c.COUNTER_WORK_KINDS) {
     assert.ok(c.COUNTER_WORK_DESTINATION_BY_KIND[kind]);

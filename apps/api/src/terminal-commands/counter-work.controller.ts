@@ -7,7 +7,11 @@ import { RequireBranchId } from "../security/decorators/require-branch.decorator
 import { RequirePermission } from "../security/decorators/require-permission.decorator";
 import { RequestUser } from "../security/interfaces/authenticated-request.interface";
 import { TerminalErrorFilter } from "../terminals/terminal-error.filter";
-import { COUNTER_WORK_CONTRACT_VERSION } from "@pharmaceylon/shared";
+import {
+  COUNTER_WORK_AS_OF_HEADER,
+  COUNTER_WORK_CONTRACT_VERSION,
+  COUNTER_WORK_CONTRACT_VERSION_HEADER,
+} from "@pharmaceylon/shared";
 import { CounterWorkService } from "./counter-work.service";
 import { TERMINAL_EXECUTE } from "./terminal-command.executor";
 
@@ -32,8 +36,8 @@ export class CounterWorkController {
     @Res({ passthrough: true }) res: Response,
   ) {
     const asOf = new Date().toISOString();
-    res.setHeader("X-PharmaCeylon-Counter-Work-As-Of", asOf);
-    res.setHeader("X-PharmaCeylon-Counter-Work-Contract-Version", String(COUNTER_WORK_CONTRACT_VERSION));
+    res.setHeader(COUNTER_WORK_AS_OF_HEADER, asOf);
+    res.setHeader(COUNTER_WORK_CONTRACT_VERSION_HEADER, String(COUNTER_WORK_CONTRACT_VERSION));
     return this.work.list(user, branchId, asOf);
   }
 }

@@ -4,6 +4,9 @@ import type { SignedPhysicalOperation } from "./terminal-command-execution";
 /** Contract version for additive counter-work task fields (#172). */
 export const COUNTER_WORK_CONTRACT_VERSION = 1 as const;
 
+export const COUNTER_WORK_AS_OF_HEADER = "X-PharmaCeylon-Counter-Work-As-Of";
+export const COUNTER_WORK_CONTRACT_VERSION_HEADER = "X-PharmaCeylon-Counter-Work-Contract-Version";
+
 /** Counter-work document kinds returned by `GET /counter-work` (restricted counter projection). */
 export const COUNTER_WORK_KINDS = [
   "prepared_receipt",
@@ -120,8 +123,11 @@ export type CounterWorkExecuteError = Readonly<{
   code: CounterWorkExecuteErrorCode;
 }>;
 
+/** Row-level blockers on this list carry only approval-evidence failures; other codes appear at prepare/execute. */
+export type CounterWorkRowBlockerCode = "APPROVAL_STALE" | "APPROVAL_INVALID";
+
 export type CounterWorkBlocker = Readonly<{
-  code: CounterWorkExecuteErrorCode;
+  code: CounterWorkRowBlockerCode;
   /** Short explanation for staff; not a stack trace. */
   message: string;
 }>;
@@ -157,7 +163,13 @@ export type CounterWorkOfflinePolicy = Readonly<{
 /** Minimal signed-command facts the frame needs for retry and stale-evidence display. */
 export type CounterWorkSignedExecution = Readonly<{
   operation: SignedPhysicalOperation;
+  /** Pinned on prepare/execute for most kinds when `approval.state` is `matches`; always `null` for `transfer_receive`. */
   approvalEvidenceId: string | null;
+  /**
+   * `transfer_receive` only: the source branch's dispatch approval (`executionApprovalId` on the
+   * transfer), carried in the signed body as `dispatchApprovalId`; `null` when waived or blocked.
+   */
+  dispatchApprovalId: string | null;
   /** Exact body key and document id for the signed envelope (value is this item's `id`). */
   bodyIdKey: string;
 }>;
@@ -241,19 +253,41 @@ const OFFLINE_POLICY: CounterWorkOfflinePolicy = {
   partialOutage: "last_known_read_only",
 };
 
+function signedExecutionFor(
+  kind: CounterWorkKind,
+  approval: ProjectCounterWorkTaskInput["approval"],
+): CounterWorkSignedExecution {
+  const base = {
+    operation: COUNTER_WORK_OPERATION[kind],
+    bodyIdKey: COUNTER_WORK_SIGNED_ID_KEY[kind],
+  };
+  if (kind === "transfer_receive") {
+    const blocked = approval.state === "changed" || approval.state === "revoked";
+    return {
+      ...base,
+      approvalEvidenceId: null,
+      dispatchApprovalId: blocked ? null : approval.evidenceId,
+    };
+  }
+  return {
+    ...base,
+    approvalEvidenceId: approval.state === "matches" ? approval.evidenceId : null,
+    dispatchApprovalId: null,
+  };
+}
+
 /**
  * Pure projection: maps an approved document row plus approval state to W11/P6 task display
  * fields. The API sets `asOf` once per list response.
  */
 export function projectCounterWorkTask(input: ProjectCounterWorkTaskInput): CounterWorkTask {
-  const { kind, approval, approvedAt, readyAt, asOf } = input;
+  const { kind, approval, approvedAt, asOf } = input;
   const { destination, status: destinationStatus } = COUNTER_WORK_DESTINATION_BY_KIND[kind];
   const blocker = blockerForApproval(approval.state, approval.changes);
   const stage = stageFor(blocker);
-  const executable = !blocker && (stage === "ready_for_execution");
   const readyLabel = NEXT_ACTION_READY[kind];
 
-  const nextAction: CounterWorkNextAction = executable
+  const nextAction: CounterWorkNextAction = !blocker
     ? {
         label:
           destinationStatus === "available"
@@ -261,12 +295,10 @@ export function projectCounterWorkTask(input: ProjectCounterWorkTaskInput): Coun
             : `${readyLabel} (screen planned)`,
         executable: destinationStatus === "available",
       }
-  : blocker
-    ? {
+    : {
         label: blocker.code === "APPROVAL_INVALID" ? "Approval withdrawn" : "Approve again on the web",
         executable: false,
-      }
-    : { label: "Blocked", executable: false };
+      };
 
   return {
     contractVersion: COUNTER_WORK_CONTRACT_VERSION,
@@ -278,15 +310,11 @@ export function projectCounterWorkTask(input: ProjectCounterWorkTaskInput): Coun
     blocker,
     freshness: {
       asOf,
-      evidenceAt: approvedAt ?? (approval.evidenceId ? readyAt : null),
+      evidenceAt: approvedAt,
       stale: approval.state === "changed" || approval.state === "revoked",
     },
     offline: OFFLINE_POLICY,
-    signedExecution: {
-      operation: COUNTER_WORK_OPERATION[kind],
-      approvalEvidenceId: approval.state === "matches" ? approval.evidenceId : null,
-      bodyIdKey: COUNTER_WORK_SIGNED_ID_KEY[kind],
-    },
+    signedExecution: signedExecutionFor(kind, approval),
     executeErrors: executeErrorsFor(blocker),
   };
 }
