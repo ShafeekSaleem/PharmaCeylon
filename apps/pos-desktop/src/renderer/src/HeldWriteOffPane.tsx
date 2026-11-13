@@ -18,6 +18,13 @@ import { cx } from "./useAction";
 const rs = (amount: string | null) =>
   amount ? `Rs ${money(minor(amount))}` : "—";
 
+const STATUS_LABELS: Record<ReturnType<typeof heldStatus>, string> = {
+  awaiting_approval: "Waiting for approval",
+  approved: "Approved",
+  accepted: "Written off",
+  rejected: "Rejected",
+};
+
 export type HeldWriteOffPhase = "ready" | "confirm" | "processing" | "success";
 
 export function useHeldWriteOffState(
@@ -84,8 +91,9 @@ export function HeldWriteOffBody({
   online: boolean;
 }) {
   const { detail, loading, phase, status, error } = state;
-  const qty = detail?.qty ?? 1;
-  const unit = "tabs";
+  // The quantity comes only from the server row: never guess one for an irreversible post.
+  const qty = detail?.qty ?? null;
+  const qtyText = qty === null ? "Quantity unavailable" : `${qty} ${unitWord(null, qty)}`;
 
   if (loading) {
     return (
@@ -105,7 +113,7 @@ export function HeldWriteOffBody({
           <Icon name="alert-triangle" />
           <div>
             <b>Waiting for accept on the web</b>
-            The counter cannot post until a manager runs POST /inventory/held-adjustments/:id/accept with approvalId, expectedVersion and expectedDigest. Accept and reject are web actions, not counter buttons.
+            A manager has to approve this write-off on the web before it can be posted here.
           </div>
         </div>
       )}
@@ -123,7 +131,7 @@ export function HeldWriteOffBody({
           <Icon name="info" />
           <div>
             <b>Ready to post</b>
-            Posting is the signed command POST /api/v1/inventory/held-adjustments/:id/post with body heldAdjustmentId and approvalEvidenceId set to the displayed executionApprovalId.
+            A manager has approved this write-off. Check the details, then post it to take the stock off.
           </div>
         </div>
       )}
@@ -141,16 +149,25 @@ export function HeldWriteOffBody({
           <Icon name="wifi-off" />
           <div>
             <b>Stock operations need the server</b>
-            Held write-off posting is online only. The desktop does not queue it on the sale journal.
+            A write-off can only be posted while this counter is connected. It is not saved for later.
           </div>
         </div>
       )}
-      {phase === "confirm" && (
+      {status === "approved" && !detail && (
+        <div className={cx(ui.note, ui.warn)} role="status">
+          <Icon name="alert-triangle" />
+          <div>
+            <b>Quantity unavailable</b>
+            This counter could not load the details of this write-off, so it cannot be posted from here. Try again, or post it on the web.
+          </div>
+        </div>
+      )}
+      {phase === "confirm" && qty !== null && (
         <div className={cx(ui.note, ui.warn)} role="status">
           <Icon name="alert-triangle" />
           <div>
             <b>Confirm the physical write-off</b>
-            {qty} {unitWord(unit, qty)} of {item.reference} will leave stock now. Ctrl+Enter posts.
+            {qty} {unitWord(null, qty)} of {item.reference} will leave stock now. Ctrl+Enter posts.
           </div>
         </div>
       )}
@@ -159,7 +176,7 @@ export function HeldWriteOffBody({
           <Icon name="clock" />
           <div>
             <b>Posting…</b>
-            The signed command is in flight. Don't send a second command.
+            Please wait. Don't post it again.
           </div>
         </div>
       )}
@@ -168,16 +185,16 @@ export function HeldWriteOffBody({
           <Icon name="check-circle" />
           <div>
             <b>Written off</b>
-            Result held_adjustment.posted · status accepted.
+            The stock has been taken off.
           </div>
         </div>
       )}
       <div className={cx(ui.kvs, styles.facts)}>
         <div className={ui.kv}>
-          Kind<b>{detail?.kind ?? "—"}</b>
+          Reason<b>{detail?.kindLabel ?? "—"}</b>
         </div>
         <div className={ui.kv}>
-          Quantity<b>{qty} {unitWord(unit, qty)}</b>
+          Quantity<b>{qtyText}</b>
         </div>
         <div className={ui.kv}>
           Value<b>{rs(detail?.value ?? item.amount)}</b>
@@ -189,12 +206,14 @@ export function HeldWriteOffBody({
           Product / batch<b>{item.subject ?? "—"} · {item.reference}</b>
         </div>
         <div className={ui.kv}>
-          Status<b>{status}</b>
+          Status<b>{STATUS_LABELS[status]}</b>
         </div>
       </div>
-      <p style={{ margin: 0, fontSize: 12, color: "var(--pos-text-3)" }}>
-        value is null without costs.view.
-      </p>
+      {!detail?.value && !item.amount && (
+        <p style={{ margin: 0, fontSize: 12, color: "var(--pos-text-3)" }}>
+          The value is only shown to people who can see costs.
+        </p>
+      )}
       {error && (
         <p className={cx(ui.badText, styles.result)} role="alert">
           {error}

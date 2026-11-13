@@ -389,7 +389,7 @@ describe("stock actions", () => {
     press("Enter", { ctrlKey: true });
     await settle();
     const limitSheet = screen.getByRole("dialog", { name: /Write off needs approval/i });
-    expect(within(limitSheet).getAllByText(/WRITE_OFF_APPROVAL_REQUIRED/).length).toBeGreaterThan(0);
+    expect(within(limitSheet).getAllByText(/Approval needed/).length).toBeGreaterThan(0);
   });
 
   it("asks for a reason before a correction, and Esc closes the form", async () => {

@@ -654,6 +654,7 @@ function HeldAdjustmentDetail({
   const heldState = useHeldWriteOffState(item, staleError, onStaleError);
   const readOnly = isReadOnlyHeldWriteOff(heldState.status);
   const canPost =
+    heldState.detail !== null &&
     canPostHeldWriteOff(heldState.status, item, online) &&
     !blocked(item) &&
     canRefund;

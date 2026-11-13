@@ -114,7 +114,8 @@ export class CounterWorkService {
   }> {
     const rows = await this.heldWriteOffRows();
     const row = rows.find((r) => r.id === heldAdjustmentId);
-    const evidence = approvalEvidenceId ?? row?.executionApprovalId ?? null;
+    // Prefer the approval on the row just read from the server over what the screen sent.
+    const evidence = row?.executionApprovalId ?? approvalEvidenceId ?? null;
     if (!evidence)
       throw new ActionFailure(
         "APPROVAL_REQUIRED",

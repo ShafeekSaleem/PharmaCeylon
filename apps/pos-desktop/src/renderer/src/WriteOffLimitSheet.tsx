@@ -37,10 +37,10 @@ export function WriteOffLimitSheet({
             <Icon name="alert-triangle" />
           </span>
           <div>
-            <div className={ui.eyebrow}>Stock · inventory.write_off</div>
+            <div className={ui.eyebrow}>Stock · Write-off</div>
             <h2 id="wo-limit-title">Write off needs approval</h2>
             <div className={qs.flags}>
-              <span className={cx(ui.pill, ui.bad)}>WRITE_OFF_APPROVAL_REQUIRED</span>
+              <span className={cx(ui.pill, ui.bad)}>Approval needed</span>
               <span className={cx(ui.pill, ui.neutral)}>Online only</span>
             </div>
           </div>
@@ -57,7 +57,7 @@ export function WriteOffLimitSheet({
             <Icon name="alert-triangle" />
             <div>
               <b>This write-off needs approval</b>
-              {` ${qty} ${unitWord(unit, qty)} · ${value} is over the ${limit}, so a manager must accept it. The counter cannot hold the request — raise it on the web with POST /inventory/adjustment-requests. The server refuses this direct post with 409 WRITE_OFF_APPROVAL_REQUIRED and moves nothing. After accept, it appears in Counter work.`}
+              {` ${qty} ${unitWord(unit, qty)} · ${value} is over the ${limit}, so a manager must accept it. Ask for approval on the web; nothing has been written off. Once a manager approves it, it will appear in Counter work.`}
             </div>
           </div>
           <p className={qs.fixture}>Illustrative fixture — sample people, quantities, references and times.</p>

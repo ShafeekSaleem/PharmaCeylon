@@ -436,6 +436,31 @@ describe("held over-limit write-offs", () => {
       (screen.getByRole("button", { name: /Post write-off/i }) as HTMLButtonElement).disabled,
     ).toBe(true);
   });
+
+  it("will not post an approved write-off when its quantity could not be loaded", async () => {
+    const approved = work({
+      kind: "held_adjustment",
+      id: id(42),
+      reference: "B-79",
+      subject: "Amoxil",
+      heldAdjustmentStatus: "approved",
+      approval: { evidenceId: id(91), approvedVersion: 1, currentVersion: 1, state: "matches", changes: [] },
+    });
+    items = [approved];
+    pos.heldWriteOffsAtCounter = jest.fn(async () => ({
+      ok: false,
+      error: { code: "SERVER_ERROR", message: "unavailable" },
+    }));
+    await renderWork();
+    fireEvent.click(tab(/^Stock/));
+    fireEvent.click(within(queue()).getByRole("button"));
+    await act(async () => undefined);
+    expect(screen.getAllByText("Quantity unavailable").length).toBeGreaterThan(0);
+    expect(
+      (screen.getByRole("button", { name: /Post write-off/i }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+    expect(screen.queryByText(/will leave stock now/)).toBeNull();
+  });
 });
 
 describe("formatting", () => {

@@ -78,8 +78,8 @@ export function StockQuarantineSheet({
         tone: ui.badText!,
         title: "Stock operations need the server",
         body: quarantine
-          ? "Quarantine is not an offline journal command. The desktop posts only while terminalConnectivity is online."
-          : "Release is not an offline journal command. Blocked while connectivity is not online.",
+          ? "Holding stock needs the server connection. Try again once this counter is back online."
+          : "Returning stock to sale needs the server connection. Try again once this counter is back online.",
       });
       return;
     }
@@ -87,9 +87,9 @@ export function StockQuarantineSheet({
       setBanner({
         tone: ui.badText!,
         title: quarantine
-          ? "You need inventory.quarantine"
-          : "You need inventory.release_quarantine",
-        body: "The server enforces this on prepare and execute (PERMISSION_DENIED).",
+          ? "You can't hold stock from sale"
+          : "You can't return held stock to sale",
+        body: "Ask a manager to do this, or to give you the permission.",
       });
       return;
     }
@@ -100,7 +100,7 @@ export function StockQuarantineSheet({
           batch.onHand <= 0
             ? "There is no stock on this batch to quarantine"
             : "Nothing left to quarantine — every unit on this batch is already held or reserved",
-        body: "The signed command is refused before stock moves.",
+        body: "Nothing would change, so this can't be sent.",
       });
       return;
     }
@@ -124,7 +124,7 @@ export function StockQuarantineSheet({
       setBanner({
         tone: ui.warn!,
         title: "Opened from expiry review",
-        body: "Daily work kind batch.expiry_review. This sheet opens with reasonCode: expired.",
+        body: "This batch came up in the daily expiry review, so the reason is set to Expired.",
       });
       return;
     }
@@ -145,13 +145,10 @@ export function StockQuarantineSheet({
       }
       if (phase !== "confirm") return;
       setPhase("processing");
-      const body = quarantine
-        ? buildQuarantineBody(batch.batchId, form, batch)
-        : buildReleaseBody(batch.batchId, form);
       const result = await invoke(() =>
         quarantine
-          ? window.pos.quarantineBatch(body as never)
-          : window.pos.releaseQuarantine(body as never),
+          ? window.pos.quarantineBatch(buildQuarantineBody(batch.batchId, form, batch))
+          : window.pos.releaseQuarantine(buildReleaseBody(batch.batchId, form)),
       );
       if (!result.ok) {
         setPhase("ready");
@@ -159,7 +156,7 @@ export function StockQuarantineSheet({
         if (mapped.kind === "permission") {
           setBanner({
             tone: ui.badText!,
-            title: quarantine ? "You need inventory.quarantine" : "You need inventory.release_quarantine",
+            title: quarantine ? "You can't hold stock from sale" : "You can't return held stock to sale",
             body: result.error.message,
           });
         } else if (mapped.kind === "validation" || mapped.kind === "available" || mapped.kind === "nothing_left" || mapped.kind === "nothing_held" || mapped.kind === "expired") {
@@ -262,8 +259,8 @@ export function StockQuarantineSheet({
           </label>
           {quarantine && (
             <div className={ui.f}>
-              <MotionFieldLabel code="reasonCode" text="Reason code" />
-              <div className={qs.reasons} role="radiogroup" aria-label="Reason code">
+              <MotionFieldLabel code="reason" text="Reason" />
+              <div className={qs.reasons} role="radiogroup" aria-label="Reason">
                 {QUARANTINE_REASON_CODES.map((code) => (
                   <button
                     key={code}
@@ -293,7 +290,7 @@ export function StockQuarantineSheet({
               value={form.reasonText}
               disabled={phase !== "ready"}
               onChange={(v: string) => setForm((f) => ({ ...f, reasonText: v }))}
-              hint="Required when reasonCode is other. Exact trimmed text, max 512."
+              hint="Required when the reason is Other. Up to 512 characters."
               invalid={!form.reasonText.trim() && phase !== "success"}
               invalidText="Describe why the stock is being held"
             />
@@ -306,7 +303,7 @@ export function StockQuarantineSheet({
               value={form.reasonText}
               disabled={phase !== "ready"}
               onChange={(v: string) => setForm((f) => ({ ...f, reasonText: v }))}
-              hint="Exact trimmed text, max 512, or null. No reasonCode on release."
+              hint="Optional. Up to 512 characters."
             />
           )}
           {phase === "confirm" && (
@@ -315,7 +312,7 @@ export function StockQuarantineSheet({
               <div>
                 <b>{quarantine ? "Confirm hold from sale" : "Confirm return to sale"}</b>
                 {quarantine
-                  ? ` Units will be held with reasonCode ${form.reasonCode}. approvalEvidenceId is always null.`
+                  ? ` These units will be held from sale. Reason: ${QUARANTINE_REASON_LABELS[form.reasonCode]}.`
                   : " Units will become sellable again."}
               </div>
             </div>
@@ -325,7 +322,7 @@ export function StockQuarantineSheet({
               <Icon name="clock" />
               <div>
                 <b>{quarantine ? "Holding stock…" : "Releasing stock…"}</b>
-                The signed command is in flight. Don't send a second command.
+                Please wait. Don't send it again.
               </div>
             </div>
           )}
