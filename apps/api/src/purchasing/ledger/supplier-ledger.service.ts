@@ -19,6 +19,8 @@ import {
   normalizeIdempotencyKey,
 } from "../../common/idempotency.util";
 import { PrismaService } from "../../prisma/prisma.service";
+import { POS_ROLLOUT_SELECT, resolvePosRollout } from "../../tenant/pos-rollout";
+import { denied } from "../../terminals/terminal-wire";
 import {
   AllocationDto,
   ApplyDebitNoteDto,
@@ -938,6 +940,13 @@ export class SupplierLedgerService {
     const paidOn = parseDate(dto.paidOn, "Payment date");
     if (paidOn > new Date())
       throw new BadRequestException("A payment can't be dated in the future");
+    if (dto.method === "cash") {
+      const branch = await this.prisma.branch.findFirst({
+        where: { id: branchId, tenantId },
+        select: POS_ROLLOUT_SELECT,
+      });
+      if (branch && resolvePosRollout(branch).state === "live") denied("TERMINAL_REQUIRED");
+    }
 
     const idemKey = normalizeIdempotencyKey(idempotencyKeyRaw);
     if (idemKey) {

@@ -5,7 +5,7 @@ import type {
   TerminalEnrollmentCommand,
   TerminalSessionCommand,
 } from "@pharmaceylon/shared";
-import { Prisma, PrismaClient } from "@prisma/client";
+import { DesktopPosRollout, Prisma, PrismaClient } from "@prisma/client";
 import { AuditService, type AuditInput } from "../../src/audit/audit.service";
 import { CounterWorkService } from "../../src/terminal-commands/counter-work.service";
 import { SupplierCashPayoutService } from "../../src/purchasing/ledger/supplier-cash-payout.service";
@@ -416,5 +416,104 @@ describe("supplier cash payout contract (#174)", () => {
     });
     await expect(prisma.$executeRaw`UPDATE supplier_cash_payout SET amount = 999 WHERE id = ${payout.id}::uuid`)
       .rejects.toThrow(/immutable/);
+  });
+
+  it("refuses prepare when the purchase order belongs to another tenant", async () => {
+    const other = await createTenant(prisma, "payout-po-tenant");
+    const foreignPo = await prisma.purchaseOrder.create({
+      data: {
+        tenantId: other.tenantId,
+        branchId: other.mainBranchId,
+        supplierId: other.supplierId,
+        createdBy: other.managerId,
+        poNumber: `FOR-${randomUUID().slice(0, 6)}`,
+        status: "issued",
+      },
+    });
+    await invoice("15.00");
+    await expect(payouts.prepare(user(fx.managerId), branch(), {
+      supplierId: fx.supplierId,
+      paidOn: today(),
+      amount: "15.00",
+      purchaseOrderId: foreignPo.id,
+    })).rejects.toMatchObject({ status: 404, message: expect.stringContaining("Purchase order") });
+  });
+
+  it("refuses prepare when the purchase order is on another branch", async () => {
+    const po = await prisma.purchaseOrder.create({
+      data: {
+        tenantId: fx.tenantId,
+        branchId: fx.otherBranchId,
+        supplierId: fx.supplierId,
+        createdBy: fx.managerId,
+        poNumber: `BR-${randomUUID().slice(0, 6)}`,
+        status: "issued",
+      },
+    });
+    await invoice("15.00");
+    await expect(payouts.prepare(user(fx.managerId), branch(), {
+      supplierId: fx.supplierId,
+      paidOn: today(),
+      amount: "15.00",
+      purchaseOrderId: po.id,
+    })).rejects.toMatchObject({ status: 404, message: expect.stringContaining("Purchase order") });
+  });
+
+  it("refuses prepare when the purchase order belongs to another supplier", async () => {
+    const alt = await prisma.supplier.create({
+      data: { tenantId: fx.tenantId, code: `ALT-${randomUUID().slice(0, 4)}`, name: "Alt supplier" },
+    });
+    const po = await prisma.purchaseOrder.create({
+      data: {
+        tenantId: fx.tenantId,
+        branchId: branch(),
+        supplierId: alt.id,
+        createdBy: fx.managerId,
+        poNumber: `SUP-${randomUUID().slice(0, 6)}`,
+        status: "issued",
+      },
+    });
+    await invoice("15.00");
+    await expect(payouts.prepare(user(fx.managerId), branch(), {
+      supplierId: fx.supplierId,
+      paidOn: today(),
+      amount: "15.00",
+      purchaseOrderId: po.id,
+    })).rejects.toMatchObject({ status: 404, message: expect.stringContaining("Purchase order") });
+  });
+
+  it("maps concurrent prepare attempts to 409 instead of 500", async () => {
+    await invoice("10.00");
+    const body = {
+      supplierId: fx.supplierId,
+      paidOn: today(),
+      amount: "10.00",
+    };
+    const results = await Promise.allSettled([
+      payouts.prepare(user(fx.managerId), branch(), body),
+      payouts.prepare(user(fx.managerId), branch(), body),
+    ]);
+    const rejected = results.filter((r) => r.status === "rejected") as PromiseRejectedResult[];
+    const conflict = rejected.filter((r) => (r.reason as { status?: number }).status === 409);
+    expect(conflict).toHaveLength(1);
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+  });
+
+  it("refuses browser cash supplier payments on a live counter branch", async () => {
+    await invoice("20.00");
+    await prisma.branch.update({
+      where: { id: fx.mainBranchId },
+      data: { desktopPosRollout: DesktopPosRollout.live, desktopPosLiveAt: new Date() },
+    });
+    await expect(ledger.recordPayment(fx.tenantId, branch(), fx.managerId, {
+      supplierId: fx.supplierId,
+      paidOn: today(),
+      amount: "20.00",
+      method: "cash",
+    })).rejects.toMatchObject({ response: { code: "TERMINAL_REQUIRED" } });
+    await prisma.branch.update({
+      where: { id: fx.mainBranchId },
+      data: { desktopPosRollout: DesktopPosRollout.not_live, desktopPosLiveAt: null },
+    });
   });
 });

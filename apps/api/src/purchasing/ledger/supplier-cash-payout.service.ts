@@ -18,6 +18,7 @@ import type { RequestUser } from "../../security/interfaces/authenticated-reques
 import { ManagementApprovalsService } from "../../security/management-approvals.service";
 import type { CommandProvenance } from "../../terminals/command-provenance";
 import { TillShiftsService } from "../../terminals/shifts/till-shifts.service";
+import { toMinor } from "../../terminals/shifts/till-shift-math";
 import { denied } from "../../terminals/terminal-wire";
 import type {
   ApproveSupplierCashPayoutDto,
@@ -62,9 +63,14 @@ export class SupplierCashPayoutService {
       invoiceId: part.invoiceId,
       amount: dec(part.amount).toDecimalPlaces(2).toFixed(2),
     }));
-    const id = await this.prisma.$transaction(async (tx) => {
+    let id: string;
+    try {
+      id = await this.prisma.$transaction(async (tx) => {
       const actor = await this.access.resolveLive(user, branchId, tx);
       if (!actor.has("suppliers.pay")) throw new ForbiddenException("Your role can't authorize supplier payments");
+      if (dto.purchaseOrderId) {
+        await this.assertPurchaseOrder(tx, tenantId, branchId, dto.supplierId, dto.purchaseOrderId);
+      }
       const open = await tx.supplierCashPayout.findFirst({
         where: {
           tenantId,
@@ -121,6 +127,14 @@ export class SupplierCashPayoutService {
       }
       return created.id;
     });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+        throw new ConflictException(
+          "A payout is already waiting for this supplier. Cancel it to prepare another.",
+        );
+      }
+      throw error;
+    }
     return this.getOne(tenantId, branchId, id);
   }
 
@@ -288,7 +302,7 @@ export class SupplierCashPayoutService {
     );
 
     if (!input.command?.tillId) throw new BadRequestException("Counter payout requires an enrolled till");
-    const amountMinor = Math.round(Number(row.amount) * 100);
+    const amountMinor = toMinor(row.amount);
     const tillAt = { tenantId, branchId, tillId: input.command.tillId, userId: user.userId };
     await this.shifts.requireDrawerCashOut(tx, tillAt, amountMinor);
     const paymentId = await this.ledger.recordPaymentInTransaction(
@@ -310,7 +324,10 @@ export class SupplierCashPayoutService {
       },
     );
     const poRef = row.purchaseOrderId
-      ? await tx.purchaseOrder.findFirst({ where: { tenantId, id: row.purchaseOrderId }, select: { poNumber: true } })
+      ? await tx.purchaseOrder.findFirst({
+          where: { tenantId, branchId, supplierId: row.supplierId, id: row.purchaseOrderId },
+          select: { poNumber: true },
+        })
       : null;
     const reason = poRef
       ? `Supplier payout · ${poRef.poNumber}`
@@ -374,7 +391,7 @@ export class SupplierCashPayoutService {
       take: 200,
     });
     const viewed = await this.view(tenantId, branchId, rows);
-  return ready ? viewed.filter((row) => row.readyAtCounter) : viewed;
+    return ready ? viewed.filter((row) => row.readyAtCounter) : viewed;
   }
 
   async getOne(tenantId: string, branchId: string, id: string) {
@@ -439,6 +456,20 @@ export class SupplierCashPayoutService {
         cancelledAt: row.cancelledAt?.toISOString() ?? null,
       };
     });
+  }
+
+  private async assertPurchaseOrder(
+    tx: Tx,
+    tenantId: string,
+    branchId: string,
+    supplierId: string,
+    purchaseOrderId: string,
+  ) {
+    const po = await tx.purchaseOrder.findFirst({
+      where: { id: purchaseOrderId, tenantId, branchId, supplierId },
+      select: { id: true },
+    });
+    if (!po) throw new NotFoundException("Purchase order not found");
   }
 
   private async lock(tx: Tx, tenantId: string, branchId: string, id: string) {
