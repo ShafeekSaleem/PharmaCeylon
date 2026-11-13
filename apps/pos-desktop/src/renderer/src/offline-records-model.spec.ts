@@ -3,6 +3,7 @@ import type { CardAttemptView, OfflineSaleView } from "../../shared/ipc-contract
 import { drainHoldSentences } from "../../shared/drain-holds";
 import {
   approvedOutcome,
+  slipTimeToIso,
   cardStage,
   checkNote,
   declinedOutcome,
@@ -22,19 +23,20 @@ const attempt = (state: CardAttemptView["state"], amount = "100.00"): CardAttemp
   approvalCode: null,
 });
 
-const sale = (id: string, total: string, paidByCard: boolean): OfflineSaleView => ({
+const sale = (id: string, total: string, paidByCard: boolean, reference = "REF"): OfflineSaleView => ({
   saleCommandId: id,
   at: "2026-11-12T10:00:00.000Z",
   total,
   itemCount: 1,
   paidByCard,
+  cardPayments: paidByCard ? [{ reference, approvalCode: "A1" }] : [],
   noteCount: 0,
 });
 
 describe("cardStage", () => {
   it("offers all three answers until something is known, never Not sure twice", () => {
-    expect(cardStage(attempt("prepared")).canSay).toEqual({ approved: true, declined: true, notSure: true });
-    expect(cardStage(attempt("uncertain")).canSay).toEqual({ approved: true, declined: true, notSure: false });
+    expect(cardStage(attempt("prepared")).canSay).toEqual({ approved: true, declined: true, notSure: true, neverCharged: true });
+    expect(cardStage(attempt("uncertain")).canSay).toEqual({ approved: true, declined: true, notSure: false, neverCharged: true });
   });
 
   it("offers no answers once approved, only the sale to match, and nothing when settled", () => {
@@ -55,23 +57,48 @@ describe("cardStage", () => {
 });
 
 describe("salesForCard", () => {
-  it("offers only card sales, same amount first", () => {
-    const sales = [sale("1", "50.00", true), sale("2", "100.00", true), sale("3", "100.00", false)];
-    expect(salesForCard(attempt("approved"), sales).map((s) => s.saleCommandId)).toEqual(["2", "1"]);
+  const approved = { ...attempt("approved"), providerReference: "REF", approvalCode: "A1" };
+
+  it("offers only a sale holding this payment's own reference and approval code", () => {
+    const sales = [
+      sale("1", "50.00", true, "OTHER"),
+      sale("2", "100.00", true),
+      sale("3", "100.00", false),
+      { ...sale("4", "100.00", true), cardPayments: [{ reference: "REF", approvalCode: "ZZ" }] },
+    ];
+    expect(salesForCard(approved, sales).map((s) => s.saleCommandId)).toEqual(["2"]);
   });
 
-  it("leaves out sales a payment already paid for", () => {
-    const sales = [sale("1", "100.00", true), sale("2", "100.00", true)];
-    expect(salesForCard(attempt("approved"), sales, new Set(["1"])).map((s) => s.saleCommandId)).toEqual(["2"]);
+  it("offers nothing while the slip details are not recorded", () => {
+    expect(salesForCard(attempt("approved"), [sale("1", "100.00", true)])).toEqual([]);
+  });
+});
+
+describe("slipTimeToIso", () => {
+  const now = new Date(2026, 10, 12, 15, 30);
+  it("reads HH:MM as today, or yesterday when it has not happened yet", () => {
+    expect(slipTimeToIso("14:05", now)).toBe(new Date(2026, 10, 12, 14, 5).toISOString());
+    expect(slipTimeToIso("23:50", now)).toBe(new Date(2026, 10, 11, 23, 50).toISOString());
+  });
+  it("refuses anything that is not a time", () => {
+    for (const bad of ["", "25:00", "9:5", "noon", "12:60"]) expect(slipTimeToIso(bad, now)).toBeNull();
   });
 });
 
 describe("outcomes and notes", () => {
   it("trims, and refuses blank or over-long slip details", () => {
-    expect(approvedOutcome(" R ", " C ")).toEqual({ kind: "approved", reference: "R", approvalCode: "C" });
-    expect(approvedOutcome("R", "  ")).toBeNull();
-    expect(approvedOutcome("R".repeat(65), "C")).toBeNull();
-    expect(approvedOutcome("R", "C".repeat(33))).toBeNull();
+    const now = new Date(2026, 10, 12, 15, 30);
+    const at = new Date(2026, 10, 12, 14, 5).toISOString();
+    expect(approvedOutcome(" R ", " C ", "14:05", now)).toEqual({
+      kind: "approved",
+      reference: "R",
+      approvalCode: "C",
+      approvedAt: at,
+    });
+    expect(approvedOutcome("R", "  ", "14:05", now)).toBeNull();
+    expect(approvedOutcome("R", "C", "", now)).toBeNull();
+    expect(approvedOutcome("R".repeat(65), "C", "14:05", now)).toBeNull();
+    expect(approvedOutcome("R", "C".repeat(33), "14:05", now)).toBeNull();
     expect(declinedOutcome(" R ")).toEqual({ kind: "declined", reference: "R" });
     expect(declinedOutcome("")).toBeNull();
   });

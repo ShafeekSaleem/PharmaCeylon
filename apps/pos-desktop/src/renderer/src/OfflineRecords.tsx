@@ -20,6 +20,10 @@ import styles from "./OfflineRecords.module.css";
 import ui from "./ui.module.css";
 import { cx, ErrorLine, useAction } from "./useAction";
 
+/** HH:MM for a time input. */
+const clockValue = (date: Date) =>
+  `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+
 const PILL = { warn: ui.warn, bad: ui.bad, ok: ui.ok, neutral: ui.neutral } as const;
 
 /**
@@ -166,6 +170,8 @@ function CardRow({
   const [asking, setAsking] = useState<"approved" | "declined" | null>(null);
   const [reference, setReference] = useState("");
   const [code, setCode] = useState("");
+  const [slipTime, setSlipTime] = useState("");
+  const [confirmNever, setConfirmNever] = useState(false);
   const { busy, error, run, clear } = useAction();
 
   function record(outcome: CardOutcomeInput) {
@@ -175,6 +181,8 @@ function CardRow({
         setAsking(null);
         setReference("");
         setCode("");
+        setSlipTime("");
+        setConfirmNever(false);
         onChanged();
       },
     );
@@ -182,11 +190,12 @@ function CardRow({
 
   const outcome =
     asking === "approved"
-      ? approvedOutcome(reference, code)
+      ? approvedOutcome(reference, code, slipTime, new Date())
       : asking === "declined"
         ? declinedOutcome(reference)
         : null;
-  const answers = stage.canSay.approved || stage.canSay.declined || stage.canSay.notSure;
+  const answers =
+    stage.canSay.approved || stage.canSay.declined || stage.canSay.notSure || stage.canSay.neverCharged;
 
   return (
     <div className={styles.card}>
@@ -199,7 +208,7 @@ function CardRow({
       </div>
       <p className={styles.muted}>{stage.detail}</p>
 
-      {answers && !asking && (
+      {answers && !asking && !confirmNever && (
         <div className={styles.actions} role="group" aria-label="What did the card machine say?">
           {stage.canSay.approved && (
             <button
@@ -207,6 +216,7 @@ function CardRow({
               className={cx(ui.btn, ui.outline, ui.sm)}
               onClick={() => {
                 clear();
+                setSlipTime(clockValue(new Date()));
                 setAsking("approved");
               }}
             >
@@ -225,6 +235,18 @@ function CardRow({
               Declined
             </button>
           )}
+          {stage.canSay.neverCharged && (
+            <button
+              type="button"
+              className={cx(ui.btn, ui.outline, ui.sm)}
+              onClick={() => {
+                clear();
+                setConfirmNever(true);
+              }}
+            >
+              Never charged
+            </button>
+          )}
           {stage.canSay.notSure && (
             <button
               type="button"
@@ -238,6 +260,29 @@ function CardRow({
         </div>
       )}
 
+      {confirmNever && (
+        <div className={styles.form}>
+          <p className={styles.muted}>
+            Only choose this if you checked the card machine and it shows no charge for this payment, for
+            example the customer changed their mind before the card was used. Nothing was taken, and a new
+            card payment can then be started.
+          </p>
+          <div className={styles.actions}>
+            <button type="button" className={cx(ui.btn, ui.outline, ui.sm)} onClick={() => setConfirmNever(false)}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              className={cx(ui.btn, ui.primary, ui.sm)}
+              disabled={busy}
+              onClick={() => record({ kind: "never_charged" })}
+            >
+              Yes, it was never charged
+            </button>
+          </div>
+        </div>
+      )}
+
       {asking && (
         <form
           className={styles.form}
@@ -248,7 +293,7 @@ function CardRow({
         >
           <p className={styles.muted}>
             {asking === "approved"
-              ? "Copy these from the card machine's slip. Never type a card number."
+              ? "Copy these from the card machine's slip, including the time it was approved. Never type a card number."
               : "Only choose Declined if the card machine itself shows this payment was declined or never taken."}
           </p>
           <label className={ui.label}>
@@ -262,16 +307,27 @@ function CardRow({
             />
           </label>
           {asking === "approved" && (
-            <label className={ui.label}>
-              <span>Approval code</span>
-              <input
-                className={ui.in}
-                value={code}
-                maxLength={32}
-                autoComplete="off"
-                onChange={(e) => setCode(e.target.value)}
-              />
-            </label>
+            <>
+              <label className={ui.label}>
+                <span>Approval code</span>
+                <input
+                  className={ui.in}
+                  value={code}
+                  maxLength={32}
+                  autoComplete="off"
+                  onChange={(e) => setCode(e.target.value)}
+                />
+              </label>
+              <label className={ui.label}>
+                <span>Time on the slip</span>
+                <input
+                  className={ui.in}
+                  type="time"
+                  value={slipTime}
+                  onChange={(e) => setSlipTime(e.target.value)}
+                />
+              </label>
+            </>
           )}
           <div className={styles.actions}>
             <button type="button" className={cx(ui.btn, ui.outline, ui.sm)} onClick={() => setAsking(null)}>
@@ -287,15 +343,15 @@ function CardRow({
       {stage.needsSale &&
         (sales.length === 0 ? (
           <p className={styles.muted}>
-            No offline sale paid by card is waiting for this payment yet. Once the sale is rung up it can be
-            matched here.
+            No offline sale holds this payment's card reference and approval code, so there is nothing to
+            match it to. If the sale was rung up with different details, a manager needs to look at it.
           </p>
         ) : (
           sales.map((sale) => (
             <div key={sale.saleCommandId} className={styles.row}>
               <div>
                 <b>{saleLabel(sale, time)}</b>
-                <small>{sale.total === attempt.amount ? "Same amount as this payment" : "Different amount"}</small>
+                <small>{sale.total === attempt.amount ? "Same amount as this payment" : "Card part of a split payment"}</small>
               </div>
               <button
                 type="button"

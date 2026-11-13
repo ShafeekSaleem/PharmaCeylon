@@ -47,7 +47,7 @@ export type CardStage = {
   detail: string;
   tone: CardTone;
   /** Which of the three answers a person can still give about the card machine. */
-  canSay: { approved: boolean; declined: boolean; notSure: boolean };
+  canSay: { approved: boolean; declined: boolean; notSure: boolean; neverCharged: boolean };
   /** An approved payment that still has to be matched to the sale it paid for. */
   needsSale: boolean;
 };
@@ -61,7 +61,7 @@ export function cardStage(attempt: CardAttemptView): CardStage {
         detail:
           "Look at what the card machine says about this payment, then record it. Nobody is charged again until it is settled.",
         tone: "warn",
-        canSay: { approved: true, declined: true, notSure: true },
+        canSay: { approved: true, declined: true, notSure: true, neverCharged: true },
         needsSale: false,
       };
     case "uncertain":
@@ -70,7 +70,7 @@ export function cardStage(attempt: CardAttemptView): CardStage {
         detail:
           "Check the card machine's own records for this payment before anyone is charged again, then record what you find.",
         tone: "bad",
-        canSay: { approved: true, declined: true, notSure: false },
+        canSay: { approved: true, declined: true, notSure: false, neverCharged: true },
         needsSale: false,
       };
     case "approved":
@@ -79,7 +79,7 @@ export function cardStage(attempt: CardAttemptView): CardStage {
         detail:
           "The money was taken. Pick the sale it paid for so the payment is closed.",
         tone: "warn",
-        canSay: { approved: false, declined: false, notSure: false },
+        canSay: { approved: false, declined: false, notSure: false, neverCharged: false },
         needsSale: true,
       };
     case "declined":
@@ -87,7 +87,7 @@ export function cardStage(attempt: CardAttemptView): CardStage {
         title: "Declined",
         detail: "No money was taken. A new card payment can be started.",
         tone: "neutral",
-        canSay: { approved: false, declined: false, notSure: false },
+        canSay: { approved: false, declined: false, notSure: false, neverCharged: false },
         needsSale: false,
       };
     case "linked_to_sale":
@@ -95,31 +95,50 @@ export function cardStage(attempt: CardAttemptView): CardStage {
         title: "Paid and matched to its sale",
         detail: "Nothing more to do.",
         tone: "ok",
-        canSay: { approved: false, declined: false, notSure: false },
+        canSay: { approved: false, declined: false, notSure: false, neverCharged: false },
         needsSale: false,
       };
   }
 }
 
-/** Sales an approved payment could belong to: paid by card, newest first, same total first. */
-export function salesForCard(
-  attempt: CardAttemptView,
-  sales: OfflineSaleView[],
-  alreadyPaid: ReadonlySet<string> = new Set(),
-): OfflineSaleView[] {
-  const candidates = sales.filter((s) => s.paidByCard && !alreadyPaid.has(s.saleCommandId));
-  return [
-    ...candidates.filter((s) => s.total === attempt.amount),
-    ...candidates.filter((s) => s.total !== attempt.amount),
-  ];
+/**
+ * Sales an approved payment can be matched to: only a sale that holds a card payment with this
+ * payment's own reference and approval code. Anything else would be refused, so it is not offered.
+ */
+export function salesForCard(attempt: CardAttemptView, sales: OfflineSaleView[]): OfflineSaleView[] {
+  if (!attempt.providerReference || !attempt.approvalCode) return [];
+  return sales.filter((s) =>
+    s.cardPayments.some(
+      (p) => p.reference === attempt.providerReference && p.approvalCode === attempt.approvalCode,
+    ),
+  );
+}
+
+/**
+ * The time on the card machine slip (HH:MM, 24-hour) as the moment it approved: today, or
+ * yesterday when that time has not come yet today. Null when it is not a real time.
+ */
+export function slipTimeToIso(hhmm: string, now: Date): string | null {
+  const match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(hhmm.trim());
+  if (!match) return null;
+  const at = new Date(now);
+  at.setHours(Number(match[1]), Number(match[2]), 0, 0);
+  if (at.getTime() > now.getTime()) at.setDate(at.getDate() - 1);
+  return at.toISOString();
 }
 
 /** The reference and approval code are copied from the card machine's slip, never made up. */
-export function approvedOutcome(reference: string, approvalCode: string): CardOutcomeInput | null {
+export function approvedOutcome(
+  reference: string,
+  approvalCode: string,
+  slipTime: string,
+  now: Date,
+): CardOutcomeInput | null {
   const ref = reference.trim();
   const code = approvalCode.trim();
-  if (!ref || !code || ref.length > 64 || code.length > 32) return null;
-  return { kind: "approved", reference: ref, approvalCode: code };
+  const approvedAt = slipTimeToIso(slipTime, now);
+  if (!ref || !code || ref.length > 64 || code.length > 32 || !approvedAt) return null;
+  return { kind: "approved", reference: ref, approvalCode: code, approvedAt };
 }
 
 export function declinedOutcome(reference: string): CardOutcomeInput | null {

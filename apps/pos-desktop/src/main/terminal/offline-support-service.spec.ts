@@ -288,7 +288,7 @@ const prepare = () =>
 const approve = (attemptId: string) =>
   service.recordCardOutcome({
     attemptId,
-    outcome: { kind: "approved", reference: "REF-1", approvalCode: "A123" },
+    outcome: { kind: "approved", reference: "REF-1", approvalCode: "A123", approvedAt: new Date(NOW - 3_600_000).toISOString() },
   });
 
 function refusal(run: () => unknown): Error {
@@ -408,6 +408,44 @@ describe("OfflineSupportService", () => {
     ).toEqual({ state: "linked_to_sale" });
     expect(service.cardAttempts()[0]).toMatchObject({ settled: true });
     expect(drainHolds(local.db, identity.enrollmentId).cards).toBe(0);
+  });
+
+  it("keeps the time on the slip as the approval time, even when recorded much later", () => {
+    const { attemptId } = prepare();
+    clock += 2 * 3_600_000;
+    approve(attemptId);
+    const row = local.db
+      .prepare("SELECT envelope_json FROM offline_support_record WHERE card_state = 'approved'")
+      .get() as { envelope_json: string };
+    const payload = JSON.parse(row.envelope_json).payload;
+    expect(payload.approvedAt).toBe(NOW - 3_600_000);
+    expect(payload.recordedAt).toBe(NOW + 2 * 3_600_000);
+    expect(
+      refusal(() =>
+        service.recordCardOutcome({
+          attemptId,
+          outcome: { kind: "approved", reference: "REF-1", approvalCode: "A123", approvedAt: "not a time" },
+        }),
+      ).message,
+    ).toBe("Check what you entered and try again.");
+  });
+
+  it("closes a charge that never reached the card machine without inventing a reference", () => {
+    const { attemptId } = prepare();
+    expect(service.recordCardOutcome({ attemptId, outcome: { kind: "never_charged" } })).toEqual({
+      state: "declined",
+    });
+    const view = service.cardAttempts()[0]!;
+    expect(view).toMatchObject({ settled: true, state: "declined" });
+    expect(view.providerReference).toBe(`NOT-CHARGED-${attemptId.slice(0, 8)}`);
+    expect(drainHolds(local.db, identity.enrollmentId).cards).toBe(0);
+    // The customer can be charged again only now that it is settled.
+    expect(prepare().attemptId).not.toBe(attemptId);
+  });
+
+  it("lists the card details of each sale so a payment is only matched to its own", () => {
+    sell({ providerReference: "REF-1", approvalCode: "A123" });
+    expect(service.sales()[0]!.cardPayments).toEqual([{ reference: "REF-1", approvalCode: "A123" }]);
   });
 
   it("records a decline as the person signed in, then allows a new attempt", () => {

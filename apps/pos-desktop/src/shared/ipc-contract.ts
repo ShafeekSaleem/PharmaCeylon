@@ -115,6 +115,8 @@ export const offlineSaleSchema = z.object({
   total: z.string(),
   itemCount: z.number().int().min(0),
   paidByCard: z.boolean(),
+  /** The card machine's reference and approval code on each card payment of this sale. */
+  cardPayments: z.array(z.object({ reference: z.string(), approvalCode: z.string() })),
   /** Notes already saved against this sale. */
   noteCount: z.number().int().min(0),
 });
@@ -145,8 +147,16 @@ const cardReference = z.string().min(1).max(64);
 /** What the person at the counter saw or knows about a card payment. */
 export const cardOutcomeSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("not_sure") }),
-  z.object({ kind: z.literal("approved"), reference: cardReference, approvalCode: z.string().min(1).max(32) }),
+  z.object({
+    kind: z.literal("approved"),
+    reference: cardReference,
+    approvalCode: z.string().min(1).max(32),
+    /** When the card machine approved it, as read from the slip (ISO). */
+    approvedAt: z.string().datetime(),
+  }),
   z.object({ kind: z.literal("declined"), reference: cardReference }),
+  /** Checked the card machine: this payment never reached it, so there is no reference to copy. */
+  z.object({ kind: z.literal("never_charged") }),
   z.object({ kind: z.literal("paid_sale"), reference: cardReference, saleCommandId: z.string().uuid() }),
 ]);
 export type CardOutcomeInput = z.infer<typeof cardOutcomeSchema>;

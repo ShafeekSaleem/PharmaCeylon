@@ -18,6 +18,7 @@ const sale = (overrides: Partial<OfflineSaleView> = {}): OfflineSaleView => ({
   total: "1250.00",
   itemCount: 3,
   paidByCard: false,
+  cardPayments: [],
   noteCount: 0,
   ...overrides,
 });
@@ -51,6 +52,7 @@ describe("OfflineRecords: card payments", () => {
     expect(within(group).getAllByRole("button").map((b) => b.textContent)).toEqual([
       "Approved",
       "Declined",
+      "Never charged",
       "Not sure",
     ]);
     expect(screen.getByText("1 to settle")).toBeTruthy();
@@ -78,13 +80,36 @@ describe("OfflineRecords: card payments", () => {
     fireEvent.change(screen.getByLabelText("Card machine reference"), { target: { value: "  REF-9 " } });
     expect(save.disabled).toBe(true);
     fireEvent.change(screen.getByLabelText("Approval code"), { target: { value: " A123 " } });
+    // The time on the slip starts at the current time and is the staff member's to correct.
+    const slip = screen.getByLabelText("Time on the slip") as HTMLInputElement;
+    expect(slip.value).toMatch(/^\d\d:\d\d$/);
+    fireEvent.change(slip, { target: { value: "" } });
+    expect(save.disabled).toBe(true);
+    fireEvent.change(slip, { target: { value: "00:01" } });
     expect(save.disabled).toBe(false);
     fireEvent.click(save);
+    await waitFor(() => expect(pos.recordCardOutcome).toHaveBeenCalledTimes(1));
+    const sent = pos.recordCardOutcome!.mock.calls[0]![0] as { outcome: { approvedAt: string } };
+    expect(sent).toEqual({
+      attemptId: ATTEMPT,
+      outcome: { kind: "approved", reference: "REF-9", approvalCode: "A123", approvedAt: expect.any(String) },
+    });
+    const sentAt = new Date(sent.outcome.approvedAt);
+    expect([sentAt.getHours(), sentAt.getMinutes()]).toEqual([0, 1]);
+    expect(sentAt.getTime()).toBeLessThanOrEqual(Date.now());
+  });
+
+  it("closes a payment that never reached the card machine, after a confirmation, with no reference", async () => {
+    const pos = show([], [attempt()], {
+      recordCardOutcome: async () => ({ ok: true, value: { state: "declined" } }),
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "Never charged" }));
+    expect(screen.getByText(/checked the card machine and it shows no charge/)).toBeTruthy();
+    expect(screen.queryByLabelText("Card machine reference")).toBeNull();
+    expect(pos.recordCardOutcome).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Yes, it was never charged" }));
     await waitFor(() =>
-      expect(pos.recordCardOutcome).toHaveBeenCalledWith({
-        attemptId: ATTEMPT,
-        outcome: { kind: "approved", reference: "REF-9", approvalCode: "A123" },
-      }),
+      expect(pos.recordCardOutcome).toHaveBeenCalledWith({ attemptId: ATTEMPT, outcome: { kind: "never_charged" } }),
     );
   });
 
@@ -119,22 +144,19 @@ describe("OfflineRecords: card payments", () => {
     expect(alert.textContent).toBe("That card machine reference does not match the one already saved for this payment.");
   });
 
-  it("matches an approved payment to a card sale, same amount first, using the saved reference", async () => {
+  it("matches an approved payment only to a sale holding its reference and code", async () => {
     const pos = show(
       [
-        sale({ saleCommandId: SALE_A, total: "99.00", paidByCard: true }),
-        sale({ saleCommandId: SALE_B, total: "1250.00", paidByCard: true }),
+        sale({ saleCommandId: SALE_A, total: "99.00", paidByCard: true, cardPayments: [{ reference: "OTHER", approvalCode: "A123" }] }),
+        sale({ saleCommandId: SALE_B, total: "1250.00", paidByCard: true, cardPayments: [{ reference: "REF-9", approvalCode: "A123" }] }),
         sale({ saleCommandId: "00000000-0000-4000-8000-0000000000a3", paidByCard: false }),
       ],
       [attempt({ state: "approved", providerReference: "REF-9", approvalCode: "A123" })],
       { recordCardOutcome: async () => ({ ok: true, value: { state: "linked_to_sale" } }) },
     );
     const buttons = await screen.findAllByRole("button", { name: "This is the sale" });
-    expect(buttons).toHaveLength(2);
-    expect(screen.getAllByText(/Same amount as this payment|Different amount/).map((n) => n.textContent)).toEqual([
-      "Same amount as this payment",
-      "Different amount",
-    ]);
+    expect(buttons).toHaveLength(1);
+    expect(screen.getByText("Same amount as this payment")).toBeTruthy();
     fireEvent.click(buttons[0]!);
     await waitFor(() =>
       expect(pos.recordCardOutcome).toHaveBeenCalledWith({
@@ -145,8 +167,11 @@ describe("OfflineRecords: card payments", () => {
   });
 
   it("says no sale is waiting rather than guessing one", async () => {
-    show([sale()], [attempt({ state: "approved", providerReference: "REF-9", approvalCode: "A1" })]);
-    expect(await screen.findByText(/No offline sale paid by card is waiting/)).toBeTruthy();
+    show(
+      [sale({ paidByCard: true, cardPayments: [{ reference: "OTHER", approvalCode: "A1" }] })],
+      [attempt({ state: "approved", providerReference: "REF-9", approvalCode: "A1" })],
+    );
+    expect(await screen.findByText(/No offline sale holds this payment's card reference/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: "This is the sale" })).toBeNull();
   });
 

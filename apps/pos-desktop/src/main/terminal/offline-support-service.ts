@@ -65,6 +65,12 @@ function refused(error: unknown): never {
   throw error;
 }
 
+const MAX_LISTED_SALES = 200;
+const MAX_LISTED_SETTLED = 20;
+
+/** Stands in for the card machine's reference when a payment never reached the machine. */
+export const NEVER_CHARGED_MARKER = "NOT-CHARGED";
+
 export type { CardAttemptView, OfflineSaleView };
 
 type AttemptRow = { attempt_id: string; envelope_json: string };
@@ -108,19 +114,22 @@ export class OfflineSupportService {
   sales(): OfflineSaleView[] {
     const enrollmentId = this.deps.terminal.current()?.identity.enrollmentId;
     if (!enrollmentId) return [];
+    // Newest sales only: a long outage should not make this screen slower to open.
     const rows = this.deps.db
       .prepare(
-        "SELECT envelope_json FROM offline_journal_command WHERE enrollment_id = ? ORDER BY sequence DESC",
+        `SELECT envelope_json FROM offline_journal_command
+         WHERE enrollment_id = ? AND json_extract(envelope_json, '$.payload.kind') = 'ordinary_sale'
+         ORDER BY sequence DESC LIMIT ?`,
       )
-      .all(enrollmentId) as { envelope_json: string }[];
+      .all(enrollmentId, MAX_LISTED_SALES) as { envelope_json: string }[];
     const notes = new Map<string, number>();
-    for (const note of this.records(enrollmentId, "sale_incident")) {
-      const incident = note as OfflineSaleIncident;
-      notes.set(
-        incident.saleCommandId,
-        (notes.get(incident.saleCommandId) ?? 0) + 1,
-      );
-    }
+    for (const row of this.deps.db
+      .prepare(
+        `SELECT json_extract(envelope_json, '$.payload.saleCommandId') AS sale_id, COUNT(*) AS n
+         FROM offline_support_record WHERE enrollment_id = ? AND kind = 'sale_incident' GROUP BY sale_id`,
+      )
+      .all(enrollmentId) as { sale_id: string; n: number }[])
+      notes.set(row.sale_id, row.n);
     const sales: OfflineSaleView[] = [];
     for (const row of rows) {
       const command = (
@@ -134,6 +143,11 @@ export class OfflineSupportService {
         total: fromMinor(sale.totalMinor),
         itemCount: sale.lines.reduce((n, line) => n + line.quantity, 0),
         paidByCard: sale.payments.some((p) => p.method === "external_card"),
+        cardPayments: sale.payments.flatMap((p) =>
+          p.method === "external_card"
+            ? [{ reference: p.providerReference, approvalCode: p.approvalCode }]
+            : [],
+        ),
         noteCount: notes.get(sale.commandId) ?? 0,
       });
     }
@@ -144,12 +158,31 @@ export class OfflineSupportService {
   cardAttempts(): CardAttemptView[] {
     const enrollmentId = this.deps.terminal.current()?.identity.enrollmentId;
     if (!enrollmentId) return [];
+    // Every unsettled payment, and only the latest few settled ones, read from their event rows.
+    const standing = this.deps.db
+      .prepare(
+        `SELECT attempt_id, card_state FROM offline_support_record r
+         WHERE enrollment_id = ? AND kind = 'external_card_attempt'
+           AND rowid = (SELECT MAX(rowid) FROM offline_support_record
+                        WHERE enrollment_id = r.enrollment_id AND attempt_id = r.attempt_id)
+         ORDER BY rowid DESC`,
+      )
+      .all(enrollmentId) as { attempt_id: string; card_state: string }[];
+    let settledSeen = 0;
+    const wanted = standing
+      .filter((a) => {
+        if (a.card_state !== "declined" && a.card_state !== "linked_to_sale") return true;
+        return ++settledSeen <= MAX_LISTED_SETTLED;
+      })
+      .map((a) => a.attempt_id);
+    if (!wanted.length) return [];
     const rows = this.deps.db
       .prepare(
         `SELECT attempt_id, envelope_json FROM offline_support_record
-         WHERE enrollment_id = ? AND kind = 'external_card_attempt' ORDER BY rowid`,
+         WHERE enrollment_id = ? AND kind = 'external_card_attempt'
+           AND attempt_id IN (${wanted.map(() => "?").join(",")}) ORDER BY rowid`,
       )
-      .all(enrollmentId) as AttemptRow[];
+      .all(enrollmentId, ...wanted) as AttemptRow[];
     const byAttempt = new Map<string, ExternalCardAttemptRecord[]>();
     for (const row of rows) {
       const events = byAttempt.get(row.attempt_id) ?? [];
@@ -238,19 +271,32 @@ export class OfflineSupportService {
       case "not_sure":
         event = { state: "uncertain" };
         break;
-      case "approved":
+      case "approved": {
+        // The time on the slip, not the time it was recorded: it may be recorded long after.
+        const approvedAt = Date.parse(outcome.approvedAt);
+        if (!Number.isSafeInteger(approvedAt))
+          throw new ActionFailure("INVALID_RECORD", REFUSALS.INVALID_RECORD!);
         event = {
           state: "approved",
           providerReference: outcome.reference,
           approvalCode: outcome.approvalCode,
-          // The person saw the card machine approve just now; the writer refuses a future time.
-          approvedAt: (this.deps.now ?? (() => new Date()))().getTime(),
+          approvedAt,
         };
         break;
+      }
       case "declined":
         event = {
           state: "declined",
           providerReference: outcome.reference,
+          verifiedByUserId: staff.staffUserId,
+        };
+        break;
+      case "never_charged":
+        // The signed record needs a reference. There is none to copy, so it carries a plain marker
+        // that cannot be mistaken for a card machine's own reference.
+        event = {
+          state: "declined",
+          providerReference: `${NEVER_CHARGED_MARKER}-${input.attemptId.slice(0, 8)}`,
           verifiedByUserId: staff.staffUserId,
         };
         break;
@@ -273,24 +319,5 @@ export class OfflineSupportService {
     } catch (error) {
       return refused(error);
     }
-  }
-
-  private records(
-    enrollmentId: string,
-    kind: "sale_incident" | "external_card_attempt",
-  ): (OfflineSaleIncident | ExternalCardAttemptRecord)[] {
-    const rows = this.deps.db
-      .prepare(
-        "SELECT envelope_json FROM offline_support_record WHERE enrollment_id = ? AND kind = ? ORDER BY rowid",
-      )
-      .all(enrollmentId, kind) as { envelope_json: string }[];
-    return rows.map(
-      (row) =>
-        (
-          JSON.parse(row.envelope_json) as Signed<
-            OfflineSaleIncident | ExternalCardAttemptRecord
-          >
-        ).payload,
-    );
   }
 }
