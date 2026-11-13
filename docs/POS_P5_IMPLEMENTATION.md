@@ -514,6 +514,57 @@ Web: `counter-restore-card.spec.tsx` (what may be missing, counted from the back
 contact came after; the clock warning; the exact acknowledgement; a refusal kept in the dialog).
 Shared: `offline-counter-restore.test.cjs` (`counterRestoreClockSkew`).
 
+## Support records and card attempts on the desktop (built, P4 #50)
+
+Until now the drain treated "support records accepted" and "payment attempts resolved" as true
+because nothing on the counter wrote either. The desktop now writes, uploads and gates on them.
+Nothing in the renderer calls the writers yet: the screens that record a note or a card payment
+arrive with offline selling (the rest of P4).
+
+| Piece | Where |
+| --- | --- |
+| Table | `offline_support_record` (migration 19): the device-signed envelope as signed, its SHA-256, upload bookkeeping. Never deleted; the signed content can't change |
+| Writer | `OfflineSupportRecordWriter` (`offline-support-records.ts`): `recordSaleIncident`, `prepareCardAttempt`, `recordCardAttemptEvent` |
+| Upload | `offline-journal-sync.ts` sends pending records in `supportRecords`, up to `SUPPORT_BATCH` (25) a request, with or without journal entries, and with the sign-ins they cite |
+| Gate | `drainResumeEvidence`: `supportRecordsAccepted` and `paymentAttemptsResolved` now come from local state |
+
+**What the writer checks before it signs** (so a record the server would refuse is never stored):
+identity is read from the enrolled device; the cited sign-in is held here and is the recorder's; the
+record sits inside the installed grant's window; free text and card-machine references hold no full
+card number (`containsCardNumber`); an incident cites an offline sale this counter wrote.
+
+**Card attempts.** Each state change is its own immutable event. The first, `prepared`, is stored
+before the card machine is asked to charge, and fixes the draft, digest and amount; later events
+inherit them. Allowed steps: prepared → uncertain / approved / declined, uncertain → approved /
+declined, approved → linked to the sale. External card must be allowed by the signed grant. A new
+attempt for a draft is refused while an earlier one for it is unsettled, so there is never an
+automatic second charge. Linking needs a sale in this journal that holds the approved card payment
+(same provider reference and approval code). `declined` needs a verifier prepared on this counter.
+
+**What the server's acknowledgement means.** The server never marks an incident or card event
+`accepted`: it stores it and answers `held` / `RECONCILIATION_REQUIRED` ("kept for review"), because
+the sale and the card machine's result are checked online by a person. A drain that waited for
+`accepted` would never finish, so:
+
+| Server answer | Local status | Drain |
+| --- | --- | --- |
+| `accepted` / `duplicate` | `received` | delivered |
+| `held` + `RECONCILIATION_REQUIRED` | `received` | delivered |
+| `held` + `REPLAY_CONFLICT` (other content under the ID) | `refused`, never resent, issue shown on every cycle | holds until repaired |
+| any other `held` | stays `pending`, sent again a minute later | holds |
+| no acknowledgement for a record sent | stays `pending`, `SERVER_ERROR` issue | holds |
+
+A reply that acknowledges a record that wasn't sent, twice, or with another hash is not trusted and
+nothing in it is applied. The last-sync time moves only when every record sent has been delivered.
+
+**Payments.** An attempt blocks the drain while its latest event is `prepared`, `uncertain` or
+`approved` with no sale linked, besides the online sales still unconfirmed. `declined` and
+`linked_to_sale` are settled.
+
+Not built: any screen that calls the writers; the counter's "waiting on a payment" message (the
+pause counts journal entries only, so a drain held by a card attempt shows no reason yet); manager
+resolution of refused records in the back office.
+
 ## Later slices (not built)
 
 - Backups somewhere other than the counter's own disk (another computer, removable media or the
@@ -521,9 +572,9 @@ Shared: `offline-counter-restore.test.cjs` (`counterRestoreClockSkew`).
   anew, and D11's missing-journal sign-off covers its journal.
 - Settling a recovery's unmatched entries in place (today the approver records how stock and
   cash were settled; the adjustment itself is a separate document).
-- Support-record gating of dependent commands (held support records do not yet hold a sale), and
-  the desktop's support records and external-card attempts. The drain treats both as resolved
-  until P4 writes them.
+- Support-record gating of dependent commands (held support records do not yet hold a sale).
+  The desktop's support records and external-card attempts are written, uploaded and gate the
+  drain (see "Support records and card attempts on the desktop").
 - Sync lag visible centrally (server and web).
 - The desktop producer (P4 #50): outage entry and offline selling. This slice's upload and drain
   are exercised with journals written by P4's writer in tests. P4 must also quiesce before the

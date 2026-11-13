@@ -1,9 +1,11 @@
 import { verify, type KeyObject } from "node:crypto";
 import {
   MAX_OFFLINE_JOURNAL_SYNC_COMMANDS,
+  MAX_OFFLINE_JOURNAL_SYNC_SUPPORT_RECORDS,
   terminalSigningText,
   type OfflineJournalCommand,
   type OfflineStaffSignIn,
+  type OfflineSupportRecord,
   type Signed,
   type SyncAcknowledgement,
   type SyncRequest,
@@ -17,6 +19,7 @@ import {
   activeOutage,
   journalCoverage,
   localJournalHead,
+  refusedSupportRecords,
 } from "./offline-journal";
 import type { OfflineAuthorityRefresh } from "./offline-authority-refresh";
 import {
@@ -50,6 +53,8 @@ export const JOURNAL_SYNC_TICK_MS = 15_000;
 export const JOURNAL_CONFIRM_MS = 5 * 60_000;
 /** Entries per request. The server processes them one transaction each, in order. */
 export const JOURNAL_BATCH = MAX_OFFLINE_JOURNAL_SYNC_COMMANDS;
+/** Support records per request (P4 #50), sent with the entries or on their own. */
+export const SUPPORT_BATCH = MAX_OFFLINE_JOURNAL_SYNC_SUPPORT_RECORDS;
 /** Batches per cycle, so one cycle can't run unbounded on a very long journal. */
 const MAX_BATCHES = 20;
 const FIRST_BACKOFF_MS = 15_000;
@@ -95,6 +100,12 @@ type CommandRow = {
   sync_status: "pending" | "synced" | "failed";
 };
 
+type SupportRow = {
+  record_id: string;
+  record_hash: string;
+  envelope_json: string;
+};
+
 /** What was sent, by command ID, to check the acknowledgements against. */
 type Sent = ReadonlyMap<
   string,
@@ -129,6 +140,8 @@ export function verifySyncResponse(
     identity: TerminalIdentity;
     signer: { keyId: string; publicKey: KeyObject };
     sent: Sent;
+    /** Support records sent, by record ID, with their hash. */
+    sentSupport?: ReadonlyMap<string, string>;
   },
 ): SyncResponse {
   if (
@@ -175,6 +188,31 @@ export function verifySyncResponse(
     !Array.isArray(payload.supportAcknowledgements)
   )
     throw new SyncResponseInvalid("acknowledgements");
+
+  // One acknowledgement per support record sent, once each, naming its exact hash. `held` is how
+  // the server says "kept for review" (or a conflict); it always carries an error.
+  const sentSupport = expected.sentSupport ?? new Map<string, string>();
+  const seenSupport = new Set<string>();
+  for (const ack of payload.supportAcknowledgements as unknown[]) {
+    if (
+      !isRecord(ack) ||
+      typeof ack.recordId !== "string" ||
+      !sentSupport.has(ack.recordId) ||
+      seenSupport.has(ack.recordId) ||
+      ack.recordHash !== sentSupport.get(ack.recordId)
+    )
+      throw new SyncResponseInvalid("support acknowledgement");
+    seenSupport.add(ack.recordId);
+    if (ack.status === "held") {
+      if (
+        !isRecord(ack.error) ||
+        typeof ack.error.code !== "string" ||
+        typeof ack.error.message !== "string"
+      )
+        throw new SyncResponseInvalid("support acknowledgement");
+    } else if (ack.status !== "accepted" && ack.status !== "duplicate")
+      throw new SyncResponseInvalid("support acknowledgement");
+  }
 
   const seen = new Set<string>();
   let previous = 0;
@@ -406,10 +444,24 @@ export function createOfflineJournalSync(deps: OfflineJournalSyncDeps) {
       .all(enrollmentId, JOURNAL_BATCH) as CommandRow[];
   }
 
-  /** The staff sign-ins the batch cites: each entry's own, and an assisted close's manager. */
+  /**
+   * Support records (P4 #50) the server has not acknowledged yet, oldest first. A refused one (the
+   * server holds other content under its ID) is never sent again: the same bytes conflict again.
+   */
+  function pendingSupport(enrollmentId: string): SupportRow[] {
+    return deps.db
+      .prepare(
+        `SELECT record_id, record_hash, envelope_json FROM offline_support_record
+         WHERE enrollment_id = ? AND sync_status = 'pending' ORDER BY rowid LIMIT ?`,
+      )
+      .all(enrollmentId, SUPPORT_BATCH) as SupportRow[];
+  }
+
+  /** The staff sign-ins the batch cites: each entry's own, an assisted close's manager, a support record's. */
   function signInsFor(
     enrollmentId: string,
     commands: Signed<OfflineJournalCommand>[],
+    support: Signed<OfflineSupportRecord>[] = [],
   ): Signed<OfflineStaffSignIn>[] {
     const ids = new Set<string>();
     for (const { payload } of commands) {
@@ -417,6 +469,8 @@ export function createOfflineJournalSync(deps: OfflineJournalSyncDeps) {
       if (payload.kind === "shift_close" && payload.assistance)
         ids.add(payload.assistance.managerSignInId);
     }
+    for (const { payload } of support)
+      if ("staffSignInId" in payload) ids.add(payload.staffSignInId);
     const read = deps.db.prepare(
       "SELECT envelope_json FROM offline_journal_staff_sign_in WHERE enrollment_id = ? AND staff_sign_in_id = ?",
     );
@@ -449,6 +503,7 @@ export function createOfflineJournalSync(deps: OfflineJournalSyncDeps) {
     enrollmentId: string,
     response: SyncResponse,
     sentRows: CommandRow[],
+    sentSupport: SupportRow[],
   ): boolean {
     return deps.db
       .transaction((): boolean => {
@@ -490,6 +545,42 @@ export function createOfflineJournalSync(deps: OfflineJournalSyncDeps) {
             accept.run(JSON.stringify(ack), at, enrollmentId, ack.commandId);
           }
         }
+        // Support records (P4 #50): the server holds one once it answers `accepted`/`duplicate`, or
+        // `held` for review (`RECONCILIATION_REQUIRED`: it never marks incidents or card events
+        // accepted, a person checks them online). `REPLAY_CONFLICT` means it holds other content
+        // under the ID: refused for good. Any other `held` stays pending and is sent again.
+        const settleSupport = deps.db.prepare(
+          `UPDATE offline_support_record SET sync_status = ?, acknowledgement_json = ?, acknowledged_at = ?,
+             last_error_code = ?
+           WHERE enrollment_id = ? AND record_id = ? AND sync_status = 'pending'`,
+        );
+        const retrySupport = deps.db.prepare(
+          `UPDATE offline_support_record SET last_error_code = ?
+           WHERE enrollment_id = ? AND record_id = ? AND sync_status = 'pending'`,
+        );
+        let supportIssue: { code: string; message: string } | null = null;
+        for (const ack of response.supportAcknowledgements) {
+          if (ack.status !== "held") {
+            settleSupport.run("received", JSON.stringify(ack), at, null, enrollmentId, ack.recordId);
+          } else if (ack.error.code === "RECONCILIATION_REQUIRED") {
+            settleSupport.run("received", JSON.stringify(ack), at, ack.error.code, enrollmentId, ack.recordId);
+          } else if (ack.error.code === "REPLAY_CONFLICT") {
+            settleSupport.run("refused", JSON.stringify(ack), at, ack.error.code, enrollmentId, ack.recordId);
+          } else {
+            retrySupport.run(ack.error.code, enrollmentId, ack.recordId);
+            supportIssue ??= { code: ack.error.code, message: explainSyncIssue(ack.error.code) };
+          }
+        }
+        if (
+          !supportIssue &&
+          sentSupport.some(
+            (row) => !response.supportAcknowledgements.some((a) => a.recordId === row.record_id),
+          )
+        )
+          supportIssue = { code: "SERVER_ERROR", message: explainSyncIssue("SERVER_ERROR") };
+        // A refused record never clears by itself, so it keeps showing until someone repairs it.
+        if (!supportIssue && refusedSupportRecords(deps.db, enrollmentId) > 0)
+          supportIssue = { code: "REPLAY_CONFLICT", message: explainSyncIssue("REPLAY_CONFLICT") };
         const watermark = {
           sequence: response.committedThroughSequence,
           hash: response.committedThroughHash,
@@ -522,8 +613,13 @@ export function createOfflineJournalSync(deps: OfflineJournalSyncDeps) {
             message: explainSyncIssue("SERVER_ERROR"),
             sequence: null,
           };
+        if (!issue && supportIssue)
+          issue = { ...supportIssue, sequence: null };
         setIssue(enrollmentId, issue);
-        const complete = !issue && coverage === "covered";
+        const complete =
+          !issue &&
+          coverage === "covered" &&
+          pendingSupport(enrollmentId).length === 0;
         if (complete) {
           deps.db
             .prepare(
@@ -541,17 +637,21 @@ export function createOfflineJournalSync(deps: OfflineJournalSyncDeps) {
   async function send(
     identity: TerminalIdentity,
     rows: CommandRow[],
+    supportRows: SupportRow[],
   ): Promise<{ complete: boolean; more: boolean; allAccepted: boolean }> {
     const commands = rows.map(
       (row) => JSON.parse(row.envelope_json) as Signed<OfflineJournalCommand>,
     );
+    const supportRecords = supportRows.map(
+      (row) => JSON.parse(row.envelope_json) as Signed<OfflineSupportRecord>,
+    );
     const body: SyncRequest = {
       contractVersion: 1,
       identity,
-      staffSignIns: signInsFor(identity.enrollmentId, commands),
+      staffSignIns: signInsFor(identity.enrollmentId, commands, supportRecords),
       commands,
-      // P4 #50 produces no support records on this computer yet.
-      supportRecords: [],
+      // P4 #50: sale incidents and external-card attempt events, evidence apart from the journal.
+      supportRecords,
     };
     const sent: Sent = new Map(
       rows.map((row, i) => [
@@ -571,8 +671,11 @@ export function createOfflineJournalSync(deps: OfflineJournalSyncDeps) {
       identity,
       signer: deps.signer,
       sent,
+      sentSupport: new Map(
+        supportRows.map((row) => [row.record_id, row.record_hash]),
+      ),
     });
-    const complete = apply(identity.enrollmentId, response, rows);
+    const complete = apply(identity.enrollmentId, response, rows, supportRows);
     const allAccepted =
       response.acknowledgements.length === rows.length &&
       response.acknowledgements.every(
@@ -581,9 +684,18 @@ export function createOfflineJournalSync(deps: OfflineJournalSyncDeps) {
           a.status === "duplicate" ||
           a.status === "reviewed",
       );
+    // Another request is due while a full batch of either kind was settled and more waits behind it.
+    const sentIds = new Set(supportRows.map((row) => row.record_id));
+    const stillPending = pendingSupport(identity.enrollmentId);
+    const moreSupport =
+      supportRows.length === SUPPORT_BATCH &&
+      stillPending.length > 0 &&
+      !stillPending.some((row) => sentIds.has(row.record_id));
     return {
       complete,
-      more: !complete && rows.length === JOURNAL_BATCH && allAccepted,
+      more:
+        !complete &&
+        ((rows.length === JOURNAL_BATCH && allAccepted) || moreSupport),
       allAccepted,
     };
   }
@@ -624,7 +736,13 @@ export function createOfflineJournalSync(deps: OfflineJournalSyncDeps) {
     const enrollmentId = identity.enrollmentId;
     alignLastSync(enrollmentId);
     let rows = unsynced(enrollmentId);
-    if (!rows.length && !force && !confirmDue(enrollmentId)) return "skipped";
+    if (
+      !rows.length &&
+      !force &&
+      !confirmDue(enrollmentId) &&
+      pendingSupport(enrollmentId).length === 0
+    )
+      return "skipped";
     setMeta(deps.db, SYNC_IN_PROGRESS_KEY, "1", iso());
     try {
       for (let batch = 0; batch < MAX_BATCHES; batch++) {
@@ -637,12 +755,15 @@ export function createOfflineJournalSync(deps: OfflineJournalSyncDeps) {
           probe
             ? rows.slice(0, 1)
             : rows.filter((row) => row.sync_status === "pending"),
+          // Evidence goes whether or not an entry is waiting, even behind a refused one.
+          pendingSupport(enrollmentId),
         );
         // Settled: carry on with what waited behind it in the same cycle.
         if (!(probe ? result.allAccepted && !result.complete : result.more))
           break;
         rows = unsynced(enrollmentId);
-        if (!rows.length || rows[0]!.sync_status !== "pending") break;
+        if (!rows.length ? pendingSupport(enrollmentId).length === 0 : rows[0]!.sync_status !== "pending")
+          break;
       }
       return readJournalSyncView(deps.db, enrollmentId).issue
         ? "issue"

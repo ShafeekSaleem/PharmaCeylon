@@ -7,6 +7,8 @@ import {
   activeOutage,
   journalCoverage,
   localJournalHead,
+  undeliveredSupportRecords,
+  unresolvedCardAttempts,
   type JournalPosition,
 } from "./offline-journal";
 
@@ -135,8 +137,10 @@ export function unresolvedSubmissions(
  * supplied by the caller: true only inside the transaction that installs a pair covering the
  * journal, whose snapshot carries the server's review blocks.
  *
- * Support records and external-card attempts are not produced on this computer yet (P4 #50), so
- * there is nothing of either to wait for; P4 replaces those two facts when it writes them.
+ * Support records (P4 #50, `offline-support-records.ts`) must all have reached the server, and
+ * every external-card attempt must be settled — declined, or linked to the sale it paid for — on
+ * top of the online sales still unconfirmed. A refused support record (the server holds other
+ * content under its ID) never clears by itself, so it holds the drain until repaired.
  */
 export function drainResumeEvidence(
   db: PosDatabase,
@@ -155,9 +159,11 @@ export function drainResumeEvidence(
       unresolved.sales === 0 && unresolved.actions === 0,
     freshSnapshotInstalled: fresh.snapshotCoversJournal,
     stockReviewBlocksInstalled: fresh.snapshotCoversJournal,
-    supportRecordsAccepted: true,
-    // An unconfirmed online sale is a payment that may or may not have been taken.
-    paymentAttemptsResolved: unresolved.sales === 0,
+    supportRecordsAccepted: undeliveredSupportRecords(db, enrollmentId) === 0,
+    // An unconfirmed online sale is a payment that may or may not have been taken, and so is a
+    // card attempt that is prepared, uncertain, or approved but not yet tied to a sale.
+    paymentAttemptsResolved:
+      unresolved.sales === 0 && unresolvedCardAttempts(db, enrollmentId) === 0,
   };
 }
 

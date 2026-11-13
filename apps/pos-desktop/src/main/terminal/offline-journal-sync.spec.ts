@@ -25,12 +25,17 @@ import {
   readInstalledOfflineAuthority,
   type OfflineAuthority,
 } from "./offline-authority";
-import { activeOutage, localJournalHead } from "./offline-journal";
+import {
+  activeOutage,
+  localJournalHead,
+  undeliveredSupportRecords,
+} from "./offline-journal";
 import {
   createOfflineJournalSync,
   createSyncCoordinator,
   ISSUE_RETRY_MS,
   JOURNAL_BATCH,
+  SUPPORT_BATCH,
   JOURNAL_CONFIRM_MS,
   journalSyncState,
   LAST_SUCCESSFUL_SYNC_KEY,
@@ -42,6 +47,7 @@ import {
   journalCommandHash,
   OfflineJournalWriter,
 } from "./offline-journal-writer";
+import { OfflineSupportRecordWriter } from "./offline-support-records";
 import {
   checkoutSyncPause,
   drainAwaitsFreshSnapshot,
@@ -196,6 +202,7 @@ function seedDevice(db: LocalStore["db"]): void {
 let dir: string;
 let local: LocalStore;
 let writer: OfflineJournalWriter;
+let records: OfflineSupportRecordWriter;
 let installed: OfflineAuthority;
 let signInId: string;
 let outage: { offlineSessionId: string; offlineStartedAt: number };
@@ -210,6 +217,10 @@ beforeEach(() => {
     "installed",
   );
   writer = new OfflineJournalWriter({ db: local.db, now: () => new Date(NOW) });
+  records = new OfflineSupportRecordWriter({
+    db: local.db,
+    now: () => new Date(NOW),
+  });
   signInId = writer.recordStaffSignInFromPin({
     enrollmentId: identity.enrollmentId,
     identity,
@@ -294,11 +305,45 @@ function fakeServer() {
   const refusals = new Map<number, Refusal>();
   const settlements = new Map<number, Decision>();
   const requests: SyncRequest[] = [];
+  /**
+   * What the server says about a support record: by default it keeps incidents and card events
+   * "for review" (`held` / RECONCILIATION_REQUIRED), as the real intake does.
+   */
+  const supportPlan = new Map<
+    string,
+    "accepted" | { code: string; once?: boolean }
+  >();
   let loseNext = false;
   let alter: ((payload: SyncResponse) => SyncResponse) | null = null;
   let signingKey = server.privateKey;
   const handle = (body: SyncRequest): Signed<SyncResponse> => {
     requests.push(body);
+    const supportAcknowledgements: SyncResponse["supportAcknowledgements"][number][] =
+      [];
+    for (const envelope of body.supportRecords) {
+      const base = {
+        recordId: envelope.payload.recordId,
+        recordHash: journalCommandHash(envelope.payload),
+      };
+      const plan = supportPlan.get(base.recordId);
+      if (plan === "accepted")
+        supportAcknowledgements.push({ ...base, status: "accepted" });
+      else {
+        const code = plan?.code ?? "RECONCILIATION_REQUIRED";
+        if (plan?.once) supportPlan.delete(base.recordId);
+        supportAcknowledgements.push({
+          ...base,
+          status: "held",
+          error: {
+            contractVersion: 1,
+            code: code as never,
+            message: code,
+            correlationId: randomUUID(),
+            retryable: false,
+          },
+        });
+      }
+    }
     const acknowledgements: SyncAcknowledgement[] = [];
     for (const envelope of [...body.commands].sort(
       (a, b) => a.payload.sequence - b.payload.sequence,
@@ -389,7 +434,7 @@ function fakeServer() {
       contractVersion: 1,
       identity,
       serverTime: NOW,
-      supportAcknowledgements: [],
+      supportAcknowledgements,
       acknowledgements,
       committedThroughSequence: head?.sequence ?? 0,
       committedThroughHash: head?.hash ?? null,
@@ -419,6 +464,7 @@ function fakeServer() {
     accepted,
     refusals,
     requests,
+    supportPlan,
     lose: () => void (loseNext = true),
     /** A manager settles the refused entry at `sequence` in the back office. */
     settle: (sequence: number, decision: Decision) => {
@@ -743,6 +789,235 @@ describe("uploading the offline journal", () => {
     expect(u.meta(LAST_SUCCESSFUL_SYNC_KEY)).toBe(
       new Date(NOW + JOURNAL_CONFIRM_MS).toISOString(),
     );
+  });
+});
+
+describe("uploading support records (P4 #50)", () => {
+  const note = (sale: Signed<OfflineSaleCommand>, description = "note") =>
+    records.recordSaleIncident({
+      key: deviceKey,
+      staffSignInId: signInId,
+      saleCommandId: sale.payload.commandId,
+      category: "other",
+      description,
+    }).payload;
+  const supportRows = () =>
+    local.db
+      .prepare(
+        "SELECT record_id, sync_status, last_error_code, acknowledgement_json FROM offline_support_record ORDER BY rowid",
+      )
+      .all() as {
+      record_id: string;
+      sync_status: string;
+      last_error_code: string | null;
+      acknowledgement_json: string | null;
+    }[];
+
+  it("sends a note with the entries and the sign-in it cites, and counts it delivered once the server keeps it for review", async () => {
+    const [sale] = sellOffline(1);
+    const incident = note(sale!);
+    const u = uploader();
+    expect(undeliveredSupportRecords(local.db, identity.enrollmentId)).toBe(1);
+
+    await u.sync.tick();
+
+    const [request] = u.srv.requests;
+    expect(request!.supportRecords.map((r) => r.payload)).toEqual([incident]);
+    expect(request!.staffSignIns.map((s) => s.payload.staffSignInId)).toEqual([
+      signInId,
+    ]);
+    // The server never marks incidents accepted: it holds them for a person to check online.
+    expect(supportRows()).toEqual([
+      expect.objectContaining({
+        record_id: incident.recordId,
+        sync_status: "received",
+        last_error_code: "RECONCILIATION_REQUIRED",
+      }),
+    ]);
+    expect(JSON.parse(supportRows()[0]!.acknowledgement_json!)).toMatchObject({
+      status: "held",
+      recordId: incident.recordId,
+    });
+    expect(undeliveredSupportRecords(local.db, identity.enrollmentId)).toBe(0);
+    expect(u.view()).toMatchObject({
+      accepted: 1,
+      waiting: 0,
+      issue: null,
+      lastSuccessAt: new Date(NOW).toISOString(),
+    });
+    // Delivered once: nothing waits, so the next look doesn't send it again.
+    u.advance(JOURNAL_CONFIRM_MS);
+    await u.sync.tick();
+    expect(u.srv.requests[1]!.supportRecords).toEqual([]);
+  });
+
+  it("treats an accepted acknowledgement the same way", async () => {
+    const [sale] = sellOffline(1);
+    const incident = note(sale!);
+    const u = uploader();
+    u.srv.supportPlan.set(incident.recordId, "accepted");
+    await u.sync.tick();
+    expect(supportRows()[0]).toMatchObject({
+      sync_status: "received",
+      last_error_code: null,
+    });
+    expect(u.view().issue).toBeNull();
+  });
+
+  it("sends evidence with no entry waiting, and while a refused entry holds the journal", async () => {
+    const [sale] = sellOffline(1);
+    const u = uploader();
+    await u.sync.tick();
+    expect(u.srv.requests).toHaveLength(1);
+
+    // Nothing waits in the journal, and the last confirmation is recent: only the note goes.
+    const first = note(sale!, "first");
+    await u.sync.tick();
+    expect(u.srv.requests).toHaveLength(2);
+    expect(u.srv.requests[1]!.commands).toEqual([]);
+    expect(u.srv.requests[1]!.supportRecords.map((r) => r.payload)).toEqual([
+      first,
+    ]);
+    expect(supportRows()[0]!.sync_status).toBe("received");
+
+    // A refused entry stops the journal, not the evidence.
+    sellOffline(1);
+    u.srv.refusals.set(2, { status: "rejected", code: "LOCAL_STOCK_EXHAUSTED" });
+    const second = note(sale!, "second");
+    await u.sync.tick();
+    expect(u.view().refused).toBe(1);
+    expect(supportRows().map((r) => r.sync_status)).toEqual([
+      "received",
+      "received",
+    ]);
+    expect(
+      u.srv.requests.at(-1)!.supportRecords.map((r) => r.payload.recordId),
+    ).toEqual([second.recordId]);
+  });
+
+  it("sends a refusal that can be retried again, and clears the issue once the server keeps the record", async () => {
+    const [sale] = sellOffline(1);
+    const incident = note(sale!);
+    const u = uploader();
+    u.srv.supportPlan.set(incident.recordId, {
+      code: "TEMPORARILY_UNAVAILABLE",
+      once: true,
+    });
+    await u.sync.tick();
+    expect(supportRows()[0]).toMatchObject({
+      sync_status: "pending",
+      last_error_code: "TEMPORARILY_UNAVAILABLE",
+    });
+    expect(u.view().issue).toMatchObject({ code: "TEMPORARILY_UNAVAILABLE" });
+    expect(u.meta(LAST_SUCCESSFUL_SYNC_KEY)).toBeUndefined();
+    expect(undeliveredSupportRecords(local.db, identity.enrollmentId)).toBe(1);
+
+    u.advance(ISSUE_RETRY_MS);
+    await u.sync.tick();
+    expect(u.srv.requests[1]!.supportRecords).toHaveLength(1);
+    expect(supportRows()[0]!.sync_status).toBe("received");
+    expect(u.view().issue).toBeNull();
+    expect(u.meta(LAST_SUCCESSFUL_SYNC_KEY)).toBe(
+      new Date(NOW + ISSUE_RETRY_MS).toISOString(),
+    );
+  });
+
+  it("never sends a record the server refused again, keeps showing it, and holds the drain", async () => {
+    const [sale] = sellOffline(1);
+    const incident = note(sale!);
+    const u = uploader();
+    u.srv.supportPlan.set(incident.recordId, { code: "REPLAY_CONFLICT" });
+    await u.sync.tick();
+    expect(supportRows()[0]).toMatchObject({
+      sync_status: "refused",
+      last_error_code: "REPLAY_CONFLICT",
+    });
+    expect(u.view().issue).toMatchObject({ code: "REPLAY_CONFLICT" });
+    expect(u.meta(LAST_SUCCESSFUL_SYNC_KEY)).toBeUndefined();
+
+    u.advance(ISSUE_RETRY_MS);
+    await u.sync.tick();
+    expect(u.srv.requests[1]!.supportRecords).toEqual([]);
+    // Still showing, though nothing was resent.
+    expect(u.view().issue).toMatchObject({ code: "REPLAY_CONFLICT" });
+    expect(undeliveredSupportRecords(local.db, identity.enrollmentId)).toBe(1);
+    expect(drainAwaitsFreshSnapshot(local.db, identity.enrollmentId)).toBe(
+      false,
+    );
+  });
+
+  it("holds the drain until the notes are delivered, then lets the fresh snapshot end it", async () => {
+    const [sale] = sellOffline(1);
+    note(sale!);
+    expect(drainAwaitsFreshSnapshot(local.db, identity.enrollmentId)).toBe(
+      false,
+    );
+    const u = uploader();
+    await u.sync.tick();
+    expect(drainAwaitsFreshSnapshot(local.db, identity.enrollmentId)).toBe(
+      true,
+    );
+  });
+
+  it("sends more than one request's worth in pages", async () => {
+    const [sale] = sellOffline(1);
+    for (let i = 0; i < SUPPORT_BATCH + 2; i++) note(sale!, `note ${i}`);
+    const u = uploader();
+    await u.sync.tick();
+    expect(u.srv.requests.map((r) => r.supportRecords.length)).toEqual([
+      SUPPORT_BATCH,
+      2,
+    ]);
+    expect(supportRows().every((r) => r.sync_status === "received")).toBe(true);
+    expect(u.view().issue).toBeNull();
+    expect(u.meta(LAST_SUCCESSFUL_SYNC_KEY)).toBe(new Date(NOW).toISOString());
+  });
+
+  it("does not trust a reply that acknowledges a record that was not sent", async () => {
+    const [sale] = sellOffline(1);
+    note(sale!);
+    const u = uploader();
+    u.srv.alter((payload) => ({
+      ...payload,
+      supportAcknowledgements: [
+        ...payload.supportAcknowledgements,
+        {
+          recordId: randomUUID(),
+          recordHash: "b".repeat(64),
+          status: "accepted",
+        },
+      ],
+    }));
+    await u.sync.tick();
+    expect(supportRows()[0]!.sync_status).toBe("pending");
+    expect(u.view().issue).toMatchObject({ code: "RESPONSE_INVALID" });
+  });
+
+  it("does not trust an acknowledgement that names another hash", async () => {
+    const [sale] = sellOffline(1);
+    note(sale!);
+    const u = uploader();
+    u.srv.alter((payload) => ({
+      ...payload,
+      supportAcknowledgements: payload.supportAcknowledgements.map((a) => ({
+        ...a,
+        recordHash: "c".repeat(64),
+      })),
+    }));
+    await u.sync.tick();
+    expect(supportRows()[0]!.sync_status).toBe("pending");
+    expect(u.view().issue).toMatchObject({ code: "RESPONSE_INVALID" });
+  });
+
+  it("leaves a record pending, with an issue, when the reply says nothing about it", async () => {
+    const [sale] = sellOffline(1);
+    note(sale!);
+    const u = uploader();
+    u.srv.alter((payload) => ({ ...payload, supportAcknowledgements: [] }));
+    await u.sync.tick();
+    expect(supportRows()[0]!.sync_status).toBe("pending");
+    expect(u.view().issue).toMatchObject({ code: "SERVER_ERROR" });
+    expect(undeliveredSupportRecords(local.db, identity.enrollmentId)).toBe(1);
   });
 });
 
