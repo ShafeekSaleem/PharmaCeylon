@@ -1,0 +1,192 @@
+/* Offline records on This counter: card payments to settle and notes on offline sales (P4 #50). */
+
+.ph {
+  display: flex;
+  align-items: center;
+}
+
+.right {
+  margin-left: auto;
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 14px 18px 18px;
+}
+
+.sub {
+  margin: 0 0 6px;
+  font-size: 12.5px;
+  font-weight: 650;
+  color: var(--pos-text-2);
+}
+
+.muted {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--pos-text-3);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  border-top: 1px solid var(--pos-line);
+}
+
+.row > div {
+  flex: 1;
+  min-width: 0;
+}
+
+.row b,
+.cardH b {
+  display: block;
+  font-size: 13.5px;
+}
+
+.row small,
+.cardH small {
+  display: block;
+  font-size: 12px;
+  color: var(--pos-text-3);
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--pos-line-strong);
+  border-radius: 10px;
+  background: var(--pos-surface-2);
+}
+
+.cardH {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  background: var(--pos-scrim);
+}
+
+.sheet {
+  position: fixed;
+  z-index: 21;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  width: 560px;
+  max-width: calc(100% - 28px);
+  max-height: calc(100% - 28px);
+  overflow: hidden;
+  border-radius: 14px;
+  border: 1px solid var(--pos-line-strong);
+  background: var(--pos-surface);
+  box-shadow: var(--pos-sheet-shadow);
+}
+
+.sheetH {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 18px 18px 12px 20px;
+}
+
+.sheetH h2 {
+  margin: 3px 0 2px;
+  font: 650 19px/1.2 var(--pos-font-display);
+}
+
+.sheetH small {
+  color: var(--pos-text-3);
+}
+
+.close {
+  margin-left: auto;
+  width: 32px;
+  padding: 0;
+  justify-content: center;
+}
+
+.sheetBody {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 4px 20px 16px;
+  overflow-y: auto;
+}
+
+.sheetF {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 20px;
+  border-top: 1px solid var(--pos-line);
+  background: var(--pos-surface-2);
+}
+
+.cats {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.cats legend {
+  margin-bottom: 6px;
+  padding: 0;
+  font-size: 12.5px;
+  font-weight: 650;
+}
+
+.cat {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--pos-line);
+  border-radius: 9px;
+  cursor: pointer;
+}
+
+.cat b {
+  display: block;
+  font-size: 13.5px;
+}
+
+.cat small {
+  display: block;
+  font-size: 12px;
+  color: var(--pos-text-3);
+}
+
+.area {
+  resize: vertical;
+  min-height: 96px;
+}

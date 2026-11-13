@@ -8,6 +8,7 @@ import type {
   Printer,
 } from "../../shared/ipc-contract";
 import type { ReactNode } from "react";
+import { drainHoldSentences } from "../../shared/drain-holds";
 import { deriveSyncState, offlineBackupReadyUntil, type DerivedSync } from "./connection-sync";
 import { initials, shortDay, shortName, time, timeWithSeconds, useNow, useSecondNow } from "./format";
 import { useSyncingLatch } from "./use-syncing-latch";
@@ -446,6 +447,7 @@ export function SyncBlock({ sync, children }: { sync: JournalSync; children?: Re
   const sales = sync.pause?.unconfirmed.sales ?? 0;
   const actions = sync.pause?.unconfirmed.actions ?? 0;
   const stuck = sync.refused > 0 || sync.issue?.code === "JOURNAL_MISMATCH";
+  const holds = sync.pause ? drainHoldSentences(sync.pause.holds) : [];
   return (
     <div className={styles.block} role="status" aria-live="polite">
       <div className={cx(ui.panel, styles.blockCard)}>
@@ -458,7 +460,9 @@ export function SyncBlock({ sync, children }: { sync: JournalSync; children?: Re
             ? `${waiting} offline ${waiting === 1 ? "record is" : "records are"} on the way to the server. `
             : sales + actions > 0
               ? "The offline sales are on the server. "
-              : "The offline sales are on the server; fresh stock is on its way. "}
+              : holds.length > 0
+                ? "The offline sales are on the server. "
+                : "The offline sales are on the server; fresh stock is on its way. "}
           New sales start again as soon as it finishes. The sale on screen is kept.
         </p>
         {sales > 0 && (
@@ -475,6 +479,9 @@ export function SyncBlock({ sync, children }: { sync: JournalSync; children?: Re
               : `${actions} actions sent from here wait in Counter work for the people who sent them to confirm them.`}
           </p>
         )}
+        {holds.map((sentence) => (
+          <p key={sentence}>{sentence}</p>
+        ))}
         {sync.issue && <p>{sync.issue.message}</p>}
         {children}
       </div>

@@ -7,6 +7,7 @@ import {
   activeOutage,
   journalCoverage,
   localJournalHead,
+  refusedSupportRecords,
   undeliveredSupportRecords,
   unresolvedCardAttempts,
   type JournalPosition,
@@ -38,11 +39,29 @@ export type CheckoutSyncPause = {
    * drain waits for them, so staff are told what to confirm (zero when no outage is draining).
    */
   unconfirmed: Unconfirmed;
+  /** Offline evidence records that hold the drain apart from the journal itself (P4 #50). */
+  holds: DrainHolds;
 };
 
 export type Unconfirmed = { sales: number; actions: number };
 
+/**
+ * What else keeps an outage from finishing: card attempts not yet settled, support records the
+ * server has not received, and support records it refused (those never clear by themselves).
+ */
+export type DrainHolds = { cards: number; records: number; refused: number };
+
 export const NOTHING_UNCONFIRMED: Unconfirmed = Object.freeze({ sales: 0, actions: 0 });
+export const NO_HOLDS: DrainHolds = Object.freeze({ cards: 0, records: 0, refused: 0 });
+
+/** The evidence still holding an outage's drain, from the local store. */
+export function drainHolds(db: PosDatabase, enrollmentId: string): DrainHolds {
+  return {
+    cards: unresolvedCardAttempts(db, enrollmentId),
+    records: undeliveredSupportRecords(db, enrollmentId),
+    refused: refusedSupportRecords(db, enrollmentId),
+  };
+}
 
 type SyncRow = {
   accepted_through_sequence: number;
@@ -240,6 +259,7 @@ export function checkoutSyncPause(
     localJournalHead(db, enrollmentId),
     readAcceptedWatermark(db, enrollmentId),
     outage ? unresolvedSubmissions(db, enrollmentId) : NOTHING_UNCONFIRMED,
+    outage ? drainHolds(db, enrollmentId) : NO_HOLDS,
   );
 }
 
@@ -252,6 +272,7 @@ export function syncPauseFrom(
   head: JournalPosition,
   accepted: JournalPosition,
   unconfirmed: Unconfirmed,
+  holds: DrainHolds = NO_HOLDS,
 ): CheckoutSyncPause | null {
   const waiting = Math.max(0, head.sequence - accepted.sequence);
   if (!outage && waiting === 0) return null;
@@ -260,6 +281,7 @@ export function syncPauseFrom(
     waiting,
     outageStartedAt: outage?.offlineStartedAt ?? null,
     unconfirmed: outage ? { ...unconfirmed } : { ...NOTHING_UNCONFIRMED },
+    holds: outage ? { ...holds } : { ...NO_HOLDS },
   };
 }
 

@@ -1,4 +1,5 @@
 import { MAX_SNAPSHOT_AGE_AT_OUTAGE_MS } from "@pharmaceylon/shared";
+import { drainHoldSentences } from "../shared/drain-holds";
 import type { OfflineBackup, ReadinessCheck, ReadinessReport } from "../shared/ipc-contract";
 import type { OfflineAuthorityRefreshStatus } from "./terminal/offline-authority-refresh";
 import type { JournalSyncView } from "./terminal/offline-journal-sync";
@@ -164,14 +165,15 @@ function syncRow(facts: ReadinessFacts, now: Date): Row {
       sales ? `${sales} ${sales === 1 ? "sale" : "sales"}` : null,
       actions ? `${actions} ${actions === 1 ? "action" : "actions"}` : null,
     ].filter((part): part is string => part !== null);
+    const holds = drainHoldSentences(view.pause.holds);
     const confirming = unconfirmed.length
       ? ` It finishes once ${unconfirmed.join(" and ")} sent from here ${sales + actions === 1 ? "is" : "are"} confirmed.`
       : "";
     return {
       status: "warning",
       detail: `Synchronising offline sales: new sales wait until it finishes. ${
-        view.waiting ? waiting : unconfirmed.length ? "The offline sales are on the server." : "Waiting for fresh stock from the server."
-      }${confirming}${view.issue ? ` ${view.issue.message}` : ""}`,
+        view.waiting ? waiting : unconfirmed.length || holds.length ? "The offline sales are on the server." : "Waiting for fresh stock from the server."
+      }${confirming}${holds.map((sentence) => ` ${sentence}`).join("")}${view.issue ? ` ${view.issue.message}` : ""}`,
     };
   }
   if (view.issue) return { status: "warning", detail: view.issue.message };

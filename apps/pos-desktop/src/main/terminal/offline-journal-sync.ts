@@ -39,6 +39,8 @@ import {
   ensureSyncRow,
   finishDrainWithoutRenewal,
   NOTHING_UNCONFIRMED,
+  NO_HOLDS,
+  drainHolds,
   readAcceptedWatermark,
   recordAcceptedWatermark,
   syncPauseFrom,
@@ -915,6 +917,7 @@ export function readJournalSyncView(
       head,
       accepted,
       outage ? unresolvedSubmissions(db, enrollmentId) : NOTHING_UNCONFIRMED,
+      outage ? drainHolds(db, enrollmentId) : NO_HOLDS,
     ),
   };
 }
@@ -1043,6 +1046,7 @@ export function journalSyncState(view: JournalSyncView | null): JournalSync {
           ? null
           : new Date(view.pause.outageStartedAt).toISOString(),
       unconfirmed: { ...view.pause.unconfirmed },
+      holds: { ...view.pause.holds },
     },
     lastDrainAt: view.lastDrain?.drainedAt ?? null,
     lastStockDownloadAt: null,
