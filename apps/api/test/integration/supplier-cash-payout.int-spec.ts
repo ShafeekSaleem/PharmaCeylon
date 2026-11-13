@@ -183,14 +183,15 @@ beforeAll(async () => {
     { tenantId: fx.tenantId, branchId: branch(), userId: fx.managerId, role: "manager" },
     { tenantId: fx.tenantId, branchId: branch(), userId: fx.clerkId, role: "cashier" },
   ] });
+  await prisma.tenantSettings.upsert({
+    where: { tenantId: fx.tenantId },
+    create: { tenantId: fx.tenantId, selfApprovalRoleKeys: ["owner", "manager"] },
+    update: { selfApprovalRoleKeys: ["owner", "manager"] },
+  });
 });
 afterAll(() => prisma.$disconnect());
 afterEach(async () => {
   audit.failOn = null;
-  await prisma.tenantSettings.update({
-    where: { tenantId: fx.tenantId },
-    data: { selfApprovalRoleKeys: ["owner", "manager"] },
-  });
   const open = await prisma.supplierCashPayout.findMany({
     where: {
       tenantId: fx.tenantId,
@@ -201,6 +202,11 @@ afterEach(async () => {
   for (const row of open) {
     await payouts.cancel(user(fx.managerId), branch(), row.id).catch(() => undefined);
   }
+  await prisma.tenantSettings.upsert({
+    where: { tenantId: fx.tenantId },
+    create: { tenantId: fx.tenantId, selfApprovalRoleKeys: ["owner", "manager"] },
+    update: { selfApprovalRoleKeys: ["owner", "manager"] },
+  });
 });
 
 describe("supplier cash payout contract (#174)", () => {
