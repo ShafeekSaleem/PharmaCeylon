@@ -165,7 +165,12 @@ export async function batchTotals(prisma: PrismaClient, batchId: string) {
  * table so suites about something else can sell or refund at a counter. `till-shifts.int-spec.ts`
  * covers opening one properly.
  */
-export async function openTestShift(prisma: PrismaClient, tenantId: string, workSessionId: string): Promise<string> {
+export async function openTestShift(
+  prisma: PrismaClient,
+  tenantId: string,
+  workSessionId: string,
+  openingCashMinor = 0,
+): Promise<string> {
   const session = await prisma.terminalStaffSession.findFirstOrThrow({ where: { tenantId, id: workSessionId } });
   const id = randomUUID();
   await prisma.tillShift.create({
@@ -180,8 +185,8 @@ export async function openTestShift(prisma: PrismaClient, tenantId: string, work
       enrollmentId: session.enrollmentId,
       staffUserId: session.staffUserId,
       openedStaffSessionId: session.id,
-      openingCashMinor: 0,
-      openingCount: [],
+      openingCashMinor,
+      openingCount: openingCashMinor > 0 ? [{ denominationMinor: openingCashMinor, count: 1 }] : [],
     },
   });
   return id;

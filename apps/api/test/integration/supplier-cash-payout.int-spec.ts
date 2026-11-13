@@ -148,10 +148,7 @@ async function counterFor(who: string, openShift = true, openingCashMinor = 0) {
   const sessionPayload = await tx((c) => trust.beginSession(c, staff, branch(), identity));
   const session = await tx((c) => trust.finishSession(c, staff, branch(),
     device.sign(sessionPayload, identity.keyId), attendance.allow(sessionPayload, "session")));
-  const shiftId = openShift ? await openTestShift(prisma, fx.tenantId, session.workSessionId) : null;
-  if (shiftId && openingCashMinor > 0) {
-    await prisma.tillShift.update({ where: { id: shiftId }, data: { openingCashMinor } });
-  }
+  const shiftId = openShift ? await openTestShift(prisma, fx.tenantId, session.workSessionId, openingCashMinor) : null;
   return { device, identity, session, staff, shiftId };
 }
 
@@ -245,6 +242,9 @@ describe("supplier cash payout contract (#174)", () => {
     expect(prepared).toMatchObject({ status: "prepared", readyAtCounter: false, executionApprovalId: null });
     const review = prepared.approvalReview!;
     await expect(payouts.approve(user(fx.managerId), branch(), prepared.id,
+      { approvalId: randomUUID(), ...review }))
+      .rejects.toMatchObject({ status: 403, message: expect.stringContaining("can't approve its own") });
+    await expect(payouts.approve(user(fx.ownerId), branch(), prepared.id,
       { approvalId: randomUUID(), expectedVersion: review.expectedVersion, expectedDigest: "0".repeat(64) }))
       .rejects.toMatchObject({ response: { code: "APPROVAL_STALE" } });
     const approved = await payouts.approve(user(fx.ownerId), branch(), prepared.id,
