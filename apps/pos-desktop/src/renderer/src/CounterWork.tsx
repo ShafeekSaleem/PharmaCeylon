@@ -16,6 +16,12 @@ import { useKeyBinding } from "./keymap";
 import { minor, money } from "./sell-model";
 import ui from "./ui.module.css";
 import { cx } from "./useAction";
+import {
+  HeldWriteOffBody,
+  postHeldWriteOffItem,
+  useHeldWriteOffState,
+} from "./HeldWriteOffPane";
+import { canPostHeldWriteOff, isReadOnlyHeldWriteOff } from "./held-writeoff-model";
 
 const POLL_MS = 30_000;
 
@@ -249,6 +255,10 @@ function byLine(item: CounterWorkItem) {
 }
 
 function statePill(item: CounterWorkItem) {
+  if (item.kind === "held_adjustment" && item.heldAdjustmentStatus === "awaiting_approval")
+    return { label: "Waiting for approval", tone: ui.warn! };
+  if (item.kind === "held_adjustment" && item.heldAdjustmentStatus === "rejected")
+    return { label: "Rejected", tone: ui.bad! };
   if (item.approval.state === "changed")
     return { label: "Changed since approval", tone: ui.warn! };
   if (item.approval.state === "revoked")
@@ -452,6 +462,10 @@ function Detail({
   stockCase,
   onResolve,
   error,
+  online,
+  staleError,
+  onStaleError,
+  onPosted,
 }: {
   item: CounterWorkItem;
   refund?: RefundAtCounter;
@@ -464,6 +478,10 @@ function Detail({
   canRefund: boolean;
   onRefund: (id: string) => void;
   error: string | null;
+  online: boolean;
+  staleError: string | null;
+  onStaleError: (message: string | null) => void;
+  onPosted: () => void;
 }) {
   const kind = KINDS[item.kind];
   const ready = !blocked(item);
@@ -602,6 +620,126 @@ function Detail({
             Settle stock
           </button>
         )}
+      </div>
+    </section>
+  );
+}
+
+function HeldAdjustmentDetail({
+  item,
+  you,
+  counterLabel,
+  busy,
+  canRefund,
+  online,
+  staleError,
+  onStaleError,
+  onPosted,
+  error,
+}: {
+  item: CounterWorkItem;
+  you: string;
+  counterLabel: string | null;
+  busy: boolean;
+  canRefund: boolean;
+  online: boolean;
+  staleError: string | null;
+  onStaleError: (message: string | null) => void;
+  onPosted: () => void;
+  error: string | null;
+}) {
+  const kind = KINDS.held_adjustment;
+  const ready = !blocked(item);
+  const title = `${item.reference} · Over-limit write-off`;
+  const heldState = useHeldWriteOffState(item, staleError, onStaleError);
+  const readOnly = isReadOnlyHeldWriteOff(heldState.status);
+  const canPost =
+    heldState.detail !== null &&
+    canPostHeldWriteOff(heldState.status, item, online) &&
+    !blocked(item) &&
+    canRefund;
+
+  async function postHeld() {
+    if (!canPost || readOnly) return;
+    if (heldState.phase === "ready") {
+      heldState.setPhase("confirm");
+      return;
+    }
+    if (heldState.phase !== "confirm") return;
+    heldState.setPhase("processing");
+    heldState.setError(null);
+    const result = await postHeldWriteOffItem(item, heldState.detail, onStaleError);
+    if (!result.ok) {
+      heldState.setPhase("ready");
+      heldState.setError(result.message);
+      return;
+    }
+    heldState.setPhase("success");
+    onPosted();
+    heldState.load();
+  }
+
+  useKeyBinding("Ctrl+Enter", () => void postHeld(), {
+    enabled:
+      canPost &&
+      !readOnly &&
+      heldState.phase !== "processing" &&
+      heldState.phase !== "success" &&
+      !busy,
+  });
+
+  const pill = statePill(item);
+  return (
+    <section className={cx(ui.panel, styles.detail)} aria-label={`Write-off ${item.reference}`}>
+      <div className={styles.dh}>
+        <span className={cx(ui.kind, styles.kind, kind.tone)}>
+          <Icon name={kind.icon} />
+        </span>
+        <div className={styles.dhMain}>
+          <div className={ui.eyebrow}>Stock · Held write-off</div>
+          <h2>{title}</h2>
+        </div>
+        <div className={styles.dhRight}>
+          <span className={cx(ui.pill, pill.tone)}>
+            <Icon name="alert-triangle" />
+            {pill.label}
+          </span>
+        </div>
+      </div>
+      <WorkHeader item={item} you={you} counterLabel={counterLabel} />
+      <HeldWriteOffBody item={item} state={heldState} staleError={staleError} online={online} />
+      {error && (
+        <p role="alert" className={cx(ui.badText, styles.result)}>
+          {error}
+        </p>
+      )}
+      <div className={ui.dfoot}>
+        <span className={styles.footText}>
+          <b>
+            {readOnly
+              ? "Read only — approve or reject on the web"
+              : ready
+                ? "Approved — post at the counter"
+                : "Blocked until approval matches"}
+          </b>
+        </span>
+        <span className={ui.grow} />
+        <button
+          type="button"
+          className={cx(ui.btn, ui.primary, ui.lg)}
+          disabled={
+            busy ||
+            !canPost ||
+            readOnly ||
+            heldState.phase === "processing" ||
+            heldState.phase === "success"
+          }
+          onClick={() => void postHeld()}
+        >
+          <Icon name="trash" />
+          {heldState.phase === "processing" ? "Posting…" : "Post write-off"}
+          {canPost && !readOnly && <KeyHint keys="Ctrl+Enter" onPrimary spaced />}
+        </button>
       </div>
     </section>
   );
@@ -765,6 +903,7 @@ export function CounterWork({
   onCount,
   reloadKey = 0,
   poll = false,
+  online = true,
   you = "",
   counterLabel = null,
 }: {
@@ -774,6 +913,7 @@ export function CounterWork({
   reloadKey?: number;
   /** Check again every so often, so work approved on the web turns up without a new sign-in. */
   poll?: boolean;
+  online?: boolean;
   /** The signed-in person, who executes whatever is opened here. */
   you?: string;
   counterLabel?: string | null;
@@ -789,6 +929,7 @@ export function CounterWork({
   const [error, setError] = useState<string | null>(null);
   const [confirmError, setConfirmError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [staleError, setStaleError] = useState<string | null>(null);
 
   const load = useCallback(
     (quiet = false) => {
@@ -841,6 +982,13 @@ export function CounterWork({
   // The open item stays open while it is listed; otherwise the first one in the tab.
   const selected =
     shown.find((i) => i.id === selectedId) ?? shown[0] ?? null;
+
+  useEffect(() => {
+    if (!staleError || !selected) return;
+    if (selected.approval.state === "matches" || selected.approval.state === "not_needed")
+      setStaleError(null);
+  }, [items, selected, staleError]);
+
   const refundFor = (item: CounterWorkItem) =>
     item.kind === "refund"
       ? refunds.find((r) => r.refundRequestId === item.id)
@@ -887,6 +1035,7 @@ export function CounterWork({
   function select(id: string) {
     setSelectedId(id);
     setError(null);
+    setStaleError(null);
   }
 
   // Ctrl+Enter confirms an unconfirmed action first, so nothing is done twice. Otherwise F12 or
@@ -1002,7 +1151,25 @@ export function CounterWork({
             </div>
           )}
         </div>
-        {selected ? (
+        {selected?.kind === "held_adjustment" ? (
+          <HeldAdjustmentDetail
+            key={selected.id}
+            item={selected}
+            you={you}
+            counterLabel={counterLabel}
+            busy={busy}
+            canRefund={!pending.length}
+            online={online}
+            staleError={staleError}
+            onStaleError={setStaleError}
+            onPosted={() => {
+              setError(null);
+              setStaleError(null);
+              load();
+            }}
+            error={error}
+          />
+        ) : selected ? (
           <Detail
             key={selected.id}
             item={selected}
@@ -1015,6 +1182,13 @@ export function CounterWork({
             stockCase={stockCases.find((p) => p.resolutionId === selected.id)}
             onResolve={(id, counts) => void resolve(id, counts)}
             error={error}
+            online={online}
+            staleError={staleError}
+            onStaleError={setStaleError}
+            onPosted={() => {
+              setError(null);
+              load();
+            }}
           />
         ) : (
           <section className={ui.panel} aria-label="Nothing open">

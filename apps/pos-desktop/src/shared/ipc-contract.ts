@@ -431,8 +431,56 @@ export const counterWorkItemSchema = z.object({
     state: z.enum(["matches", "changed", "revoked", "not_needed"]),
     changes: z.array(z.string()),
   }),
+  /** Present when the API includes #172 task projection or extended held rows. */
+  operation: z.string().optional(),
+  task: z.unknown().optional(),
+  heldAdjustmentStatus: z
+    .enum(["awaiting_approval", "approved", "accepted", "rejected"])
+    .optional(),
 });
 export type CounterWorkItem = z.infer<typeof counterWorkItemSchema>;
+
+/** Full held write-off row (`GET /inventory/held-adjustments` shape) when the counter may read it. */
+export const heldWriteOffAtCounterSchema = z.object({
+  id: uuid,
+  status: z.enum(["awaiting_approval", "approved", "accepted", "rejected"]),
+  executionApprovalId: uuid.nullable(),
+  kind: z.string(),
+  kindLabel: z.string(),
+  qty: z.number().int(),
+  value: z.string().nullable(),
+  note: z.string().nullable(),
+  requestReason: z.string().nullable(),
+  fromQuarantine: z.boolean(),
+  product: z.object({ id: uuid, name: z.string(), sku: z.string().optional() }),
+  batch: z.object({ id: uuid, batchNo: z.string(), expiryDate: z.string().optional() }),
+  requester: z.object({ id: uuid, fullName: z.string() }),
+  requestedAt: z.string(),
+  decider: z
+    .object({ id: uuid, fullName: z.string() })
+    .nullable()
+    .optional(),
+  decidedAt: z.string().nullable().optional(),
+  decisionNote: z.string().nullable().optional(),
+  approvalReview: z.object({
+    expectedVersion: z.number().int(),
+    expectedDigest: z.string(),
+  }),
+});
+export type HeldWriteOffAtCounter = z.infer<typeof heldWriteOffAtCounterSchema>;
+
+export const quarantineBatchSchema = z.object({
+  batchId: uuid,
+  qty: z.number().int().min(1).max(99999).nullable(),
+  reasonCode: z.enum(["expired", "damaged", "recall", "inspection", "other"]),
+  reason: z.string().trim().max(512).nullable(),
+});
+
+export const releaseQuarantineSchema = z.object({
+  batchId: uuid,
+  qty: z.number().int().min(1).max(99999).nullable(),
+  reason: z.string().trim().max(512).nullable(),
+});
 
 /** P5 #51: an approved plan for an offline stock case, waiting here, with the batches to count. */
 export const stockCaseAtCounterSchema = z.object({
@@ -1159,6 +1207,40 @@ export const ipcContract = {
     channel: "pos:stock:adjust",
     input: stockAdjustmentSchema,
     output: result(z.object({ qty: z.number().int(), movementType: z.enum(["adjustment_in", "adjustment_out"]) })),
+  },
+  quarantineBatch: {
+    channel: "pos:stock:quarantine",
+    input: quarantineBatchSchema,
+    output: result(z.object({ qty: z.number().int(), stockReferenceId: z.string().optional() })),
+  },
+  releaseQuarantine: {
+    channel: "pos:stock:release-quarantine",
+    input: releaseQuarantineSchema,
+    output: result(z.object({ qty: z.number().int(), stockReferenceId: z.string().optional() })),
+  },
+  stockPermissions: {
+    channel: "pos:stock:permissions",
+    input: noInput,
+    output: result(
+      z.object({
+        quarantine: z.boolean(),
+        releaseQuarantine: z.boolean(),
+        writeOff: z.boolean(),
+      }),
+    ),
+  },
+  /** Held write-offs for the counter frame (approved + read-only when the API supplies them). */
+  heldWriteOffsAtCounter: { channel: "pos:work:held-write-offs", input: noInput, output: result(z.array(heldWriteOffAtCounterSchema)) },
+  postHeldWriteOff: {
+    channel: "pos:work:post-held-write-off",
+    input: z.object({ heldAdjustmentId: uuid, approvalEvidenceId: uuid.nullable() }),
+    output: result(
+      z.object({
+        heldAdjustmentId: uuid,
+        stockReferenceId: z.string(),
+        alreadyApplied: z.boolean(),
+      }),
+    ),
   },
   enroll: {
     channel: "pos:enrollment:enroll",

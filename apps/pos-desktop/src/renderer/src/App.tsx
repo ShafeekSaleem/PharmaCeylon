@@ -322,6 +322,7 @@ export function App() {
                       onCount={setWorkCount}
                       reloadKey={commandsSent}
                       poll={!device.locked}
+                      online={api?.reachable !== false}
                       you={session.staffName}
                       counterLabel={device.enrollment?.counterLabel ?? null}
                     />
@@ -334,6 +335,7 @@ export function App() {
                       key={`stock-${sessionId}`}
                       branchName={device.enrollment?.branchName ?? ""}
                       active={page === "stock" && !device.locked}
+                      online={api?.reachable !== false}
                       onCommandSent={onCommandSent}
                     />
                   </div>
