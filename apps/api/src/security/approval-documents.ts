@@ -209,7 +209,11 @@ export async function approvalDocument(
   } else if (policy.documentType === "supplier_cash_payout") {
     await tx.$queryRaw`SELECT id FROM supplier_cash_payout WHERE tenant_id = ${tenantId}::uuid AND branch_id = ${branchId}::uuid AND id = ${documentId}::uuid FOR UPDATE`;
     const doc = await tx.supplierCashPayout.findFirst({ where: { tenantId, branchId, id: documentId } });
-    if (!doc || !["prepared", "approved"].includes(doc.status)) denied("APPROVAL_INVALID");
+    if (
+      !doc ||
+      !(use === "execution" ? ["approved", "executed"] : ["prepared", "approved"]).includes(doc.status)
+    )
+      denied("APPROVAL_INVALID");
     version = doc.approvalVersion;
     requester = doc.requestedBy;
     material = supplierCashPayoutMaterial(doc);

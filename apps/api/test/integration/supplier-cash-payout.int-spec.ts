@@ -197,8 +197,13 @@ beforeAll(async () => {
 afterAll(() => prisma.$disconnect());
 afterEach(async () => {
   audit.failOn = null;
+  const open = await prisma.supplierCashPayout.findMany({
+    where: { tenantId: fx.tenantId, status: { in: ["prepared", "approved"] } },
+  });
+  for (const row of open) {
+    await payouts.cancel(user(fx.managerId), branch(), row.id).catch(() => undefined);
+  }
   await prisma.$transaction(async (tx) => {
-    await tx.tillCashMovement.deleteMany({ where: { tenantId: fx.tenantId } });
     await tx.supplierPaymentAllocation.deleteMany({ where: { tenantId: fx.tenantId } });
     await tx.supplierPayment.deleteMany({ where: { tenantId: fx.tenantId } });
     await tx.supplierCashPayout.deleteMany({ where: { tenantId: fx.tenantId } });
@@ -241,6 +246,7 @@ describe("supplier cash payout contract (#174)", () => {
       where: { tenantId: fx.tenantId },
       data: { selfApprovalRoleKeys: ["owner"] },
     });
+    await invoice("120.00");
     const prepared = await payouts.prepare(user(fx.managerId), branch(), {
       supplierId: fx.supplierId,
       paidOn: today(),
@@ -402,6 +408,7 @@ describe("supplier cash payout contract (#174)", () => {
   });
 
   it("immutable payout rows reject in-place edits", async () => {
+    await invoice("25.00");
     const payout = await payouts.prepare(user(fx.managerId), branch(), {
       supplierId: fx.supplierId,
       paidOn: today(),
