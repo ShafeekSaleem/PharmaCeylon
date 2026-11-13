@@ -197,40 +197,13 @@ beforeAll(async () => {
 afterAll(() => prisma.$disconnect());
 afterEach(async () => {
   audit.failOn = null;
-  const open = await prisma.supplierCashPayout.findMany({
-    where: {
-      tenantId: fx.tenantId,
-      branchId: branch(),
-      status: { in: ["prepared", "approved"] },
-    },
-  });
-  for (const row of open) {
-    await payouts.cancel(user(fx.managerId), branch(), row.id).catch(() => undefined);
-  }
   await prisma.$transaction(async (tx) => {
-    await tx.supplierCashPayout.updateMany({
-      where: { tenantId: fx.tenantId },
-      data: { supplierPaymentId: null },
-    });
     await tx.tillCashMovement.deleteMany({ where: { tenantId: fx.tenantId } });
-    const invoiceIds = (
-      await tx.supplierInvoice.findMany({
-        where: { tenantId: fx.tenantId },
-        select: { id: true },
-      })
-    ).map((row) => row.id);
-    if (invoiceIds.length > 0) {
-      await tx.supplierPaymentAllocation.deleteMany({
-        where: { tenantId: fx.tenantId, invoiceId: { in: invoiceIds } },
-      });
-    }
+    await tx.supplierPaymentAllocation.deleteMany({ where: { tenantId: fx.tenantId } });
     await tx.supplierPayment.deleteMany({ where: { tenantId: fx.tenantId } });
     await tx.supplierCashPayout.deleteMany({ where: { tenantId: fx.tenantId } });
     await tx.supplierInvoiceLine.deleteMany({ where: { tenantId: fx.tenantId } });
     await tx.supplierInvoice.deleteMany({ where: { tenantId: fx.tenantId } });
-    await tx.managementApproval.deleteMany({
-      where: { tenantId: fx.tenantId, documentType: "supplier_cash_payout" },
-    });
     await tx.supplier.deleteMany({ where: { tenantId: fx.tenantId, id: { not: fx.supplierId } } });
   });
   await prisma.tenantSettings.upsert({
