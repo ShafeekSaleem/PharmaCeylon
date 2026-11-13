@@ -209,6 +209,7 @@ afterEach(async () => {
     await tx.supplierCashPayout.deleteMany({ where: { tenantId: fx.tenantId } });
     await tx.supplierInvoiceLine.deleteMany({ where: { tenantId: fx.tenantId } });
     await tx.supplierInvoice.deleteMany({ where: { tenantId: fx.tenantId } });
+    await tx.purchaseOrder.deleteMany({ where: { tenantId: fx.tenantId } });
     await tx.supplier.deleteMany({ where: { tenantId: fx.tenantId, id: { not: fx.supplierId } } });
   });
   await prisma.tenantSettings.upsert({
