@@ -953,6 +953,8 @@ shift if there is one. Web POS sales and refunds carry no shift.
 **Cash movements.** `till_cash_movement` holds drawer cash that is neither a sale nor a refund.
 It has no route: `TillShiftsService.recordCashMovement` writes it inside the payer's transaction,
 on their own open shift, and P6's supplier cash payout (revised D10) is the first caller.
+Cash **out** movements update-lock the shift, compare against expected cash, and refuse with
+409 `INSUFFICIENT_DRAWER_CASH` before inserting the row (payments equal to the balance are allowed).
 
 ## Offline support records (P1, sync intake)
 
