@@ -289,6 +289,8 @@ export class SupplierCashPayoutService {
 
     if (!input.command?.tillId) throw new BadRequestException("Counter payout requires an enrolled till");
     const amountMinor = Math.round(Number(row.amount) * 100);
+    const tillAt = { tenantId, branchId, tillId: input.command.tillId, userId: user.userId };
+    await this.shifts.requireDrawerCashOut(tx, tillAt, amountMinor);
     const paymentId = await this.ledger.recordPaymentInTransaction(
       tx,
       tenantId,

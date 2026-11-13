@@ -105,11 +105,25 @@ async function invoice(total: string, dueInDays = 10) {
   return row.id;
 }
 
-async function approvedPayout(amount: string, opts: { preparer?: string; approver?: string | null } = {}) {
+async function approvedPayout(
+  amount: string,
+  opts: { preparer?: string; approver?: string | null; supplierId?: string } = {},
+) {
   const preparer = opts.preparer ?? fx.managerId;
-  await invoice(amount);
+  const supplierId = opts.supplierId ?? fx.supplierId;
+  if (supplierId === fx.supplierId) {
+    await invoice(amount);
+  } else {
+    await ledger.createInvoice(fx.tenantId, branch(), fx.managerId, {
+      supplierId,
+      invoiceNumber: `INV-${randomUUID().slice(0, 6)}`,
+      invoiceDate: daysFromToday(-30).toISOString().slice(0, 10),
+      dueDate: daysFromToday(10).toISOString().slice(0, 10),
+      lines: [{ description: "Goods", qty: 1, unitCost: amount }],
+    });
+  }
   let row = await payouts.prepare(user(preparer), branch(), {
-    supplierId: fx.supplierId,
+    supplierId,
     paidOn: today(),
     amount,
     reference: "CASH-OUT",
@@ -121,7 +135,7 @@ async function approvedPayout(amount: string, opts: { preparer?: string; approve
   return payouts.approve(user(approver), branch(), row.id, { approvalId: randomUUID(), ...review });
 }
 
-async function counterFor(who: string, openShift = true) {
+async function counterFor(who: string, openShift = true, openingCashMinor = 0) {
   const owner = user(fx.ownerId);
   const device = terminalDevice();
   const counter = await tx((c) => trust.createCounter(c, owner, branch(), `Counter ${randomUUID().slice(0, 6)}`));
@@ -135,6 +149,9 @@ async function counterFor(who: string, openShift = true) {
   const session = await tx((c) => trust.finishSession(c, staff, branch(),
     device.sign(sessionPayload, identity.keyId), attendance.allow(sessionPayload, "session")));
   const shiftId = openShift ? await openTestShift(prisma, fx.tenantId, session.workSessionId) : null;
+  if (shiftId && openingCashMinor > 0) {
+    await prisma.tillShift.update({ where: { id: shiftId }, data: { openingCashMinor } });
+  }
   return { device, identity, session, staff, shiftId };
 }
 
@@ -164,7 +181,7 @@ beforeAll(async () => {
   await prisma.userBranchRole.createMany({ data: [
     { tenantId: fx.tenantId, branchId: branch(), userId: fx.ownerId, role: "owner" },
     { tenantId: fx.tenantId, branchId: branch(), userId: fx.managerId, role: "manager" },
-    { tenantId: fx.tenantId, branchId: branch(), userId: fx.clerkId, role: "manager" },
+    { tenantId: fx.tenantId, branchId: branch(), userId: fx.clerkId, role: "cashier" },
   ] });
 });
 afterAll(() => prisma.$disconnect());
@@ -178,7 +195,6 @@ afterEach(async () => {
     where: {
       tenantId: fx.tenantId,
       branchId: branch(),
-      supplierId: fx.supplierId,
       status: { in: ["prepared", "approved"] },
     },
   });
@@ -233,7 +249,7 @@ describe("supplier cash payout contract (#174)", () => {
   it("signed execution pays the supplier, moves drawer cash once, and replays", async () => {
     const invoiceId = await invoice("300.00");
     const payout = await approvedPayout("300.00");
-    const counter = await counterFor(fx.managerId);
+    const counter = await counterFor(fx.managerId, true, 30_000);
     const command = await signed(counter, payout.id, payout.executionApprovalId);
     const first = await run(counter, command.request);
     const replay = await run(counter, command.request);
@@ -260,7 +276,7 @@ describe("supplier cash payout contract (#174)", () => {
 
   it("refuses execution without an open shift on the till", async () => {
     const payout = await approvedPayout("50.00");
-    const counter = await counterFor(fx.managerId, false);
+    const counter = await counterFor(fx.managerId, false, 5_000);
     const command = await signed(counter, payout.id, payout.executionApprovalId);
     await expect(run(counter, command.request)).rejects.toMatchObject({ response: { code: "SHIFT_REQUIRED" } });
     expect(await prisma.supplierPayment.count({ where: { tenantId: fx.tenantId, supplierId: fx.supplierId } })).toBe(0);
@@ -269,7 +285,7 @@ describe("supplier cash payout contract (#174)", () => {
   it("refuses a revoked approval and stale client approval ids", async () => {
     const payout = await approvedPayout("90.00");
     await tx((c) => approvals.revoke(c, user(fx.ownerId), branch(), payout.executionApprovalId!, "Wrong supplier"));
-    const counter = await counterFor(fx.managerId);
+    const counter = await counterFor(fx.managerId, true, 10_000);
     const command = await signed(counter, payout.id, payout.executionApprovalId);
     await expect(run(counter, command.request)).rejects.toMatchObject({ response: { code: "APPROVAL_INVALID" } });
     await expect(payouts.execute(user(fx.managerId), branch(), payout.id,
@@ -314,6 +330,59 @@ describe("supplier cash payout contract (#174)", () => {
     });
     expect(item.task.nextAction.executable).toBe(false);
     expect((await counterWork.list(owner, fx.otherBranchId)).map((row) => row.id)).not.toContain(payout.id);
+  });
+
+  it("refuses a payout when expected drawer cash is below the amount", async () => {
+    const payout = await approvedPayout("50.00");
+    const counter = await counterFor(fx.managerId, true, 2_000);
+    const command = await signed(counter, payout.id, payout.executionApprovalId);
+    await expect(run(counter, command.request)).rejects.toMatchObject({
+      response: { code: "INSUFFICIENT_DRAWER_CASH", expectedCashMinor: 2_000, requiredMinor: 5_000 },
+    });
+    expect(await prisma.supplierPayment.count({ where: { tenantId: fx.tenantId, supplierId: fx.supplierId } })).toBe(0);
+    expect(await prisma.tillCashMovement.count({ where: { tenantId: fx.tenantId, shiftId: counter.shiftId! } })).toBe(0);
+  });
+
+  it("allows a payout when expected drawer cash exactly equals the amount", async () => {
+    const payout = await approvedPayout("50.00");
+    const counter = await counterFor(fx.managerId, true, 5_000);
+    const done = await run(counter, (await signed(counter, payout.id, payout.executionApprovalId)).request);
+    expect(done.result).toMatchObject({ type: "supplier_cash_payout.executed", amountMinor: 5_000, effect: "applied" });
+    const detail = await shifts.detail(user(fx.managerId), branch(), counter.session.workSessionId, counter.shiftId!);
+    expect(detail.summary.expectedCashMinor).toBe(0);
+  });
+
+  it("serialises two payouts against the same drawer so the second cannot overdraw", async () => {
+    const other = await prisma.supplier.create({
+      data: { tenantId: fx.tenantId, code: `S2-${randomUUID().slice(0, 4)}`, name: "Second supplier" },
+    });
+    const first = await approvedPayout("60.00", { supplierId: fx.supplierId });
+    const second = await approvedPayout("60.00", { supplierId: other.id });
+    const counter = await counterFor(fx.managerId, true, 10_000);
+    await run(counter, (await signed(counter, first.id, first.executionApprovalId)).request);
+    await expect(
+      run(counter, (await signed(counter, second.id, second.executionApprovalId)).request),
+    ).rejects.toMatchObject({ response: { code: "INSUFFICIENT_DRAWER_CASH", expectedCashMinor: 4_000, requiredMinor: 6_000 } });
+    expect(await prisma.supplierPayment.count({ where: { tenantId: fx.tenantId } })).toBe(1);
+  });
+
+  it("refuses counter prepare and execute without suppliers.pay", async () => {
+    const payout = await approvedPayout("20.00");
+    const counter = await counterFor(fx.clerkId, true, 5_000);
+    await expect(
+      executor.prepare(counter.staff, branch(), {
+        workSessionId: counter.session.workSessionId,
+        operation: EXECUTE,
+        body: { cashPayoutId: payout.id },
+        approvalEvidenceId: payout.executionApprovalId,
+        pharmacistEvidenceId: null,
+        operatingHoursExceptionId: null,
+      }),
+    ).rejects.toMatchObject({ response: { code: "PERMISSION_DENIED" } });
+    const payer = await counterFor(fx.managerId, true, 5_000);
+    await expect(
+      run(payer, (await signed(payer, payout.id, payout.executionApprovalId)).request),
+    ).resolves.toMatchObject({ result: expect.objectContaining({ effect: "applied" }) });
   });
 
   it("immutable payout rows reject in-place edits", async () => {

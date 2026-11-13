@@ -359,7 +359,9 @@ Supplier cash payout execute always requires the pinned `executionApprovalId` as
 `approvalEvidenceId` (management action `supplier_cash_payout.execute`). Result:
 `{ type: "supplier_cash_payout.executed", cashPayoutId, approvalId, supplierPaymentId,
 amountMinor, effect }`. Cash leaves the executor's open till shift; replay returns the same receipt
-with `effect: "already_applied"`.
+with `effect: "already_applied"`. Before posting the ledger payment the server update-locks the open
+shift and refuses with 409 `INSUFFICIENT_DRAWER_CASH` when expected cash is below the payout amount.
+A payout of exactly the expected balance is allowed.
 `pharmacistEvidenceId`
 must be `null` for every v1 operation except prescriptions (a pharmacist's co-sign, above), and
 `operatingHoursExceptionId` must be `null` for every v1 operation. Any other operation,
@@ -1339,7 +1341,7 @@ Two refusals from receiving carry a machine-readable `code` so a client can ask 
 | `POST /purchasing/cash-payouts/:id/cancel` | `suppliers.pay` | Requester or payer cancels while `prepared`/`approved`. |
 | `GET /purchasing/cash-payouts` | `suppliers.pay` | Query `supplierId`, `status`, `readyAtCounter=true` for approved payouts waiting at the counter. |
 | `GET /purchasing/cash-payouts/:id` | `suppliers.pay` | Full payout with `readyAtCounter`, `approvalReview`, allocation preview and people. |
-| `POST /purchasing/cash-payouts/:id/execute` | `suppliers.pay` | **Counter only** (`@CounterRoute()` → `TERMINAL_REQUIRED` on the browser). Signed command body `{ cashPayoutId }`, `approvalEvidenceId` = `executionApprovalId`, receipt `supplier_cash_payout.executed` with `supplierPaymentId` and `amountMinor`. Posts a `cash` `SupplierPayment` and a till **cash out** on the executor's open shift (`SHIFT_REQUIRED` without one). Optional `Idempotency-Key` (scope `supplier_cash_payout_execute`). Listed on `GET /counter-work` as kind `supplier_cash_payout` → P6 destination `supplier_payout` (planned). |
+| `POST /purchasing/cash-payouts/:id/execute` | `suppliers.pay` | **Counter only** (`@CounterRoute()` → `TERMINAL_REQUIRED` on the browser). Signed command body `{ cashPayoutId }`, `approvalEvidenceId` = `executionApprovalId`, receipt `supplier_cash_payout.executed` with `supplierPaymentId` and `amountMinor`. Needs `suppliers.pay` on the signed command (403 `PERMISSION_DENIED` without it). Posts a `cash` `SupplierPayment` and a till **cash out** on the executor's open shift. Refusals: 409 `SHIFT_REQUIRED` without an open shift; 409 `INSUFFICIENT_DRAWER_CASH` when expected cash on that shift is below the payout (`expectedCashMinor` / `requiredMinor` in the body). The shift row is locked for update so two payouts cannot overdraw the drawer. Optional `Idempotency-Key` (scope `supplier_cash_payout_execute`). Listed on `GET /counter-work` as kind `supplier_cash_payout` → P6 destination `supplier_payout` (planned). |
 | `POST /purchasing/payments/:id/void` | `suppliers.pay` | `{ reason }`. The row is kept and marked voided; the invoices it settled go back to owing. |
 | `GET /purchasing/debit-notes` | `purchasing.invoice` or `suppliers.pay` | Raised automatically when a supplier return completes. |
 | `POST /purchasing/debit-notes/:id/apply` | `suppliers.pay` | Optional `allocations[]`; otherwise the oldest open invoices first. A remainder stays open. |

@@ -438,6 +438,20 @@ export class TillShiftsService {
   }
 
   /**
+   * The executor's open shift on this till, update-locked, with enough expected drawer cash to pay
+   * out `amountMinor`. Serialises supplier payouts and other drawer cash-outs on the same shift.
+   */
+  async requireDrawerCashOut(
+    tx: Tx,
+    at: { tenantId: string; branchId: string; tillId: string; userId: string },
+    amountMinor: number,
+  ): Promise<string> {
+    if (!Number.isSafeInteger(amountMinor) || amountMinor <= 0)
+      throw new BadRequestException("A cash movement is a positive amount");
+    return this.lockOpenCashOut(tx, at, amountMinor);
+  }
+
+  /**
    * Cash into or out of the drawer that is neither a sale nor a refund — first, a supplier cash
    * payout approved on the web (P6, revised D10). In the payer's transaction, on their own open
    * shift on that till.
@@ -458,7 +472,10 @@ export class TillShiftsService {
   ) {
     if (!Number.isSafeInteger(input.amountMinor) || input.amountMinor <= 0)
       throw new BadRequestException("A cash movement is a positive amount");
-    const shiftId = await this.requireForSale(tx, input);
+    const shiftId =
+      input.direction === "out"
+        ? await this.lockOpenCashOut(tx, input, input.amountMinor)
+        : await this.requireForSale(tx, input);
     const row = await tx.tillCashMovement.create({
       data: {
         tenantId: input.tenantId,
@@ -498,6 +515,41 @@ export class TillShiftsService {
        FOR SHARE`;
     const row = rows[0];
     return row ? { id: row.id, staffUserId: row.staff_user_id } : null;
+  }
+
+  private async lockOpenCashOut(
+    tx: Tx,
+    at: { tenantId: string; branchId: string; tillId: string; userId: string },
+    amountMinor: number,
+  ): Promise<string> {
+    const rows = await tx.$queryRaw<Array<{ id: string; staff_user_id: string }>>`
+      SELECT id, staff_user_id FROM till_shift
+       WHERE tenant_id = ${at.tenantId}::uuid AND branch_id = ${at.branchId}::uuid
+         AND till_id = ${at.tillId}::uuid AND closed_at IS NULL
+       FOR UPDATE`;
+    const row = rows[0];
+    if (!row)
+      conflict("SHIFT_REQUIRED", "A supplier cash payout comes out of your open shift's drawer. Open a shift on this till first.");
+    if (row.staff_user_id !== at.userId) {
+      const holder = await this.person(tx, at.tenantId, row.staff_user_id);
+      conflict(
+        "SHIFT_HELD_BY_OTHER",
+        `${holder?.fullName ?? "Someone else"}'s shift is open on this till. They close it before you pay suppliers from this drawer.`,
+        { workSessionId: row.id, staffUserId: row.staff_user_id },
+      );
+    }
+    const shift = await tx.tillShift.findFirstOrThrow({
+      where: { tenantId: at.tenantId, branchId: at.branchId, id: row.id },
+    });
+    const available = expectedCash(await this.parts(tx, shift));
+    if (available < amountMinor) {
+      conflict(
+        "INSUFFICIENT_DRAWER_CASH",
+        "The drawer does not hold enough cash for this payout.",
+        { expectedCashMinor: available, requiredMinor: amountMinor },
+      );
+    }
+    return row.id;
   }
 
   private async till(user: RequestUser, branchId: string, staffSessionId: string) {
