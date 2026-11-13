@@ -4,6 +4,7 @@ import { heldAdjustmentMaterial, heldDeliveryMaterial } from "./held-approval-ma
 import { goodsReturnMaterial, preparedReceiptMaterial } from "./receiving-approval-material";
 import { transferApprovalMaterial } from "./transfer-approval-material";
 import { saleRefundMaterial } from "./sale-refund-approval-material";
+import { supplierCashPayoutMaterial } from "../purchasing/ledger/supplier-cash-payout-approval-material";
 import { lockOfflineStockResolution, offlineStockResolutionFacts } from "./offline-stock-resolution-approval-material";
 import { lockOfflineJournalSettlement, offlineJournalSettlementFacts } from "./offline-journal-settlement-approval-material";
 import { BadRequestException } from "@nestjs/common";
@@ -75,6 +76,12 @@ export const APPROVAL_ACTIONS = {
     approvalPermission: "sales.review_offline_entries",
     executionPermission: "sales.review_offline_entries",
     operation: "POST /api/v1/offline-journal-reviews/settlements/:id/approve",
+  },
+  "supplier_cash_payout.execute": {
+    documentType: "supplier_cash_payout",
+    approvalPermission: "suppliers.pay",
+    executionPermission: "suppliers.pay",
+    operation: "POST /api/v1/purchasing/cash-payouts/:id/execute",
   },
 } as const;
 export type ApprovalAction = keyof typeof APPROVAL_ACTIONS;
@@ -199,6 +206,13 @@ export async function approvalDocument(
     version = doc.approvalVersion;
     requester = doc.requestedBy;
     material = saleRefundMaterial(doc);
+  } else if (policy.documentType === "supplier_cash_payout") {
+    await tx.$queryRaw`SELECT id FROM supplier_cash_payout WHERE tenant_id = ${tenantId}::uuid AND branch_id = ${branchId}::uuid AND id = ${documentId}::uuid FOR UPDATE`;
+    const doc = await tx.supplierCashPayout.findFirst({ where: { tenantId, branchId, id: documentId } });
+    if (!doc || !["prepared", "approved"].includes(doc.status)) denied("APPROVAL_INVALID");
+    version = doc.approvalVersion;
+    requester = doc.requestedBy;
+    material = supplierCashPayoutMaterial(doc);
   } else if (policy.documentType === "offline_stock_resolution") {
     // Every path that touches a case locks it first, then its plan, then the batches.
     if (!(await lockOfflineStockResolution(tx, tenantId, branchId, documentId))) denied("APPROVAL_INVALID");
@@ -252,7 +266,8 @@ export async function approvalDocument(
     requester = doc.requestedBy;
     material = goodsReturnMaterial(doc);
   }
-  if (!["held_adjustment", "held_delivery", "prepared_receipt"].includes(policy.documentType) && (!Array.isArray(material.items) || !material.items.length))
+  if (!["held_adjustment", "held_delivery", "prepared_receipt", "supplier_cash_payout"].includes(policy.documentType)
+    && (!Array.isArray(material.items) || !material.items.length))
     denied("APPROVAL_INVALID");
   return {
     identity: {

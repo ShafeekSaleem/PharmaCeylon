@@ -821,7 +821,7 @@ export class SupplierLedgerService {
    * due first. Either way the whole amount has to land somewhere — money recorded as paid but
    * set against nothing is exactly the ambiguity this ledger exists to remove.
    */
-  private async placeAllocations(
+  async placeAllocations(
     tx: Tx,
     tenantId: string,
     supplierId: string,

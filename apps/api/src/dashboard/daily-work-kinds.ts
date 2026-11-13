@@ -57,6 +57,8 @@ export const DAILY_WORK_KIND_DEFS: Readonly<Record<DailyWorkKind, KindDef>> = {
   // P5 #51: a counter's journal stopped on an entry the server rejected or that conflicts with
   // what it accepted. Nothing after it syncs until someone reviews it.
   "offline_journal.review": { executes: null },
+  "supplier_cash_payout.approve": { executes: null },
+  "supplier_cash_payout.execute": { approvalAction: "supplier_cash_payout.execute" },
 };
 
 export function kindOperation(kind: DailyWorkKind): MutationKey | null {

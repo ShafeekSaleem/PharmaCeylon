@@ -63,6 +63,22 @@ test('revoked approval uses APPROVAL_INVALID', () => {
   assert.match(task.blocker.message, /withdrawn/);
 });
 
+test('supplier cash payout is planned on P6 until supplier_payout ships', () => {
+  const task = c.projectCounterWorkTask({
+    kind: 'supplier_cash_payout',
+    id: '00000000-0000-4000-8000-000000000030',
+    approval: { evidenceId: '00000000-0000-4000-8000-0000000000bb', state: 'matches', changes: [] },
+    approvedAt: '2026-11-11T11:00:00.000Z',
+    readyAt: '2026-11-11T11:00:00.000Z',
+    asOf,
+  });
+  assert.equal(task.dailyWorkKind, 'supplier_cash_payout.execute');
+  assert.equal(task.destination, 'supplier_payout');
+  assert.equal(task.destinationStatus, 'planned');
+  assert.equal(task.signedExecution.bodyIdKey, 'cashPayoutId');
+  assert.equal(task.nextAction.executable, false);
+});
+
 test('planned P6 screens still list as ready_for_execution with non-executable next action label', () => {
   const task = c.projectCounterWorkTask({
     kind: 'stocktake',

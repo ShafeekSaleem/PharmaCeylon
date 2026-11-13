@@ -19,6 +19,7 @@ export const COUNTER_WORK_KINDS = [
   "supplier_return",
   "import_stock",
   "stock_case",
+  "supplier_cash_payout",
 ] as const;
 export type CounterWorkKind = (typeof COUNTER_WORK_KINDS)[number];
 
@@ -37,6 +38,7 @@ export const COUNTER_WORK_DESTINATIONS = [
   "offline_stock_case",
   "quarantine",
   "release_quarantine",
+  "supplier_payout",
 ] as const;
 export type CounterWorkDestination = (typeof COUNTER_WORK_DESTINATIONS)[number];
 
@@ -55,6 +57,7 @@ export const COUNTER_WORK_DAILY_KIND: Readonly<Record<CounterWorkKind, DailyWork
   supplier_return: "goods_return.complete",
   import_stock: "import_stock.post",
   stock_case: "offline_stock_case.resolve",
+  supplier_cash_payout: "supplier_cash_payout.execute",
 };
 
 /** P6 screen and rollout status per counter-work kind (coverage matrix). */
@@ -71,6 +74,7 @@ export const COUNTER_WORK_DESTINATION_BY_KIND: Readonly<
   supplier_return: { destination: "supplier_return", status: "planned" },
   import_stock: { destination: "import_post", status: "planned" },
   stock_case: { destination: "offline_stock_case", status: "planned" },
+  supplier_cash_payout: { destination: "supplier_payout", status: "planned" },
 };
 
 /** Signed physical operation for each kind (execution after prepare). */
@@ -85,6 +89,7 @@ export const COUNTER_WORK_OPERATION: Readonly<Record<CounterWorkKind, SignedPhys
   supplier_return: "POST /api/v1/returns/:id/complete",
   import_stock: "POST /api/v1/products/import/:importId/stock/post",
   stock_case: "POST /api/v1/offline-stock-cases/resolutions/:id/execute",
+  supplier_cash_payout: "POST /api/v1/purchasing/cash-payouts/:id/execute",
 };
 
 /** Primary key the signed body uses for the document id (for retry UI). */
@@ -99,6 +104,7 @@ export const COUNTER_WORK_SIGNED_ID_KEY: Readonly<Record<CounterWorkKind, string
   supplier_return: "goodsReturnId",
   import_stock: "importId",
   stock_case: "resolutionId",
+  supplier_cash_payout: "cashPayoutId",
 };
 
 export type CounterWorkApprovalState = "matches" | "changed" | "revoked" | "not_needed";
@@ -212,6 +218,7 @@ const NEXT_ACTION_READY: Readonly<Record<CounterWorkKind, string>> = {
   supplier_return: "Complete supplier return",
   import_stock: "Post opening stock",
   stock_case: "Settle offline sale stock",
+  supplier_cash_payout: "Pay supplier from drawer",
 };
 
 function blockerForApproval(

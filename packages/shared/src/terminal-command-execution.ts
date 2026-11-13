@@ -22,6 +22,7 @@ export const SIGNED_PHYSICAL_OPERATIONS = [
   "POST /api/v1/inventory/batches/:id/release-quarantine",
   "POST /api/v1/prescriptions",
   "POST /api/v1/offline-stock-cases/resolutions/:id/execute",
+  "POST /api/v1/purchasing/cash-payouts/:id/execute",
 ] as const;
 export type SignedPhysicalOperation = typeof SIGNED_PHYSICAL_OPERATIONS[number];
 
@@ -109,6 +110,8 @@ export type SignedOperationBody = {
     resolutionId: string;
     counts: ReadonlyArray<Readonly<{ batchId: string; countedQty: number }>>;
   }>;
+  /** Pay an approved supplier cash payout from the open shift's drawer. */
+  "POST /api/v1/purchasing/cash-payouts/:id/execute": Readonly<{ cashPayoutId: string }>;
 };
 
 /** P5 #51: how an approved resolution plan settles an offline stock discrepancy case. */
@@ -187,6 +190,10 @@ export type SignedOperationResult = {
     pharmacistRegistrationId: string;
   }>;
   /** Each batch of the case, once: what was posted, corrected or linked. */
+  "POST /api/v1/purchasing/cash-payouts/:id/execute": Readonly<{
+    type: "supplier_cash_payout.executed"; cashPayoutId: string; approvalId: string;
+    supplierPaymentId: string; amountMinor: number; effect: SignedOperationEffect;
+  }>;
   "POST /api/v1/offline-stock-cases/resolutions/:id/execute": Readonly<{
     type: "offline_stock_case.resolved"; resolutionId: string; caseId: string; saleId: string; approvalId: string;
     kind: OfflineStockResolutionKind; effect: SignedOperationEffect;

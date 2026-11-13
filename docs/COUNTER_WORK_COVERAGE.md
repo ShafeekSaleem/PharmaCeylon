@@ -12,6 +12,7 @@ mapping and P6 desktop destinations is `packages/shared/src/counter-work.ts`.
 | `transfer_ship` | `transfer.ship` | `POST …/transfers/:id/ship` | `transfer_ship` | planned |
 | `transfer_receive` | `transfer.receive` | `POST …/transfers/:id/receive` | `transfer_receive` | planned |
 | `refund` | `sale_refund.execute` | `POST …/refund-requests/:id/execute` | `refund` | **available** |
+| `supplier_cash_payout` | `supplier_cash_payout.execute` | `POST …/cash-payouts/:id/execute` | `supplier_payout` | planned |
 | `stocktake` | `stocktake.post` | `POST …/stocktakes/:id/post` | `stocktake` | planned |
 | `held_adjustment` | `held_adjustment.post` | `POST …/held-adjustments/:id/post` | `held_write_off` | planned |
 | `supplier_return` | `goods_return.complete` | `POST …/returns/:id/complete` | `supplier_return` | planned |

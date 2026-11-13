@@ -24,6 +24,7 @@ import { StocktakesService } from "../stocktakes/stocktakes.service";
 import type { CommandProvenance } from "../terminals/command-provenance";
 import { TransfersService } from "../transfers/transfers.service";
 import { RefundRequestsService } from "../sales/refund-requests.service";
+import { SupplierCashPayoutService } from "../purchasing/ledger/supplier-cash-payout.service";
 import { StockCasesService } from "../stock-cases/stock-cases.service";
 import { invalid, object, text, uuid } from "../terminals/terminal-wire";
 
@@ -240,6 +241,7 @@ export class SignedOperations {
     preparedReceipts: PreparedReceiptService,
     returns: ReturnsService,
     refunds: RefundRequestsService,
+    cashPayouts: SupplierCashPayoutService,
     prescriptions: PrescriptionsService,
     stockCases?: StockCasesService,
   ) {
@@ -527,6 +529,35 @@ export class SignedOperations {
               goodsReturnId: done.goodsReturnId,
               amountMinor: minor(done.row.amount.toFixed(2)),
               refundedTo: done.refundedTo.map((part) => ({ method: part.method, amountMinor: minor(part.amount) })),
+              effect: done.changed ? "applied" : "already_applied",
+            },
+          };
+        },
+      },
+      "POST /api/v1/purchasing/cash-payouts/:id/execute": {
+        descriptor: {
+          method: "POST",
+          routeTemplate: "/api/v1/purchasing/cash-payouts/:id/execute",
+          permission: "suppliers.pay",
+          parseBody: idBody("cashPayoutId"),
+          resolveFacts: async () => ({ paymentKind: "cash" as const }),
+          approval: {
+            action: "supplier_cash_payout.execute",
+            documentId: (b) => b.cashPayoutId,
+          },
+        },
+        async execute(tx, user, branchId, body, context) {
+          const done = await cashPayouts.executeInTransaction(tx, user, branchId, body.cashPayoutId, {
+            approvalId: approvalId(context),
+            command: context.command,
+          });
+          return {
+            result: {
+              type: "supplier_cash_payout.executed",
+              cashPayoutId: body.cashPayoutId,
+              approvalId: approvalId(context),
+              supplierPaymentId: done.paymentId,
+              amountMinor: minor(done.row.amount.toFixed(2)),
               effect: done.changed ? "applied" : "already_applied",
             },
           };
