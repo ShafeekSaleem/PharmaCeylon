@@ -11,6 +11,7 @@ export const OFFLINE_USAGE_TABLES: readonly string[] = [
   "offline_journal_command",
   "offline_journal_batch_usage",
   "offline_journal_online_sale_record",
+  "offline_support_record",
 ];
 
 /**
@@ -86,4 +87,55 @@ export function activeOutage(
     )
     .get(enrollmentId) as { offline_session_id: string; offline_started_at: number | null } | undefined;
   return row ? { offlineSessionId: row.offline_session_id, offlineStartedAt: row.offline_started_at ?? 0 } : null;
+}
+
+/**
+ * P4 #50: support records (sale incidents, external-card attempt events) this computer has written
+ * that the server does not yet hold: never acknowledged, or refused because the server already
+ * holds other content under their ID. D12 resumes online checkout only when there are none.
+ *
+ * `received` counts as delivered even though the server keeps incidents and card events "for
+ * review" and never marks them accepted: it holds the evidence, and a person checks it online.
+ */
+export function undeliveredSupportRecords(db: PosDatabase, enrollmentId: string): number {
+  return (
+    db
+      .prepare(
+        "SELECT COUNT(*) AS n FROM offline_support_record WHERE enrollment_id = ? AND sync_status <> 'received'",
+      )
+      .get(enrollmentId) as { n: number }
+  ).n;
+}
+
+/** Support records the server refused for good: it already holds other content under their ID. */
+export function refusedSupportRecords(db: PosDatabase, enrollmentId: string): number {
+  return (
+    db
+      .prepare(
+        "SELECT COUNT(*) AS n FROM offline_support_record WHERE enrollment_id = ? AND sync_status = 'refused'",
+      )
+      .get(enrollmentId) as { n: number }
+  ).n;
+}
+
+/**
+ * External-card attempts whose latest event leaves the money unsettled: `prepared` and `uncertain`
+ * (the charge may or may not have happened; the original card-machine result has to be checked)
+ * and `approved` with no sale linked yet. `declined` and `linked_to_sale` are settled. D12 resumes
+ * online checkout only when there are none.
+ */
+export function unresolvedCardAttempts(db: PosDatabase, enrollmentId: string): number {
+  return (
+    db
+      .prepare(
+        `SELECT COUNT(*) AS n FROM offline_support_record r
+         WHERE r.enrollment_id = ? AND r.kind = 'external_card_attempt'
+           AND r.card_state IN ('prepared', 'uncertain', 'approved')
+           AND r.rowid = (
+             SELECT MAX(rowid) FROM offline_support_record
+             WHERE enrollment_id = r.enrollment_id AND attempt_id = r.attempt_id
+           )`,
+      )
+      .get(enrollmentId) as { n: number }
+  ).n;
 }

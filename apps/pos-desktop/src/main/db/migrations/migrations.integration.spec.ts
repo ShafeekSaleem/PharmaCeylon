@@ -134,7 +134,7 @@ describe("offline journal migrations with PR #136", () => {
     first.db.close();
 
     const second = openLocalStore(dir, protector, migrations);
-    expect(second.schemaVersion).toBe(18);
+    expect(second.schemaVersion).toBe(migrations.length);
     expect(second.db.prepare("SELECT COUNT(*) AS n FROM store_restore").get()).toEqual({ n: 0 });
     const insert = (status: string, acknowledged: boolean) =>
       second.db
@@ -151,6 +151,40 @@ describe("offline journal migrations with PR #136", () => {
     insert("acknowledged", true);
     expect(() => second.db.prepare("DELETE FROM store_restore").run()).toThrow(/kept/);
     expect(() => second.db.prepare("UPDATE store_restore SET report_envelope = 'other'").run()).toThrow(/keeps/);
+    second.db.close();
+  });
+
+  it("upgrades a v18 store through the support-record migration (v19): none recorded, signed content fixed (P4 #50)", () => {
+    const first = openLocalStore(dir, protector, migrations.filter((m) => m.version <= 18));
+    first.db.close();
+
+    const second = openLocalStore(dir, protector, migrations);
+    expect(second.schemaVersion).toBe(19);
+    expect(second.db.prepare("SELECT COUNT(*) AS n FROM offline_support_record").get()).toEqual({ n: 0 });
+    const hash = "a".repeat(64);
+    const insert = (kind: string, attempt: string | null, state: string | null, status = "pending", ack: string | null = null) =>
+      second.db
+        .prepare(
+          `INSERT INTO offline_support_record (record_id, enrollment_id, kind, attempt_id, card_state, record_hash,
+             envelope_json, recorded_at, sync_status, acknowledged_at, created_at)
+           VALUES (lower(hex(randomblob(8))), 'e1', ?, ?, ?, ?, '{}', 1, ?, ?, 'x')`,
+        )
+        .run(kind, attempt, state, hash, status, ack);
+    insert("sale_incident", null, null);
+    insert("external_card_attempt", "t1", "prepared");
+    // A card event names its attempt and state; an incident names neither.
+    expect(() => insert("external_card_attempt", null, null)).toThrow(/CHECK/);
+    expect(() => insert("sale_incident", "t1", "prepared")).toThrow(/CHECK/);
+    expect(() => insert("external_card_attempt", "t1", "refunded")).toThrow(/CHECK/);
+    expect(() => insert("refund_note", null, null)).toThrow(/CHECK/);
+    // Only a pending record has no acknowledgement time.
+    expect(() => insert("sale_incident", null, null, "received", null)).toThrow(/CHECK/);
+    expect(() => insert("sale_incident", null, null, "pending", "x")).toThrow(/CHECK/);
+    expect(() => insert("sale_incident", null, null, "lost", "x")).toThrow(/CHECK/);
+    insert("sale_incident", null, null, "received", "x");
+    expect(() => second.db.prepare("DELETE FROM offline_support_record").run()).toThrow(/kept/);
+    expect(() => second.db.prepare("UPDATE offline_support_record SET record_hash = ?").run("b".repeat(64))).toThrow(/never changes/);
+    second.db.prepare("UPDATE offline_support_record SET last_error_code = 'X' WHERE sync_status = 'pending'").run();
     second.db.close();
   });
 });

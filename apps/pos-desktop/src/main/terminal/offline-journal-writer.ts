@@ -27,7 +27,7 @@ export function journalCommandHash(payload: unknown): string {
     .digest("hex");
 }
 
-function readEnrolledDevice(db: PosDatabase): (TerminalIdentity & { publicKeyHex: string }) | null {
+export function readEnrolledDevice(db: PosDatabase): (TerminalIdentity & { publicKeyHex: string }) | null {
   const row = db
     .prepare(
       `SELECT tenant_id, branch_id, terminal_id, enrollment_id, key_id, public_key_hex
@@ -54,7 +54,7 @@ function readEnrolledDevice(db: PosDatabase): (TerminalIdentity & { publicKeyHex
   };
 }
 
-function sameTerminalIdentity(a: TerminalIdentity, b: TerminalIdentity): boolean {
+export function sameTerminalIdentity(a: TerminalIdentity, b: TerminalIdentity): boolean {
   return (
     a.tenantId === b.tenantId &&
     a.branchId === b.branchId &&
