@@ -107,13 +107,20 @@ async function invoice(total: string, dueInDays = 10) {
 
 async function approvedPayout(
   amount: string,
-  opts: { preparer?: string; approver?: string | null; supplierId?: string } = {},
+  opts: {
+    preparer?: string;
+    approver?: string | null;
+    supplierId?: string;
+    createInvoice?: boolean;
+    allocations?: { invoiceId: string; amount: string }[];
+  } = {},
 ) {
   const preparer = opts.preparer ?? fx.managerId;
   const supplierId = opts.supplierId ?? fx.supplierId;
-  if (supplierId === fx.supplierId) {
+  const createInvoice = opts.createInvoice !== false;
+  if (createInvoice && supplierId === fx.supplierId) {
     await invoice(amount);
-  } else {
+  } else if (createInvoice) {
     await ledger.createInvoice(fx.tenantId, branch(), fx.managerId, {
       supplierId,
       invoiceNumber: `INV-${randomUUID().slice(0, 6)}`,
@@ -127,6 +134,7 @@ async function approvedPayout(
     paidOn: today(),
     amount,
     reference: "CASH-OUT",
+    allocations: opts.allocations,
   });
   if (opts.approver === null) return row;
   if (row.status === "approved") return row;
@@ -199,6 +207,32 @@ afterEach(async () => {
   for (const row of open) {
     await payouts.cancel(user(fx.managerId), branch(), row.id).catch(() => undefined);
   }
+  await prisma.$transaction(async (tx) => {
+    await tx.supplierCashPayout.updateMany({
+      where: { tenantId: fx.tenantId },
+      data: { supplierPaymentId: null },
+    });
+    await tx.tillCashMovement.deleteMany({ where: { tenantId: fx.tenantId } });
+    const invoiceIds = (
+      await tx.supplierInvoice.findMany({
+        where: { tenantId: fx.tenantId },
+        select: { id: true },
+      })
+    ).map((row) => row.id);
+    if (invoiceIds.length > 0) {
+      await tx.supplierPaymentAllocation.deleteMany({
+        where: { tenantId: fx.tenantId, invoiceId: { in: invoiceIds } },
+      });
+    }
+    await tx.supplierPayment.deleteMany({ where: { tenantId: fx.tenantId } });
+    await tx.supplierCashPayout.deleteMany({ where: { tenantId: fx.tenantId } });
+    await tx.supplierInvoiceLine.deleteMany({ where: { tenantId: fx.tenantId } });
+    await tx.supplierInvoice.deleteMany({ where: { tenantId: fx.tenantId } });
+    await tx.managementApproval.deleteMany({
+      where: { tenantId: fx.tenantId, documentType: "supplier_cash_payout" },
+    });
+    await tx.supplier.deleteMany({ where: { tenantId: fx.tenantId, id: { not: fx.supplierId } } });
+  });
   await prisma.tenantSettings.upsert({
     where: { tenantId: fx.tenantId },
     create: { tenantId: fx.tenantId, selfApprovalRoleKeys: ["owner", "manager"] },
@@ -254,7 +288,10 @@ describe("supplier cash payout contract (#174)", () => {
 
   it("signed execution pays the supplier, moves drawer cash once, and replays", async () => {
     const invoiceId = await invoice("300.00");
-    const payout = await approvedPayout("300.00");
+    const payout = await approvedPayout("300.00", {
+      createInvoice: false,
+      allocations: [{ invoiceId, amount: "300.00" }],
+    });
     const counter = await counterFor(fx.managerId, true, 30_000);
     const command = await signed(counter, payout.id, payout.executionApprovalId);
     const first = await run(counter, command.request);
@@ -296,7 +333,7 @@ describe("supplier cash payout contract (#174)", () => {
     await expect(run(counter, command.request)).rejects.toMatchObject({ response: { code: "APPROVAL_INVALID" } });
     await expect(payouts.execute(user(fx.managerId), branch(), payout.id,
       { approvalId: payout.executionApprovalId }, "idem-1"))
-      .rejects.toMatchObject({ response: { code: "APPROVAL_STALE" } });
+      .rejects.toMatchObject({ response: { code: "APPROVAL_INVALID" } });
   });
 
   it("browser authorization for execute is TERMINAL_REQUIRED", async () => {
