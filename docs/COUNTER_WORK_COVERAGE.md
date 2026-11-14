@@ -37,7 +37,9 @@ These use signed commands but are not web-approved queue rows on this endpoint:
 | Surface | Role |
 | --- | --- |
 | Web Daily work | Discovery and approval; `where: counter` for kinds above |
-| `GET /counter-work` | Approved documents waiting at this branch's counter only |
+| `GET /counter-work` | Executable documents plus read-only held write-offs (`awaiting_approval` / `rejected`) |
+| `GET /dashboard/work` | Daily work (`@CounterRoute()`); `batch.expiry_review` at live branches includes `counterExecution` for signed quarantine (`reasonCode: expired`) |
+| `GET /tenant/my-permissions` | Effective permission keys at the branch for counter UI hints (`@CounterRoute()`) |
 | P6 desktop | Physical execution screens mapped by `task.destination` |
 
 Permissions match #122: each kind is listed only when the caller holds that operation's permission

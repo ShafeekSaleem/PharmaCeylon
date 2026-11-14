@@ -48,6 +48,13 @@ export const DAILY_WORK_KINDS = [
 ] as const;
 export type DailyWorkKind = (typeof DAILY_WORK_KINDS)[number];
 
+/** Signed counter step for a daily-work row (when `where` is `counter`). */
+export type DailyWorkCounterExecution = Readonly<{
+  operation: string;
+  /** Suggested signed body fields; the batch id is parsed from `id` when it carries a document prefix. */
+  signedBody: Readonly<Record<string, unknown>>;
+}>;
+
 export type DailyWorkItem = {
   id: string;
   kind: DailyWorkKind;
@@ -68,6 +75,8 @@ export type DailyWorkItem = {
   blocked: boolean;
   overdue: boolean;
   priority: number;
+  /** Present on counter physical steps such as `batch.expiry_review` (#173). */
+  counterExecution?: DailyWorkCounterExecution;
 };
 
 export type DailyWorkResponse = {

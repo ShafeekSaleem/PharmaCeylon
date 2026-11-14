@@ -19,6 +19,7 @@ import { PharmacistRegistrationService } from "../../src/clinical/pharmacist-reg
 import { businessDateKey } from "../../src/common/business-date.util";
 import { PrescriptionsService } from "../../src/customers/prescriptions.service";
 import { AdjustmentService } from "../../src/inventory/adjustment.service";
+import { InventoryController } from "../../src/inventory/inventory.controller";
 import { InventoryService } from "../../src/inventory/inventory.service";
 import { StockService } from "../../src/inventory/stock/stock.service";
 import { StockReadService } from "../../src/inventory/stock/stock-read.service";
@@ -670,6 +671,22 @@ describe("direct adjustments through signed commands", () => {
 describe("quarantine and release through signed commands (P6 #173)", () => {
   const QUARANTINE = "POST /api/v1/inventory/batches/:id/quarantine" as const;
   const RELEASE = "POST /api/v1/inventory/batches/:id/release-quarantine" as const;
+
+  it("refuses browser quarantine and release with TERMINAL_REQUIRED", () => {
+    const controller = new InventoryController(inventory, {} as never, {} as never);
+    const batchId = "00000000-0000-4000-8000-000000000099";
+    for (const call of [
+      () => controller.quarantine(batchId, { qty: 1, reasonCode: "damaged", reason: null }),
+      () => controller.releaseQuarantine(batchId, { qty: null, reason: null }),
+    ]) {
+      expect(call).toThrow(/Terminal authorization failed/);
+      try {
+        call();
+      } catch (error) {
+        expect(error).toMatchObject({ response: { code: "TERMINAL_REQUIRED" } });
+      }
+    }
+  });
 
   it("quarantines once, records command provenance and replays the original result", async () => {
     const counter = await counterFor(fx.managerId);

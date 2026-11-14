@@ -180,4 +180,47 @@ describe("web-approved work waiting at the counter", () => {
     expect(revokedItem.approval.state).toBe("revoked");
     expect(revokedItem.task.blocker?.code).toBe("APPROVAL_INVALID");
   });
+
+  it("includes awaiting_approval and rejected held write-offs as read-only rows", async () => {
+    const batchId = await createStockedBatch(prisma, stock, fx, { qty: 10 });
+    const { heldAdjustment: pending } = await adjustments.request(user(fx.clerkId), branch(), {
+      productId: fx.productId, batchId, qty: 1, kind: "lost", reason: "Awaiting",
+    });
+    const batchId2 = await createStockedBatch(prisma, stock, fx, { qty: 10 });
+    const { heldAdjustment: toReject } = await adjustments.request(user(fx.clerkId), branch(), {
+      productId: fx.productId, batchId: batchId2, qty: 1, kind: "expired", reason: "Reject me",
+    });
+    await adjustments.reject(user(fx.managerId), branch(), toReject.id, "Not justified");
+    const items = await work.list(await caller(fx.ownerId), branch());
+    const waiting = items.find((i) => i.id === pending.id)!;
+    expect(waiting).toMatchObject({
+      kind: "held_adjustment",
+      heldAdjustmentStatus: "awaiting_approval",
+      approval: { evidenceId: null, state: "not_needed" },
+    });
+    expect(waiting.task.nextAction).toMatchObject({ executable: false });
+    expect(waiting.task.signedExecution.approvalEvidenceId).toBeNull();
+    const denied = items.find((i) => i.id === toReject.id)!;
+    expect(denied.heldAdjustmentStatus).toBe("rejected");
+    expect(denied.task.stage).toBe("blocked_approval");
+  });
+
+  it("scopes held write-off rows to tenant and branch", async () => {
+    const foreign = await createTenant(prisma, "counter-work-foreign");
+    const batchId = await createStockedBatch(prisma, stock, fx, { qty: 8 });
+    const { heldAdjustment } = await adjustments.request(user(fx.clerkId), branch(), {
+      productId: fx.productId, batchId, qty: 1, kind: "damaged", reason: "Other branch isolation",
+    });
+    const foreignBatch = await createStockedBatch(prisma, stock, foreign, { qty: 8, branchId: foreign.mainBranchId });
+    await adjustments.request(
+      { ...user(foreign.clerkId), tenantId: foreign.tenantId },
+      foreign.mainBranchId,
+      { productId: foreign.productId, batchId: foreignBatch, qty: 1, kind: "lost", reason: "Foreign" },
+    );
+    const main = await work.list(await caller(fx.ownerId), branch());
+    expect(main.map((i) => i.id)).toContain(heldAdjustment.id);
+    expect(main.map((i) => i.id)).not.toContain(
+      (await prisma.heldAdjustment.findFirstOrThrow({ where: { tenantId: foreign.tenantId } })).id,
+    );
+  });
 });

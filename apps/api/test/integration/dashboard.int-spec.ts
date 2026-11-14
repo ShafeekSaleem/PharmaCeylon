@@ -1,7 +1,11 @@
 import { randomUUID } from "node:crypto";
+import { DesktopPosRollout } from "@prisma/client";
 import { DailyWorkService } from "../../src/dashboard/daily-work.service";
 import { DashboardMetricsService } from "../../src/dashboard/dashboard-metrics.service";
 import { StockReadService } from "../../src/inventory/stock/stock-read.service";
+import { StockService } from "../../src/inventory/stock/stock.service";
+import { AccessService } from "../../src/security/access.service";
+import { PermissionsService } from "../../src/security/permissions.service";
 import {
   businessToday,
   startOfBusinessDay,
@@ -9,7 +13,7 @@ import {
 } from "../../src/common/business-date.util";
 import type { RequestUser } from "../../src/security/interfaces/authenticated-request.interface";
 import { PERMISSION_KEYS } from "../../src/security/permission-catalog";
-import { createPrisma, createTenant, type TenantFixture } from "./fixtures";
+import { createPrisma, createStockedBatch, createTenant, daysFromToday, type TenantFixture } from "./fixtures";
 
 describe("Daily dashboard read models against PostgreSQL", () => {
   const prisma = createPrisma();
@@ -270,5 +274,39 @@ describe("Daily dashboard read models against PostgreSQL", () => {
     await prisma.heldDelivery.update({ where: { id: held.id, tenantId: fx.tenantId }, data: { status: "approved" } });
     const work = await receiving.get(user, fx.mainBranchId, { filter: "all", page: 1 });
     expect(work.items.find(item => item.id === `delivery:${held.id}`)).toMatchObject({ action: "Post receipt", approval: false, blocked: false });
+  });
+
+  it("maps batch.expiry_review to a counter quarantine step at a live branch", async () => {
+    const stock = new StockService();
+    await prisma.branch.update({
+      where: { id: fx.mainBranchId, tenantId: fx.tenantId },
+      data: { desktopPosRollout: DesktopPosRollout.live, desktopPosLiveAt: new Date() },
+    });
+    const batchId = await createStockedBatch(prisma, stock, fx, {
+      qty: 5,
+      expiryDate: daysFromToday(-2),
+    });
+    const permissions = new PermissionsService(prisma as never, { get: () => 0 } as never);
+    const liveWork = new DailyWorkService(
+      prisma as never,
+      new AccessService(prisma as never, permissions),
+    );
+    const manager = { ...user, userId: fx.managerId, branchRoles: [{ branchId: fx.mainBranchId, role: "manager" as const }] };
+    const work = await liveWork.get(manager, fx.mainBranchId, {
+      filter: "counter",
+      category: "inventory",
+      page: 1,
+      pageSize: 20,
+    });
+    const item = work.items.find((row) => row.id === `expiry:${batchId}`);
+    expect(item).toMatchObject({ kind: "batch.expiry_review", where: "counter" });
+    expect(item?.counterExecution).toMatchObject({
+      operation: "POST /api/v1/inventory/batches/:id/quarantine",
+      signedBody: { batchId, reasonCode: "expired" },
+    });
+    await prisma.branch.update({
+      where: { id: fx.mainBranchId, tenantId: fx.tenantId },
+      data: { desktopPosRollout: DesktopPosRollout.not_live, desktopPosLiveAt: null },
+    });
   });
 });

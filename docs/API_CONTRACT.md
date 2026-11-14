@@ -375,14 +375,16 @@ the existing documents (no model of its own): approved prepared receipts and hel
 receivable order, approved transfers leaving this branch (approval present, or waived by
 `approvalRequiredForBranchTransfers`), transfers on their way here, refund requests the refund list
 calls `readyAtCounter` (plus open ones whose approval was revoked), approved stocktakes, approved
-held write-offs, approved supplier returns, staged import stock not yet posted, and approved
-offline stock case plans (`stock_case`, P5 #51; `reference` is the sale's invoice number). Each kind is
-listed only to a caller holding that operation's own permission at the branch; `amount` on
-purchasing, write-off and supplier-return items is `null` without `costs.view`.
+held write-offs, **held write-offs still `awaiting_approval` or `rejected`** (read-only visibility;
+`heldAdjustmentStatus`, no pinned `approvalEvidenceId`), approved supplier returns, staged import
+stock not yet posted, and approved offline stock case plans (`stock_case`, P5 #51; `reference` is the
+sale's invoice number). Each kind is listed only to a caller holding that operation's own permission
+at the branch; `amount` on purchasing, write-off and supplier-return items is `null` without
+`costs.view`.
 
 Each item: `{ kind, id, reference, subject, lineCount, amount, readyAt, requested, approved,
 dispatched, approval: { evidenceId, approvedVersion, currentVersion, state, changes }, operation,
-task }`, newest first. `requested` / `approved` / `dispatched` are `{ name, at }` or `null`.
+task, heldAdjustmentStatus? }`, newest first. `requested` / `approved` / `dispatched` are `{ name, at }` or `null`.
 `state` is `matches` (the pinned approval's version and material digest equal the document now),
 `changed` (something moved since approval, e.g. the order under a held delivery; `changes` names
 what, in words), `revoked`, or `not_needed`. Execution itself still goes through
@@ -1261,8 +1263,8 @@ Stock status (`ok` / `low` / `out`) is computed from **available**.
 | `GET /inventory/summary` | `inventory.view` | Adds `availableUnits`, `quarantinedUnits`, `reservedUnits`, `expiredUnits`, `expiryReview`, `incomingTransfers`. `stockValue` is **null** without `costs.view`. |
 | `GET /inventory/movements` | `inventory.view` | Filters `productId`, `batchId`, `category` (adds `stocktakes`, `opening`, `quarantine`), `userId`, `from`/`to` (tenant-local dates), `referenceType`/`referenceId`. Quarantine moves appear once with `qtyDelta: 0` and a signed `quarantineDelta`; legacy reservation rows are hidden. `balanceAvailable` says whether before/after balances are meaningful (one product or batch, no other filters). |
 | `GET /inventory/movement-actors` | `inventory.view` | Users who moved stock at the branch in the last year. |
-| `POST /inventory/batches/:id/quarantine` | `inventory.quarantine` | Body `{ qty?, reasonCode: expired\|damaged\|recall\|inspection\|other, reason? }`. `qty` defaults to everything not already held or reserved; `reason` required for `other`. **Physical (counter):** signed command `{ batchId, qty, reasonCode, reason }` with every key present (`qty` and `reason` may be `null`). Result: `{ type: "batch.quarantined", batchId, productId, qty, reasonCode, stockReferenceId }`. Counter-only path via online signed commands (not the offline sale journal; client blocks while connectivity is `partial_outage`). The web back office keeps using this browser route until Stage 2 moves quarantine UI. |
-| `POST /inventory/batches/:id/release-quarantine` | `inventory.release_quarantine` | Body `{ qty?, reason? }`. Refused for expired batches. **Physical (counter):** signed command `{ batchId, qty, reason }` with every key present (`qty` and `reason` may be `null`). Result: `{ type: "batch.quarantine_released", batchId, productId, qty, stockReferenceId }`. Same counter online signed-command path as quarantine. |
+| `POST /inventory/batches/:id/quarantine` | `inventory.quarantine` | **Counter only** (`TERMINAL_REQUIRED` on the browser). Signed command body `{ batchId, qty, reasonCode, reason }` with every key present (`qty` and `reason` may be `null`; `reason` required for `reasonCode: other`). Result: `{ type: "batch.quarantined", batchId, productId, qty, reasonCode, stockReferenceId }`. Online signed commands only (not the offline sale journal). Daily-work `batch.expiry_review` rows at live branches map to this operation with `reasonCode: expired` (see `counterExecution` on `GET /dashboard/work`). |
+| `POST /inventory/batches/:id/release-quarantine` | `inventory.release_quarantine` | **Counter only** (`TERMINAL_REQUIRED` on the browser). Signed command `{ batchId, qty, reason }` with every key present (`qty` and `reason` may be `null`). Refused for expired batches. Result: `{ type: "batch.quarantine_released", batchId, productId, qty, stockReferenceId }`. |
 | `POST /inventory/quarantine-expired` | `inventory.manage_bulk` | Holds every sellable unit on expired batches. Returns `{ quarantined, units, batchIds }`. |
 | `POST /inventory/adjustments` | `inventory.manage` (increase) or `inventory.write_off` (decrease) | Counter work (`stock`): posts now or not at all, returning `{ held: false, ok, referenceId, batchId }`. Body `{ kind, productId, batchId \| newBatch, qty, reason? }`. `kind` says what happened: `found`, `opening` (in), `damaged`, `expired`, `lost` (out), `correction` (either way — send `movementType`, and a `reason`). Damaged and expired units come out of quarantine first. A decrease that needs approval — the caller lacks `inventory.write_off`, or its value reaches `TenantSettings.approvalRequiredWriteOffThreshold` and the caller's role may not approve its own requests — is refused with **409 `WRITE_OFF_APPROVAL_REQUIRED`** before anything moves; nothing is held. Send it to `adjustment-requests`. Authority and the policy are read live, and again after the batch lock. Callers without `kind` keep the old shape (`movementType`, `reason` for decreases, `fromQuarantine`). Accepts `Idempotency-Key` (scope `stock_adjustment`): the key, the movement and its `inventory.adjustment` audit commit together, and a resend of the same body at the same branch returns the first `{ held: false, ok, referenceId, batchId }` and moves nothing. The key with any other body, or at another branch, is **400** "Idempotency-Key already used for a different stock adjustment". Identical requests sent together serialize on the key, so stock moves once. A refused or failed attempt (including the 409) leaves the key unused. The web sends one key per adjustment as entered, distinct from the key it sends the same entry to `adjustment-requests` under. Also a signed terminal command (below), which replays through its command receipt instead. |
 | `POST /inventory/adjustment-requests` | `inventory.manage` or `inventory.write_off` | Remote (`management`). The same body, for a decrease only (`newBatch` and increases are refused). Records a held write-off and moves no stock, whoever sends it: `{ held: true, heldAdjustment, notified }`. Accepts `Idempotency-Key` (scope `held_adjustment_request`): a resend of the same body at the same branch returns the first request's `heldAdjustment` with `notified: 0` (nobody is told twice), and the key with any other body is **400** "Idempotency-Key already used for a different write-off request". Identical requests sent together serialize on the key, so one is held. The web sends one key per write-off as entered. The request and its `inventory.write_off_held` audit commit together; people with `inventory.write_off` are notified after commit. Accept and post it through `held-adjustments/:id/*`. |
@@ -1485,6 +1487,9 @@ transaction. Omission preserves the setting. The locked owner role rejects edits
 `GET /tenant/my-permissions` includes effective `backOfficeAccess`, resolved for only the
 selected branch's role IDs and tenant, or all the caller's mappings without a branch header.
 This field only scopes web presentation: operation permission keys and API checks remain intact.
+The route is a `@CounterRoute()` so PIN-opened counter sessions can read stock permission hints
+(`inventory.quarantine`, `inventory.release_quarantine`, `inventory.write_off`, …) at the active
+branch.
 Apply migration `20261028000000_role_back_office_access` before deploying API/web together.
 
 ## Counter alert settings (W7)

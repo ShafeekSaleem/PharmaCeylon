@@ -4,6 +4,8 @@ import {
   Controller,
   Get,
   Headers,
+  HttpCode,
+  HttpStatus,
   Param,
   ParseUUIDPipe,
   Post,
@@ -18,6 +20,7 @@ import { RequireBranchId } from "../security/decorators/require-branch.decorator
 import { RequestUser } from "../security/interfaces/authenticated-request.interface";
 import { ConfirmBatchExpiryDto } from "./dto/confirm-batch-expiry.dto";
 import { QuarantineBatchDto, ReleaseQuarantineDto } from "./dto/quarantine-batch.dto";
+import { denied } from "../terminals/terminal-wire";
 import { StockAdjustmentDto } from "./dto/stock-adjustment.dto";
 import { AdjustmentService } from "./adjustment.service";
 import {
@@ -115,26 +118,22 @@ export class InventoryController {
     });
   }
 
+  /**
+   * The routes the signed counter operations name. Quarantine and release are physical stock work
+   * (#173): a browser or any request without a verified signed command is refused.
+   */
   @RequirePermission("inventory.quarantine")
+  @HttpCode(HttpStatus.OK)
   @Post("batches/:id/quarantine")
-  quarantine(
-    @CurrentUser() user: RequestUser,
-    @RequireBranchId() branchId: string,
-    @Param("id", ParseUUIDPipe) id: string,
-    @Body() dto: QuarantineBatchDto,
-  ) {
-    return this.inventory.quarantineBatch(user.tenantId, branchId, user.userId, id, dto);
+  quarantine(@Param("id", ParseUUIDPipe) _id: string, @Body() _dto: QuarantineBatchDto): never {
+    denied("TERMINAL_REQUIRED");
   }
 
   @RequirePermission("inventory.release_quarantine")
+  @HttpCode(HttpStatus.OK)
   @Post("batches/:id/release-quarantine")
-  releaseQuarantine(
-    @CurrentUser() user: RequestUser,
-    @RequireBranchId() branchId: string,
-    @Param("id", ParseUUIDPipe) id: string,
-    @Body() dto: ReleaseQuarantineDto,
-  ) {
-    return this.inventory.releaseQuarantine(user.tenantId, branchId, user.userId, id, dto ?? {});
+  releaseQuarantine(@Param("id", ParseUUIDPipe) _id: string, @Body() _dto: ReleaseQuarantineDto): never {
+    denied("TERMINAL_REQUIRED");
   }
 
   @RequirePermission("inventory.manage_bulk")

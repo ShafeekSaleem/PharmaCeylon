@@ -194,6 +194,12 @@ export type CounterWorkTask = Readonly<{
   executeErrors: ReadonlyArray<CounterWorkExecuteError>;
 }>;
 
+export type HeldAdjustmentCounterStatus =
+  | "awaiting_approval"
+  | "approved"
+  | "accepted"
+  | "rejected";
+
 export type ProjectCounterWorkTaskInput = Readonly<{
   kind: CounterWorkKind;
   id: string;
@@ -205,6 +211,8 @@ export type ProjectCounterWorkTaskInput = Readonly<{
   approvedAt: string | null;
   readyAt: string;
   asOf: string;
+  /** Read-only held write-off rows on the counter (#173). */
+  heldAdjustmentStatus?: HeldAdjustmentCounterStatus;
 }>;
 
 const NEXT_ACTION_READY: Readonly<Record<CounterWorkKind, string>> = {
@@ -288,24 +296,35 @@ function signedExecutionFor(
  * fields. The API sets `asOf` once per list response.
  */
 export function projectCounterWorkTask(input: ProjectCounterWorkTaskInput): CounterWorkTask {
-  const { kind, approval, approvedAt, asOf } = input;
+  const { kind, approval, approvedAt, asOf, heldAdjustmentStatus } = input;
   const { destination, status: destinationStatus } = COUNTER_WORK_DESTINATION_BY_KIND[kind];
-  const blocker = blockerForApproval(approval.state, approval.changes);
-  const stage = stageFor(blocker);
+  const readOnlyHeld =
+    kind === "held_adjustment" &&
+    (heldAdjustmentStatus === "awaiting_approval" || heldAdjustmentStatus === "rejected");
+  const blocker = readOnlyHeld ? null : blockerForApproval(approval.state, approval.changes);
+  const stage = readOnlyHeld ? "blocked_approval" : stageFor(blocker);
   const readyLabel = NEXT_ACTION_READY[kind];
 
-  const nextAction: CounterWorkNextAction = !blocker
+  const nextAction: CounterWorkNextAction = readOnlyHeld
     ? {
         label:
-          destinationStatus === "available"
-            ? readyLabel
-            : `${readyLabel} (screen planned)`,
-        executable: destinationStatus === "available",
-      }
-    : {
-        label: blocker.code === "APPROVAL_INVALID" ? "Approval withdrawn" : "Approve again on the web",
+          heldAdjustmentStatus === "rejected"
+            ? "Rejected on the web"
+            : "Waiting for approval on the web",
         executable: false,
-      };
+      }
+    : !blocker
+      ? {
+          label:
+            destinationStatus === "available"
+              ? readyLabel
+              : `${readyLabel} (screen planned)`,
+          executable: destinationStatus === "available",
+        }
+      : {
+          label: blocker.code === "APPROVAL_INVALID" ? "Approval withdrawn" : "Approve again on the web",
+          executable: false,
+        };
 
   return {
     contractVersion: COUNTER_WORK_CONTRACT_VERSION,

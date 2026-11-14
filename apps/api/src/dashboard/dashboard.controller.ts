@@ -1,4 +1,5 @@
 import { Body, Controller, Delete, Get, Put, Query } from "@nestjs/common";
+import { CounterRoute } from "../security/decorators/counter-route.decorator";
 import { RequireBranchId } from "../security/decorators/require-branch.decorator";
 import { RequirePermission } from "../security/decorators/require-permission.decorator";
 import { DailyWorkService } from "./daily-work.service";
@@ -23,6 +24,7 @@ export class DashboardController {
   ) {}
 
   // Work sources enforce their own effective permission checks in the service.
+  @CounterRoute()
   @Get("work")
   getWork(
     @CurrentUser() user: RequestUser,
