@@ -672,12 +672,13 @@ describe("quarantine and release through signed commands (P6 #173)", () => {
   const QUARANTINE = "POST /api/v1/inventory/batches/:id/quarantine" as const;
   const RELEASE = "POST /api/v1/inventory/batches/:id/release-quarantine" as const;
 
-  it("refuses browser quarantine and release with TERMINAL_REQUIRED", () => {
+  it("refuses browser quarantine, release and bulk-expired with TERMINAL_REQUIRED", () => {
     const controller = new InventoryController(inventory, {} as never, {} as never);
     const batchId = "00000000-0000-4000-8000-000000000099";
     for (const call of [
       () => controller.quarantine(batchId, { qty: 1, reasonCode: "damaged" }),
       () => controller.releaseQuarantine(batchId, {}),
+      () => controller.quarantineExpired(),
     ]) {
       expect(call).toThrow(/Terminal authorization failed/);
       try {
@@ -686,6 +687,13 @@ describe("quarantine and release through signed commands (P6 #173)", () => {
         expect(error).toMatchObject({ response: { code: "TERMINAL_REQUIRED" } });
       }
     }
+  });
+
+  it("still quarantines expired sellable units through the service (future signed bulk route)", async () => {
+    const batchId = await createStockedBatch(prisma, stock, fx, { qty: 6, expiryInDays: -3 });
+    const result = await inventory.quarantineExpired(fx.tenantId, fx.mainBranchId, fx.managerId);
+    expect(result).toMatchObject({ quarantined: 1, units: expect.any(Number), batchIds: [batchId] });
+    expect(await batchTotals(prisma, batchId)).toMatchObject({ quarantined: 6, available: 0 });
   });
 
   it("quarantines once, records command provenance and replays the original result", async () => {

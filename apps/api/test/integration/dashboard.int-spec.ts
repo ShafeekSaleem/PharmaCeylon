@@ -282,31 +282,91 @@ describe("Daily dashboard read models against PostgreSQL", () => {
       where: { id: fx.mainBranchId, tenantId: fx.tenantId },
       data: { desktopPosRollout: DesktopPosRollout.live, desktopPosLiveAt: new Date() },
     });
-    const batchId = await createStockedBatch(prisma, stock, fx, {
-      qty: 5,
-      expiryInDays: -2,
-    });
-    const permissions = new PermissionsService(prisma as never, { get: () => 0 } as never);
-    const liveWork = new DailyWorkService(
-      prisma as never,
-      new AccessService(prisma as never, permissions),
-    );
-    const manager = { ...user, userId: fx.managerId, branchRoles: [{ branchId: fx.mainBranchId, role: "manager" as const }] };
-    const work = await liveWork.get(manager, fx.mainBranchId, {
-      filter: "counter",
-      category: "inventory",
-      page: 1,
-      pageSize: 20,
-    });
-    const item = work.items.find((row) => row.id === `expiry:${batchId}`);
-    expect(item).toMatchObject({ kind: "batch.expiry_review", where: "counter" });
-    expect(item?.counterExecution).toMatchObject({
-      operation: "POST /api/v1/inventory/batches/:id/quarantine",
-      signedBody: { batchId, reasonCode: "expired" },
+    try {
+      const batchId = await createStockedBatch(prisma, stock, fx, {
+        qty: 5,
+        expiryInDays: -2,
+      });
+      const permissions = new PermissionsService(prisma as never, { get: () => 0 } as never);
+      const liveWork = new DailyWorkService(
+        prisma as never,
+        new AccessService(prisma as never, permissions),
+      );
+      const manager = {
+        ...user,
+        userId: fx.managerId,
+        branchRoles: [{ branchId: fx.mainBranchId, role: "manager" as const }],
+      };
+      const work = await liveWork.get(manager, fx.mainBranchId, {
+        filter: "counter",
+        category: "inventory",
+        page: 1,
+        pageSize: 20,
+      });
+      const item = work.items.find((row) => row.id === `expiry:${batchId}`);
+      expect(item).toMatchObject({ kind: "batch.expiry_review", where: "counter" });
+      expect(item?.counterExecution).toMatchObject({
+        operation: "POST /api/v1/inventory/batches/:id/quarantine",
+        signedBody: { batchId, reasonCode: "expired" },
+      });
+    } finally {
+      await prisma.branch.update({
+        where: { id: fx.mainBranchId, tenantId: fx.tenantId },
+        data: { desktopPosRollout: DesktopPosRollout.not_live, desktopPosLiveAt: null },
+      });
+    }
+  });
+
+  it("counter-attention query omits approval and finance rows from full daily work", async () => {
+    const stock = new StockService();
+    const po = await prisma.purchaseOrder.create({
+      data: {
+        tenantId: fx.tenantId,
+        branchId: fx.mainBranchId,
+        supplierId: fx.supplierId,
+        poNumber: randomUUID(),
+        status: "pending_approval",
+        createdBy: fx.clerkId,
+      },
     });
     await prisma.branch.update({
       where: { id: fx.mainBranchId, tenantId: fx.tenantId },
-      data: { desktopPosRollout: DesktopPosRollout.not_live, desktopPosLiveAt: null },
+      data: { desktopPosRollout: DesktopPosRollout.live, desktopPosLiveAt: new Date() },
     });
+    try {
+      await createStockedBatch(prisma, stock, fx, { qty: 4, expiryInDays: -1 });
+      const permissions = new PermissionsService(prisma as never, { get: () => 0 } as never);
+      const liveWork = new DailyWorkService(
+        prisma as never,
+        new AccessService(prisma as never, permissions),
+      );
+      const manager = {
+        ...user,
+        userId: fx.managerId,
+        branchRoles: [{ branchId: fx.mainBranchId, role: "manager" as const }],
+      };
+      const full = await liveWork.get(manager, fx.mainBranchId, { filter: "all", page: 1, pageSize: 50 });
+      expect(full.items.some((row) => row.id === `po:${po.id}`)).toBe(true);
+      const counterFeed = await liveWork.get(
+        manager,
+        fx.mainBranchId,
+        {
+          filter: "counter",
+          category: "inventory",
+          kind: "batch.expiry_review",
+          page: 1,
+          pageSize: 50,
+        },
+        { kinds: ["batch.expiry_review"], pageSize: 50 },
+      );
+      expect(counterFeed.items.every((row) => row.kind === "batch.expiry_review")).toBe(true);
+      expect(counterFeed.items.some((row) => row.id.startsWith("po:"))).toBe(false);
+    } finally {
+      await prisma.purchaseOrder.delete({ where: { id: po.id } });
+      await prisma.branch.update({
+        where: { id: fx.mainBranchId, tenantId: fx.tenantId },
+        data: { desktopPosRollout: DesktopPosRollout.not_live, desktopPosLiveAt: null },
+      });
+    }
   });
 });

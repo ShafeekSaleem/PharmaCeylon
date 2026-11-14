@@ -4,8 +4,6 @@ import {
   Controller,
   Get,
   Headers,
-  HttpCode,
-  HttpStatus,
   Param,
   ParseUUIDPipe,
   Post,
@@ -123,23 +121,22 @@ export class InventoryController {
    * (#173): a browser or any request without a verified signed command is refused.
    */
   @RequirePermission("inventory.quarantine")
-  @HttpCode(HttpStatus.OK)
   @Post("batches/:id/quarantine")
   quarantine(@Param("id", ParseUUIDPipe) _id: string, @Body() _dto: QuarantineBatchDto): never {
     denied("TERMINAL_REQUIRED");
   }
 
   @RequirePermission("inventory.release_quarantine")
-  @HttpCode(HttpStatus.OK)
   @Post("batches/:id/release-quarantine")
   releaseQuarantine(@Param("id", ParseUUIDPipe) _id: string, @Body() _dto: ReleaseQuarantineDto): never {
     denied("TERMINAL_REQUIRED");
   }
 
+  /** Bulk hold of expired sellable units — counter-only (#173); no signed bulk operation yet. */
   @RequirePermission("inventory.manage_bulk")
   @Post("quarantine-expired")
-  quarantineExpired(@CurrentUser() user: RequestUser, @RequireBranchId() branchId: string) {
-    return this.inventory.quarantineExpired(user.tenantId, branchId, user.userId);
+  quarantineExpired(): never {
+    denied("TERMINAL_REQUIRED");
   }
 
   /** Also the desktop counter's Stock page: its lookup and its Needs attention list. */
