@@ -28,6 +28,8 @@ describe("terminal route permissions", () => {
       "beginEnrollment",
       "counters",
       "createCounter",
+      "updateCounter",
+      "deleteCounter",
       "revokeEnrollment",
       "retireTerminal",
     ])

@@ -14,11 +14,23 @@ const json = (body: unknown): RequestInit => ({
 
 /** Every call is scoped to the selected branch by the `x-branch-id` header `apiJson` adds. */
 export const countersApi = {
-  counters: () => apiJson<TerminalCounterView[]>("/terminals/counters"),
+  /** Counters in use; `includeInactive` also lists the ones the pharmacy has stopped using. */
+  counters: (includeInactive = false) =>
+    apiJson<TerminalCounterView[]>(
+      includeInactive ? "/terminals/counters?includeInactive=true" : "/terminals/counters",
+    ),
   /** P5 #51: how far each counter's offline journal has reached the server, with the branch's timezone. */
   journalStatus: () => apiJson<CounterJournalSyncStatus>("/terminals/offline-journal/sync-status"),
   createCounter: (label: string) =>
     apiJson<TerminalCounterView>("/terminals/counters", json({ label })),
+  updateCounter: (registerId: string, changes: { label?: string; isActive?: boolean }) =>
+    apiJson<TerminalCounterView>(`/terminals/counters/${registerId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(changes),
+    }),
+  deleteCounter: (registerId: string) =>
+    apiJson<void>(`/terminals/counters/${registerId}`, { method: "DELETE" }),
   codes: () => apiJson<TerminalEnrollmentCodeView[]>("/terminals/enrollment-codes"),
   issueCode: (registerId: string, expiresInMinutes: number) =>
     apiJson<TerminalEnrollmentCodeIssued>(

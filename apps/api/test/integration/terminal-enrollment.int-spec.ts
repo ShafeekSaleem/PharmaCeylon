@@ -1272,6 +1272,45 @@ describe("one-time enrollment codes", () => {
   });
 });
 
+describe("renaming, stopping use of and deleting counters (#180)", () => {
+  const rename = (id: string, changes: { label?: string; isActive?: boolean }) =>
+    tx((c) => trust.updateCounter(c, owner, fx.mainBranchId, id, changes));
+
+  it("renames, refuses a name another counter has, and deletes a counter nothing has touched", async () => {
+    const a = await counter("Rename A");
+    const b = await counter("Rename B");
+    await expect(rename(a.id, { label: "  Rename A fixed " })).resolves.toMatchObject({
+      label: "Rename A fixed",
+    });
+    await expect(rename(b.id, { label: "RENAME a FIXED" })).rejects.toMatchObject({
+      response: { code: "COUNTER_LABEL_TAKEN" },
+    });
+    await tx((c) => trust.deleteCounter(c, owner, fx.mainBranchId, b.id));
+    expect(await prisma.terminalCounter.count({ where: { id: b.id } })).toBe(0);
+    expect(
+      await prisma.auditEvent.count({
+        where: { tenantId: fx.tenantId, entityId: a.id, eventName: "terminal.counter_renamed" },
+      }),
+    ).toBe(1);
+  });
+
+  it("keeps a counter that has a computer, and will not stop using one with a computer still enrolled", async () => {
+    const { registerId, identity } = await enroll();
+    await expect(rename(registerId, { isActive: false })).rejects.toMatchObject({
+      response: { code: "COUNTER_IN_USE" },
+    });
+    await expect(
+      tx((c) => trust.deleteCounter(c, owner, fx.mainBranchId, registerId)),
+    ).rejects.toMatchObject({ response: { code: "COUNTER_HAS_HISTORY" } });
+    // Once the computer is retired the counter can be stopped, but still not deleted.
+    await tx((c) => trust.retireTerminal(c, owner, fx.mainBranchId, identity.terminalId, "Replaced"));
+    await expect(rename(registerId, { isActive: false })).resolves.toMatchObject({ isActive: false });
+    await expect(
+      tx((c) => trust.deleteCounter(c, owner, fx.mainBranchId, registerId)),
+    ).rejects.toMatchObject({ response: { code: "COUNTER_HAS_HISTORY" } });
+  });
+});
+
 describe("go-live evidence from counters", () => {
   it("counts people prepared at their current PIN and confirmed test receipts, on active counters only", async () => {
     const fresh = await createTenant(prisma, "counter-evidence");
