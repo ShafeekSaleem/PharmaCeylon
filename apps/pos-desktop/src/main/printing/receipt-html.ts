@@ -78,6 +78,50 @@ ${row("Change", sale.changeDue)}
 </html>`;
 }
 
+export type SupplierCashPayoutReceipt = {
+  payoutNumber: string;
+  amountMinor: number;
+  supplierPaymentId: string;
+  supplierName: string | null;
+  movementReason: string;
+  executedAt: string;
+};
+
+function minorMoney(minor: number): string {
+  return (minor / 100).toFixed(2);
+}
+
+/** Till receipt for a supplier cash payout executed on this counter. */
+export function renderSupplierCashPayoutReceiptHtml(
+  payout: SupplierCashPayoutReceipt,
+  place: { branchName: string; counterLabel: string },
+): string {
+  const row = (label: string, value: string) =>
+    `<tr><td>${escapeHtml(label)}</td><td>${escapeHtml(value)}</td></tr>`;
+  return `<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>${RECEIPT_STYLE}</style>
+</head>
+<body>
+<h1>${escapeHtml(place.branchName)}</h1>
+<p>${escapeHtml(place.counterLabel)}</p>
+<table>
+${row("Receipt", "supplier_cash_payout.executed")}
+${row("Supplier", payout.supplierName ?? "Supplier")}
+${row("Payout", payout.payoutNumber)}
+${row("Payment id", payout.supplierPaymentId)}
+${row("Till cash out", payout.movementReason)}
+${row("Amount", `Rs ${minorMoney(payout.amountMinor)}`)}
+${row("Paid at", new Date(payout.executedAt).toLocaleString())}
+</table>
+<hr>
+<p>Supplier cash payout</p>
+</body>
+</html>`;
+}
+
 export function renderTestReceiptHtml(input: { printerName: string; printedAt: Date; appVersion: string }): string {
   const row = (label: string, value: string) => `<tr><td>${escapeHtml(label)}</td><td>${escapeHtml(value)}</td></tr>`;
   return `<!doctype html>

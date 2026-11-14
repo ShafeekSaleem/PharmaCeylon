@@ -159,7 +159,7 @@ describe("offline journal migrations with PR #136", () => {
     first.db.close();
 
     const second = openLocalStore(dir, protector, migrations);
-    expect(second.schemaVersion).toBe(19);
+    expect(second.schemaVersion).toBe(migrations.length);
     expect(second.db.prepare("SELECT COUNT(*) AS n FROM offline_support_record").get()).toEqual({ n: 0 });
     const hash = "a".repeat(64);
     const insert = (kind: string, attempt: string | null, state: string | null, status = "pending", ack: string | null = null) =>
@@ -185,6 +185,18 @@ describe("offline journal migrations with PR #136", () => {
     expect(() => second.db.prepare("DELETE FROM offline_support_record").run()).toThrow(/kept/);
     expect(() => second.db.prepare("UPDATE offline_support_record SET record_hash = ?").run("b".repeat(64))).toThrow(/never changes/);
     second.db.prepare("UPDATE offline_support_record SET last_error_code = 'X' WHERE sync_status = 'pending'").run();
+    second.db.close();
+  });
+
+  it("upgrades through v20 till-shift payout kind", () => {
+    const first = openLocalStore(dir, protector, migrations.filter((m) => m.version <= 19));
+    first.db.close();
+    const second = openLocalStore(dir, protector, migrations);
+    expect(second.schemaVersion).toBe(migrations.length);
+    const ddl = second.db.prepare("SELECT sql FROM sqlite_master WHERE name = 'till_shift_posting'").get() as
+      | { sql: string }
+      | undefined;
+    expect(ddl?.sql).toMatch(/'payout'/);
     second.db.close();
   });
 });

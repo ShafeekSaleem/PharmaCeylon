@@ -20,6 +20,11 @@ export function PurchasingSubnav() {
       label: "Invoices",
       hidden: !(access.canInvoice || access.canPay),
     },
+    {
+      href: "/purchasing/cash-payouts",
+      label: "Cash payouts",
+      hidden: !access.canPay,
+    },
     { href: "/purchasing/supplier-returns", label: "Supplier returns", hidden: !access.canViewReturns },
   ];
   return <PageSubnav label="Purchasing sections" tabs={tabs} />;

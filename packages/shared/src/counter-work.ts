@@ -74,7 +74,7 @@ export const COUNTER_WORK_DESTINATION_BY_KIND: Readonly<
   supplier_return: { destination: "supplier_return", status: "planned" },
   import_stock: { destination: "import_post", status: "planned" },
   stock_case: { destination: "offline_stock_case", status: "planned" },
-  supplier_cash_payout: { destination: "supplier_payout", status: "planned" },
+  supplier_cash_payout: { destination: "supplier_payout", status: "available" },
 };
 
 /** Signed physical operation for each kind (execution after prepare). */
