@@ -145,7 +145,7 @@ describe("deriveSyncState — states 0–6 (sales-only)", () => {
       "active",
       apiOk,
       salesOnly({
-        pause: { reason: "draining", waiting: 1, outageStartedAt: null, unconfirmed: { sales: 0, actions: 0 } },
+        pause: { reason: "draining", waiting: 1, outageStartedAt: null, unconfirmed: { sales: 0, actions: 0 }, holds: { cards: 0, records: 0, refused: 0 } },
       }),
       now,
       false,

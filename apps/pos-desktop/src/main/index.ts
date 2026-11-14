@@ -31,6 +31,7 @@ import {
 } from "./terminal/offline-journal-sync";
 import { SignedCommandService } from "./terminal/signed-commands";
 import { ShiftService } from "./shifts/shift-service";
+import { OfflineSupportService } from "./terminal/offline-support-service";
 import { StockLookupService } from "./terminal/stock-lookup";
 import type { CompletedSale } from "../shared/ipc-contract";
 import { buildReadinessReport, type ReadinessFacts } from "./readiness";
@@ -126,6 +127,7 @@ let commands: SignedCommandService | null = null;
 let counterWork: CounterWorkService | null = null;
 let shifts: ShiftService | null = null;
 let stock: StockLookupService | null = null;
+let offlineSupport: OfflineSupportService | null = null;
 let returns: ReturnsService | null = null;
 let authorityRefresh: OfflineAuthorityRefresh | null = null;
 let journalSync: OfflineJournalSync | null = null;
@@ -158,6 +160,11 @@ function unconfirmedFacts(): { unconfirmed: number; unconfirmedSalesBy: string[]
 function requireShifts(): ShiftService {
   if (!shifts) throw new ActionFailure("NOT_READY", "The counter is still starting.");
   return shifts;
+}
+
+function requireOfflineSupport(): OfflineSupportService {
+  if (!offlineSupport) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+  return offlineSupport;
 }
 
 /** A completed counter sale moves the open shift's own running expected cash (D7b), once. */
@@ -491,6 +498,11 @@ function registerIpc(schemaVersion: number, logger: ReturnType<typeof createLogg
           authorityRefresh?.status() ?? null,
         );
       },
+      offlineSales: () => act(logger, "offlineSales", () => requireOfflineSupport().sales()),
+      noteSaleProblem: (input) => act(logger, "noteSaleProblem", () => requireOfflineSupport().recordIncident(input)),
+      cardAttempts: () => act(logger, "cardAttempts", () => requireOfflineSupport().cardAttempts()),
+      prepareCardAttempt: (input) => act(logger, "prepareCardAttempt", () => requireOfflineSupport().prepareCard(input)),
+      recordCardOutcome: (input) => act(logger, "recordCardOutcome", () => requireOfflineSupport().recordCardOutcome(input)),
       refreshShift: () => act(logger, "refreshShift", () => requireShifts().refresh()),
       openShift: ({ pin, count }) => act(logger, "openShift", () => requireShifts().open(pin, count)),
       closeShift: ({ count, varianceNote, assistance }) =>
@@ -658,6 +670,7 @@ async function start(): Promise<void> {
   dispensing = new DispensingService({ api: terminalApi, terminal, commands });
   counterWork = new CounterWorkService({ api: terminalApi, terminal, commands });
   shifts = new ShiftService({ db: store.db, api: terminalApi, terminal, device: deviceStore, logger });
+  offlineSupport = new OfflineSupportService({ db: store.db, terminal, journal: offlineJournalWriter });
   stock = new StockLookupService({ api: terminalApi, terminal, commands });
   returns = new ReturnsService({ api: terminalApi, terminal, commands });
   registerIpc(store.schemaVersion, logger);

@@ -395,6 +395,7 @@ describe("SyncBlock (P5 #51)", () => {
     pause: {
       reason: "draining" as const, waiting: 2, outageStartedAt: "2026-11-10T09:00:00.000Z",
       unconfirmed: { sales: 0, actions: 0 },
+      holds: { cards: 0, records: 0, refused: 0 },
     },
   };
 
@@ -422,6 +423,24 @@ describe("SyncBlock (P5 #51)", () => {
     expect(text).toContain("The 2 sales below were sent but not confirmed: synchronisation finishes once they are.");
     expect(text).toContain("An action sent from here waits in Counter work for the person who sent it to confirm it.");
     expect(screen.getByRole("button", { name: "Confirm with server" })).toBeTruthy();
+  });
+
+  it("says a drain is held by an unsettled card payment, and where to settle it", () => {
+    renderWithKeys(
+      <SyncBlock sync={{ ...sync, accepted: 3, waiting: 0, pause: { ...sync.pause, waiting: 0, holds: { cards: 1, records: 0, refused: 0 } } }} />,
+    );
+    const text = screen.getByRole("status").textContent ?? "";
+    expect(text).toContain("A card payment from the outage is not settled yet. Open This counter");
+    expect(text).not.toContain("fresh stock is on its way");
+  });
+
+  it("says a drain is held by notes the server has not received, or turned down", () => {
+    renderWithKeys(
+      <SyncBlock sync={{ ...sync, accepted: 3, waiting: 0, pause: { ...sync.pause, waiting: 0, holds: { cards: 0, records: 3, refused: 1 } } }} />,
+    );
+    const text = screen.getByRole("status").textContent ?? "";
+    expect(text).toContain("2 notes or card records are still on their way to the server.");
+    expect(text).toContain("The server turned down one note or card record.");
   });
 
   it("asks for attention when a record is refused, with the server's reason", () => {

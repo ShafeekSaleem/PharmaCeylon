@@ -81,6 +81,15 @@ export const journalSyncSchema = z.object({
         sales: z.number().int().min(0),
         actions: z.number().int().min(0),
       }),
+      /**
+       * Offline records that also hold the drain: card payments not yet settled, notes and card
+       * records the server has not received, and ones it refused (those need support).
+       */
+      holds: z.object({
+        cards: z.number().int().min(0),
+        records: z.number().int().min(0),
+        refused: z.number().int().min(0),
+      }),
     })
     .nullable(),
   /** When the last outage's synchronisation finished, ISO. */
@@ -97,6 +106,60 @@ export const journalSyncSchema = z.object({
   stockDownloadNominated: z.boolean().nullable(),
 });
 export type JournalSync = z.infer<typeof journalSyncSchema>;
+
+/** An offline sale recorded on this counter, as the "note a problem" sheet lists it. */
+export const offlineSaleSchema = z.object({
+  saleCommandId: z.string().uuid(),
+  at: z.string(),
+  /** Two-decimal rupees, as saved with the sale. */
+  total: z.string(),
+  itemCount: z.number().int().min(0),
+  paidByCard: z.boolean(),
+  /** The card machine's reference and approval code on each card payment of this sale. */
+  cardPayments: z.array(z.object({ reference: z.string(), approvalCode: z.string() })),
+  /** Notes already saved against this sale. */
+  noteCount: z.number().int().min(0),
+});
+export type OfflineSaleView = z.infer<typeof offlineSaleSchema>;
+
+export const saleIncidentCategorySchema = z.enum(["quantity_error", "payment_uncertain", "customer_dispute", "other"]);
+
+/** Longest note the counter will save; the main process enforces the same limit. */
+export const MAX_SALE_NOTE_LENGTH = 1000;
+
+/** An external-card payment started at this counter while offline, and where it stands. */
+export const cardAttemptSchema = z.object({
+  attemptId: z.string().uuid(),
+  checkoutDraftId: z.string().uuid(),
+  amount: z.string(),
+  startedAt: z.string(),
+  state: z.enum(["prepared", "uncertain", "approved", "declined", "linked_to_sale"]),
+  /** True once it was declined or tied to the sale it paid for. */
+  settled: z.boolean(),
+  /** From the card machine's slip, once someone has recorded it. */
+  providerReference: z.string().nullable(),
+  approvalCode: z.string().nullable(),
+});
+export type CardAttemptView = z.infer<typeof cardAttemptSchema>;
+
+const cardReference = z.string().min(1).max(64);
+
+/** What the person at the counter saw or knows about a card payment. */
+export const cardOutcomeSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("not_sure") }),
+  z.object({
+    kind: z.literal("approved"),
+    reference: cardReference,
+    approvalCode: z.string().min(1).max(32),
+    /** When the card machine approved it, as read from the slip (ISO). */
+    approvedAt: z.string().datetime(),
+  }),
+  z.object({ kind: z.literal("declined"), reference: cardReference }),
+  /** Checked the card machine: this payment never reached it, so there is no reference to copy. */
+  z.object({ kind: z.literal("never_charged") }),
+  z.object({ kind: z.literal("paid_sale"), reference: cardReference, saleCommandId: z.string().uuid() }),
+]);
+export type CardOutcomeInput = z.infer<typeof cardOutcomeSchema>;
 
 export const readinessReportSchema = z.object({
   ready: z.boolean(),
@@ -1151,6 +1214,36 @@ export const ipcContract = {
   getShift: { channel: "pos:shift:get", input: noInput, output: shiftStateSchema },
   /** The offline journal's upload and the reconnect pause (P5 #51). Local only. */
   getJournalSync: { channel: "pos:journal-sync:get", input: noInput, output: journalSyncSchema },
+  /** Offline sales recorded on this counter, for noting a problem with one (P4 #50). Local only. */
+  offlineSales: { channel: "pos:offline-support:sales", input: noInput, output: result(z.array(offlineSaleSchema)) },
+  /** A note on an offline sale. It changes nothing about the sale, stock or cash. */
+  noteSaleProblem: {
+    channel: "pos:offline-support:note",
+    input: z.object({
+      saleCommandId: uuid,
+      category: saleIncidentCategorySchema,
+      description: z.string().min(1).max(MAX_SALE_NOTE_LENGTH),
+    }),
+    output: result(z.object({ recordedAt: z.string() })),
+  },
+  /** External-card payments started here while offline, newest first. Local only. */
+  cardAttempts: { channel: "pos:offline-support:card-attempts", input: noInput, output: result(z.array(cardAttemptSchema)) },
+  /** Saves a card payment before the card machine is asked to charge. Refused while one is unsettled. */
+  prepareCardAttempt: {
+    channel: "pos:offline-support:card-prepare",
+    input: z.object({
+      checkoutDraftId: uuid,
+      reviewedSaleDigest: z.string().regex(/^[a-f0-9]{64}$/),
+      amountMinor: z.number().int().min(1),
+    }),
+    output: result(z.object({ attemptId: uuid })),
+  },
+  /** What the card machine did, or which sale the approved payment went to. */
+  recordCardOutcome: {
+    channel: "pos:offline-support:card-outcome",
+    input: z.object({ attemptId: uuid, outcome: cardOutcomeSchema }),
+    output: result(z.object({ state: cardAttemptSchema.shape.state })),
+  },
   /** Asks the server, adopts what it says, and resends a saved close that wasn't confirmed. */
   refreshShift: { channel: "pos:shift:refresh", input: noInput, output: result(shiftStateSchema) },
   openShift: {

@@ -530,6 +530,7 @@ describe("uploading the offline journal", () => {
       waiting: 3,
       outageStartedAt: NOW,
       unconfirmed: { sales: 0, actions: 0 },
+      holds: { cards: 0, records: 0, refused: 0 },
     });
 
     await u.sync.tick();
@@ -571,6 +572,7 @@ describe("uploading the offline journal", () => {
       waiting: 0,
       outageStartedAt: NOW,
       unconfirmed: { sales: 0, actions: 0 },
+      holds: { cards: 0, records: 0, refused: 0 },
     });
     expect(drainAwaitsFreshSnapshot(local.db, identity.enrollmentId)).toBe(
       true,
@@ -1302,6 +1304,7 @@ describe("finishing the reconnect drain (approved D12)", () => {
       waiting: 0,
       outageStartedAt: NOW,
       unconfirmed: { sales: 1, actions: 0 },
+      holds: { cards: 0, records: 0, refused: 0 },
     });
 
     // Confirmed: the same pair now finishes the drain.

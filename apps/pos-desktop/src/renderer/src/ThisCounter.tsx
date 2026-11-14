@@ -18,6 +18,7 @@ import {
   tillDisplayName,
 } from "./this-counter-display";
 import { Icon } from "./Icon";
+import { OfflineRecords } from "./OfflineRecords";
 import { KeyHint } from "./KeyHint";
 import { useKeyBinding } from "./keymap";
 import { atTheComputer } from "./Shell";
@@ -745,6 +746,7 @@ export function ThisCounterPage({
         <Readiness readiness={readiness} onCheck={onCheck} />
         <div className={styles.side}>
           <PrinterTest />
+          <OfflineRecords />
           <OfflineCounterPanel
             branchName={enrollment.branchName}
             backup={readiness?.offlineBackup ?? null}

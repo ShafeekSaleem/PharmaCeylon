@@ -253,30 +253,45 @@ describe("synchronisation readiness (P5 #51)", () => {
 
   it("warns while a drain pauses new sales, and says what it is waiting for", () => {
     const none = { sales: 0, actions: 0 };
-    expect(sync({ recorded: 3, waiting: 3, pause: { reason: "draining", waiting: 3, outageStartedAt: t - 600_000, unconfirmed: none } })).toMatchObject({
+    expect(sync({ recorded: 3, waiting: 3, pause: { reason: "draining", waiting: 3, outageStartedAt: t - 600_000, unconfirmed: none, holds: { cards: 0, records: 0, refused: 0 } } })).toMatchObject({
       status: "warning",
       detail: "Synchronising offline sales: new sales wait until it finishes. 3 offline records waiting to reach the server.",
     });
-    expect(sync({ recorded: 3, accepted: 3, pause: { reason: "draining", waiting: 0, outageStartedAt: t - 600_000, unconfirmed: none } }).detail)
+    expect(sync({ recorded: 3, accepted: 3, pause: { reason: "draining", waiting: 0, outageStartedAt: t - 600_000, unconfirmed: none, holds: { cards: 0, records: 0, refused: 0 } } }).detail)
       .toContain("Waiting for fresh stock from the server.");
     // The drain also waits for what was sent from here without a confirmed outcome: say so.
     expect(sync({
       recorded: 3, accepted: 3,
-      pause: { reason: "draining", waiting: 0, outageStartedAt: t - 600_000, unconfirmed: { sales: 1, actions: 2 } },
+      pause: { reason: "draining", waiting: 0, outageStartedAt: t - 600_000, unconfirmed: { sales: 1, actions: 2 }, holds: { cards: 0, records: 0, refused: 0 } },
     }).detail).toBe(
       "Synchronising offline sales: new sales wait until it finishes. The offline sales are on the server. It finishes once 1 sale and 2 actions sent from here are confirmed.",
     );
     expect(sync({
       recorded: 3, waiting: 3,
-      pause: { reason: "draining", waiting: 3, outageStartedAt: t - 600_000, unconfirmed: { sales: 1, actions: 0 } },
+      pause: { reason: "draining", waiting: 3, outageStartedAt: t - 600_000, unconfirmed: { sales: 1, actions: 0 }, holds: { cards: 0, records: 0, refused: 0 } },
     }).detail).toContain("3 offline records waiting to reach the server. It finishes once 1 sale sent from here is confirmed.");
+  });
+
+  it("says a card payment or an undelivered note is what holds the drain", () => {
+    const pause = (holds: { cards: number; records: number; refused: number }) => ({
+      reason: "draining" as const, waiting: 0, outageStartedAt: t - 600_000,
+      unconfirmed: { sales: 0, actions: 0 }, holds,
+    });
+    const card = sync({ recorded: 3, accepted: 3, pause: pause({ cards: 1, records: 0, refused: 0 }) }).detail;
+    expect(card).toContain("The offline sales are on the server.");
+    expect(card).toContain("A card payment from the outage is not settled yet. Open This counter");
+    expect(card).not.toContain("Waiting for fresh stock");
+    expect(sync({ recorded: 3, accepted: 3, pause: pause({ cards: 0, records: 2, refused: 0 }) }).detail)
+      .toContain("2 notes or card records are still on their way to the server.");
+    expect(sync({ recorded: 3, accepted: 3, pause: pause({ cards: 0, records: 1, refused: 1 }) }).detail)
+      .toContain("It will not clear by itself: contact support.");
   });
 
   it("fails on a refused record or a journal the server doesn't recognise", () => {
     const refused = sync({
       recorded: 5, accepted: 3, waiting: 2, refused: 1,
       issue: { code: "LOCAL_STOCK_EXHAUSTED", message: "A manager reviews it in the back office.", sequence: 4, at: "" },
-      pause: { reason: "draining", waiting: 2, outageStartedAt: t, unconfirmed: { sales: 0, actions: 0 } },
+      pause: { reason: "draining", waiting: 2, outageStartedAt: t, unconfirmed: { sales: 0, actions: 0 }, holds: { cards: 0, records: 0, refused: 0 } },
     });
     expect(refused).toMatchObject({ status: "failed", detail: "A manager reviews it in the back office. 2 offline records waiting to reach the server." });
     expect(sync({ issue: { code: "JOURNAL_MISMATCH", message: "Contact support.", sequence: 3, at: "" } }).status).toBe("failed");
