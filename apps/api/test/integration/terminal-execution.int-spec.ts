@@ -676,8 +676,8 @@ describe("quarantine and release through signed commands (P6 #173)", () => {
     const controller = new InventoryController(inventory, {} as never, {} as never);
     const batchId = "00000000-0000-4000-8000-000000000099";
     for (const call of [
-      () => controller.quarantine(batchId, { qty: 1, reasonCode: "damaged", reason: null }),
-      () => controller.releaseQuarantine(batchId, { qty: null, reason: null }),
+      () => controller.quarantine(batchId, { qty: 1, reasonCode: "damaged" }),
+      () => controller.releaseQuarantine(batchId, {}),
     ]) {
       expect(call).toThrow(/Terminal authorization failed/);
       try {

@@ -190,7 +190,11 @@ describe("web-approved work waiting at the counter", () => {
     const { heldAdjustment: toReject } = await adjustments.request(user(fx.clerkId), branch(), {
       productId: fx.productId, batchId: batchId2, qty: 1, kind: "expired", reason: "Reject me",
     });
-    await adjustments.reject(user(fx.managerId), branch(), toReject.id, "Not justified");
+    const access = await (new AccessService(prisma as never, permissions)).resolve(
+      await caller(fx.managerId),
+      branch(),
+    );
+    await adjustments.reject(fx.tenantId, branch(), access, toReject.id, "Not justified");
     const items = await work.list(await caller(fx.ownerId), branch());
     const waiting = items.find((i) => i.id === pending.id)!;
     expect(waiting).toMatchObject({

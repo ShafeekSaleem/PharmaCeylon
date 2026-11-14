@@ -13,7 +13,7 @@ import {
 } from "../../src/common/business-date.util";
 import type { RequestUser } from "../../src/security/interfaces/authenticated-request.interface";
 import { PERMISSION_KEYS } from "../../src/security/permission-catalog";
-import { createPrisma, createStockedBatch, createTenant, daysFromToday, type TenantFixture } from "./fixtures";
+import { createPrisma, createStockedBatch, createTenant, type TenantFixture } from "./fixtures";
 
 describe("Daily dashboard read models against PostgreSQL", () => {
   const prisma = createPrisma();
@@ -284,7 +284,7 @@ describe("Daily dashboard read models against PostgreSQL", () => {
     });
     const batchId = await createStockedBatch(prisma, stock, fx, {
       qty: 5,
-      expiryDate: daysFromToday(-2),
+      expiryInDays: -2,
     });
     const permissions = new PermissionsService(prisma as never, { get: () => 0 } as never);
     const liveWork = new DailyWorkService(
