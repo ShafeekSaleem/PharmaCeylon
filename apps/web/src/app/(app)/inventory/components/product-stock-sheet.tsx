@@ -24,8 +24,6 @@ type Props = {
   access: InventoryAccess;
   onClose: () => void;
   onAdjust: (productId: string, batchId?: string) => void;
-  /** Something changed stock; the list behind the sheet should refresh. */
-  onChanged: (message: string) => void;
 };
 
 /**
@@ -33,17 +31,10 @@ type Props = {
  * where the units are (available, held, promised), which batches hold them, what is on its
  * way in, and what the other branches have.
  */
-export function ProductStockSheet({ productId, access, onClose, onAdjust, onChanged }: Props) {
+export function ProductStockSheet({ productId, access, onClose, onAdjust }: Props) {
   const { detail, loading, error, reload } = useProductStock(productId);
   const [quarantineTarget, setQuarantineTarget] = useState<QuarantineTarget | null>(null);
   const [releaseTarget, setReleaseTarget] = useState<QuarantineTarget | null>(null);
-
-  const done = (message: string) => {
-    setQuarantineTarget(null);
-    setReleaseTarget(null);
-    void reload();
-    onChanged(message);
-  };
 
   const batchActions = (batch: BatchRow): RowMenuAction[] => {
     const holdable = Math.max(0, batch.qtyOnHand - batch.quarantinedQty - batch.reservedQty);
@@ -332,8 +323,8 @@ export function ProductStockSheet({ productId, access, onClose, onAdjust, onChan
         )}
       </Modal>
 
-      <QuarantineDialog target={quarantineTarget} onClose={() => setQuarantineTarget(null)} onDone={done} />
-      <ReleaseDialog target={releaseTarget} onClose={() => setReleaseTarget(null)} onDone={done} />
+      <QuarantineDialog target={quarantineTarget} onClose={() => setQuarantineTarget(null)} />
+      <ReleaseDialog target={releaseTarget} onClose={() => setReleaseTarget(null)} />
     </>
   );
 }

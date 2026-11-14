@@ -104,7 +104,6 @@ function renderSheet(overrides = {}) {
       access={access}
       onClose={() => {}}
       onAdjust={() => {}}
-      onChanged={() => {}}
     />,
   );
 }

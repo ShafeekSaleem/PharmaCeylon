@@ -94,31 +94,14 @@ it("offers no stock-changing actions without the matching permissions", () => {
   expect(within(menu).queryByRole("menuitem", { name: "Adjust stock" })).not.toBeInTheDocument();
 });
 
-it("quarantines part of a batch with a reason code", async () => {
-  // 10 on hand, 3 reserved for a transfer: only 7 can be held.
-  const onChanged = renderTable([batch({ reservedQty: 3, availableQty: 7 })]);
+it("opens a counter-only quarantine handoff instead of calling the browser quarantine route", () => {
+  renderTable([batch({ reservedQty: 3, availableQty: 7 })]);
   fireEvent.click(within(openMenu()).getByRole("menuitem", { name: "Quarantine units" }));
 
-  const qty = screen.getByLabelText(/Units to quarantine/) as HTMLInputElement;
-  expect(qty.value).toBe("7");
-  fireEvent.change(qty, { target: { value: "2" } });
-  fireEvent.click(screen.getByRole("button", { name: "Quarantine" }));
-
-  await waitFor(() => expect(onChanged).toHaveBeenCalledWith("Quarantined 2 units of batch B1."));
-  expect(apiJson).toHaveBeenCalledWith(
-    "/inventory/batches/batch/quarantine",
-    expect.objectContaining({
-      body: JSON.stringify({ qty: 2, reasonCode: "damaged" }),
-    }),
-  );
-});
-
-it("won't quarantine more than can be held", () => {
-  renderTable([batch()]);
-  fireEvent.click(within(openMenu()).getByRole("menuitem", { name: "Quarantine units" }));
-  fireEvent.change(screen.getByLabelText(/Units to quarantine/), { target: { value: "11" } });
-  expect(screen.getByText("Enter a whole number from 1 to 10")).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "Quarantine" })).toBeDisabled();
+  expect(screen.getByRole("status")).toHaveTextContent("Do this at the counter in PharmaCeylon POS.");
+  expect(screen.getByRole("status")).toHaveTextContent("Quarantine the stock at this branch.");
+  expect(screen.queryByRole("button", { name: "Quarantine" })).not.toBeInTheDocument();
+  expect(apiJson).not.toHaveBeenCalled();
 });
 
 it("does not offer to release quarantined units once the batch has expired", () => {

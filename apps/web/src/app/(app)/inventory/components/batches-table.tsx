@@ -362,22 +362,8 @@ export function BatchesTable({
           </button>
         </form>
       </Modal>
-      <QuarantineDialog
-        target={quarantineTarget}
-        onClose={() => setQuarantineTarget(null)}
-        onDone={(message) => {
-          setQuarantineTarget(null);
-          onChanged?.(message);
-        }}
-      />
-      <ReleaseDialog
-        target={releaseTarget}
-        onClose={() => setReleaseTarget(null)}
-        onDone={(message) => {
-          setReleaseTarget(null);
-          onChanged?.(message);
-        }}
-      />
+      <QuarantineDialog target={quarantineTarget} onClose={() => setQuarantineTarget(null)} />
+      <ReleaseDialog target={releaseTarget} onClose={() => setReleaseTarget(null)} />
       <DataTable<BatchRow>
         columns={columns}
         data={paged}

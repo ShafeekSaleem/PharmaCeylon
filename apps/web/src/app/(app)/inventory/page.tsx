@@ -512,7 +512,6 @@ function StockOverviewContent() {
         access={access}
         onClose={() => setSheetProductId(null)}
         onAdjust={(productId, batchId) => openAdjustment(productId, batchId ?? "")}
-        onChanged={(message) => refresh(message)}
       />
 
       <AdjustmentModal
