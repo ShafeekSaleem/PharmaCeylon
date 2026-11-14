@@ -230,6 +230,14 @@ describe("web-approved work waiting at the counter", () => {
 
   it("scopes held write-off rows to tenant and branch", async () => {
     const foreign = await createTenant(prisma, "counter-work-foreign");
+    await prisma.userBranchRole.create({
+      data: {
+        tenantId: foreign.tenantId,
+        branchId: foreign.mainBranchId,
+        userId: foreign.clerkId,
+        role: "inventory_clerk",
+      },
+    });
     const batchId = await createStockedBatch(prisma, stock, fx, { qty: 8 });
     const { heldAdjustment } = await adjustments.request(user(fx.clerkId), branch(), {
       productId: fx.productId, batchId, qty: 1, kind: "damaged", reason: "Other branch isolation",
