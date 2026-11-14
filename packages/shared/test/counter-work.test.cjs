@@ -108,6 +108,28 @@ test('transfer_receive pins dispatch approval, not approvalEvidenceId', () => {
   assert.equal(task.signedExecution.dispatchApprovalId, dispatchId);
 });
 
+test('read-only held write-offs block execution without signed approval', () => {
+  for (const status of ['awaiting_approval', 'rejected']) {
+    const task = c.projectCounterWorkTask({
+      kind: 'held_adjustment',
+      id: '00000000-0000-4000-8000-000000000010',
+      approval: { evidenceId: null, state: 'not_needed', changes: [] },
+      approvedAt: null,
+      readyAt: '2026-11-11T08:00:00.000Z',
+      asOf,
+      heldAdjustmentStatus: status,
+    });
+    assert.equal(task.stage, 'blocked_approval');
+    assert.equal(task.nextAction.executable, false);
+    assert.equal(task.signedExecution.approvalEvidenceId, null);
+    assert.deepEqual(task.executeErrors, []);
+  }
+});
+
+test('rejected held write-off counter visibility window is positive', () => {
+  assert.ok(c.COUNTER_REJECTED_HELD_WRITE_OFF_VISIBLE_DAYS > 0);
+});
+
 test('coverage matrix includes every counter-work kind', () => {
   for (const kind of c.COUNTER_WORK_KINDS) {
     assert.ok(c.COUNTER_WORK_DESTINATION_BY_KIND[kind]);

@@ -5,7 +5,9 @@ import { PrescriptionsController } from "../customers/prescriptions.controller";
 import { RefundRequestsController } from "../sales/refund-requests.controller";
 import { SalesController } from "../sales/sales.controller";
 import { StockCasesController } from "../stock-cases/stock-cases.controller";
+import { DashboardController } from "../dashboard/dashboard.controller";
 import { CounterWorkController } from "../terminal-commands/counter-work.controller";
+import { TenantController } from "../tenant/tenant.controller";
 import { TerminalCommandsController } from "../terminal-commands/terminal-commands.controller";
 import { OfflineActivationController } from "../terminals/offline-activation.controller";
 import { OfflineAssignmentController } from "../terminals/offline-assignment.controller";
@@ -58,6 +60,8 @@ describe("routes a PIN-opened counter login may call", () => {
     [PrescriptionsController, ["search", "getOne"]],
     [TerminalCommandsController, ["prepare", "execute", "cosign"]],
     [CounterWorkController, ["list"]],
+    [DashboardController, ["getCounterAttention"]],
+    [TenantController, ["myPermissions"]],
     // The Stock page reads; every stock change goes through the signed command above.
     [
       InventoryController,

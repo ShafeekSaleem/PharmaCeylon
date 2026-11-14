@@ -12,6 +12,8 @@ import {
 import {
   type CounterWorkKind,
   type CounterWorkTask,
+  type HeldAdjustmentCounterStatus,
+  COUNTER_REJECTED_HELD_WRITE_OFF_VISIBLE_DAYS,
   COUNTER_WORK_OPERATION,
   projectCounterWorkTask,
 } from "@pharmaceylon/shared";
@@ -75,9 +77,13 @@ export type CounterWorkItem = {
   operation: (typeof COUNTER_WORK_OPERATION)[CounterWorkKind];
   /** W11/P6 task state, next action, blocker, freshness and destination (#172). */
   task: CounterWorkTask;
+  /** Held write-off lifecycle for read-only counter rows (#173). */
+  heldAdjustmentStatus?: HeldAdjustmentCounterStatus;
 };
 
-type CounterWorkItemCore = Omit<CounterWorkItem, "task">;
+type CounterWorkItemCore = Omit<CounterWorkItem, "task"> & {
+  heldAdjustmentStatus?: HeldAdjustmentCounterStatus;
+};
 
 /** Each kind is listed only to someone who may execute it here (the operation's own permission). */
 const EXECUTE_PERMISSION: Record<CounterWorkKind, string> = {
@@ -172,11 +178,13 @@ export class CounterWorkService {
         approvedAt: row.approved?.at ?? null,
         readyAt: row.readyAt,
         asOf,
+        heldAdjustmentStatus: row.heldAdjustmentStatus,
       });
       items.push({
         ...row,
         operation: COUNTER_WORK_OPERATION[row.kind],
         task,
+        ...(row.heldAdjustmentStatus ? { heldAdjustmentStatus: row.heldAdjustmentStatus } : {}),
       });
     }
     return items.sort((a, b) => b.readyAt.localeCompare(a.readyAt));
@@ -431,13 +439,41 @@ export class CounterWorkService {
   }
 
   private async heldAdjustments(tenantId: string, branchId: string, costs: boolean) {
+    const rejectedSince = new Date(
+      Date.now() - COUNTER_REJECTED_HELD_WRITE_OFF_VISIBLE_DAYS * 86_400_000,
+    );
     const rows = await this.prisma.heldAdjustment.findMany({
-      where: { tenantId, branchId, status: HeldAdjustmentStatus.approved, executionApprovalId: { not: null } },
+      where: {
+        tenantId,
+        branchId,
+        OR: [
+          {
+            status: HeldAdjustmentStatus.approved,
+            executionApprovalId: { not: null },
+          },
+          { status: HeldAdjustmentStatus.awaiting_approval },
+          {
+            status: HeldAdjustmentStatus.rejected,
+            OR: [
+              { decidedAt: { gte: rejectedSince } },
+              { decidedAt: null, requestedAt: { gte: rejectedSince } },
+            ],
+          },
+        ],
+      },
       include: { product: { select: { name: true } }, batch: { select: { batchNo: true } } },
     });
-    const evidence = await this.evidence(tenantId, branchId, rows.map((r) => r.executionApprovalId));
+    const evidence = await this.evidence(
+      tenantId,
+      branchId,
+      rows.map((r) => r.executionApprovalId),
+    );
     return rows.map((row): CounterWorkItemCore => {
-      const ev = evidence.get(row.executionApprovalId!);
+      const readOnly =
+        row.status === HeldAdjustmentStatus.awaiting_approval ||
+        row.status === HeldAdjustmentStatus.rejected;
+      const ev = row.executionApprovalId ? evidence.get(row.executionApprovalId) : undefined;
+      const heldAdjustmentStatus = row.status as HeldAdjustmentCounterStatus;
       return {
         kind: "held_adjustment",
         id: row.id,
@@ -447,10 +483,19 @@ export class CounterWorkService {
         amount: costs ? money(row.value) : null,
         readyAt: (row.decidedAt ?? row.requestedAt).toISOString(),
         requested: { name: row.requestedBy, at: iso(row.requestedAt) },
-        approved: this.approver(ev, row.decidedBy, row.decidedAt),
+        approved: readOnly ? null : this.approver(ev, row.decidedBy, row.decidedAt),
         dispatched: null,
-        approval: approvalState("held_adjustment", ev, row.approvalVersion, () => heldAdjustmentMaterial(row)),
+        approval: readOnly
+          ? {
+              evidenceId: null,
+              approvedVersion: null,
+              currentVersion: row.approvalVersion,
+              state: "not_needed",
+              changes: [],
+            }
+          : approvalState("held_adjustment", ev, row.approvalVersion, () => heldAdjustmentMaterial(row)),
         operation: "POST /api/v1/inventory/held-adjustments/:id/post",
+        heldAdjustmentStatus,
       };
     });
   }

@@ -1,5 +1,6 @@
 import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Req } from "@nestjs/common";
 import { RoleName } from "@prisma/client";
+import { CounterRoute } from "../security/decorators/counter-route.decorator";
 import { CurrentUser } from "../security/decorators/current-user.decorator";
 import { AccessService } from "../security/access.service";
 import { RequirePermission } from "../security/decorators/require-permission.decorator";
@@ -136,6 +137,7 @@ export class TenantController {
    * here: every authenticated user may read their own permissions, that's
    * what drives which nav items/pages the web app shows them.
    */
+  @CounterRoute()
   @Get("my-permissions")
   async myPermissions(@CurrentUser() user: RequestUser, @Req() req: AuthenticatedRequest) {
     // Whether this person may approve what they raised themselves is a tenant rule, not a
