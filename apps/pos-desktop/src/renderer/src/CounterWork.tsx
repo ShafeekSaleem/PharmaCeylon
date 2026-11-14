@@ -128,6 +128,14 @@ const KINDS: Record<
     ready: { label: "Approved · settle it here", tone: ui.warn! },
     doing: "Settling",
   },
+  supplier_cash_payout: {
+    tab: "receive",
+    title: "Supplier cash payout",
+    icon: "banknote",
+    tone: styles.indigo!,
+    ready: { label: "Pay from drawer", tone: ui.ok! },
+    doing: "Paying out",
+  },
 };
 
 const TABS: { tab: WorkTab; label: string }[] = [
@@ -153,6 +161,7 @@ const OPERATIONS: Record<string, string> = {
   "POST /api/v1/products/import/:importId/undo-stock": "Undo opening stock",
   "POST /api/v1/prescriptions": "Prescription",
   "POST /api/v1/offline-stock-cases/resolutions/:id/execute": "Offline sale stock",
+  "POST /api/v1/purchasing/cash-payouts/:id/execute": "Supplier cash payout",
 };
 export const operationName = (operation: string) =>
   OPERATIONS[operation] ?? "Counter action";
@@ -224,6 +233,8 @@ function describe(item: CounterWorkItem, refund?: RefundAtCounter) {
       return [`Sale ${item.reference}`, item.subject, plural(item.lineCount, "batch").replace("batchs", "batches")]
         .filter(Boolean)
         .join(" · ");
+    case "supplier_cash_payout":
+      return [item.subject, amount].filter(Boolean).join(" · ");
   }
 }
 
@@ -466,6 +477,7 @@ function Detail({
   staleError,
   onStaleError,
   onPosted,
+  onOpenSupplierPayout,
 }: {
   item: CounterWorkItem;
   refund?: RefundAtCounter;
@@ -482,6 +494,7 @@ function Detail({
   staleError: string | null;
   onStaleError: (message: string | null) => void;
   onPosted: () => void;
+  onOpenSupplierPayout?: (cashPayoutId: string) => void;
 }) {
   const kind = KINDS[item.kind];
   const ready = !blocked(item);
@@ -543,6 +556,15 @@ function Detail({
 
       {item.kind === "refund" ? (
         <RefundPane item={item} refund={refund} />
+      ) : item.kind === "supplier_cash_payout" ? (
+        <div className={styles.content}>
+          <div className={cx(ui.note, styles.waiting)} role="note">
+            <Icon name="banknote" />
+            <div>
+              Pay this approved supplier cash payout from the open shift drawer on Cash &amp; shift.
+            </div>
+          </div>
+        </div>
       ) : item.kind === "stock_case" ? (
         <StockCasePane
           stockCase={stockCase}
@@ -584,6 +606,10 @@ function Detail({
               <b>{stockCase ? PLAN_KINDS[stockCase.kind].title : "Settle the sale"}</b>
               {needsCounts && !countsComplete ? "Enter a count for every batch" : "as approved on the web"}
             </>
+          ) : item.kind === "supplier_cash_payout" ? (
+            <>
+              <b>{item.amount ? rs(item.amount) : "—"}</b> out of the drawer once you pay it out
+            </>
           ) : (
             <>
               <b>Nothing to do here yet</b>
@@ -592,6 +618,17 @@ function Detail({
           )}
         </span>
         <span className={ui.grow} />
+        {item.kind === "supplier_cash_payout" && onOpenSupplierPayout && (
+          <button
+            type="button"
+            className={cx(ui.btn, ui.primary, ui.lg)}
+            disabled={busy || !ready || !online}
+            onClick={() => onOpenSupplierPayout(item.id)}
+          >
+            <Icon name="wallet" />
+            Open on Cash &amp; shift
+          </button>
+        )}
         {item.kind === "refund" && (
           <button
             type="button"
@@ -906,6 +943,7 @@ export function CounterWork({
   online = true,
   you = "",
   counterLabel = null,
+  onOpenSupplierPayout,
 }: {
   onActivity?: () => void;
   /** How many items are waiting, for the rail's badge. */
@@ -917,6 +955,8 @@ export function CounterWork({
   /** The signed-in person, who executes whatever is opened here. */
   you?: string;
   counterLabel?: string | null;
+  /** Deep-link an approved supplier payout to Cash & shift → Pay out. */
+  onOpenSupplierPayout?: (cashPayoutId: string) => void;
 } = {}) {
   const [items, setItems] = useState<CounterWorkItem[] | null>(null);
   const [refunds, setRefunds] = useState<RefundAtCounter[]>([]);
@@ -1189,6 +1229,7 @@ export function CounterWork({
               setError(null);
               load();
             }}
+            onOpenSupplierPayout={onOpenSupplierPayout}
           />
         ) : (
           <section className={ui.panel} aria-label="Nothing open">

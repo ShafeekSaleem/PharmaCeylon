@@ -1,4 +1,6 @@
 import type {
+  CashPayoutAtCounter,
+  CashPayoutExecuted,
   CounterWorkItem,
   HeldWriteOffAtCounter,
   RefundAtCounter,
@@ -6,6 +8,7 @@ import type {
   StockCaseAtCounter,
   StockCaseResolved,
 } from "../../shared/ipc-contract";
+import type { SupplierCashPayoutView } from "@pharmaceylon/shared";
 import { ApiError, type ApiSession } from "../api/api-client";
 import { ActionFailure, type TerminalService } from "./terminal-service";
 import type { SignedCommandService } from "./signed-commands";
@@ -314,6 +317,58 @@ export class CounterWorkService {
       })),
       requestedBy: ready.requestedBy,
       approvedBy: ready.approvedBy,
+    };
+  }
+
+  async cashPayoutsReady(): Promise<CashPayoutAtCounter[]> {
+    const rows = await this.deps.api.request<SupplierCashPayoutView[]>(
+      "GET",
+      "/purchasing/cash-payouts?readyAtCounter=true",
+      { branchId: this.branchId() },
+    );
+    return rows.map((row) => ({
+      cashPayoutId: row.id,
+      payoutNumber: row.payoutNumber,
+      supplierName: row.supplier?.name ?? null,
+      purchaseOrderNumber: row.purchaseOrder?.poNumber ?? null,
+      amount: row.amount,
+      paidOn: row.paidOn,
+      reference: row.reference,
+      notes: row.notes,
+      allocations: row.allocations.map((part) => ({
+        invoiceId: part.invoiceId,
+        amount: part.amount,
+      })),
+      executionApprovalId: row.executionApprovalId,
+      requestedBy: row.requester?.fullName ?? null,
+      approvedBy: row.approver?.fullName ?? null,
+    }));
+  }
+
+  async executeCashPayout(cashPayoutId: string): Promise<CashPayoutExecuted> {
+    const ready = (await this.cashPayoutsReady()).find((r) => r.cashPayoutId === cashPayoutId);
+    if (!ready)
+      throw new ActionFailure(
+        "PAYOUT_NOT_READY",
+        "That payout is not waiting at this counter any more.",
+      );
+    const receipt = await this.deps.commands.execute(
+      "POST /api/v1/purchasing/cash-payouts/:id/execute",
+      { cashPayoutId },
+      ready.executionApprovalId,
+    );
+    const { result } = receipt;
+    const movementReason = ready.purchaseOrderNumber
+      ? `Supplier payout · ${ready.purchaseOrderNumber}`
+      : `Supplier payout · ${ready.payoutNumber}`;
+    return {
+      payoutNumber: ready.payoutNumber,
+      amountMinor: result.amountMinor,
+      supplierPaymentId: result.supplierPaymentId,
+      alreadyApplied: result.effect === "already_applied",
+      requestedBy: ready.requestedBy,
+      approvedBy: ready.approvedBy,
+      movementReason,
     };
   }
 }

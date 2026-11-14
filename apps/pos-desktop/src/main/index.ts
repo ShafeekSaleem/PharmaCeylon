@@ -381,6 +381,26 @@ function registerIpc(schemaVersion: number, logger: ReturnType<typeof createLogg
           if (!executed.alreadyApplied && executor) shifts?.recordRefund(executed.requestNumber, executed.refundedTo, executor);
           return executed;
         }),
+      cashPayoutsReady: () =>
+        act(logger, "cashPayoutsReady", () => {
+          if (!counterWork) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          return counterWork.cashPayoutsReady();
+        }),
+      executeCashPayout: ({ cashPayoutId }) =>
+        act(logger, "executeCashPayout", async () => {
+          if (!counterWork) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          const executed = await counterWork.executeCashPayout(cashPayoutId);
+          const executor = terminal?.current()?.staff.staffUserId;
+          if (!executed.alreadyApplied && executor) {
+            shifts?.recordSupplierPayout(cashPayoutId, executed.amountMinor, executor);
+            try {
+              await shifts?.refresh();
+            } catch {
+              /* local expected cash is already updated */
+            }
+          }
+          return executed;
+        }),
       stockCasesReady: () =>
         act(logger, "stockCasesReady", () => {
           if (!counterWork) throw new ActionFailure("NOT_READY", "The counter is still starting.");

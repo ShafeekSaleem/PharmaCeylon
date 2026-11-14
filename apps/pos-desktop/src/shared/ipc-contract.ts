@@ -459,6 +459,38 @@ export const refundAtCounterSchema = z.object({
 });
 export type RefundAtCounter = z.infer<typeof refundAtCounterSchema>;
 
+const cashPayoutAllocationSchema = z.object({
+  invoiceId: uuid,
+  amount: z.string(),
+});
+
+export const cashPayoutAtCounterSchema = z.object({
+  cashPayoutId: uuid,
+  payoutNumber: z.string(),
+  supplierName: z.string().nullable(),
+  purchaseOrderNumber: z.string().nullable(),
+  amount: z.string(),
+  paidOn: z.string(),
+  reference: z.string().nullable(),
+  notes: z.string().nullable(),
+  allocations: z.array(cashPayoutAllocationSchema),
+  executionApprovalId: uuid.nullable(),
+  requestedBy: z.string().nullable(),
+  approvedBy: z.string().nullable(),
+});
+export type CashPayoutAtCounter = z.infer<typeof cashPayoutAtCounterSchema>;
+
+export const cashPayoutExecutedSchema = z.object({
+  payoutNumber: z.string(),
+  amountMinor: z.number().int(),
+  supplierPaymentId: uuid,
+  alreadyApplied: z.boolean(),
+  requestedBy: z.string().nullable(),
+  approvedBy: z.string().nullable(),
+  movementReason: z.string(),
+});
+export type CashPayoutExecuted = z.infer<typeof cashPayoutExecutedSchema>;
+
 export const counterWorkKinds = [
   "prepared_receipt",
   "held_delivery",
@@ -470,6 +502,7 @@ export const counterWorkKinds = [
   "supplier_return",
   "import_stock",
   "stock_case",
+  "supplier_cash_payout",
 ] as const;
 export type CounterWorkKind = (typeof counterWorkKinds)[number];
 
@@ -1098,6 +1131,16 @@ export const ipcContract = {
     channel: "pos:counter:execute-refund",
     input: z.object({ refundRequestId: uuid }),
     output: result(refundExecutedSchema),
+  },
+  cashPayoutsReady: {
+    channel: "pos:counter:cash-payouts",
+    input: noInput,
+    output: result(z.array(cashPayoutAtCounterSchema)),
+  },
+  executeCashPayout: {
+    channel: "pos:counter:execute-cash-payout",
+    input: z.object({ cashPayoutId: uuid }),
+    output: result(cashPayoutExecutedSchema),
   },
   stockCasesReady: { channel: "pos:counter:stock-cases", input: noInput, output: result(z.array(stockCaseAtCounterSchema)) },
   resolveStockCase: {
