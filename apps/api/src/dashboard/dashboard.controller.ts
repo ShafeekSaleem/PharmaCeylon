@@ -24,7 +24,6 @@ export class DashboardController {
   ) {}
 
   // Work sources enforce their own effective permission checks in the service.
-  @CounterRoute()
   @Get("work")
   getWork(
     @CurrentUser() user: RequestUser,
@@ -32,6 +31,21 @@ export class DashboardController {
     @Query() query: DailyWorkQueryDto,
   ) {
     return this.work.get(user, branchId, query);
+  }
+
+  /** Counter PIN sessions: expiry-review attention only (#173), not the full daily-work feed. */
+  @CounterRoute()
+  @Get("counter-attention")
+  getCounterAttention(
+    @CurrentUser() user: RequestUser,
+    @RequireBranchId() branchId: string,
+  ) {
+    return this.work.get(
+      user,
+      branchId,
+      { filter: "counter", category: "inventory", kind: "batch.expiry_review", page: 1, pageSize: 50 },
+      { kinds: ["batch.expiry_review"], pageSize: 50 },
+    );
   }
 
   @Get("sales-metrics")

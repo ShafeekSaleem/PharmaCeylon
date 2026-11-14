@@ -11,6 +11,7 @@ import { PermissionsService } from "../../src/security/permissions.service";
 import type { RequestUser } from "../../src/security/interfaces/authenticated-request.interface";
 import { ManagementApprovalsService } from "../../src/security/management-approvals.service";
 import { CounterWorkService } from "../../src/terminal-commands/counter-work.service";
+import { COUNTER_REJECTED_HELD_WRITE_OFF_VISIBLE_DAYS } from "@pharmaceylon/shared";
 import { createPrisma, createStockedBatch, createTenant, daysFromToday, type TenantFixture } from "./fixtures";
 
 const prisma = createPrisma();
@@ -207,6 +208,24 @@ describe("web-approved work waiting at the counter", () => {
     const denied = items.find((i) => i.id === toReject.id)!;
     expect(denied.heldAdjustmentStatus).toBe("rejected");
     expect(denied.task.stage).toBe("blocked_approval");
+  });
+
+  it("drops rejected write-offs older than the counter visibility window", async () => {
+    const batchId = await createStockedBatch(prisma, stock, fx, { qty: 8 });
+    const { heldAdjustment } = await adjustments.request(user(fx.clerkId), branch(), {
+      productId: fx.productId, batchId, qty: 1, kind: "lost", reason: "Old rejection",
+    });
+    const access = await (new AccessService(prisma as never, permissions)).resolve(
+      await caller(fx.managerId),
+      branch(),
+    );
+    await adjustments.reject(fx.tenantId, branch(), access, heldAdjustment.id, "Expired");
+    await prisma.heldAdjustment.update({
+      where: { id: heldAdjustment.id, tenantId: fx.tenantId },
+      data: { decidedAt: daysFromToday(-(COUNTER_REJECTED_HELD_WRITE_OFF_VISIBLE_DAYS + 1)) },
+    });
+    const ids = (await work.list(await caller(fx.ownerId), branch())).map((i) => i.id);
+    expect(ids).not.toContain(heldAdjustment.id);
   });
 
   it("scopes held write-off rows to tenant and branch", async () => {

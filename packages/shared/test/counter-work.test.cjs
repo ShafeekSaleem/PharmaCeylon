@@ -126,6 +126,10 @@ test('read-only held write-offs block execution without signed approval', () => 
   }
 });
 
+test('rejected held write-off counter visibility window is positive', () => {
+  assert.ok(c.COUNTER_REJECTED_HELD_WRITE_OFF_VISIBLE_DAYS > 0);
+});
+
 test('coverage matrix includes every counter-work kind', () => {
   for (const kind of c.COUNTER_WORK_KINDS) {
     assert.ok(c.COUNTER_WORK_DESTINATION_BY_KIND[kind]);

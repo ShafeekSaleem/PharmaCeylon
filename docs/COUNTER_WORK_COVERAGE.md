@@ -37,8 +37,8 @@ These use signed commands but are not web-approved queue rows on this endpoint:
 | Surface | Role |
 | --- | --- |
 | Web Daily work | Discovery and approval; `where: counter` for kinds above |
-| `GET /counter-work` | Executable documents plus read-only held write-offs (`awaiting_approval` / `rejected`) |
-| `GET /dashboard/work` | Daily work (`@CounterRoute()`); `batch.expiry_review` at live branches includes `counterExecution` for signed quarantine (`reasonCode: expired`) |
+| `GET /counter-work` | Executable documents plus read-only held write-offs (`awaiting_approval`; `rejected` for `COUNTER_REJECTED_HELD_WRITE_OFF_VISIBLE_DAYS`) |
+| `GET /dashboard/counter-attention` | Counter route only: `batch.expiry_review` rows with `counterExecution` (signed quarantine, `reasonCode: expired`) |
 | `GET /tenant/my-permissions` | Effective permission keys at the branch for counter UI hints (`@CounterRoute()`) |
 | P6 desktop | Physical execution screens mapped by `task.destination` |
 

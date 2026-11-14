@@ -4,6 +4,9 @@ import type { SignedPhysicalOperation } from "./terminal-command-execution";
 /** Contract version for additive counter-work task fields (#172). */
 export const COUNTER_WORK_CONTRACT_VERSION = 1 as const;
 
+/** Read-only rejected held write-offs drop off the counter list after this many days (#173). */
+export const COUNTER_REJECTED_HELD_WRITE_OFF_VISIBLE_DAYS = 30;
+
 export const COUNTER_WORK_AS_OF_HEADER = "X-PharmaCeylon-Counter-Work-As-Of";
 export const COUNTER_WORK_CONTRACT_VERSION_HEADER = "X-PharmaCeylon-Counter-Work-Contract-Version";
 

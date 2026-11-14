@@ -60,7 +60,7 @@ describe("routes a PIN-opened counter login may call", () => {
     [PrescriptionsController, ["search", "getOne"]],
     [TerminalCommandsController, ["prepare", "execute", "cosign"]],
     [CounterWorkController, ["list"]],
-    [DashboardController, ["getWork"]],
+    [DashboardController, ["getCounterAttention"]],
     [TenantController, ["myPermissions"]],
     // The Stock page reads; every stock change goes through the signed command above.
     [

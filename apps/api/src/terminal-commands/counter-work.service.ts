@@ -13,6 +13,7 @@ import {
   type CounterWorkKind,
   type CounterWorkTask,
   type HeldAdjustmentCounterStatus,
+  COUNTER_REJECTED_HELD_WRITE_OFF_VISIBLE_DAYS,
   COUNTER_WORK_OPERATION,
   projectCounterWorkTask,
 } from "@pharmaceylon/shared";
@@ -438,6 +439,9 @@ export class CounterWorkService {
   }
 
   private async heldAdjustments(tenantId: string, branchId: string, costs: boolean) {
+    const rejectedSince = new Date(
+      Date.now() - COUNTER_REJECTED_HELD_WRITE_OFF_VISIBLE_DAYS * 86_400_000,
+    );
     const rows = await this.prisma.heldAdjustment.findMany({
       where: {
         tenantId,
@@ -448,7 +452,13 @@ export class CounterWorkService {
             executionApprovalId: { not: null },
           },
           { status: HeldAdjustmentStatus.awaiting_approval },
-          { status: HeldAdjustmentStatus.rejected },
+          {
+            status: HeldAdjustmentStatus.rejected,
+            OR: [
+              { decidedAt: { gte: rejectedSince } },
+              { decidedAt: null, requestedAt: { gte: rejectedSince } },
+            ],
+          },
         ],
       },
       include: { product: { select: { name: true } }, batch: { select: { batchNo: true } } },
