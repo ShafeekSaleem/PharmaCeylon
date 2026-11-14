@@ -1,11 +1,10 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import {
-  batchQuarantineBoundaryMessage,
   QuarantineDialog,
+  QuarantineExpiredDialog,
   ReleaseDialog,
   quarantineTargetFromBatch,
 } from "./quarantine-dialogs";
-import { ApiError, COUNTER_BOUNDARY_MESSAGES } from "@/lib/api-error";
 
 function target(overrides: Record<string, unknown> = {}) {
   return quarantineTargetFromBatch({
@@ -69,11 +68,11 @@ describe("ReleaseDialog", () => {
   });
 });
 
-describe("batchQuarantineBoundaryMessage", () => {
-  it("maps TERMINAL_REQUIRED to the shared counter-boundary copy", () => {
-    const err = new ApiError(COUNTER_BOUNDARY_MESSAGES.TERMINAL_REQUIRED, 403, {
-      code: "TERMINAL_REQUIRED",
-    });
-    expect(batchQuarantineBoundaryMessage(err)).toBe(COUNTER_BOUNDARY_MESSAGES.TERMINAL_REQUIRED);
+describe("QuarantineExpiredDialog", () => {
+  it("shows counter-only handoff instead of posting quarantine-expired", () => {
+    render(<QuarantineExpiredDialog open expiredOpenBatchCount={3} onClose={() => {}} />);
+    expect(screen.getByText(/3/)).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("Quarantine expired stock at this branch.");
+    expect(screen.queryByRole("button", { name: "Quarantine expired" })).not.toBeInTheDocument();
   });
 });

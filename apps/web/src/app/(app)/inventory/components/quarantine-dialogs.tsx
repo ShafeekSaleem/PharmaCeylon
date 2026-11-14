@@ -2,7 +2,6 @@
 
 import { Alert } from "@/components/alert";
 import { CounterHandoff, Modal, ModalButton, ModalFooter } from "@/components/ui";
-import { ApiError } from "@/lib/api-error";
 import css from "../inventory.module.css";
 
 /** The fields both dialogs need from a batch, whether it came from a list row or the stock sheet. */
@@ -16,15 +15,6 @@ export type QuarantineTarget = {
   expired: boolean;
   quarantineReason: string | null;
 };
-
-/** User-facing copy when a stale client still POSTs and the API returns 403 `TERMINAL_REQUIRED`. */
-export function batchQuarantineBoundaryMessage(err: unknown): string {
-  if (err instanceof ApiError && err.code === "TERMINAL_REQUIRED") {
-    return err.message;
-  }
-  if (err instanceof Error) return err.message;
-  return "This step must be done at the counter.";
-}
 
 /**
  * Hold units back from sale and transfer. Counter-only (#173): the web explains where to finish;
@@ -152,4 +142,47 @@ export function quarantineTargetFromBatch(row: {
     expired: row.expired,
     quarantineReason: row.quarantineReason,
   };
+}
+
+/**
+ * Bulk-hold every sellable unit on expired batches. Counter-only (#173): POS posts
+ * `POST …/inventory/quarantine-expired`.
+ */
+export function QuarantineExpiredDialog({
+  open,
+  expiredOpenBatchCount,
+  onClose,
+}: {
+  open: boolean;
+  expiredOpenBatchCount: number;
+  onClose: () => void;
+}) {
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="Quarantine expired stock"
+      size="sm"
+      elevated
+      footer={
+        <ModalFooter>
+          <ModalButton variant="secondary" onClick={onClose}>
+            Close
+          </ModalButton>
+        </ModalFooter>
+      }
+    >
+      <p>
+        Hold every sellable unit on <strong>{expiredOpenBatchCount}</strong> expired batch
+        {expiredOpenBatchCount === 1 ? "" : "es"} at this branch. Units already quarantined, or reserved for a
+        transfer, are left as they are.
+      </p>
+      <CounterHandoff
+        variant="counter_only"
+        branchName="this branch"
+        action="Quarantine expired stock"
+        whoCan={["Pharmacist", "Inventory clerk", "Manager", "Owner"]}
+      />
+    </Modal>
+  );
 }
