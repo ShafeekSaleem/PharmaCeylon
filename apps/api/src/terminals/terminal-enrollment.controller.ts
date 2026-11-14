@@ -1,11 +1,15 @@
 import {
+  BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
+  Query,
   Req,
   UseFilters,
   UseGuards,
@@ -26,6 +30,7 @@ import {
   PrepareCounterPinDto,
   SetCounterPinDto,
   TerminalReasonDto,
+  UpdateTerminalCounterDto,
 } from "./dto/terminal-enrollment.dto";
 import { PinSignInService } from "./pin-sign-in.service";
 import { StaffCredentialsService } from "./staff-credentials.service";
@@ -55,8 +60,9 @@ export class TerminalEnrollmentController {
   counters(
     @CurrentUser() user: RequestUser,
     @RequireBranchId() branchId: string,
+    @Query("includeInactive") includeInactive?: string,
   ) {
-    return this.enrollment.listCounters(user, branchId);
+    return this.enrollment.listCounters(user, branchId, includeInactive === "true");
   }
 
   @RequirePermission(MANAGE)
@@ -67,6 +73,30 @@ export class TerminalEnrollmentController {
     @Body() dto: CreateTerminalCounterDto,
   ) {
     return this.enrollment.createCounter(user, branchId, dto.label);
+  }
+
+  @RequirePermission(MANAGE)
+  @Patch("counters/:registerId")
+  updateCounter(
+    @CurrentUser() user: RequestUser,
+    @RequireBranchId() branchId: string,
+    @Param("registerId", ParseUUIDPipe) registerId: string,
+    @Body() dto: UpdateTerminalCounterDto,
+  ) {
+    if (dto.label === undefined && dto.isActive === undefined)
+      throw new BadRequestException("Nothing to change.");
+    return this.enrollment.updateCounter(user, branchId, registerId, dto);
+  }
+
+  @RequirePermission(MANAGE)
+  @Delete("counters/:registerId")
+  @HttpCode(204)
+  deleteCounter(
+    @CurrentUser() user: RequestUser,
+    @RequireBranchId() branchId: string,
+    @Param("registerId", ParseUUIDPipe) registerId: string,
+  ) {
+    return this.enrollment.deleteCounter(user, branchId, registerId);
   }
 
   @RequirePermission(MANAGE)

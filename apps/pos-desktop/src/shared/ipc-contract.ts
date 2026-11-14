@@ -210,6 +210,8 @@ export const counterSchema = z.object({
   tillId: uuid,
   label: z.string(),
   isActive: z.boolean(),
+  hasHistory: z.boolean(),
+  hasOpenShift: z.boolean(),
   terminal: z
     .object({
       terminalId: uuid,
@@ -1012,8 +1014,25 @@ export const ipcContract = {
   refreshEnrollment: { channel: "pos:device:refresh", input: noInput, output: result(deviceStateSchema) },
   listCounters: {
     channel: "pos:enrollment:counters",
-    input: z.object({ branchId: uuid }),
+    input: z.object({ branchId: uuid, includeInactive: z.boolean().optional() }),
     output: result(z.array(counterSchema)),
+  },
+  /** Rename a counter, or stop using it / start using it again. */
+  updateCounter: {
+    channel: "pos:enrollment:update-counter",
+    input: z.object({
+      branchId: uuid,
+      registerId: uuid,
+      label: label.optional(),
+      isActive: z.boolean().optional(),
+    }),
+    output: result(counterSchema),
+  },
+  /** Delete a counter that has never been used. */
+  deleteCounter: {
+    channel: "pos:enrollment:delete-counter",
+    input: z.object({ branchId: uuid, registerId: uuid }),
+    output: result(z.object({}).strict()),
   },
   createCounter: {
     channel: "pos:enrollment:create-counter",

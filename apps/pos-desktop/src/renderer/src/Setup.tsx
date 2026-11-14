@@ -128,6 +128,207 @@ function ServerSetup({
   );
 }
 
+type CounterEdit = {
+  counter: Counter;
+  kind: "rename" | "stop" | "delete";
+};
+
+/** Why a counter cannot be stopped yet; null when it can. */
+function stopBlocker(counter: Counter): string | null {
+  if (counter.terminal) return "A computer is still set up here. Retire it first.";
+  if (counter.hasOpenShift) return "A shift is still open here. Close it first.";
+  return null;
+}
+
+/**
+ * Fix a mistaken or outdated counter: rename it, stop using it (its records stay), start using it
+ * again, or delete one that was never used. Shown to a manager choosing a counter; the server
+ * refuses anyone else and says why in plain words.
+ */
+function ManageCounters({
+  counters,
+  branchId,
+  showInactive,
+  onShowInactive,
+  onChanged,
+}: {
+  counters: Counter[];
+  branchId: string;
+  showInactive: boolean;
+  onShowInactive: (value: boolean) => void;
+  onChanged: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [edit, setEdit] = useState<CounterEdit | null>(null);
+  const [draft, setDraft] = useState("");
+  const { busy, error, run, clear } = useAction();
+
+  function finish() {
+    setEdit(null);
+    onChanged();
+  }
+  function confirm() {
+    if (!edit) return;
+    const { registerId } = edit.counter;
+    if (edit.kind === "rename")
+      void run(
+        () => window.pos.updateCounter({ branchId, registerId, label: draft.trim() }),
+        finish,
+      );
+    else if (edit.kind === "stop")
+      void run(
+        () => window.pos.updateCounter({ branchId, registerId, isActive: false }),
+        finish,
+      );
+    else void run(() => window.pos.deleteCounter({ branchId, registerId }), finish);
+  }
+  function startUsing(counter: Counter) {
+    void run(
+      () =>
+        window.pos.updateCounter({
+          branchId,
+          registerId: counter.registerId,
+          isActive: true,
+        }),
+      onChanged,
+    );
+  }
+
+  if (!open)
+    return (
+      <button
+        type="button"
+        className={cx(ui.btn, ui.ghost, ui.sm)}
+        onClick={() => setOpen(true)}
+      >
+        Rename, stop using or delete a counter
+      </button>
+    );
+
+  return (
+    <section className={styles.ctrs} aria-label="Manage counters">
+      <label className={ui.muted}>
+        <input
+          type="checkbox"
+          checked={showInactive}
+          onChange={(e) => onShowInactive(e.target.checked)}
+        />{" "}
+        Show counters no longer in use
+      </label>
+      {counters.map((counter) => {
+        const blocker = stopBlocker(counter);
+        const editing = edit?.counter.registerId === counter.registerId ? edit : null;
+        return (
+          <div key={counter.registerId} role="group" aria-label={counter.label}>
+            <b>{counter.label}</b>
+            {!counter.isActive && <span className={cx(ui.pill, ui.neutral)}>Not in use</span>}
+            {editing?.kind === "rename" ? (
+              <>
+                <input
+                  className={ui.in}
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  aria-label="Counter name"
+                  maxLength={120}
+                  autoFocus
+                />
+                <button
+                  type="button"
+                  className={cx(ui.btn, ui.outline, ui.sm)}
+                  onClick={confirm}
+                  disabled={busy || !draft.trim()}
+                >
+                  Save name
+                </button>
+              </>
+            ) : editing ? (
+              <>
+                <span>
+                  {editing.kind === "stop"
+                    ? "Stop using this counter? Its records are kept."
+                    : "Delete this counter for good?"}
+                </span>
+                <button
+                  type="button"
+                  className={cx(ui.btn, ui.outline, ui.sm)}
+                  onClick={confirm}
+                  disabled={busy}
+                >
+                  {editing.kind === "stop" ? "Yes, stop using it" : "Yes, delete it"}
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  className={cx(ui.btn, ui.ghost, ui.sm)}
+                  disabled={busy}
+                  onClick={() => {
+                    clear();
+                    setDraft(counter.label);
+                    setEdit({ counter, kind: "rename" });
+                  }}
+                >
+                  Rename
+                </button>
+                {counter.isActive ? (
+                  <button
+                    type="button"
+                    className={cx(ui.btn, ui.ghost, ui.sm)}
+                    disabled={busy || blocker !== null}
+                    onClick={() => {
+                      clear();
+                      setEdit({ counter, kind: "stop" });
+                    }}
+                  >
+                    Stop using
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className={cx(ui.btn, ui.ghost, ui.sm)}
+                    disabled={busy}
+                    onClick={() => startUsing(counter)}
+                  >
+                    Use again
+                  </button>
+                )}
+                {!counter.hasHistory && (
+                  <button
+                    type="button"
+                    className={cx(ui.btn, ui.ghost, ui.sm)}
+                    disabled={busy}
+                    onClick={() => {
+                      clear();
+                      setEdit({ counter, kind: "delete" });
+                    }}
+                  >
+                    Delete
+                  </button>
+                )}
+                {counter.isActive && blocker && <span className={ui.muted}>{blocker}</span>}
+                {counter.hasHistory && (
+                  <span className={ui.muted}>Used before, so it can only be stopped.</span>
+                )}
+              </>
+            )}
+            {editing && (
+              <button
+                type="button"
+                className={cx(ui.btn, ui.ghost, ui.sm)}
+                onClick={() => setEdit(null)}
+              >
+                Cancel
+              </button>
+            )}
+          </div>
+        );
+      })}
+      <ErrorLine error={error} />
+    </section>
+  );
+}
+
 function EnrollPanel({ state, onState }: Props) {
   const [mode, setMode] = useState<"code" | "counter">("counter");
   const [code, setCode] = useState("");
@@ -137,6 +338,8 @@ function EnrollPanel({ state, onState }: Props) {
   const [adding, setAdding] = useState(false);
   const [newCounter, setNewCounter] = useState("");
   const [label, setLabel] = useState("");
+  const [showInactive, setShowInactive] = useState(false);
+  const [reloads, setReloads] = useState(0);
   const { busy, error, run } = useAction();
   const form = useRef<HTMLFormElement>(null);
   // Ctrl+Enter sends the form from anywhere on the step, as the button's key hint says. Plain
@@ -149,7 +352,7 @@ function EnrollPanel({ state, onState }: Props) {
     setCounters(null);
     setRegisterId("");
     void run(
-      () => window.pos.listCounters({ branchId }),
+      () => window.pos.listCounters({ branchId, includeInactive: showInactive }),
       (list) => {
         setCounters(list);
         setRegisterId(
@@ -157,8 +360,8 @@ function EnrollPanel({ state, onState }: Props) {
         );
       },
     );
-    // One load per branch choice.
-  }, [branchId, mode]);
+    // One load per branch choice, and again after a counter is changed.
+  }, [branchId, mode, showInactive, reloads]);
 
   function addCounter() {
     void run(
@@ -295,9 +498,9 @@ function EnrollPanel({ state, onState }: Props) {
         <fieldset className={styles.counterSet} disabled={busy}>
           <legend className={ui.label}>
             Counter
-            {counters && counters.length > 0 && (
+            {counters && counters.some((c) => c.isActive) && (
               <span>
-                {counters.length} at {branch?.name ?? "this branch"}
+                {counters.filter((c) => c.isActive).length} at {branch?.name ?? "this branch"}
               </span>
             )}
           </legend>
@@ -305,12 +508,12 @@ function EnrollPanel({ state, onState }: Props) {
             <p className={ui.muted}>Loading counters…</p>
           ) : (
             <div className={styles.ctrs}>
-              {counters.length === 0 && (
+              {counters.filter((c) => c.isActive).length === 0 && (
                 <p className={ui.muted}>
                   This branch has no counters yet. Add one below.
                 </p>
               )}
-              {counters.map((counter) => {
+              {counters.filter((c) => c.isActive).map((counter) => {
                 const unavailable =
                   !counter.isActive || counter.terminal !== null;
                 const selected = registerId === counter.registerId;
@@ -397,6 +600,15 @@ function EnrollPanel({ state, onState }: Props) {
             </div>
           )}
         </fieldset>
+      )}
+      {mode === "counter" && counters && (
+        <ManageCounters
+          counters={counters}
+          branchId={branchId}
+          showInactive={showInactive}
+          onShowInactive={setShowInactive}
+          onChanged={() => setReloads((n) => n + 1)}
+        />
       )}
       <div className={ui.f}>
         <label htmlFor="enroll-label" className={ui.label}>

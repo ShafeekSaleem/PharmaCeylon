@@ -1,5 +1,6 @@
 import { Type } from "class-transformer";
 import {
+  IsBoolean,
   IsInt,
   IsNotEmpty,
   IsOptional,
@@ -17,6 +18,19 @@ export class CreateTerminalCounterDto {
   @IsNotEmpty()
   @MaxLength(120)
   label!: string;
+}
+
+/** PATCH /terminals/counters/:id — each field optional; at least one is required. */
+export class UpdateTerminalCounterDto {
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(120)
+  label?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
 }
 
 /** POST /terminals/enrollments/challenge â€” `TerminalEnrollmentChallengeRequest`. */

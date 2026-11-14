@@ -1,4 +1,9 @@
-import { ConflictException, ForbiddenException, Injectable } from "@nestjs/common";
+import {
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from "@nestjs/common";
 import { randomBytes, randomUUID } from "node:crypto";
 import { Prisma, type TerminalChallenge } from "@prisma/client";
 import type {
@@ -35,6 +40,13 @@ import {
 } from "./terminal-wire";
 
 type Tx = Prisma.TransactionClient;
+
+const COUNTER_HAS_HISTORY = () =>
+  new ConflictException({
+    code: "COUNTER_HAS_HISTORY",
+    message:
+      "This counter has been used, so it cannot be deleted and its records are kept. Stop using it instead.",
+  });
 /** Whose challenge it is: the signed-in caller, or the person a PIN sign-in names. */
 type Actor = Pick<RequestUser, "tenantId" | "userId">;
 /** An open PIN challenge is handed out again while at least this much of its life is left, so the
@@ -108,6 +120,195 @@ export class TerminalTrustService {
       tx,
     );
     return counter;
+  }
+
+  /**
+   * Refuses a name another counter at this branch already has (trimmed, case-insensitive), so two
+   * tills are never told apart only by position in a list. Counters retired from use still hold
+   * their name: their history is reported under it. `exceptId` is the counter being renamed.
+   */
+  private async assertLabelFree(
+    tx: Tx,
+    tenantId: string,
+    branchId: string,
+    label: string,
+    exceptId?: string,
+  ) {
+    const taken = await tx.terminalCounter.findFirst({
+      where: {
+        tenantId,
+        branchId,
+        label: { equals: label.trim(), mode: "insensitive" },
+        ...(exceptId ? { id: { not: exceptId } } : {}),
+      },
+      select: { id: true, isActive: true },
+    });
+    if (taken)
+      throw new ConflictException({
+        code: "COUNTER_LABEL_TAKEN",
+        message: taken.isActive
+          ? "Another counter at this branch already has that name. Choose a different name."
+          : "A counter that is no longer in use already has that name. Choose a different name, or rename the old one first.",
+      });
+  }
+
+  private async lockedCounter(
+    tx: Tx,
+    tenantId: string,
+    branchId: string,
+    registerId: string,
+  ) {
+    await tx.$queryRaw`SELECT id FROM terminal_counter WHERE tenant_id = ${tenantId}::uuid
+      AND branch_id = ${branchId}::uuid AND id = ${uuid(registerId)}::uuid FOR UPDATE`;
+    const counter = await tx.terminalCounter.findFirst({
+      where: { tenantId, branchId, id: registerId },
+    });
+    if (!counter)
+      throw new NotFoundException({
+        code: "COUNTER_NOT_FOUND",
+        message: "That counter was not found at this branch.",
+      });
+    return counter;
+  }
+
+  /**
+   * Rename a counter and/or take it out of, or return it to, use. Deactivating is refused while a
+   * computer is enrolled on the counter or a shift is open on its till: either would leave a till
+   * running that the pharmacy has just been told is closed. Unused enrollment codes are revoked.
+   */
+  async updateCounter(
+    tx: Tx,
+    user: RequestUser,
+    branchId: string,
+    registerId: string,
+    changes: { label?: string; isActive?: boolean },
+  ) {
+    await this.actor(tx, user, branchId, "tenant.management");
+    const { tenantId } = user;
+    const counter = await this.lockedCounter(tx, tenantId, branchId, registerId);
+    const data: { label?: string; isActive?: boolean } = {};
+    if (changes.label !== undefined) {
+      text(changes.label, 120);
+      const label = changes.label.trim();
+      if (label !== counter.label) {
+        await this.assertLabelFree(tx, tenantId, branchId, label, counter.id);
+        data.label = label;
+      }
+    }
+    if (changes.isActive !== undefined && changes.isActive !== counter.isActive) {
+      if (changes.isActive) {
+        // Coming back: its name must still be free (a newer counter may have taken it).
+        await this.assertLabelFree(
+          tx,
+          tenantId,
+          branchId,
+          data.label ?? counter.label,
+          counter.id,
+        );
+      } else {
+        const computer = await tx.operationalTerminal.count({
+          where: { tenantId, branchId, registerId: counter.id, retiredAt: null },
+        });
+        if (computer)
+          throw new ConflictException({
+            code: "COUNTER_IN_USE",
+            message:
+              "A computer is still set up on this counter. Remove that computer first, then stop using the counter.",
+          });
+        const openShift = await tx.tillShift.count({
+          where: { tenantId, branchId, registerId: counter.id, closedAt: null },
+        });
+        if (openShift)
+          throw new ConflictException({
+            code: "COUNTER_SHIFT_OPEN",
+            message:
+              "This counter has a shift that is still open. Close the shift first, then stop using the counter.",
+          });
+      }
+      data.isActive = changes.isActive;
+    }
+    if (Object.keys(data).length === 0) return counter;
+    const updated = await tx.terminalCounter.update({
+      where: { id: counter.id, tenantId, branchId },
+      data,
+    });
+    if (data.isActive === false)
+      await tx.terminalEnrollmentCode.updateMany({
+        where: {
+          tenantId,
+          branchId,
+          registerId: counter.id,
+          usedAt: null,
+          revokedAt: null,
+        },
+        data: { revokedAt: new Date(), revokedByUserId: user.userId },
+      });
+    await this.audit.log(
+      {
+        tenantId,
+        branchId,
+        actorUserId: user.userId,
+        eventName:
+          data.isActive === undefined
+            ? "terminal.counter_renamed"
+            : data.isActive
+              ? "terminal.counter_reactivated"
+              : "terminal.counter_deactivated",
+        entityName: "terminal_counter",
+        entityId: counter.id,
+        payload: {
+          registerId: counter.id,
+          ...(data.label !== undefined
+            ? { previousLabel: counter.label, label: data.label }
+            : {}),
+          ...(data.isActive !== undefined ? { isActive: data.isActive } : {}),
+        },
+      },
+      tx,
+    );
+    return updated;
+  }
+
+  /**
+   * Delete a counter nobody has ever used. Anything that records what happened at a counter
+   * (computers, sign-ins, shifts, enrollment codes, attendance proofs) keeps it, because that
+   * history is reported under the counter. The foreign keys are the last line of defence.
+   */
+  async deleteCounter(
+    tx: Tx,
+    user: RequestUser,
+    branchId: string,
+    registerId: string,
+  ) {
+    await this.actor(tx, user, branchId, "tenant.management");
+    const { tenantId } = user;
+    const counter = await this.lockedCounter(tx, tenantId, branchId, registerId);
+    const where = { tenantId, branchId, registerId: counter.id };
+    const used = (
+      await Promise.all([
+        tx.operationalTerminal.count({ where }),
+        tx.terminalStaffSession.count({ where }),
+        tx.tillShift.count({ where }),
+        tx.terminalEnrollmentCode.count({ where }),
+        tx.terminalAttendanceProof.count({ where }),
+      ])
+    ).some((n) => n > 0);
+    if (used) throw COUNTER_HAS_HISTORY();
+    await tx.terminalCounter.delete({
+      where: { id: counter.id, tenantId, branchId },
+    });
+    await this.audit.log(
+      {
+        tenantId,
+        branchId,
+        actorUserId: user.userId,
+        eventName: "terminal.counter_deleted",
+        entityName: "terminal_counter",
+        entityId: counter.id,
+        payload: { registerId: counter.id, label: counter.label },
+      },
+      tx,
+    );
   }
 
   private async counter(

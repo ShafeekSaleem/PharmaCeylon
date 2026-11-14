@@ -9,12 +9,16 @@ import type {
   TerminalPinSessionCommand,
 } from "./terminal-online-protocol";
 
-/** P2: GET/POST `/terminals/counters`. A counter is a branch register with its own till. */
+/** P2: GET/POST/PATCH `/terminals/counters`. A counter is a branch register with its own till. */
 export type TerminalCounterView = Readonly<{
   registerId: string;
   tillId: string;
   label: string;
   isActive: boolean;
+  /** Anything records what happened here (computers, sign-ins, shifts, codes): it can be stopped but not deleted. */
+  hasHistory: boolean;
+  /** A shift is open on this counter's till, so it cannot be stopped yet. */
+  hasOpenShift: boolean;
   /** The terminal currently occupying this counter (not retired), if any. */
   terminal: Readonly<{
     terminalId: string;
