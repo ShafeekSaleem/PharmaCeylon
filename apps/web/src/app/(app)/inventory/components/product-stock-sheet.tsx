@@ -38,13 +38,6 @@ export function ProductStockSheet({ productId, access, onClose, onAdjust, onChan
   const [quarantineTarget, setQuarantineTarget] = useState<QuarantineTarget | null>(null);
   const [releaseTarget, setReleaseTarget] = useState<QuarantineTarget | null>(null);
 
-  const done = (message: string) => {
-    setQuarantineTarget(null);
-    setReleaseTarget(null);
-    void reload();
-    onChanged(message);
-  };
-
   const batchActions = (batch: BatchRow): RowMenuAction[] => {
     const holdable = Math.max(0, batch.qtyOnHand - batch.quarantinedQty - batch.reservedQty);
     const actions: RowMenuAction[] = [];
@@ -332,8 +325,8 @@ export function ProductStockSheet({ productId, access, onClose, onAdjust, onChan
         )}
       </Modal>
 
-      <QuarantineDialog target={quarantineTarget} onClose={() => setQuarantineTarget(null)} onDone={done} />
-      <ReleaseDialog target={releaseTarget} onClose={() => setReleaseTarget(null)} onDone={done} />
+      <QuarantineDialog target={quarantineTarget} onClose={() => setQuarantineTarget(null)} />
+      <ReleaseDialog target={releaseTarget} onClose={() => setReleaseTarget(null)} />
     </>
   );
 }
