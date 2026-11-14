@@ -100,6 +100,7 @@ Send optional header **`Idempotency-Key`** (max 128 characters, trimmed). Keys a
 | Transfer ship    | `transfer_ship`    | `POST /api/v1/transfers/:id/ship`                 |
 | Transfer receive | `transfer_receive` | `POST /api/v1/transfers/:id/receive`              |
 | Prepared refund  | `sale_refund_execute` | `POST /api/v1/sales/refund-requests/:id/execute` |
+| Supplier cash payout | `supplier_cash_payout_execute` | `POST /api/v1/purchasing/cash-payouts/:id/execute` |
 | Product import   | `product_import`   | `POST /api/v1/products/import/confirm`            |
 | Supplier payment | `supplier_payment` | `POST /api/v1/purchasing/payments`                |
 | Write-off request | `held_adjustment_request` | `POST /api/v1/inventory/adjustment-requests` |
@@ -237,6 +238,7 @@ transaction.
 | `POST /api/v1/transfers/:id/ship` | `{ transferId }` | the transfer's `executionApprovalId`; `null` only while approval is waived (below) | `transfers.manage` |
 | `POST /api/v1/transfers/:id/receive` | `{ transferId, dispatchApprovalId, lines: [{ transferItemId, qty, receivedQtyBefore }] }` | `null` | `transfers.manage` |
 | `POST /api/v1/sales/refund-requests/:id/execute` | `{ refundRequestId }` | the request's `executionApprovalId`; `null` when it needs no approval (below) | `sales.refund` |
+| `POST /api/v1/purchasing/cash-payouts/:id/execute` | `{ cashPayoutId }` | the payout's `executionApprovalId` (always issued on approval) | `suppliers.pay` |
 | `POST /api/v1/purchasing/prepared-receipts/:id/post` | `{ preparedReceiptId }` | the prepared delivery's current approval | `purchasing.receive` |
 | `POST /api/v1/returns/:id/complete` | `{ goodsReturnId }` | the return's latest approval | `returns.process` |
 | `POST /api/v1/inventory/adjustments` | `{ kind, movementType, productId, batchId, newBatch, qty, reason, fromQuarantine }` | `null` | `inventory.manage` to add stock, `inventory.write_off` to write it off |
@@ -352,6 +354,14 @@ otherwise `approvalEvidenceId` must be `null`. Cash movement is resolved from th
 `{ type: "sale_refund.executed", refundRequestId, approvalId, goodsReturnId, amountMinor,
 refundedTo: [{ method, amountMinor }], effect }` (LKR minor units). A request executes once: a
 later distinct command gets `effect: "already_applied"` with an empty `refundedTo`.
+
+Supplier cash payout execute always requires the pinned `executionApprovalId` as
+`approvalEvidenceId` (management action `supplier_cash_payout.execute`). Result:
+`{ type: "supplier_cash_payout.executed", cashPayoutId, approvalId, supplierPaymentId,
+amountMinor, effect }`. Cash leaves the executor's open till shift; replay returns the same receipt
+with `effect: "already_applied"`. Before posting the ledger payment the server update-locks the open
+shift and refuses with 409 `INSUFFICIENT_DRAWER_CASH` when expected cash is below the payout amount.
+A payout of exactly the expected balance is allowed.
 `pharmacistEvidenceId`
 must be `null` for every v1 operation except prescriptions (a pharmacist's co-sign, above), and
 `operatingHoursExceptionId` must be `null` for every v1 operation. Any other operation,
@@ -943,6 +953,8 @@ shift if there is one. Web POS sales and refunds carry no shift.
 **Cash movements.** `till_cash_movement` holds drawer cash that is neither a sale nor a refund.
 It has no route: `TillShiftsService.recordCashMovement` writes it inside the payer's transaction,
 on their own open shift, and P6's supplier cash payout (revised D10) is the first caller.
+Cash **out** movements update-lock the shift, compare against expected cash, and refuse with
+409 `INSUFFICIENT_DRAWER_CASH` before inserting the row (payments equal to the balance are allowed).
 
 ## Offline support records (P1, sync intake)
 
@@ -1325,7 +1337,13 @@ Two refusals from receiving carry a machine-readable `code` so a client can ask 
 | `POST /purchasing/invoices` | `purchasing.invoice` | The supplier's invoice: `invoiceNumber`, `invoiceDate`, optional `dueDate` (else supplier terms), `receiptIds[]`, `lines[]` (`productId` or `description`, `qty`, `unitCost`), optional `taxAmount`, `shippingAmount`. Voids the placeholders of the linked deliveries and moves their allocations across. **409** if this supplier's number is already recorded. |
 | `POST /purchasing/invoices/:id/void` | `purchasing.invoice` | `{ reason }`. Refused while payments or debit notes are set against it. |
 | `GET /purchasing/payments` | `purchasing.invoice` or `suppliers.pay` | Query `supplierId`, `from`, `to`. |
-| `POST /purchasing/payments` | `suppliers.pay` | `supplierId`, `paidOn`, `amount`, `method` (`bank_transfer`, `cheque`, `cash`, `card`, `other`), optional `reference`, `notes`, `allocations[]`. Without allocations the amount settles the oldest due first; either way the whole amount must land on open invoices (**400** "more than is owed"). Accepts `Idempotency-Key` (scope `supplier_payment`). |
+| `POST /purchasing/payments` | `suppliers.pay` | `supplierId`, `paidOn`, `amount`, `method` (`bank_transfer`, `cheque`, `cash`, `card`, `other`), optional `reference`, `notes`, `allocations[]`. Without allocations the amount settles the oldest due first; either way the whole amount must land on open invoices (**400** "more than is owed"). Accepts `Idempotency-Key` (scope `supplier_payment`). Branch **cash** on a live counter branch is refused on the browser (`TERMINAL_REQUIRED`); record it through **supplier cash payouts** below or a signed execute at the counter. |
+| `POST /purchasing/cash-payouts` | `suppliers.pay` | Prepare a **cash** supplier payout for this branch: `supplierId`, `paidOn`, `amount`, optional `reference`, `notes`, `allocations[]`, `purchaseOrderId`. Validates allocations against open invoices without writing money. One open payout per supplier per branch (**409** if another is waiting). Self-approves when the preparer may self-approve on `suppliers.pay`. |
+| `POST /purchasing/cash-payouts/:id/approve` | `suppliers.pay` | Management approval body pins `supplier_cash_payout.execute` (same shape as other approval reviews). |
+| `POST /purchasing/cash-payouts/:id/cancel` | `suppliers.pay` | Requester or payer cancels while `prepared`/`approved`. |
+| `GET /purchasing/cash-payouts` | `suppliers.pay` | Query `supplierId`, `status`, `readyAtCounter=true` for approved payouts waiting at the counter. |
+| `GET /purchasing/cash-payouts/:id` | `suppliers.pay` | Full payout with `readyAtCounter`, `approvalReview`, allocation preview and people. |
+| `POST /purchasing/cash-payouts/:id/execute` | `suppliers.pay` | **Counter only** (`@CounterRoute()` → `TERMINAL_REQUIRED` on the browser). Signed command body `{ cashPayoutId }`, `approvalEvidenceId` = `executionApprovalId`, receipt `supplier_cash_payout.executed` with `supplierPaymentId` and `amountMinor`. Needs `suppliers.pay` on the signed command (403 `PERMISSION_DENIED` without it). Posts a `cash` `SupplierPayment` and a till **cash out** on the executor's open shift. Refusals: 409 `SHIFT_REQUIRED` without an open shift; 409 `INSUFFICIENT_DRAWER_CASH` when expected cash on that shift is below the payout (`expectedCashMinor` / `requiredMinor` in the body). The shift row is locked for update so two payouts cannot overdraw the drawer. Optional `Idempotency-Key` (scope `supplier_cash_payout_execute`). Listed on `GET /counter-work` as kind `supplier_cash_payout` → P6 destination `supplier_payout` (planned). |
 | `POST /purchasing/payments/:id/void` | `suppliers.pay` | `{ reason }`. The row is kept and marked voided; the invoices it settled go back to owing. |
 | `GET /purchasing/debit-notes` | `purchasing.invoice` or `suppliers.pay` | Raised automatically when a supplier return completes. |
 | `POST /purchasing/debit-notes/:id/apply` | `suppliers.pay` | Optional `allocations[]`; otherwise the oldest open invoices first. A remainder stays open. |

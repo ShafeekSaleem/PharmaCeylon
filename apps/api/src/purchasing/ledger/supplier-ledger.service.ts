@@ -19,6 +19,8 @@ import {
   normalizeIdempotencyKey,
 } from "../../common/idempotency.util";
 import { PrismaService } from "../../prisma/prisma.service";
+import { POS_ROLLOUT_SELECT, resolvePosRollout } from "../../tenant/pos-rollout";
+import { denied } from "../../terminals/terminal-wire";
 import {
   AllocationDto,
   ApplyDebitNoteDto,
@@ -821,7 +823,7 @@ export class SupplierLedgerService {
    * due first. Either way the whole amount has to land somewhere — money recorded as paid but
    * set against nothing is exactly the ambiguity this ledger exists to remove.
    */
-  private async placeAllocations(
+  async placeAllocations(
     tx: Tx,
     tenantId: string,
     supplierId: string,
@@ -938,6 +940,13 @@ export class SupplierLedgerService {
     const paidOn = parseDate(dto.paidOn, "Payment date");
     if (paidOn > new Date())
       throw new BadRequestException("A payment can't be dated in the future");
+    if (dto.method === "cash") {
+      const branch = await this.prisma.branch.findFirst({
+        where: { id: branchId, tenantId },
+        select: POS_ROLLOUT_SELECT,
+      });
+      if (branch && resolvePosRollout(branch).state === "live") denied("TERMINAL_REQUIRED");
+    }
 
     const idemKey = normalizeIdempotencyKey(idempotencyKeyRaw);
     if (idemKey) {

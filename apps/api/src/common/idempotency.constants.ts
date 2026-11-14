@@ -8,6 +8,7 @@ export const IDEMPOTENCY_SCOPE = {
   saleRefundExecute: "sale_refund_execute",
   supplierPayment: "supplier_payment",
   supplierEvidencedPayment: "supplier_evidenced_payment",
+  supplierCashPayoutExecute: "supplier_cash_payout_execute",
   productImport: "product_import",
   heldAdjustmentRequest: "held_adjustment_request",
   stockAdjustment: "stock_adjustment",

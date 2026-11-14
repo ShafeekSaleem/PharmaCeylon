@@ -46,6 +46,7 @@ describe("counter work task projection", () => {
         "refund",
         "stock_case",
         "stocktake",
+        "supplier_cash_payout",
         "supplier_return",
         "transfer_receive",
         "transfer_ship",

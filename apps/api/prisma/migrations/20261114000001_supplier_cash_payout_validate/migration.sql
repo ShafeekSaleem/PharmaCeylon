@@ -1,0 +1,2 @@
+ALTER TABLE supplier_cash_payout VALIDATE CONSTRAINT supplier_cash_payout_shape;
+ALTER TABLE management_approval VALIDATE CONSTRAINT management_approval_shape;

@@ -264,6 +264,11 @@
       "reason": "Locks supplier_invoice and supplier_debit_note rows by bound tenant_id and id (FOR UPDATE, id order) before an allocation changes what is settled on them."
     },
     {
+      "path": "src/purchasing/ledger/supplier-cash-payout.service.ts",
+      "mode": "scoped-domain-lock",
+      "reason": "Locks supplier_cash_payout rows by bound tenant_id, branch_id and id (FOR UPDATE) before execute/cancel transitions."
+    },
+    {
       "path": "src/suppliers/suppliers.service.ts",
       "mode": "scoped-domain-lock",
       "reason": "Locks one supplier_invoice row by bound tenant_id and id (FOR UPDATE) before recording a payment against it from the supplier page."

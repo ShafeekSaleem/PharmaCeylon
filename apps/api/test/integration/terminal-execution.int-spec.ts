@@ -121,7 +121,7 @@ const imports = new ProductImportService(proxy as never, audit, new CategoryTaxo
   { start: (_j: string, _t: string, id: string, work: (ctx: unknown) => Promise<void>) => {
     runImport = () => work({ jobId: id, importId: id, progress: () => {} });
   } } as never, { refresh: async () => {} } as never, stock, new WorkerAuthority(access));
-const operations = new SignedOperations(stocktakes, adjustments, inventory, deliveries, importStock, imports, {} as never, {} as never, {} as never, {} as never, prescriptions);
+const operations = new SignedOperations(stocktakes, adjustments, inventory, deliveries, importStock, imports, {} as never, {} as never, {} as never, {} as never, {} as never, prescriptions);
 const executor = new TerminalCommandExecutor(proxy as never, trust, authorization, operations, audit, access);
 const pinApprovals = new PharmacistApprovalService(proxy as never, audit,
   new PermissionsService(proxy as never, { get: () => 30 } as never), registrations,
@@ -1178,12 +1178,12 @@ describe("production providers stay fail-closed", () => {
     const productionTrust = new TerminalTrustService(access, audit, new LocalAttendanceVerifier());
     const production = new TerminalCommandExecutor(proxy as never, productionTrust,
       new OperationAuthorizationService(access, productionTrust, new MandatoryOperationEvidence(), approvals),
-      new SignedOperations(stocktakes, adjustments, inventory, deliveries, importStock, imports, {} as never, {} as never, {} as never, {} as never, prescriptions), audit, access);
+      new SignedOperations(stocktakes, adjustments, inventory, deliveries, importStock, imports, {} as never, {} as never, {} as never, {} as never, {} as never, prescriptions), audit, access);
     await expect(production.execute(counter.staff, branch(), request)).rejects.toMatchObject({
       response: { code: "LOCAL_ATTENDANCE_UNAVAILABLE" } });
     const hoursOnly = new TerminalCommandExecutor(proxy as never, trust,
       new OperationAuthorizationService(access, trust, new MandatoryOperationEvidence(), approvals),
-      new SignedOperations(stocktakes, adjustments, inventory, deliveries, importStock, imports, {} as never, {} as never, {} as never, {} as never, prescriptions), audit, access);
+      new SignedOperations(stocktakes, adjustments, inventory, deliveries, importStock, imports, {} as never, {} as never, {} as never, {} as never, {} as never, prescriptions), audit, access);
     await expect(hoursOnly.execute(counter.staff, branch(), request)).rejects.toMatchObject({
       response: { code: "BRANCH_HOURS_NOT_CONFIGURED" } });
     expect((await batchTotals(prisma, st.batchId)).onHand).toBe(50);

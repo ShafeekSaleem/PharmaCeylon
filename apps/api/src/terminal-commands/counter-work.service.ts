@@ -27,6 +27,11 @@ import { stocktakeApprovalMaterial } from "../security/stocktake-approval-materi
 import { transferApprovalMaterial } from "../security/transfer-approval-material";
 import { describeMaterialChanges } from "./counter-work-changes";
 import { StockCasesService } from "../stock-cases/stock-cases.service";
+import {
+  storedAllocations,
+  supplierCashPayoutMaterial,
+} from "../purchasing/ledger/supplier-cash-payout-approval-material";
+import { SupplierCashPayoutStatus } from "@prisma/client";
 
 export type { CounterWorkKind };
 
@@ -87,6 +92,7 @@ const EXECUTE_PERMISSION: Record<CounterWorkKind, string> = {
   import_stock: "products.import",
   // P5 #51: count, correct and post an offline sale's stock, as approved on the web.
   stock_case: "inventory.manage",
+  supplier_cash_payout: "suppliers.pay",
 };
 
 const RECEIVABLE_PO = ["issued", "partially_received"] as const;
@@ -153,6 +159,7 @@ export class CounterWorkService {
       may("supplier_return") ? this.supplierReturns(tenantId, branchId, costs) : [],
       may("import_stock") ? this.stagedImports(tenantId, branchId) : [],
       may("stock_case") && this.stockCases ? this.stockCasePlans(tenantId, branchId) : [],
+      may("supplier_cash_payout") ? this.supplierCashPayouts(tenantId, branchId) : [],
     ]);
     const rows = parts.flat();
     await this.name(tenantId, rows);
@@ -335,6 +342,36 @@ export class CounterWorkService {
       },
       operation: "POST /api/v1/transfers/:id/receive",
     }));
+  }
+
+  private async supplierCashPayouts(tenantId: string, branchId: string) {
+    const rows = await this.prisma.supplierCashPayout.findMany({
+      where: { tenantId, branchId, status: SupplierCashPayoutStatus.approved, executionApprovalId: { not: null } },
+    });
+    if (!rows.length) return [];
+    const evidence = await this.evidence(tenantId, branchId, rows.map((r) => r.executionApprovalId));
+    const suppliers = await this.prisma.supplier.findMany({
+      where: { tenantId, id: { in: rows.map((r) => r.supplierId) } },
+      select: { id: true, name: true },
+    });
+    return rows.map((row): CounterWorkItemCore => {
+      const ev = evidence.get(row.executionApprovalId!);
+      const supplierName = suppliers.find((s) => s.id === row.supplierId)?.name ?? null;
+      return {
+        kind: "supplier_cash_payout",
+        id: row.id,
+        reference: row.payoutNumber,
+        subject: supplierName,
+        lineCount: Math.max(storedAllocations(row).length, 1),
+        amount: money(row.amount),
+        readyAt: (row.approvedAt ?? row.requestedAt).toISOString(),
+        requested: { name: row.requestedBy, at: iso(row.requestedAt) },
+        approved: this.approver(ev, row.approvedBy, row.approvedAt),
+        dispatched: null,
+        approval: approvalState("supplier_cash_payout", ev, row.approvalVersion, () => supplierCashPayoutMaterial(row)),
+        operation: "POST /api/v1/purchasing/cash-payouts/:id/execute",
+      };
+    });
   }
 
   /** The refund requests' own "ready at the counter" answer, plus ones whose approval was withdrawn. */

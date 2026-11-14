@@ -43,6 +43,8 @@ export const DAILY_WORK_KINDS = [
   "offline_stock_case.review",
   "offline_stock_case.resolve",
   "offline_journal.review",
+  "supplier_cash_payout.approve",
+  "supplier_cash_payout.execute",
 ] as const;
 export type DailyWorkKind = (typeof DAILY_WORK_KINDS)[number];
 

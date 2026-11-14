@@ -526,6 +526,26 @@
   },
   {
     "method": "POST",
+    "path": "/api/v1/purchasing/cash-payouts",
+    "source": "apps/api/src/purchasing/ledger/supplier-cash-payout.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/purchasing/cash-payouts/:id/approve",
+    "source": "apps/api/src/purchasing/ledger/supplier-cash-payout.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/purchasing/cash-payouts/:id/cancel",
+    "source": "apps/api/src/purchasing/ledger/supplier-cash-payout.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/purchasing/cash-payouts/:id/execute",
+    "source": "apps/api/src/purchasing/ledger/supplier-cash-payout.controller.ts"
+  },
+  {
+    "method": "POST",
     "path": "/api/v1/purchasing/debit-notes/:id/apply",
     "source": "apps/api/src/purchasing/ledger/supplier-ledger.controller.ts"
   },

@@ -120,6 +120,13 @@ enum SaleRefundRequestStatus {
   cancelled
 }
 
+enum SupplierCashPayoutStatus {
+  prepared
+  approved
+  executed
+  cancelled
+}
+
 enum TransferStatus {
   requested
   approved
@@ -3091,6 +3098,40 @@ model SaleRefundRequest {
   @@index([tenantId, branchId, status])
   @@index([tenantId, saleId])
   @@map("sale_refund_request")
+}
+
+/// Cash owed to a supplier, approved on the web and paid out at the counter (P6 #174, revised D10).
+/// Execution creates the ledger payment and a till cash movement on the executor's open shift.
+model SupplierCashPayout {
+  id                  String                   @id @default(uuid()) @db.Uuid
+  tenantId            String                   @map("tenant_id") @db.Uuid
+  branchId            String                   @map("branch_id") @db.Uuid
+  supplierId          String                   @map("supplier_id") @db.Uuid
+  payoutNumber        String                   @map("payout_number")
+  status              SupplierCashPayoutStatus   @default(prepared)
+  amount              Decimal                  @db.Decimal(14, 2)
+  paidOn              DateTime                 @map("paid_on") @db.Date
+  reference           String?
+  notes               String?
+  /// [{ invoiceId, amount }] as decimal strings.
+  allocations         Json                     @default("[]")
+  purchaseOrderId     String?                  @map("purchase_order_id") @db.Uuid
+  approvalVersion     Int                      @default(1) @map("approval_version")
+  requestedBy         String                   @map("requested_by") @db.Uuid
+  requestedAt         DateTime                 @default(now()) @map("requested_at")
+  executionApprovalId String?                  @map("execution_approval_id") @db.Uuid
+  approvedBy          String?                  @map("approved_by") @db.Uuid
+  approvedAt          DateTime?                @map("approved_at")
+  executedBy          String?                  @map("executed_by") @db.Uuid
+  executedAt          DateTime?                @map("executed_at")
+  supplierPaymentId   String?                  @map("supplier_payment_id") @db.Uuid
+  cancelledBy         String?                  @map("cancelled_by") @db.Uuid
+  cancelledAt         DateTime?                @map("cancelled_at")
+  updatedAt           DateTime                 @default(now()) @updatedAt @map("updated_at")
+
+  @@unique([tenantId, payoutNumber])
+  @@index([tenantId, branchId, status])
+  @@map("supplier_cash_payout")
 }
 
 model Transfer {
