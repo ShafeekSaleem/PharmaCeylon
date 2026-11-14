@@ -4,6 +4,13 @@ import { render, screen } from "@testing-library/react";
 import type { SupplierCashPayoutView } from "@pharmaceylon/shared";
 import { CashPayoutDetail } from "./cash-payout-detail";
 
+const mockApiJson = jest.fn();
+jest.mock("@/lib/auth-client", () => ({ apiJson: (...args: unknown[]) => mockApiJson(...args) }));
+
+jest.mock("../hooks/use-ledger", () => ({
+  useInvoices: () => ({ rows: [{ id: "22222222-2222-4222-8222-222222222222", invoiceNumber: "INV-100", balance: "12500" }], fresh: true }),
+}));
+
 const payout: SupplierCashPayoutView = {
   id: "11111111-1111-4111-8111-111111111111",
   payoutNumber: "SCP-0042",
@@ -30,6 +37,10 @@ const payout: SupplierCashPayoutView = {
   cancelledBy: null,
   cancelledAt: null,
 };
+
+beforeEach(() => {
+  mockApiJson.mockReset();
+});
 
 describe("CashPayoutDetail", () => {
   it("shows waiting at the counter for an approved payout", () => {

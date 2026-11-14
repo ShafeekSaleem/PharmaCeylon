@@ -488,6 +488,9 @@ export const cashPayoutExecutedSchema = z.object({
   requestedBy: z.string().nullable(),
   approvedBy: z.string().nullable(),
   movementReason: z.string(),
+  supplierName: z.string().nullable(),
+  /** Running drawer expected cash on this till after the local posting (when known). */
+  expectedCashMinorAfter: z.number().int().nullable(),
 });
 export type CashPayoutExecuted = z.infer<typeof cashPayoutExecutedSchema>;
 
@@ -1141,6 +1144,19 @@ export const ipcContract = {
     channel: "pos:counter:execute-cash-payout",
     input: z.object({ cashPayoutId: uuid }),
     output: result(cashPayoutExecutedSchema),
+  },
+  printSupplierCashPayoutReceipt: {
+    channel: "pos:counter:print-cash-payout",
+    input: z.object({
+      printerName: z.string().min(1).max(260),
+      payoutNumber: z.string(),
+      amountMinor: z.number().int(),
+      supplierPaymentId: uuid,
+      supplierName: z.string().nullable(),
+      movementReason: z.string(),
+      executedAt: z.string(),
+    }),
+    output: printResultSchema,
   },
   stockCasesReady: { channel: "pos:counter:stock-cases", input: noInput, output: result(z.array(stockCaseAtCounterSchema)) },
   resolveStockCase: {

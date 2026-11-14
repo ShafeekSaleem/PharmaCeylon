@@ -14,7 +14,7 @@ import { startStoreBackups, type StoreBackup } from "./backup/store-backup";
 import { createLogger } from "./logging/logger";
 import { printTestReceipt } from "./printing/test-receipt";
 import { printHtml } from "./printing/print-html";
-import { renderSaleReceiptHtml } from "./printing/receipt-html";
+import { renderSaleReceiptHtml, renderSupplierCashPayoutReceiptHtml } from "./printing/receipt-html";
 import { renderXReportHtml } from "./printing/x-report-html";
 import { CheckoutService } from "./checkout/checkout-service";
 import { DispensingService } from "./checkout/dispensing";
@@ -391,16 +391,30 @@ function registerIpc(schemaVersion: number, logger: ReturnType<typeof createLogg
           if (!counterWork) throw new ActionFailure("NOT_READY", "The counter is still starting.");
           const executed = await counterWork.executeCashPayout(cashPayoutId);
           const executor = terminal?.current()?.staff.staffUserId;
+          let expectedCashMinorAfter: number | null = null;
           if (!executed.alreadyApplied && executor) {
             shifts?.recordSupplierPayout(cashPayoutId, executed.amountMinor, executor);
+            expectedCashMinorAfter = shifts?.state().current?.expectedCashMinor ?? null;
             try {
               await shifts?.refresh();
+              expectedCashMinorAfter = shifts?.state().current?.expectedCashMinor ?? expectedCashMinorAfter;
             } catch {
               /* local expected cash is already updated */
             }
           }
-          return executed;
+          return { ...executed, expectedCashMinorAfter };
         }),
+      printSupplierCashPayoutReceipt: (input) => {
+        const device = store ? new DeviceStore(store.db).read() : null;
+        if (!device) return { ok: false, error: "The counter is still starting." };
+        return printHtml(
+          input.printerName,
+          renderSupplierCashPayoutReceiptHtml(input, {
+            branchName: device.branchName,
+            counterLabel: device.counterLabel,
+          }),
+        );
+      },
       stockCasesReady: () =>
         act(logger, "stockCasesReady", () => {
           if (!counterWork) throw new ActionFailure("NOT_READY", "The counter is still starting.");

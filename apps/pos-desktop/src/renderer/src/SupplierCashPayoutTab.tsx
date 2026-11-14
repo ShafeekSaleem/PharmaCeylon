@@ -13,7 +13,7 @@ import { cx, ErrorLine } from "./useAction";
 
 const PERMISSION_MESSAGE = "Your role can't pay suppliers";
 
-type Phase = "ready" | "confirm" | "processing" | "success";
+type Phase = "ready" | "processing" | "success";
 
 function amountMinor(amount: string) {
   return minor(amount);
@@ -48,13 +48,18 @@ export function SupplierCashPayoutTab({
   const [permissionDenied, setPermissionDenied] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [sheetPayout, setSheetPayout] = useState<CashPayoutAtCounter | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [phase, setPhase] = useState<Phase>("ready");
   const [ticked, setTicked] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [done, setDone] = useState<CashPayoutExecuted | null>(null);
+  const [printMessage, setPrintMessage] = useState<string | null>(null);
   const formRef = useRef<HTMLFormElement>(null);
   const expected = shift?.expectedCashMinor ?? null;
+  const me = device.staffSession?.staffUserId;
+  const shiftOpen = shift?.status === "open";
+  const shiftMine = shiftOpen && shift.staffUserId === me;
 
   const load = useCallback(() => {
     if (!online) return;
@@ -92,56 +97,95 @@ export function SupplierCashPayoutTab({
     [rows, selectedId],
   );
 
+  const sheetRow = sheetOpen ? sheetPayout : null;
+
+  const expectedDrawerAfter = useMemo(() => {
+    if (!done) return null;
+    if (done.expectedCashMinorAfter !== null) return done.expectedCashMinorAfter;
+    return null;
+  }, [done]);
+
   const short =
     selected && expected !== null ? drawerShort(selected.amount, expected) : false;
   const canPay =
     Boolean(selected) &&
     online &&
     !permissionDenied &&
-    shift?.status === "open" &&
+    shiftMine &&
     !short &&
     phase !== "processing" &&
     phase !== "success";
 
   function openSheet() {
-    if (!selected || short) return;
+    if (!selected || short || !shiftMine) return;
+    setSheetPayout(selected);
     setSheetOpen(true);
     setPhase("ready");
     setTicked(false);
     setActionError(null);
     setDone(null);
+    setPrintMessage(null);
   }
 
   function closeSheet() {
     if (phase === "processing") return;
     setSheetOpen(false);
+    setSheetPayout(null);
     setPhase("ready");
     setTicked(false);
     setActionError(null);
+    setDone(null);
+    if (phase === "success") load();
   }
 
   async function payOut() {
-    if (!selected || !ticked || phase === "processing") return;
+    if (!sheetPayout || !ticked || phase === "processing") return;
     setPhase("processing");
     setActionError(null);
     const result = await invoke(() =>
-      window.pos.executeCashPayout({ cashPayoutId: selected.cashPayoutId }),
+      window.pos.executeCashPayout({ cashPayoutId: sheetPayout.cashPayoutId }),
     );
     if (!result.ok) {
-      setPhase("confirm");
+      setPhase("ready");
       setActionError(result.error.message);
       return;
     }
     setDone(result.value);
     setPhase("success");
     onExecuted?.();
-    load();
+  }
+
+  async function printReceipt() {
+    if (!done || !sheetPayout) return;
+    let printer = "";
+    try {
+      const printers = await window.pos.listPrinters();
+      printer = printers[0]?.name ?? "";
+    } catch {
+      printer = "";
+    }
+    if (!printer) {
+      setPrintMessage("No receipt printer is set up on this counter.");
+      return;
+    }
+    const result = await window.pos.printSupplierCashPayoutReceipt({
+      printerName: printer,
+      payoutNumber: done.payoutNumber,
+      amountMinor: done.amountMinor,
+      supplierPaymentId: done.supplierPaymentId,
+      supplierName: done.supplierName ?? sheetPayout.supplierName,
+      movementReason: done.movementReason,
+      executedAt: new Date().toISOString(),
+    });
+    setPrintMessage(
+      result.ok ? "Receipt sent to the printer." : (result.error ?? "The receipt did not print."),
+    );
   }
 
   useKeyBinding("Ctrl+Enter", () => {
-    if (sheetOpen && phase === "confirm" && ticked) void payOut();
+    if (sheetOpen && phase === "ready" && ticked) void payOut();
     else if (!sheetOpen && canPay) openSheet();
-  }, { enabled: (sheetOpen && phase === "confirm" && ticked) || (!sheetOpen && canPay) });
+  }, { enabled: (sheetOpen && phase === "ready" && ticked) || (!sheetOpen && canPay) });
 
   if (permissionDenied) {
     return (
@@ -166,6 +210,37 @@ export function SupplierCashPayoutTab({
         <div>
           <b>Supplier payouts need the server</b>
           <small>Paying out is blocked while this counter is offline.</small>
+        </div>
+      </div>
+    );
+  }
+
+  if (!shiftOpen) {
+    return (
+      <div className={cx(ui.panel, styles.payoutEmpty)} role="alert">
+        <span className={cx(ui.kind, styles.emptyIcon)}>
+          <Icon name="wallet" />
+        </span>
+        <div>
+          <b>Open your shift to pay out</b>
+          <small>Count the drawer and open a shift on Cash &amp; shift before supplier payouts can leave the till.</small>
+        </div>
+      </div>
+    );
+  }
+
+  if (!shiftMine && shift) {
+    return (
+      <div className={cx(ui.panel, styles.payoutEmpty)} role="alert">
+        <span className={cx(ui.kind, styles.emptyIcon)}>
+          <Icon name="wallet" />
+        </span>
+        <div>
+          <b>{shift.staffName}&apos;s shift is open on this till</b>
+          <small>
+            {shift.staffName.split(" ")[0]} continues it. Paying out needs your own open shift, or they close
+            theirs first.
+          </small>
         </div>
       </div>
     );
@@ -275,7 +350,7 @@ export function SupplierCashPayoutTab({
         </section>
       )}
 
-      {sheetOpen && selected && (
+      {sheetOpen && sheetRow && (
         <KeyScope active>
           <div className={d.scrim} onClick={closeSheet} aria-hidden="true" />
           <aside
@@ -286,31 +361,60 @@ export function SupplierCashPayoutTab({
           >
             <div className={d.head}>
               <span className={d.kind}>
-                <Icon name="banknote" />
+                <Icon name={phase === "success" ? "check-circle" : "banknote"} />
               </span>
               <div>
-                <div className={ui.eyebrow}>Pay supplier from drawer</div>
-                <h2 id="payout-sheet-title">{payoutTitle(selected)}</h2>
-                <p>{selected.supplierName ?? "Supplier"} · Rs {money(amountMinor(selected.amount))}</p>
+                <div className={ui.eyebrow}>
+                  {phase === "success" ? "supplier_cash_payout.executed" : "Pay supplier from drawer"}
+                </div>
+                <h2 id="payout-sheet-title">
+                  {phase === "success" ? "Payout complete" : payoutTitle(sheetRow)}
+                </h2>
+                <p>
+                  {sheetRow.supplierName ?? "Supplier"} · Rs {money(amountMinor(sheetRow.amount))}
+                </p>
               </div>
-              <button type="button" className={cx(ui.btn, ui.ghost, ui.sm)} onClick={closeSheet}>
+              <button type="button" className={cx(ui.btn, ui.ghost, ui.sm)} onClick={closeSheet} disabled={phase === "processing"}>
                 Close
               </button>
             </div>
             <div className={d.body}>
               {phase === "success" && done ? (
-                <p role="status" className={cx(ui.okText, styles.doneText)}>
-                  <Icon name="check-circle" />
-                  {done.alreadyApplied ? "Already paid out" : "Paid out"} {done.payoutNumber}: Rs{" "}
-                  {money(done.amountMinor)}. {done.movementReason}. Requested by {done.requestedBy ?? "—"},
-                  approved by {done.approvedBy ?? "—"}, executed by you.
-                  {expected !== null && (
-                    <>
-                      {" "}
-                      Expected drawer is now Rs {money(Math.max(0, expected - done.amountMinor))}.
-                    </>
-                  )}
-                </p>
+                <>
+                  <div className={cx(ui.note, styles.inset)} role="status">
+                    <Icon name="check-circle" />
+                    <div>
+                      <b>{done.alreadyApplied ? "Already paid out" : "Paid out"}</b>
+                      <div>
+                        Receipt <code>supplier_cash_payout.executed</code>. Payment{" "}
+                        <code>{done.supplierPaymentId.slice(0, 8)}</code> ·{" "}
+                        <code>amountMinor</code> {done.amountMinor} (Rs {money(done.amountMinor)}). Till cash
+                        out: {done.movementReason}.
+                      </div>
+                    </div>
+                  </div>
+                  <div className={cx(ui.kvs, styles.inset)}>
+                    <div className={ui.kv}>
+                      <span>Supplier</span>
+                      <b>{done.supplierName ?? sheetRow.supplierName ?? "Supplier"}</b>
+                    </div>
+                    <div className={ui.kv}>
+                      <span>Amount</span>
+                      <b>Rs {money(done.amountMinor)}</b>
+                    </div>
+                    <div className={ui.kv}>
+                      <span>Payout</span>
+                      <b>{done.payoutNumber}</b>
+                    </div>
+                    {expectedDrawerAfter !== null && (
+                      <div className={ui.kv}>
+                        <span>Expected drawer now</span>
+                        <b>Rs {money(expectedDrawerAfter)}</b>
+                      </div>
+                    )}
+                  </div>
+                  {printMessage && <p className={ui.muted}>{printMessage}</p>}
+                </>
               ) : (
                 <>
                   <label className={cx(styles.physTick, ticked && styles.physOn)}>
@@ -335,9 +439,8 @@ export function SupplierCashPayoutTab({
               className={d.foot}
               onSubmit={(e) => {
                 e.preventDefault();
-                if (phase === "confirm" && ticked) void payOut();
-                else if (phase === "ready" && ticked) setPhase("confirm");
-                else if (phase === "ready") setPhase("confirm");
+                if (phase === "success") closeSheet();
+                else if (ticked) void payOut();
               }}
             >
               {phase !== "success" && (
@@ -349,18 +452,24 @@ export function SupplierCashPayoutTab({
                   <button
                     type="submit"
                     className={cx(ui.btn, ui.primary, ui.lg)}
-                    disabled={!ticked || phase === "processing" || short}
+                    disabled={!ticked || phase === "processing" || drawerShort(sheetRow.amount, expected ?? 0)}
                   >
                     <Icon name="banknote" />
-                    {phase === "processing" ? "Processing…" : "Pay out"}
+                    {phase === "processing" ? "Paying out…" : "Pay out"}
                     {ticked && phase !== "processing" && <KeyHint keys="Ctrl+Enter" onPrimary small />}
                   </button>
                 </>
               )}
               {phase === "success" && (
-                <button type="button" className={cx(ui.btn, ui.primary, ui.lg)} onClick={closeSheet}>
-                  Done
-                </button>
+                <>
+                  <button type="button" className={cx(ui.btn, ui.outline)} onClick={() => void printReceipt()}>
+                    Print receipt
+                  </button>
+                  <span className={ui.grow} />
+                  <button type="submit" className={cx(ui.btn, ui.primary, ui.lg)}>
+                    Done
+                  </button>
+                </>
               )}
             </form>
           </aside>

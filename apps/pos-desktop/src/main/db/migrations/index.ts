@@ -18,6 +18,7 @@ import { offlineJournalSync } from "./0016-offline-journal-sync";
 import { offlineJournalRecovery } from "./0017-offline-journal-recovery";
 import { storeRestore } from "./0018-store-restore";
 import { offlineSupportRecords } from "./0019-offline-support-records";
+import { tillShiftPayoutKind } from "./0020-till-shift-payout-kind";
 
 /** Append only. A released migration is never edited or reordered. */
 export const migrations: readonly Migration[] = [
@@ -40,4 +41,5 @@ export const migrations: readonly Migration[] = [
   offlineJournalRecovery,
   storeRestore,
   offlineSupportRecords,
+  tillShiftPayoutKind,
 ];

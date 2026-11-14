@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Alert } from "@/components/alert";
 import { IconPlus, IconRefresh } from "@/components/icons";
 import { ActionButton, DataTable, PageHeader, type Column } from "@/components/ui";
@@ -9,6 +9,8 @@ import { RolePageGuard } from "@/components/role-access/role-page-guard";
 import { CashPayoutDetail } from "../components/cash-payout-detail";
 import { PrepareCashPayoutModal } from "../components/prepare-cash-payout-modal";
 import { PurchasingSubnav } from "../components/purchasing-subnav";
+import { fetchTenantBranches, type TenantBranch } from "@/lib/auth-client";
+import { useAuth } from "@/lib/use-auth";
 import { useCashPayouts } from "../hooks/use-cash-payouts";
 import { useInvoices } from "../hooks/use-ledger";
 import { usePurchasingAccess } from "../hooks/use-purchasing-access";
@@ -44,7 +46,12 @@ export default function CashPayoutsPage() {
 
 function CashPayoutsContent() {
   const access = usePurchasingAccess();
-  const branchName = "this branch";
+  const { branchId } = useAuth();
+  const [branches, setBranches] = useState<TenantBranch[]>([]);
+  useEffect(() => {
+    void fetchTenantBranches().then(setBranches).catch(() => setBranches([]));
+  }, []);
+  const branchName = branches.find((b) => b.id === branchId)?.name ?? "this branch";
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [prepareOpen, setPrepareOpen] = useState(false);
   const list = useCashPayouts({}, access.canPay && access.ready);

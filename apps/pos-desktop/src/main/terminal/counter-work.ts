@@ -369,6 +369,8 @@ export class CounterWorkService {
       requestedBy: ready.requestedBy,
       approvedBy: ready.approvedBy,
       movementReason,
+      supplierName: ready.supplierName,
+      expectedCashMinorAfter: null,
     };
   }
 }

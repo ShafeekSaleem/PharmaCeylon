@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { SupplierCashPayoutView } from "@pharmaceylon/shared";
 import { apiJson } from "@/lib/auth-client";
+import { ApiError } from "@/lib/api-error";
 import { useAuth } from "@/lib/use-auth";
 
 function qs(params: Record<string, string | undefined>) {
@@ -44,11 +45,11 @@ export function useCashPayouts(
       setRows(next);
     } catch (err) {
       if (mine !== generation.current) return;
-      const message = err instanceof Error ? err.message : "Cash payouts could not be loaded.";
-      if (message.includes("authorize supplier payments")) {
+      if (err instanceof ApiError && err.status === 403) {
         setPermissionDenied(true);
         setRows([]);
       } else {
+        const message = err instanceof Error ? err.message : "Cash payouts could not be loaded.";
         setError(message);
         setRows([]);
       }

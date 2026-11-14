@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { SupplierCashPayoutView } from "@pharmaceylon/shared";
 import { Alert } from "@/components/alert";
 import {
@@ -35,6 +35,10 @@ export function CashPayoutDetail({ payout, branchName, invoiceNumbers, onChanged
   const [intent, setIntent] = useState<"approve" | "cancel" | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const approvalIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    approvalIdRef.current = null;
+  }, [payout.id, payout.approvalVersion]);
   const open = payout.status === "prepared" || payout.status === "approved";
   const showApprove = access.canPay && payout.status === "prepared" && !!payout.approvalReview;
   const showCancel = access.canPay && open;
@@ -62,10 +66,11 @@ export function CashPayoutDetail({ payout, branchName, invoiceNumbers, onChanged
     try {
       if (intent === "approve") {
         if (!payout.approvalReview) return;
+        if (!approvalIdRef.current) approvalIdRef.current = crypto.randomUUID();
         await apiJson(`/purchasing/cash-payouts/${payout.id}/approve`, {
           method: "POST",
           body: JSON.stringify({
-            approvalId: crypto.randomUUID(),
+            approvalId: approvalIdRef.current,
             ...payout.approvalReview,
           }),
         });
