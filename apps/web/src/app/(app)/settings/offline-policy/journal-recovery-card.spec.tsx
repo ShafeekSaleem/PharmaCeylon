@@ -12,6 +12,7 @@ import type {
   OfflineJournalRecoveryView,
 } from "@pharmaceylon/shared";
 import { apiJson } from "@/lib/auth-client";
+import { branchTime } from "@/lib/branch-time";
 import { JournalRecoveryCard } from "./journal-recovery-card";
 
 jest.mock("@/lib/auth-client", () => ({ apiJson: jest.fn() }));
@@ -24,6 +25,7 @@ jest.mock("@/lib/use-auth", () => ({
 
 const api = apiJson as jest.Mock;
 const HOUR = 3_600_000;
+const ZONE = "Asia/Colombo";
 const head = {
   sequence: 12,
   hash: "a".repeat(64),
@@ -53,6 +55,7 @@ const list = (
   over: Partial<OfflineJournalRecoveriesView> = {},
 ): OfflineJournalRecoveriesView => ({
   branchId: "branch-a",
+  timezone: ZONE,
   recoveries: [],
   offlineCounter: counter(),
   ...over,
@@ -267,8 +270,60 @@ describe("JournalRecoveryCard (D11)", () => {
     ).toHaveProperty("disabled", true);
     expect(
       screen.getByText(/can sell offline again from/).textContent,
-    ).toContain(new Date(resumesAt).toLocaleString());
+    ).toContain(branchTime(resumesAt, ZONE));
     expect(api).toHaveBeenCalledTimes(2);
+  });
+
+  it("shows the journal's times in the branch's timezone, not the browser's (#162)", async () => {
+    // 08:32 UTC is 14:02 in Colombo (UTC+05:30), whatever zone the test runner is in.
+    const at = Date.UTC(2025, 10, 3, 8, 32);
+    api.mockResolvedValueOnce(
+      list({
+        recoveries: [restoreRow({ createdAt: at })],
+        offlineCounter: counter({
+          serverHead: { ...head, acceptedAt: at },
+          cutoff: { kind: "device_disabled", at, lastGrantExpiresAt: null },
+          signOffAvailableAt: null,
+        }),
+      }),
+    );
+    const { unmount } = render(<JournalRecoveryCard />);
+    const row = await screen.findByLabelText("Offline counter");
+    expect(row.textContent).toContain("the last received 3 Nov, 14:02.");
+    expect(row.textContent).toContain("Switched off 3 Nov, 14:02.");
+    expect(
+      within(screen.getByLabelText("Journal recoveries")).getByText(
+        /Reported 3 Nov, 14:02\./,
+      ),
+    ).toBeTruthy();
+
+    // The detail's times (the unmatched records) read in the same zone.
+    api.mockResolvedValueOnce({
+      ...restore,
+      unmatched: restore.unmatched.map((u) => ({ ...u, occurredAt: at })),
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Review/ }));
+    const table = await screen.findByRole("table", {
+      name: "Records the server never received",
+    });
+    expect(within(table).getAllByText("3 Nov, 14:02")).toHaveLength(
+      restore.unmatched.length,
+    );
+    unmount();
+
+    api.mockResolvedValueOnce(
+      list({
+        timezone: "Europe/London",
+        offlineCounter: counter({
+          serverHead: { ...head, acceptedAt: at },
+          signOffAvailableAt: null,
+        }),
+      }),
+    );
+    render(<JournalRecoveryCard />);
+    expect(
+      (await screen.findByLabelText("Offline counter")).textContent,
+    ).toContain("the last received 3 Nov, 08:32.");
   });
 
   it("closes a recovery that will never complete, with a reason, under StrictMode", async () => {

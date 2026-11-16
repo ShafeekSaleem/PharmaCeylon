@@ -241,6 +241,8 @@ export type OfflineCounterReplacementView = Readonly<{
 
 export type OfflineJournalRecoveriesView = Readonly<{
   branchId: string;
+  /** The branch's IANA timezone: the back office shows these times in it (#162). */
+  timezone: string;
   /** Open counter restores first, then the newest 20 others. */
   recoveries: ReadonlyArray<
     Pick<

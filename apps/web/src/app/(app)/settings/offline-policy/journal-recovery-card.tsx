@@ -17,6 +17,7 @@ import {
   StatusBadge,
   type BadgeVariant,
 } from "@/components/ui";
+import { branchTime as when } from "@/lib/branch-time";
 import { formatMoney } from "@/lib/money";
 import { useAuth } from "@/lib/use-auth";
 import { journalRecoveryApi } from "./journal-recovery-api";
@@ -27,7 +28,6 @@ const message = (error: unknown) =>
   error instanceof Error
     ? error.message
     : "Couldn't load journal recovery. Try again.";
-const when = (at: number) => new Date(at).toLocaleString();
 
 const STATUS: Record<
   OfflineJournalRecoveryStatus,
@@ -42,16 +42,16 @@ const STATUS: Record<
 
 type OpenRecovery = OfflineJournalRecoveriesView["recoveries"][number];
 
-function cutoffText(cutoff: JournalRecoveryCutoff): string {
+function cutoffText(cutoff: JournalRecoveryCutoff, timeZone: string): string {
   if (cutoff.kind === "never_issued")
     return "It was never given offline permission.";
   const outstanding =
     cutoff.lastGrantExpiresAt === null
       ? ""
-      : ` Its last offline permission ${cutoff.lastGrantExpiresAt > Date.now() ? "expires" : "expired"} ${when(cutoff.lastGrantExpiresAt)}.`;
+      : ` Its last offline permission ${cutoff.lastGrantExpiresAt > Date.now() ? "expires" : "expired"} ${when(cutoff.lastGrantExpiresAt, timeZone)}.`;
   return cutoff.kind === "device_disabled"
-    ? `Switched off ${when(cutoff.at!)}.${outstanding}`
-    : `Its offline permission ${cutoff.at! > Date.now() ? "expires" : "expired"} ${when(cutoff.at!)}.`;
+    ? `Switched off ${when(cutoff.at!, timeZone)}.${outstanding}`
+    : `Its offline permission ${cutoff.at! > Date.now() ? "expires" : "expired"} ${when(cutoff.at!, timeZone)}.`;
 }
 
 /**
@@ -129,6 +129,7 @@ function JournalRecovery({ branchId }: { branchId: string }) {
           {view.offlineCounter ? (
             <OfflineCounter
               counter={view.offlineCounter}
+              timeZone={view.timezone}
               onSignOff={() => setSigningOff(true)}
             />
           ) : (
@@ -143,7 +144,7 @@ function JournalRecovery({ branchId }: { branchId: string }) {
                     {r.terminalLabel ?? "Counter"}
                   </div>
                   <div className={css.rowHint}>
-                    Reported {when(r.createdAt)}.{" "}
+                    Reported {when(r.createdAt, view.timezone)}.{" "}
                     {r.unmatched
                       ? `${r.unmatched} offline ${r.unmatched === 1 ? "record" : "records"} the server never received.`
                       : "Nothing was recorded on it that the server lacks."}
@@ -201,7 +202,9 @@ function JournalRecovery({ branchId }: { branchId: string }) {
                           : "Restored counter"}
                         : {r.terminalLabel ?? "Counter"}
                       </div>
-                      <div className={css.rowHint}>{when(r.createdAt)}</div>
+                      <div className={css.rowHint}>
+                        {when(r.createdAt, view.timezone)}
+                      </div>
                     </div>
                     <StatusBadge
                       status={r.status}
@@ -243,10 +246,11 @@ function JournalRecovery({ branchId }: { branchId: string }) {
           }
         />
       ) : null}
-      {reviewing ? (
+      {reviewing && view ? (
         <ReviewDialog
           branchId={branchId}
           recoveryId={reviewing}
+          timeZone={view.timezone}
           onClose={() => setReviewing(null)}
           onDone={() =>
             done(
@@ -261,9 +265,11 @@ function JournalRecovery({ branchId }: { branchId: string }) {
 
 function OfflineCounter({
   counter,
+  timeZone,
   onSignOff,
 }: {
   counter: OfflineCounterReplacementView;
+  timeZone: string;
   onSignOff: () => void;
 }) {
   const availableAt = counter.signOffAvailableAt;
@@ -279,11 +285,11 @@ function OfflineCounter({
           {entries
             ? `The server has ${entries} offline ${entries === 1 ? "record" : "records"} from it${
                 counter.serverHead.acceptedAt
-                  ? `, the last received ${when(counter.serverHead.acceptedAt)}`
+                  ? `, the last received ${when(counter.serverHead.acceptedAt, timeZone)}`
                   : ""
               }.`
             : "The server has no offline records from it."}{" "}
-          {cutoffText(counter.cutoff)}
+          {cutoffText(counter.cutoff, timeZone)}
         </div>
         {counter.refusals.length ? (
           <div className={css.rowHint}>
@@ -295,11 +301,11 @@ function OfflineCounter({
         ) : null}
         <div className={css.rowHint}>
           {counter.journalCleared && counter.signOff
-            ? `Journal signed off by ${counter.signOff.approvedByFullName ?? "a manager"} ${when(counter.signOff.approvedAt)}. Another counter can take over.`
+            ? `Journal signed off by ${counter.signOff.approvedByFullName ?? "a manager"} ${when(counter.signOff.approvedAt, timeZone)}. Another counter can take over.`
             : counter.signOff
               ? "The last sign-off no longer covers this journal: more records arrived, or the counter was given offline permission again. Sign off again to replace it."
               : tooEarly
-                ? `It could still be selling offline. Its journal can be signed off from ${when(availableAt!)}.`
+                ? `It could still be selling offline. Its journal can be signed off from ${when(availableAt!, timeZone)}.`
                 : "Sign off its journal before another counter takes over offline selling."}
         </div>
       </div>
@@ -493,11 +499,13 @@ function CloseDialog({
 function ReviewDialog({
   branchId,
   recoveryId,
+  timeZone,
   onClose,
   onDone,
 }: {
   branchId: string;
   recoveryId: string;
+  timeZone: string;
   onClose: () => void;
   onDone: () => void;
 }) {
@@ -580,8 +588,8 @@ function ReviewDialog({
             <p>
               The computer it was copied from may still hold offline permission,
               so this counter can sell offline again from{" "}
-              {when(detail.offlineResumesAt)}, once that has expired. Online
-              selling carries on meanwhile.
+              {when(detail.offlineResumesAt, timeZone)}, once that has expired.
+              Online selling carries on meanwhile.
             </p>
           ) : null}
           {!complete ? (
@@ -617,7 +625,7 @@ function ReviewDialog({
                   {unmatched.map((u) => (
                     <tr key={u.commandId}>
                       <td>{u.sequence}</td>
-                      <td>{when(u.occurredAt)}</td>
+                      <td>{when(u.occurredAt, timeZone)}</td>
                       <td>{u.staffFullName ?? "Unknown"}</td>
                       <td>
                         {u.kind === "ordinary_sale"

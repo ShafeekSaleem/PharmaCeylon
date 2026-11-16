@@ -13,6 +13,7 @@ import {
   ModalFooter,
   StatusBadge,
 } from "@/components/ui";
+import { branchTime as when } from "@/lib/branch-time";
 import { useAuth } from "@/lib/use-auth";
 import { counterRestoreApi } from "./counter-restore-api";
 import css from "../settings.module.css";
@@ -22,7 +23,6 @@ const message = (error: unknown) =>
   error instanceof Error
     ? error.message
     : "Couldn't load restored counters. Try again.";
-const when = (at: number) => new Date(at).toLocaleString();
 
 /** A rough length of time, for a clock that was off. */
 export function span(ms: number): string {
@@ -56,18 +56,21 @@ function clockWarning(r: OfflineCounterRestoreView): string | null {
   return `This counter's clock was wrong (${wrong.join(", and ")}), so the times it gave can't be trusted. Check receipts, cash and stock from the last sale you know reached the server.`;
 }
 
-function whatMayBeMissing(r: OfflineCounterRestoreView): string {
+function whatMayBeMissing(
+  r: OfflineCounterRestoreView,
+  timeZone: string,
+): string {
   const records = r.serverHead.sequence;
   const clock = clockWarning(r);
   // Counted from the backup: contact since then (a sign-in) doesn't mean its sales were uploaded.
   const parts = [
-    `Restored ${when(r.restoredAt)} from a backup taken ${when(r.backupTakenAt)}.`,
+    `Restored ${when(r.restoredAt, timeZone)} from a backup taken ${when(r.backupTakenAt, timeZone)}.`,
     clock ??
-      `Anything it recorded after the backup and never uploaded is gone from it: check receipts, cash and stock from ${when(r.backupTakenAt)}.`,
+      `Anything it recorded after the backup and never uploaded is gone from it: check receipts, cash and stock from ${when(r.backupTakenAt, timeZone)}.`,
   ];
   if (r.lastContactAt !== null)
     parts.push(
-      `The server last heard from it ${when(r.lastContactAt)}; that doesn't mean every sale before then reached the server.`,
+      `The server last heard from it ${when(r.lastContactAt, timeZone)}; that doesn't mean every sale before then reached the server.`,
     );
   if (r.outageActive)
     parts.push(
@@ -155,7 +158,9 @@ function CounterRestores({ branchId }: { branchId: string }) {
                   <div className={css.rowLabel}>
                     {r.terminalLabel ?? "Counter"}
                   </div>
-                  <div className={css.rowHint}>{whatMayBeMissing(r)}</div>
+                  <div className={css.rowHint}>
+                    {whatMayBeMissing(r, view.timezone)}
+                  </div>
                 </div>
                 <div className={styles.actions}>
                   <StatusBadge
@@ -190,9 +195,9 @@ function CounterRestores({ branchId }: { branchId: string }) {
                         {r.terminalLabel ?? "Counter"}
                       </div>
                       <div className={css.rowHint}>
-                        Restored {when(r.restoredAt)}
+                        Restored {when(r.restoredAt, view.timezone)}
                         {r.acknowledgement
-                          ? `; acknowledged ${when(r.acknowledgement.acknowledgedAt)} by ${r.acknowledgement.acknowledgedByFullName ?? "someone"}: ${r.acknowledgement.reason}`
+                          ? `; acknowledged ${when(r.acknowledgement.acknowledgedAt, view.timezone)} by ${r.acknowledgement.acknowledgedByFullName ?? "someone"}: ${r.acknowledgement.reason}`
                           : ""}
                       </div>
                     </div>
@@ -208,10 +213,11 @@ function CounterRestores({ branchId }: { branchId: string }) {
           ) : null}
         </>
       )}
-      {acknowledging ? (
+      {acknowledging && view ? (
         <AcknowledgeDialog
           branchId={branchId}
           restore={acknowledging}
+          timeZone={view.timezone}
           onClose={() => setAcknowledging(null)}
           onDone={() => {
             setAcknowledging(null);
@@ -229,11 +235,13 @@ function CounterRestores({ branchId }: { branchId: string }) {
 function AcknowledgeDialog({
   branchId,
   restore,
+  timeZone,
   onClose,
   onDone,
 }: {
   branchId: string;
   restore: OfflineCounterRestoreView;
+  timeZone: string;
   onClose: () => void;
   onDone: () => void;
 }) {
@@ -284,14 +292,15 @@ function AcknowledgeDialog({
       }
     >
       <p>
-        {restore.terminalLabel ?? "This counter"}: {whatMayBeMissing(restore)}
+        {restore.terminalLabel ?? "This counter"}:{" "}
+        {whatMayBeMissing(restore, timeZone)}
       </p>
       <p>
         Check the receipts printed, the cash in the drawer and the stock on the
         shelf since{" "}
         {restore.clockSkew
           ? "the last sale you know reached the server"
-          : when(restore.backupTakenAt)}{" "}
+          : when(restore.backupTakenAt, timeZone)}{" "}
         against the sales the server has. Record anything missing (a stock
         adjustment, a cash count) before you acknowledge.
       </p>

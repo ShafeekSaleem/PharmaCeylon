@@ -22,6 +22,7 @@ import {
   type TerminalIdentity,
 } from "@pharmaceylon/shared";
 import { AuditService } from "../../audit/audit.service";
+import { branchTimeZone } from "./branch-time-zone";
 import { PrismaService } from "../../prisma/prisma.service";
 import { AccessService } from "../../security/access.service";
 import type { RequestUser } from "../../security/interfaces/authenticated-request.interface";
@@ -488,6 +489,7 @@ export class OfflineJournalRecoveryService {
       }
       return {
         branchId,
+        timezone: await branchTimeZone(tx, user.tenantId, branchId),
         recoveries,
         offlineCounter: await this.offlineCounter(tx, user.tenantId, branchId),
       };

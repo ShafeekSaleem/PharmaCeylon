@@ -4,6 +4,7 @@ import type {
   OfflineCounterRestoreView,
 } from "@pharmaceylon/shared";
 import { apiJson } from "@/lib/auth-client";
+import { branchTime } from "@/lib/branch-time";
 import { CounterRestoreCard, span } from "./counter-restore-card";
 
 jest.mock("@/lib/auth-client", () => ({ apiJson: jest.fn() }));
@@ -39,11 +40,14 @@ const restore = (
   acknowledgement: null,
   ...over,
 });
-const when = (at: number) => new Date(at).toLocaleString();
+const ZONE = "Asia/Colombo";
+const when = (at: number) => branchTime(at, ZONE);
 const list = (
   restores: OfflineCounterRestoreView[],
+  timezone = ZONE,
 ): OfflineCounterRestoresView => ({
   branchId: "branch-a",
+  timezone,
   restores,
 });
 
@@ -73,6 +77,34 @@ describe("CounterRestoreCard (P5 #51)", () => {
     expect(api).toHaveBeenCalledWith("/offline-counter-restores", {
       headers: { "x-branch-id": "branch-a" },
     });
+  });
+
+  it("shows the counter's times in the branch's timezone, not the browser's (#162)", async () => {
+    // 08:32 UTC is 14:02 in Colombo (UTC+05:30) and 08:32 in London (GMT in November), whatever
+    // zone the test runner is in.
+    const r = restore({
+      backupTakenAt: Date.UTC(2025, 10, 3, 8, 32),
+      restoredAt: Date.UTC(2025, 10, 4, 3, 0),
+      lastContactAt: null,
+      outageActive: false,
+    });
+    api.mockResolvedValueOnce(list([r]));
+    const { unmount } = render(<CounterRestoreCard />);
+    const hint = within(
+      await screen.findByLabelText("Restores waiting for you"),
+    ).getByText(/from a backup taken/);
+    expect(hint.textContent).toContain(
+      "Restored 4 Nov, 08:30 from a backup taken 3 Nov, 14:02.",
+    );
+    unmount();
+
+    api.mockResolvedValueOnce(list([r], "Europe/London"));
+    render(<CounterRestoreCard />);
+    expect(
+      within(
+        await screen.findByLabelText("Restores waiting for you"),
+      ).getByText(/from a backup taken/).textContent,
+    ).toContain("Restored 4 Nov, 03:00 from a backup taken 3 Nov, 08:32.");
   });
 
   it("warns when the counter's clock was wrong, instead of counting from its times", async () => {
