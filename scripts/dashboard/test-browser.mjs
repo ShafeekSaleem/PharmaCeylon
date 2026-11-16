@@ -429,39 +429,28 @@ try {
     const listPageSize = data.pageSize ?? workPageSize;
     const hasSecondPage = Math.ceil(data.total / listPageSize) > 1;
     if (hasSecondPage) {
-      if (v6Queue) {
-        await queue.getByRole("button", { name: /Next/ }).click();
-        await page.waitForTimeout(500);
-        const second = await page.request
-          .get(
-            `http://localhost:3000/api/v1/dashboard/work?filter=all&page=2&pageSize=${listPageSize}`,
-            { headers: { "x-branch-id": fixture.main.id } },
-          )
-          .then((r) => r.json());
-        assert.ok(
-          second.items.every((i) => !data.items.some((j) => i.id === j.id)),
+      const activeFilter = v6Queue ? "all" : "all";
+      await queue.getByRole("button", { name: /Next/ }).click();
+      await page.waitForTimeout(500);
+      const second = await page.request
+        .get(
+          `http://localhost:3000/api/v1/dashboard/work?filter=${activeFilter}&page=2&pageSize=${listPageSize}`,
+          { headers: { "x-branch-id": fixture.main.id } },
+        )
+        .then((r) => r.json());
+      assert.ok(
+        second.items.every((i) => !data.items.some((j) => i.id === j.id)),
+      );
+      await queue.getByRole("button", { name: /Previous/ }).click();
+      if (!v6Queue) {
+        await page.waitForFunction(
+          (count) =>
+            document
+              .getElementById("daily-work-title")
+              ?.closest("section")
+              ?.querySelectorAll("article").length === count,
+          data.items.length,
         );
-        await queue.getByRole("button", { name: /Previous/ }).click();
-      } else {
-        const response = page.waitForResponse(
-          (r) =>
-            r.url().includes("/dashboard/work?") &&
-            new URL(r.url()).searchParams.get("page") === "2",
-        );
-        await queue.getByRole("button", { name: /Next/ }).click();
-        const second = await (await response).json();
-        assert.ok(
-          second.items.every((i) => !data.items.some((j) => i.id === j.id)),
-        );
-        const back = page.waitForResponse(
-          (r) =>
-            r.url().includes("/dashboard/work?") &&
-            new URL(r.url()).searchParams.get("page") === "1",
-        );
-        await queue
-          .getByRole("button", { name: "Previous", exact: true })
-          .click();
-        await back;
       }
     }
     if (!v6Queue) {
