@@ -76,6 +76,8 @@ function RefundQueue({ branchId }: { branchId: string }) {
   const [reviewLoading, setReviewLoading] = useState(false);
   const [reviewError, setReviewError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Declining is final, so it takes a second, deliberate click (#157).
+  const [confirmingDecline, setConfirmingDecline] = useState(false);
   const alive = useRef(true);
   const listGeneration = useRef(0);
   const detailGeneration = useRef(0);
@@ -174,6 +176,7 @@ function RefundQueue({ branchId }: { branchId: string }) {
     [headers],
   );
   useEffect(() => {
+    setConfirmingDecline(false);
     if (selected) void loadReview(selected);
     else {
       detailGeneration.current++;
@@ -221,6 +224,40 @@ function RefundQueue({ branchId }: { branchId: string }) {
     }
   }
 
+  /** Decline (cancel) the request with `returns.approve` alone; it never refunds anything. */
+  async function decline() {
+    if (!review || submitting.current) return;
+    const captured = review;
+    submitting.current = true;
+    setBusy(true);
+    setReviewError(null);
+    try {
+      const declined = await apiJson<SaleRefundRequest>(
+        `/sales/refund-requests/${captured.id}/cancel`,
+        { method: "POST", headers: headers() },
+      );
+      if (!alive.current) return;
+      setConfirmingDecline(false);
+      setReview(declined);
+      setNotice(
+        `${declined.requestNumber} declined. Nothing was refunded and the counter can't refund it.`,
+      );
+      await reload();
+    } catch (err) {
+      if (!alive.current) return;
+      setConfirmingDecline(false);
+      await loadReview(captured.id);
+      if (!alive.current) return;
+      setReviewError(
+        err instanceof Error ? err.message : "Couldn't decline this refund",
+      );
+      await reload();
+    } finally {
+      submitting.current = false;
+      if (alive.current) setBusy(false);
+    }
+  }
+
   const columns: Column<QueueRow>[] = [
     { key: "reference", header: "Refund", render: row => <strong>{row.reference}</strong> },
     { key: "detail", header: "Invoice / amount", render: row => row.detail },
@@ -235,6 +272,9 @@ function RefundQueue({ branchId }: { branchId: string }) {
     !selfBlocked &&
     !permissionsLoading &&
     permissionKeys.includes("returns.approve");
+  // Any approver may decline, including their own request and one already waiting at the counter.
+  const mayDecline =
+    open && !permissionsLoading && permissionKeys.includes("returns.approve");
 
   return (
     <div className={css.page}>
@@ -301,7 +341,34 @@ function RefundQueue({ branchId }: { branchId: string }) {
             >
               Close
             </ActionButton>
-            {mayApprove && review?.approvalReview && (
+            {mayDecline &&
+              (confirmingDecline ? (
+                <>
+                  <ActionButton
+                    variant="secondary"
+                    disabled={busy}
+                    onClick={() => setConfirmingDecline(false)}
+                  >
+                    Keep refund
+                  </ActionButton>
+                  <ActionButton
+                    variant="danger"
+                    disabled={busy || reviewLoading}
+                    onClick={() => void decline()}
+                  >
+                    {busy ? "Declining…" : "Confirm decline"}
+                  </ActionButton>
+                </>
+              ) : (
+                <ActionButton
+                  variant="secondary"
+                  disabled={busy || reviewLoading}
+                  onClick={() => setConfirmingDecline(true)}
+                >
+                  Decline refund
+                </ActionButton>
+              ))}
+            {mayApprove && !confirmingDecline && review?.approvalReview && (
               <ActionButton
                 disabled={busy || reviewLoading}
                 onClick={() => void approve()}
@@ -404,6 +471,13 @@ function RefundQueue({ branchId }: { branchId: string }) {
                   : null
               }
             />
+            {confirmingDecline && open && (
+              <Alert variant="warning">
+                Decline {review.requestNumber}? It is cancelled for good: nothing is
+                refunded, and the counter can no longer refund it. Staff can prepare a
+                new refund if needed.
+              </Alert>
+            )}
             {selfBlocked && open && !review.readyAtCounter && (
               <p>You raised this refund. Another approver must review it.</p>
             )}

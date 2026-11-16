@@ -7,12 +7,20 @@ import { RefundRequestsController } from "./refund-requests.controller";
 
 describe("refund approval inbox boundary", () => {
   it("admits a remote approver without requiring sale execution or sales-history permission", () => {
-    for (const method of ["getOne"] as const) {
+    for (const method of ["getOne", "cancel"] as const) {
       const handler = RefundRequestsController.prototype[method];
       expect(Reflect.getMetadata(PERMISSION_KEY, handler)).toEqual([
         "sales.refund", "returns.approve",
       ]);
       expect(Reflect.getMetadata(COUNTER_ROUTE_KEY, handler)).toBeUndefined();
+    }
+  });
+
+  it("lets an approver decline (#157) but keeps executing and preparing to sales.refund", () => {
+    for (const method of ["execute", "prepare", "list"] as const) {
+      expect(
+        Reflect.getMetadata(PERMISSION_KEY, RefundRequestsController.prototype[method]),
+      ).toEqual(["sales.refund"]);
     }
   });
 
