@@ -58,6 +58,16 @@ describe("decideStockPosting", () => {
     ).toBe("counted_after_sale");
   });
 
+  it("a reviewed entry with a batch counted after the sale waits as counted_after_sale, never posts", () => {
+    const result = decideStockPosting([sold("a", 1)], new Map([["a", 3]]), new Set(), {
+      entryReviewed: true,
+      countedAfterSale: new Set(["a"]),
+    });
+    expect(result.posts).toBe(false);
+    // The count outranks the review: its units are already off, whoever recorded the entry.
+    expect(result.batches.map((b) => [b.batchId, b.reason])).toEqual([["a", "counted_after_sale"]]);
+  });
+
   it("reads a negative or missing balance as nothing available, never a negative quantity", () => {
     const result = decideStockPosting([sold("a", 2), sold("b", 1)], new Map([["a", -4]]), new Set());
     expect(result.batches.map((b) => [b.availableQuantityAtSync, b.shortfallQuantity])).toEqual([

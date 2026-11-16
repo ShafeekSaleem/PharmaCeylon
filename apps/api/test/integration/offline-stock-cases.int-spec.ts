@@ -442,6 +442,49 @@ describe("offline stock case resolution (P5 #51)", () => {
     expect(await reviewSet(c)).toEqual([]);
   });
 
+  it("refuses to post a sale into units another case's count already took off, then counts it right", async () => {
+    const c = await counter({ partition: 10 });
+    await onlineSale(c, c.batches.partition, 7);
+    const first = await offlineSale(c, [[c.batches.partition, 5]]);
+    const caseA = first.ack.reconciliationCaseId!;
+    // A second offline sale, made before case A is counted but not yet uploaded: it syncs late.
+    const lateSale = first.j.sale(first.cashierIn, [[c.batches.partition, 1]]);
+    // 10 arrive: central 13, though the shelf holds 2 once both offline sales left it.
+    await prisma.$transaction((t) => stock.receive(t,
+      { tenantId: c.fx.tenantId, branchId: branch(c), userId: c.fx.ownerId, referenceType: "adjustment", referenceId: randomUUID() },
+      [{ productId: c.fx.productId, batchId: c.batches.partition, qty: 10, movementType: StockMovementType.purchase_in }]));
+    // The count in case A must fall after the late sale was made.
+    while (Date.now() <= lateSale.payload.occurredAt) await new Promise((r) => setTimeout(r, 50));
+    const planA = await cases.prepare(c.manager, branch(c), caseA, { kind: "count_and_correct" });
+    await run(c, c.manager, await signedResolve(c, c.manager, planA.id, [{ batchId: c.batches.partition, countedQty: 2 }], planA.executionApprovalId));
+    expect(await onHand(c.batches.partition)).toBe(2);
+    const settlement = await prisma.offlineStockSettlement.findFirstOrThrow({ where: { caseId: caseA, batchId: c.batches.partition } });
+    expect(settlement).toMatchObject({ method: "counted" });
+
+    // The late sale reaches the server only now: case B opens after A's count, which already
+    // took its unit off the shelf, so nothing is posted.
+    const response = await sync(c, { commands: [lateSale] });
+    const ackB = saleAck(response.payload.acknowledgements[0]!);
+    const caseB = ackB.reconciliationCaseId!;
+    expect(await prisma.sale.findUniqueOrThrow({ where: { id: ackB.saleId } })).toMatchObject({ stockPosting: "pending_reconciliation" });
+    expect(await prisma.stockLedger.count({ where: { tenantId: c.fx.tenantId, referenceId: ackB.saleId } })).toBe(0);
+    expect(await onHand(c.batches.partition)).toBe(2);
+    const found = await prisma.offlineStockDiscrepancy.findUniqueOrThrow({ where: { id: caseB } });
+    expect(found.openedAt.getTime()).toBeGreaterThan(settlement.countedAt!.getTime());
+    expect(settlement.countedAt!.getTime()).toBeGreaterThan(lateSale.payload.occurredAt);
+
+    // A's count is the case_count source: posting B's unit would deduct it twice, so it is refused.
+    await expect(cases.prepare(c.manager, branch(c), caseB, { kind: "post_now" }))
+      .rejects.toMatchObject({ response: { code: "SETTLEMENT_ALREADY_COUNTED" } });
+    expect(await onHand(c.batches.partition)).toBe(2);
+
+    // Counting the batch instead settles B without a second deduction: central ends at the shelf.
+    const planB = await cases.prepare(c.manager, branch(c), caseB, { kind: "count_and_correct" });
+    await run(c, c.manager, await signedResolve(c, c.manager, planB.id, [{ batchId: c.batches.partition, countedQty: 2 }], planB.executionApprovalId));
+    expect(await onHand(c.batches.partition)).toBe(2);
+    expect(await reviewSet(c)).toEqual([]);
+  });
+
   it("a count covers held units: those it leaves no room for come off quarantine, and the sale still posts", async () => {
     const c = await counter({ partition: 10 });
     await prisma.$transaction((t) => stock.quarantine(t,
