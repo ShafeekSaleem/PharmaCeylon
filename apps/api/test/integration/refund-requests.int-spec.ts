@@ -313,6 +313,78 @@ describe("W4 pending approvals through shared Daily work", () => {
   });
 });
 
+describe("declining from Pending approvals (#157)", () => {
+  // A tenant role that approves returns but cannot refund: it reviews remotely, never executes.
+  let approverId: string;
+  beforeAll(async () => {
+    const row = await prisma.appUser.create({ data: { tenantId: fx.tenantId,
+      email: `approver-${randomUUID().slice(0, 8)}@it.test`, fullName: "Approver only", passwordHash: "not-used" } });
+    await prisma.tenantMembership.create({ data: { tenantId: fx.tenantId, userId: row.id } });
+    await prisma.permission.createMany({ skipDuplicates: true,
+      data: [{ key: "returns.approve", module: "returns", label: "returns.approve", description: "returns.approve" }] });
+    const role = await prisma.role.create({ data: { tenantId: fx.tenantId, key: `approver-${randomUUID().slice(0, 6)}`, name: "Approver" } });
+    await prisma.rolePermission.create({ data: { tenantId: fx.tenantId, roleId: role.id, permissionKey: "returns.approve" } });
+    await prisma.userBranchRole.create({ data: { tenantId: fx.tenantId, branchId: branch(), userId: row.id, role: "custom", roleId: role.id } });
+    approverId = row.id;
+  });
+  // Managers self-approve on preparation by default; keep requests waiting for the approver.
+  beforeEach(() => prisma.tenantSettings.upsert({ where: { tenantId: fx.tenantId },
+    create: { tenantId: fx.tenantId, selfApprovalRoleKeys: ["owner"] }, update: { selfApprovalRoleKeys: ["owner"] } }));
+  afterAll(() => prisma.tenantSettings.update({ where: { tenantId: fx.tenantId },
+    data: { selfApprovalRoleKeys: ["owner", "manager"] } }));
+  const declined = (id: string) => prisma.auditEvent.findFirst({
+    where: { tenantId: fx.tenantId, eventName: "sale.refund_cancelled", entityId: id } });
+
+  it("an approver without sales.refund declines a waiting refund, audited, but still cannot execute", async () => {
+    await setThreshold("100");
+    const sale = await cashSale(2);
+    const before = await batchTotals(prisma, sale.batchId);
+    const request = await refunds.prepare(user(fx.managerId), branch(), sale.saleId, { reasonCode: "damaged", items: lines(sale.batchId, 1) });
+    const actor = await access.resolveLive(user(approverId), branch(), prisma);
+    expect([actor.has("returns.approve"), actor.has("sales.refund")]).toEqual([true, false]);
+    const { invoiceNo } = await prisma.sale.findUniqueOrThrow({ where: { id: sale.saleId } });
+    const queued = async () => (await approvalQueue(user(approverId), branch(), { q: invoiceNo })).total;
+    expect(await queued()).toBe(1);
+
+    const result = await refunds.cancel(user(approverId), branch(), request.id);
+    expect(result).toMatchObject({ status: "cancelled", cancelledBy: { id: approverId }, readyAtCounter: false });
+    expect(await queued()).toBe(0);
+    expect(await declined(request.id)).toMatchObject({ actorUserId: approverId, branchId: branch(),
+      payload: { saleId: sale.saleId, status: "prepared", requestedByUserId: fx.managerId, cancelledAs: "approver" } });
+    expect(await batchTotals(prisma, sale.batchId)).toEqual(before);
+    expect(await cashOut(sale.saleId)).toBe("0.00");
+    await expect(refunds.cancel(user(approverId), branch(), request.id)).rejects.toMatchObject({ status: 400 });
+
+    // Approving still works for them; executing never does.
+    const other = await cashSale(2);
+    const waiting = await refunds.prepare(user(fx.managerId), branch(), other.saleId, { reasonCode: "damaged", items: lines(other.batchId, 1) });
+    const approved = await refunds.approve(user(approverId), branch(), waiting.id, { approvalId: randomUUID(), ...waiting.approvalReview! });
+    await expect(refunds.execute(user(approverId), branch(), waiting.id, { approvalId: approved.executionApprovalId! }))
+      .rejects.toMatchObject({ status: 403 });
+    expect(await cashOut(other.saleId)).toBe("0.00");
+    // An approved refund waiting at the counter can still be declined before it is executed.
+    expect(await refunds.cancel(user(approverId), branch(), waiting.id)).toMatchObject({ status: "cancelled" });
+    expect(await declined(waiting.id)).toMatchObject({ payload: { status: "approved", cancelledAs: "approver" } });
+  });
+
+  it("stays tenant- and branch-scoped and refuses staff who neither prepared nor approve refunds", async () => {
+    const sale = await cashSale(2);
+    const request = await refunds.prepare(user(fx.managerId), branch(), sale.saleId, { reasonCode: "damaged", items: lines(sale.batchId, 1) });
+    await expect(refunds.cancel(user(approverId), fx.otherBranchId, request.id)).rejects.toMatchObject({ status: 404 });
+    await expect(refunds.cancel({ ...user(approverId), tenantId: randomUUID() }, branch(), request.id)).rejects.toMatchObject({ status: 404 });
+    // The cashier refunds at the counter but did not prepare this one and cannot approve.
+    await expect(refunds.cancel(user(fx.clerkId), branch(), request.id)).rejects.toMatchObject({ status: 403 });
+    expect(await declined(request.id)).toBeNull();
+    expect((await refunds.getOne(fx.tenantId, branch(), request.id)).status).toBe("prepared");
+    // A requester who refunds but cannot approve may still cancel their own, recorded as such.
+    const own = await cashSale(2);
+    const mine = await refunds.prepare(user(fx.clerkId), branch(), own.saleId, { reasonCode: "damaged", items: lines(own.batchId, 1) });
+    await expect(refunds.cancel(user(approverId), fx.otherBranchId, mine.id)).rejects.toMatchObject({ status: 404 });
+    await refunds.cancel(user(fx.clerkId), branch(), mine.id);
+    expect(await declined(mine.id)).toMatchObject({ actorUserId: fx.clerkId, payload: { cancelledAs: "requester" } });
+  });
+});
+
 describe("execution at the counter", () => {
   let counter: Counter;
   beforeAll(async () => {

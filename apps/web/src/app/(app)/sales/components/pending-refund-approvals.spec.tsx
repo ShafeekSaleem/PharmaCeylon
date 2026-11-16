@@ -96,6 +96,15 @@ beforeEach(() => {
     .mocked(apiJson)
     .mockReset()
     .mockImplementation(async (path, init) => {
+      if (init?.method === "POST" && String(path).endsWith("/cancel"))
+        return (current = {
+          ...current,
+          status: "cancelled",
+          approvalReview: null,
+          readyAtCounter: false,
+          cancelledBy: { id: "manager", fullName: "Manager" },
+          cancelledAt: "2026-11-09T05:00:00Z",
+        });
       if (init?.method === "POST")
         return (current = {
           ...current,
@@ -105,7 +114,11 @@ beforeEach(() => {
           approver: { id: "manager", fullName: "Manager" },
         });
       if (String(path).startsWith("/dashboard/work?"))
-        return queue(current.readyAtCounter ? [] : [current]);
+        return queue(
+          current.readyAtCounter || current.status === "cancelled"
+            ? []
+            : [current],
+        );
       return current;
     });
   Object.defineProperty(global.crypto, "randomUUID", {
@@ -323,4 +336,115 @@ it("searches on the server and paginates rather than truncating to 200 requests"
         ),
     ).toBe(true),
   );
+});
+
+describe("declining (#157)", () => {
+  const posts = () =>
+    jest
+      .mocked(apiJson)
+      .mock.calls.filter(([, init]) => init?.method === "POST");
+
+  it("lets an approver without sales.refund decline after confirming, never executing", async () => {
+    render(<PendingRefundApprovals />);
+    const dialog = await openReview();
+    await within(dialog).findByText("Paracetamol");
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "Decline refund" }),
+    );
+    expect(posts()).toHaveLength(0);
+    expect(within(dialog).getByText(/It is cancelled for good/)).toBeInTheDocument();
+    expect(
+      within(dialog).queryByRole("button", { name: "Approve refund" }),
+    ).not.toBeInTheDocument();
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "Confirm decline" }),
+    );
+    await screen.findByText(
+      "RFR-00001 declined. Nothing was refunded and the counter can't refund it.",
+    );
+    expect(posts()).toHaveLength(1);
+    expect(posts()[0]![0]).toBe("/sales/refund-requests/refund-1/cancel");
+    expect(posts()[0]![1]?.headers).toEqual({ "x-branch-id": "branch-a" });
+    expect(
+      jest
+        .mocked(apiJson)
+        .mock.calls.some(([path]) => String(path).includes("/execute")),
+    ).toBe(false);
+    expect(await within(dialog).findByText("Cancelled")).toBeInTheDocument();
+    expect(
+      within(dialog).queryByRole("button", { name: /Decline|Approve/ }),
+    ).not.toBeInTheDocument();
+    expect(
+      await screen.findByText("No refunds need approval"),
+    ).toBeInTheDocument();
+  });
+
+  it("backs out with Keep refund without calling the API", async () => {
+    render(<PendingRefundApprovals />);
+    const dialog = await openReview();
+    await within(dialog).findByText("Paracetamol");
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "Decline refund" }),
+    );
+    fireEvent.click(within(dialog).getByRole("button", { name: "Keep refund" }));
+    expect(posts()).toHaveLength(0);
+    expect(
+      within(dialog).getByRole("button", { name: "Approve refund" }),
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).queryByText(/It is cancelled for good/),
+    ).not.toBeInTheDocument();
+  });
+
+  it("offers decline on one's own request even when self-approval is blocked", async () => {
+    current = { ...current, requester: { id: "manager", fullName: "Manager" } };
+    render(<PendingRefundApprovals />);
+    const dialog = await openReview();
+    await within(dialog).findByText(
+      "You raised this refund. Another approver must review it.",
+    );
+    expect(
+      within(dialog).getByRole("button", { name: "Decline refund" }),
+    ).toBeInTheDocument();
+  });
+
+  it("shows the server's refusal and reloads the request", async () => {
+    render(<PendingRefundApprovals />);
+    const dialog = await openReview();
+    await within(dialog).findByText("Paracetamol");
+    const normal = jest.mocked(apiJson).getMockImplementation()!;
+    jest.mocked(apiJson).mockImplementation(async (path, init) => {
+      if (init?.method === "POST") {
+        current = { ...current, status: "executed", approvalReview: null };
+        throw new Error("Only a refund still waiting can be cancelled");
+      }
+      return normal(path, init);
+    });
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "Decline refund" }),
+    );
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "Confirm decline" }),
+    );
+    await within(dialog).findByText(
+      "Only a refund still waiting can be cancelled",
+    );
+    expect(
+      await within(dialog).findByText("Already refunded"),
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).queryByRole("button", { name: "Decline refund" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("does not offer decline on a cancelled request", async () => {
+    mockSearchParams.set("request", request.id);
+    current = { ...current, status: "cancelled", approvalReview: null };
+    render(<PendingRefundApprovals />);
+    const dialog = await screen.findByRole("dialog");
+    await within(dialog).findByText("Cancelled");
+    expect(
+      within(dialog).queryByRole("button", { name: "Decline refund" }),
+    ).not.toBeInTheDocument();
+  });
 });

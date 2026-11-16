@@ -96,9 +96,12 @@ export class RefundRequestsController {
   }
 
   @ApiOperation({
-    summary: "Cancel a prepared refund that has not been executed",
+    summary:
+      "Cancel (requester) or decline (approver) a prepared refund that has not been executed",
   })
-  @RequirePermission("sales.refund")
+  // An approver with only `returns.approve` declines from Pending approvals (#157); the service
+  // reads the permission live and still lets only the requester cancel with `sales.refund`.
+  @RequirePermission("sales.refund", "returns.approve")
   @HttpCode(HttpStatus.OK)
   @Post("refund-requests/:id/cancel")
   cancel(

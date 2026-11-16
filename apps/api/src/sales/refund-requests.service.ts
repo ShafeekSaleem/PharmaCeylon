@@ -207,12 +207,18 @@ export class RefundRequestsService {
     }, tx);
   }
 
+  /**
+   * Cancel (requester, with `sales.refund`) or decline (approver, with `returns.approve`, #157) a
+   * refund that has not been executed. Both are read live; neither moves stock or money, and
+   * declining never needs `sales.refund`, so approving/declining and executing stay separate.
+   */
   async cancel(user: RequestUser, branchId: string, id: string) {
     await this.prisma.$transaction(async (tx) => {
       const row = await this.lock(tx, user.tenantId, branchId, id);
       if (!OPEN.includes(row.status)) throw new BadRequestException("Only a refund still waiting can be cancelled");
       const actor = await this.access.resolveLive(user, branchId, tx);
-      if (row.requestedBy !== user.userId && !actor.has("returns.approve")) {
+      const asApprover = actor.has("returns.approve");
+      if (!asApprover && !(row.requestedBy === user.userId && actor.has("sales.refund"))) {
         throw new ForbiddenException("Only the person who prepared this refund, or an approver, can cancel it");
       }
       await tx.saleRefundRequest.update({
@@ -221,7 +227,9 @@ export class RefundRequestsService {
       });
       await this.audit.log({
         tenantId: user.tenantId, branchId, actorUserId: user.userId, eventName: "sale.refund_cancelled",
-        entityName: "sale_refund_request", entityId: id, payload: { saleId: row.saleId },
+        entityName: "sale_refund_request", entityId: id,
+        payload: { saleId: row.saleId, status: row.status, requestedByUserId: row.requestedBy,
+          cancelledAs: asApprover ? "approver" : "requester" },
       }, tx);
     });
     return this.getOne(user.tenantId, branchId, id);

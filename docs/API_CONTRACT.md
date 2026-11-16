@@ -1075,7 +1075,12 @@ is locked, so a revocation that commits first refuses the sale and a later one w
     `POST /sales/refund-requests/:id/approve` (`returns.approve`, body `{ approvalId,
     expectedVersion, expectedDigest }` from the request's `approvalReview`; self-approval rules
     apply, and a preparer who may approve their own requests approves on preparation).
-    `POST /sales/refund-requests/:id/cancel` (requester or approver) withdraws it. The counter runs
+    `POST /sales/refund-requests/:id/cancel` withdraws it: the requester with `sales.refund`, or
+    any approver with `returns.approve` (no `sales.refund` needed — the Pending approvals queue's
+    **Decline**, #157), both read live at the request's branch. It is tenant- and branch-scoped
+    (another branch's or tenant's id is **404**), allowed while `prepared` or `approved`, and
+    audited as `sale.refund_cancelled` with `{ saleId, status, requestedByUserId, cancelledAs:
+    "requester" | "approver" }`. Declining moves nothing and never executes. The counter runs
     `POST /sales/refund-requests/:id/execute` (`sales.refund`, body `{ approvalId }` = the
     displayed `executionApprovalId` or `null`, `Idempotency-Key` scope `sale_refund_execute`), or
     the signed operation above: it locks the sale, re-checks the original-sale limit and price
