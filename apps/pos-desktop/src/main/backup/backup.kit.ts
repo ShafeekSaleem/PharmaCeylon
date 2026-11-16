@@ -274,9 +274,7 @@ export function sellOffline(
 /** Writes backup copies on the calling thread, from a connection of its own, as the worker does. */
 export const copyInThisThread: BackupCopyRunner = (job) => ({
   result: new Promise((resolve) => {
-    const source = openCipherFile(job.storePath, job.liveKey, {
-      readonly: true,
-    });
+    const source = openCipherFile(job.storePath, job.liveKey);
     try {
       resolve(writeBackupCopy(source, job));
     } finally {

@@ -12,15 +12,14 @@ import {
  * bundle (`dist/main/backup-worker.js`).
  *
  * It opens its own connection to the live store (WAL mode: the till's connection keeps writing
- * while this one reads one consistent snapshot) and only ever reads it. The keys arrive in
+ * while this one reads one consistent snapshot) and only ever reads it (the copy is attached to that connection under its own key). The keys arrive in
  * `workerData` and never leave: a failure is reported by name, code and message only, and no
  * SQLite message carries a key.
  */
 function run(job: BackupCopyJob): BackupWorkerReply {
   try {
-    const source = openCipherFile(job.storePath, job.liveKey, {
-      readonly: true,
-    });
+    // Writable only so the copy can be attached to it; the live store itself is only read.
+    const source = openCipherFile(job.storePath, job.liveKey);
     try {
       return { ok: true, result: writeBackupCopy(source, job) };
     } finally {

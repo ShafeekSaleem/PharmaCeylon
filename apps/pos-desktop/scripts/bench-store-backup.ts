@@ -204,7 +204,7 @@ async function main(): Promise<void> {
   time("seed", seed);
   const bytes = statSync(join(dataDir, "pos.db")).size;
   console.log(
-    `Store: ${(bytes / 2 ** 20).toFixed(0)} MB\nSteps as they ran on the main process:`,
+    `Store: ${(bytes / 2 ** 20).toFixed(0)} MB\nSteps as they ran on the main process before #166:`,
   );
   stepsOnMainProcess();
   console.log("Backup in the worker, with checkout writes running:");

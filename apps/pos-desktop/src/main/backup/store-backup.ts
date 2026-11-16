@@ -1,9 +1,12 @@
 import { createHash, randomBytes } from "node:crypto";
 import {
+  closeSync,
   existsSync,
   mkdirSync,
+  openSync,
   readdirSync,
   readFileSync,
+  readSync,
   renameSync,
   rmSync,
   statSync,
@@ -22,7 +25,7 @@ import type { SecretProtector } from "../db/key-store";
  * a SQLCipher copy of the store under a key of its own, and that key is kept only wrapped by the
  * Windows credential store (DPAPI): only the same Windows user on this computer can open it. A
  * backup copied anywhere else is unreadable, so it never leaks the counter's signing key. Staff PIN
- * verifiers are removed from the copy (securely deleted before it is re-keyed), so a backup holds
+ * verifiers are never written to the copy (`staff_credential` is created empty), so a backup holds
  * no PIN in any form; staff sign in online again after a restore.
  *
  * **When.** Taken by the app itself, never by a person: before a schema upgrade, once at start-up,
@@ -141,8 +144,21 @@ export function readWrappedKey(
   return key;
 }
 
+/** Read in chunks: a year-old counter's copy is over a gigabyte. */
 export function sha256File(path: string): string {
-  return createHash("sha256").update(readFileSync(path)).digest("hex");
+  const hash = createHash("sha256");
+  const chunk = Buffer.alloc(4 * 2 ** 20);
+  const fd = openSync(path, "r");
+  try {
+    for (;;) {
+      const read = readSync(fd, chunk, 0, chunk.length, null);
+      if (read === 0) break;
+      hash.update(chunk.subarray(0, read));
+    }
+  } finally {
+    closeSync(fd);
+  }
+  return hash.digest("hex");
 }
 
 function tableExists(db: PosDatabase, name: string): boolean {
@@ -306,52 +322,101 @@ export type BackupCopyResult = {
   bytes: number;
 };
 
+/** Rewrites a `CREATE ...` statement from `sqlite_master` to create the object in `schema`. */
+function inSchema(sql: string, schema: string): string {
+  const created =
+    /^CREATE\s+(TABLE|UNIQUE\s+INDEX|INDEX|TRIGGER|VIEW)\s+/i.exec(sql);
+  if (!created)
+    throw new StoreBackupError(
+      "BACKUP_DAMAGED",
+      "The store holds an object the backup cannot copy.",
+    );
+  return `${created[0]}${schema}.${sql.slice(created[0].length)}`;
+}
+
+const quoteName = (name: string) => `"${name.replace(/"/g, '""')}"`;
+
 /**
- * Writes a backup copy of `source` (a connection to the live store) to `job.copyPath`: one
- * consistent read of the whole store, with no PIN verifier, re-keyed under the backup's own key and
- * checked. The facts come from the copy itself, so they describe exactly what it holds.
+ * Writes a backup copy of `source` (a writable connection to the live store, which it only reads)
+ * to `job.copyPath`, already encrypted under the backup's own key, then checks it. The facts come
+ * from the same read, so they describe exactly what the copy holds.
  *
- * #166: this is the slow part of a backup (seconds on a counter that has traded for a year; see
- * `scripts/bench-store-backup.ts`). While the till is open the app runs it in a worker thread on a
- * connection of its own (`backup-worker.ts`), never on the main process where checkout runs. It
- * only reads the live store, which is in WAL mode, so the till keeps writing while it runs.
+ * One pass: the copy is attached under its own key and filled table by table inside one read
+ * transaction (one consistent snapshot of the store). Staff PIN verifiers are never written to it:
+ * `staff_credential` is created empty, so no verifier reaches the file in any page, and the copy
+ * needs no `VACUUM` or `rekey` afterwards.
+ *
+ * #166: before, a backup was `VACUUM INTO`, then `VACUUM` and `rekey` of the copy (each a full
+ * rewrite, the re-key through a rollback journal), then `quick_check`, all on the main process:
+ * about 15 s on a 259 MB store and 142 s on a 1.4 GB one (`scripts/bench-store-backup.ts`). The app
+ * now runs this in a worker thread (`backup-worker.ts`), and writing the copy once keeps the disk
+ * free enough that the till's own writes (synchronous = FULL) are not starved meanwhile.
  */
 export function writeBackupCopy(
   source: PosDatabase,
   job: Omit<BackupCopyJob, "storePath">,
 ): BackupCopyResult {
-  source.prepare("VACUUM INTO ?").run(job.copyPath);
-  const copy = openCipherFile(job.copyPath, job.liveKey);
-  let facts: BackupCopyResult["facts"];
+  let facts: BackupCopyResult["facts"] | undefined;
+  // Enforcement is per connection; rows are copied table by table, so parents may come later.
+  const foreignKeys = source.pragma("foreign_keys", { simple: true });
+  source.pragma("foreign_keys = OFF");
+  // An empty file is a new database; a connection opened with `fileMustExist` cannot create one.
+  writeFileSync(job.copyPath, "", { flag: "wx" });
+  source
+    .prepare("ATTACH DATABASE ? AS backup_copy KEY ?")
+    .run(job.copyPath, `x'${job.backupKey}'`);
   try {
-    facts = readStoreFacts(copy);
-    copy.pragma("journal_mode = DELETE");
-    // No PIN verifier leaves the live store, not even as freed pages: secure delete zeroes the
-    // cells, and the re-key below rewrites every page under the backup's own key.
-    copy.pragma("secure_delete = ON");
-    if (tableExists(copy, "staff_credential"))
-      copy.prepare("DELETE FROM staff_credential").run();
-    writeStoreBackupMeta(copy, job.takenAt);
-    copy.exec("VACUUM");
-    copy.pragma(`rekey = "x'${job.backupKey}'"`);
+    // A scratch file until it is checked and renamed: no journal; the meta write below syncs it.
+    source.pragma("backup_copy.journal_mode = OFF");
+    source.pragma("backup_copy.synchronous = OFF");
+    source.transaction(() => {
+      facts = readStoreFacts(source);
+      const objects = source
+        .prepare(
+          "SELECT type, name, sql FROM main.sqlite_master WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%' ORDER BY rowid",
+        )
+        .all() as { type: string; name: string; sql: string }[];
+      const tables = objects.filter((o) => o.type === "table");
+      for (const table of tables)
+        source.exec(inSchema(table.sql, "backup_copy"));
+      for (const table of tables)
+        if (table.name !== "staff_credential")
+          source.exec(
+            `INSERT INTO backup_copy.${quoteName(table.name)} SELECT * FROM main.${quoteName(table.name)}`,
+          );
+      if (tableExists(source, "sqlite_sequence"))
+        source.exec(
+          "DELETE FROM backup_copy.sqlite_sequence; INSERT INTO backup_copy.sqlite_sequence SELECT * FROM main.sqlite_sequence",
+        );
+      // Indexes after the rows (built once, not row by row), then triggers and views.
+      for (const type of ["index", "trigger", "view"])
+        for (const object of objects)
+          if (object.type === type)
+            source.exec(inSchema(object.sql, "backup_copy"));
+      const userVersion = source.pragma("main.user_version", {
+        simple: true,
+      }) as number;
+      source.pragma(`backup_copy.user_version = ${Number(userVersion)}`);
+    })();
   } finally {
-    copy.close();
+    source.exec("DETACH DATABASE backup_copy");
+    source.pragma(`foreign_keys = ${foreignKeys ? "ON" : "OFF"}`);
   }
-  const check = openCipherFile(job.copyPath, job.backupKey, {
-    readonly: true,
-  });
+
+  const copy = openCipherFile(job.copyPath, job.backupKey);
   try {
-    const ok = check.pragma("quick_check", { simple: true });
+    writeStoreBackupMeta(copy, job.takenAt);
+    const ok = copy.pragma("quick_check", { simple: true });
     if (ok !== "ok")
       throw new StoreBackupError(
         "BACKUP_DAMAGED",
         `The new backup failed its check: ${String(ok)}`,
       );
   } finally {
-    check.close();
+    copy.close();
   }
   return {
-    facts,
+    facts: facts!,
     sha256: sha256File(job.copyPath),
     bytes: statSync(job.copyPath).size,
   };

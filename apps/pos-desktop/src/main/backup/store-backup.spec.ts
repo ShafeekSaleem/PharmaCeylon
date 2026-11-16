@@ -367,6 +367,22 @@ describe("a backup off the main process (#166)", () => {
         copy.prepare("SELECT COUNT(*) AS n FROM staff_credential").get(),
       ).toEqual({ n: 0 });
       expect(copy.pragma("quick_check", { simple: true })).toBe("ok");
+      // The same schema, object for object (tables, indexes, the append-only triggers), plus the
+      // backup's own time.
+      const schema = (db: typeof copy) =>
+        db
+          .prepare(
+            "SELECT type, name, sql FROM sqlite_master WHERE name <> 'store_backup_meta' ORDER BY type, name",
+          )
+          .all();
+      expect(schema(copy)).toEqual(schema(local.db));
+      expect(
+        copy
+          .prepare(
+            "SELECT count(*) AS n FROM sqlite_master WHERE type = 'trigger'",
+          )
+          .get(),
+      ).toEqual({ n: 6 });
     } finally {
       copy.close();
     }
