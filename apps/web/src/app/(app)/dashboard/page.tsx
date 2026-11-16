@@ -8,6 +8,7 @@ import { StatusStrip } from "@/components/ui";
 import { useAuth } from "@/lib/use-auth";
 import { useBranchRollout } from "@/lib/branch-rollout";
 import { DailyWorkQueue } from "./components/daily-work-queue";
+import { isV6DashboardRole } from "./components/dashboard-fixed-grid";
 import { useRoleAccess } from "@/lib/use-role-access";
 import { AddWidgetDrawer } from "./components/add-widget-drawer";
 import { DashboardHeader } from "./components/dashboard-header";
@@ -43,7 +44,9 @@ function DashboardWorkspace() {
   const ownerThisBranch = isOwner && data.ownerScope === "this_branch";
 
   // W9: at a live branch nothing here opens the web POS, and held-bill widgets leave the web.
-  const posHidden = dashboardPosHidden(useBranchRollout().rollout);
+  const rollout = useBranchRollout().rollout;
+  const posHidden = dashboardPosHidden(rollout);
+  const counterLive = rollout?.state === "live";
   const catalog = useMemo(
     () => catalogForRole(viewRole, posHidden),
     [viewRole, posHidden],
@@ -175,17 +178,31 @@ function DashboardWorkspace() {
           </p>
         ) : null}
 
-        <DailyWorkQueue
-          role={viewRole}
-          branchId={data.branchId}
-          refreshKey={data.lastUpdatedAt}
-        />
+        {isV6DashboardRole(viewRole) ? null : (
+          <DailyWorkQueue
+            role={viewRole}
+            branchId={data.branchId}
+            refreshKey={data.lastUpdatedAt}
+          />
+        )}
 
         {viewRole === "owner" ? (
-          <OwnerDashboard data={data} catalog={catalog} layout={layout} />
+          <OwnerDashboard
+            data={data}
+            catalog={catalog}
+            layout={layout}
+            refreshKey={data.lastUpdatedAt}
+            counterLive={counterLive}
+          />
         ) : null}
         {viewRole === "manager" ? (
-          <ManagerDashboard data={data} catalog={catalog} layout={layout} />
+          <ManagerDashboard
+            data={data}
+            catalog={catalog}
+            layout={layout}
+            refreshKey={data.lastUpdatedAt}
+            counterLive={counterLive}
+          />
         ) : null}
         {viewRole === "pharmacist" ? (
           <PharmacistDashboard data={data} catalog={catalog} layout={layout} />

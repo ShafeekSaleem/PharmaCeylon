@@ -63,14 +63,14 @@ describe("daily-work request lifecycle", () => {
     act(() => hook.result.current.selectFilter("mine"));
     await waitFor(() =>
       expect(request).toHaveBeenLastCalledWith(
-        "/dashboard/work?filter=mine&page=1",
+        "/dashboard/work?filter=mine&page=1&pageSize=8",
         expect.anything(),
       ),
     );
     act(() => hook.result.current.selectCategory("stocktakes"));
     await waitFor(() =>
       expect(request).toHaveBeenLastCalledWith(
-        "/dashboard/work?filter=mine&page=1&category=stocktakes",
+        "/dashboard/work?filter=mine&page=1&pageSize=8&category=stocktakes",
         expect.anything(),
       ),
     );

@@ -7,11 +7,13 @@ import type {
   WorkFilter,
 } from "@pharmaceylon/shared";
 import { apiJson } from "@/lib/auth-client";
+import { WORK_PAGE_SIZE } from "../lib/fixed-layout";
 
 export function useDailyWork(
   branchId: string | null,
   refreshKey: string | null,
   initialFilter: WorkFilter = "all",
+  pageSize = WORK_PAGE_SIZE,
 ) {
   const [filter, setFilter] = useState<WorkFilter>(initialFilter);
   const [category, setCategory] = useState<WorkCategory | "">("");
@@ -55,7 +57,11 @@ export function useDailyWork(
     }
     setLoading(true);
     setError(null);
-    const params = new URLSearchParams({ filter, page: String(page) });
+    const params = new URLSearchParams({
+      filter,
+      page: String(page),
+      pageSize: String(pageSize),
+    });
     if (category) params.set("category", category);
     void apiJson<DailyWorkResponse>(`/dashboard/work?${params}`, {
       signal: controller.signal,
@@ -83,7 +89,7 @@ export function useDailyWork(
         if (active()) setLoading(false);
       });
     return () => controller.abort();
-  }, [branchId, filter, category, page, retry, refreshKey]);
+  }, [branchId, filter, category, page, pageSize, retry, refreshKey]);
 
   return {
     data,

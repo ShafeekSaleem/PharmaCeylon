@@ -1,6 +1,5 @@
 "use client";
 
-import { useMemo } from "react";
 import {
   IconAlertTriangle,
   IconBox,
@@ -13,118 +12,42 @@ import {
 } from "@/components/icons";
 import { formatMoney } from "@/app/(app)/inventory/utils";
 import { OPERATIONS_ROLES, PURCHASING_ROLES } from "@/lib/role-access";
-import {
-  AttentionTicker,
-  type TickerItem,
-} from "../components/attention-ticker";
 import { DashboardCanvas } from "../components/dashboard-canvas";
+import { DashboardFixedGrid } from "../components/dashboard-fixed-grid";
 import { HeroBand } from "../components/hero-band";
 import { QuickActionsBar } from "../components/quick-actions-bar";
 import type { DashboardData } from "../hooks/use-dashboard-data";
 import type { UseDashboardLayoutResult } from "../hooks/use-dashboard-layout";
 import type { WidgetDef } from "../widgets/types";
+import css from "../dashboard.module.css";
 
 type Props = {
   data: DashboardData;
   catalog: WidgetDef[];
   layout: UseDashboardLayoutResult;
+  refreshKey: string | null;
+  counterLive: boolean;
 };
 
-export function ManagerDashboard({ data, catalog, layout }: Props) {
+export function ManagerDashboard({
+  data,
+  catalog,
+  layout,
+  refreshKey,
+  counterLive,
+}: Props) {
   const {
     loading,
-    inventory,
     todaySalesTotal,
     salesTrendLabel,
     salesTrendPositive,
     todaySalesCount,
     salesTrend7d,
-    pendingApprovalsTotal,
     currentBranchPerf,
-    nearExpiryCount,
-    overduePos,
-    openTransfers,
-    stocktakesInProgress,
-    controlledAttentionCount,
     dispensedToday,
     dispensedTrendLabel,
     dispensedTrendPositive,
   } = data;
-
-  const tickerItems: TickerItem[] = useMemo(() => {
-    const items: TickerItem[] = [];
-    if (controlledAttentionCount > 0) {
-      items.push({
-        key: "ctrl",
-        count: controlledAttentionCount,
-        label: "controlled-drug alerts",
-        tone: "danger",
-        href: "/inventory?controlled=controlled",
-      });
-    }
-    if ((inventory?.outOfStock ?? 0) > 0) {
-      items.push({
-        key: "oos",
-        count: inventory!.outOfStock,
-        label: "items out of stock",
-        tone: "danger",
-        href: "/inventory?view=out",
-      });
-    }
-    if ((inventory?.lowStock ?? 0) > 0) {
-      items.push({
-        key: "low",
-        count: inventory!.lowStock,
-        label: "low stock items",
-        tone: "warning",
-        href: "/inventory?view=low",
-      });
-    }
-    if (nearExpiryCount > 0) {
-      items.push({
-        key: "exp",
-        count: nearExpiryCount,
-        label: "near-expiry batches",
-        tone: "warning",
-        href: "/inventory/batches",
-      });
-    }
-    if (overduePos > 0) {
-      items.push({
-        key: "od",
-        count: overduePos,
-        label: "overdue purchase orders",
-        tone: "warning",
-        href: "/purchasing?status=overdue",
-      });
-    }
-    if (openTransfers > 0) {
-      items.push({
-        key: "xfer",
-        count: openTransfers,
-        label: "open transfers",
-        tone: "info",
-        href: "/transfers",
-      });
-    }
-    if (stocktakesInProgress > 0) {
-      items.push({
-        key: "st",
-        count: stocktakesInProgress,
-        label: "stocktakes in progress",
-        tone: "info",
-        href: "/stocktakes",
-      });
-    }
-    return items;
-  }, [
-    controlledAttentionCount,
-    inventory,
-    nearExpiryCount,
-    overduePos,
-    openTransfers,
-    stocktakesInProgress,
-  ]);
 
   return (
     <>
@@ -247,22 +170,24 @@ export function ManagerDashboard({ data, catalog, layout }: Props) {
         ]}
       />
 
-      <AttentionTicker
-        items={tickerItems}
-        loading={loading}
-        unavailable={data.failedSections.size > 0}
-        allClearText="No operational alerts — branch looks healthy"
+      <DashboardFixedGrid
+        role="manager"
+        data={data}
+        refreshKey={refreshKey}
+        counterLive={counterLive}
       />
 
-      <DashboardCanvas
-        catalog={catalog}
-        layout={layout.layout}
-        data={data}
-        isEditing={layout.isEditing}
-        loading={layout.loading}
-        onLayoutChange={layout.updateLayout}
-        onRemoveWidget={layout.removeWidget}
-      />
+      <div className={css.optionalWidgets}>
+        <DashboardCanvas
+          catalog={catalog}
+          layout={layout.layout}
+          data={data}
+          isEditing={layout.isEditing}
+          loading={layout.loading}
+          onLayoutChange={layout.updateLayout}
+          onRemoveWidget={layout.removeWidget}
+        />
+      </div>
     </>
   );
 }

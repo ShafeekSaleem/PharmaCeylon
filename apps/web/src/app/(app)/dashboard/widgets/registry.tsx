@@ -7,6 +7,7 @@ import { FootfallPanel } from "../components/footfall-panel";
 import { StockMovementTrendPanel } from "../components/stock-movement-trend-panel";
 import { OwnerPendingApprovalsWidget } from "./owner-pending-approvals";
 import { OwnerBranchRevenueContributionWidget } from "./owner-branch-revenue-contribution";
+import { OwnerPaymentMixWidget } from "./owner-payment-mix";
 import { OwnerInventoryHealthWidget } from "./owner-inventory-health";
 import { OwnerAiInsightsWidget } from "./owner-ai-insights";
 import { OwnerTeamBranchSnapshotWidget } from "./owner-team-branch-snapshot";
@@ -39,6 +40,7 @@ import { InventoryClerkStocktakesWidget } from "./inventory-clerk-stocktakes";
 import { InventoryClerkAiInsightsWidget } from "./inventory-clerk-ai-insights";
 import { CounterWaitingWidget } from "./counter-waiting";
 import type { WidgetDef } from "./types";
+import { isFixedWidget } from "../lib/fixed-layout";
 import type { DashboardRole } from "../lib/dashboard-role";
 
 /** Every widget available today, across all 5 roles. Phase A: each role's
@@ -134,6 +136,15 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
     width: "narrow",
     rows: 16,
     component: OwnerInventoryHealthWidget,
+  },
+  {
+    key: "owner.payment-mix",
+    title: "Payment mix",
+    roles: ["owner"],
+    category: "Overview",
+    width: "narrow",
+    rows: 12,
+    component: OwnerPaymentMixWidget,
   },
   {
     key: "owner.ai-insights",
@@ -488,6 +499,7 @@ export function catalogForRole(
     (w) =>
       w.roles.includes(role) &&
       !unsupported.has(w.key) &&
+      !isFixedWidget(role, w.key) &&
       !(posHidden && w.webPosOnly),
   );
 }

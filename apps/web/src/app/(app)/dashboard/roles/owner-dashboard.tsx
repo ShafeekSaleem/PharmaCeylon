@@ -12,34 +12,33 @@ import {
 } from "@/components/icons";
 import { formatMoney } from "@/app/(app)/inventory/utils";
 import { OPERATIONS_ROLES, PURCHASING_ROLES } from "@/lib/role-access";
-import {
-  AttentionTicker,
-  type TickerItem,
-} from "../components/attention-ticker";
 import { DashboardCanvas } from "../components/dashboard-canvas";
+import { DashboardFixedGrid } from "../components/dashboard-fixed-grid";
 import { HeroBand } from "../components/hero-band";
 import { QuickActionsBar } from "../components/quick-actions-bar";
 import type { DashboardData } from "../hooks/use-dashboard-data";
 import type { UseDashboardLayoutResult } from "../hooks/use-dashboard-layout";
 import type { WidgetDef } from "../widgets/types";
+import css from "../dashboard.module.css";
 
 type Props = {
   data: DashboardData;
   catalog: WidgetDef[];
   layout: UseDashboardLayoutResult;
+  refreshKey: string | null;
+  counterLive: boolean;
 };
 
-export function OwnerDashboard({ data, catalog, layout }: Props) {
+export function OwnerDashboard({
+  data,
+  catalog,
+  layout,
+  refreshKey,
+  counterLive,
+}: Props) {
   const {
     loading,
-    ownerLowStock,
-    nearExpiryCount,
     salesTrend7d,
-    overduePos,
-    pendingApproval,
-    financial,
-    openTransfers,
-    controlledAttentionCount,
     ownerScopeLabel,
     ownerTodaySalesTotal,
     ownerTodayTxnCount,
@@ -51,93 +50,8 @@ export function OwnerDashboard({ data, catalog, layout }: Props) {
     ownerScope,
     hasMarginData,
     marginPct,
-    pendingApprovalListFull,
+    financial,
   } = data;
-
-  const pendingApprovalValue = useMemo(
-    () =>
-      pendingApprovalListFull.reduce(
-        (sum, po) =>
-          sum +
-          po.items.reduce(
-            (lineSum, item) =>
-              lineSum + Number(item.unitCost) * item.orderedQty,
-            0,
-          ),
-        0,
-      ),
-    [pendingApprovalListFull],
-  );
-
-  const tickerItems: TickerItem[] = useMemo(() => {
-    const items: TickerItem[] = [];
-    if (controlledAttentionCount > 0) {
-      items.push({
-        key: "ctrl",
-        count: controlledAttentionCount,
-        label: "controlled-drug alerts",
-        tone: "danger",
-        href: "/inventory?controlled=controlled",
-      });
-    }
-    if ((ownerLowStock ?? 0) > 0) {
-      items.push({
-        key: "low",
-        count: ownerLowStock!,
-        label: "low stock items",
-        tone: "warning",
-        href: "/inventory?view=low",
-      });
-    }
-    if (nearExpiryCount > 0) {
-      items.push({
-        key: "expiry",
-        count: nearExpiryCount,
-        label: "expiring ≤30 days",
-        tone: "warning",
-        href: "/inventory/batches?nearExpiryDays=30",
-      });
-    }
-    if (overduePos > 0) {
-      items.push({
-        key: "overdue",
-        count: overduePos,
-        label: "overdue deliveries",
-        tone: "danger",
-        href: "/purchasing?status=overdue",
-      });
-    }
-    if (pendingApproval > 0) {
-      items.push({
-        key: "po",
-        count: pendingApproval,
-        label: `POs pending approval · ${formatMoney(pendingApprovalValue)}`,
-        tone: "info",
-        href: "/purchasing?status=pending_approval",
-      });
-    }
-    if (openTransfers > 0) {
-      items.push({
-        key: "xfer",
-        count: openTransfers,
-        label: "open transfers",
-        tone: "info",
-        href: "/transfers",
-      });
-    }
-    return items;
-  }, [
-    controlledAttentionCount,
-    ownerLowStock,
-    nearExpiryCount,
-    overduePos,
-    pendingApproval,
-    pendingApprovalValue,
-    openTransfers,
-  ]);
-
-  const scopePhrase = ownerScopeLabel.toLowerCase();
-  const kpisLoading = loading || data.ownerKpisPending;
 
   const heroMeta = useMemo(() => {
     const txnLabel = `${ownerTodayTxnCount} transaction${ownerTodayTxnCount === 1 ? "" : "s"}`;
@@ -264,21 +178,24 @@ export function OwnerDashboard({ data, catalog, layout }: Props) {
         ]}
       />
 
-      <AttentionTicker
-        items={tickerItems}
-        loading={kpisLoading}
-        allClearText={`No alerts — ${scopePhrase} looks healthy`}
+      <DashboardFixedGrid
+        role="owner"
+        data={data}
+        refreshKey={refreshKey}
+        counterLive={counterLive}
       />
 
-      <DashboardCanvas
-        catalog={catalog}
-        layout={layout.layout}
-        data={data}
-        isEditing={layout.isEditing}
-        loading={layout.loading}
-        onLayoutChange={layout.updateLayout}
-        onRemoveWidget={layout.removeWidget}
-      />
+      <div className={css.optionalWidgets}>
+        <DashboardCanvas
+          catalog={catalog}
+          layout={layout.layout}
+          data={data}
+          isEditing={layout.isEditing}
+          loading={layout.loading}
+          onLayoutChange={layout.updateLayout}
+          onRemoveWidget={layout.removeWidget}
+        />
+      </div>
     </>
   );
 }
