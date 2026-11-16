@@ -8,9 +8,35 @@
   min-height: 0;
 }
 
+/* The last-known banner (#172) sits between the head and the list. */
+.page:has(> .lastKnown) {
+  grid-template-rows: auto auto minmax(0, 1fr);
+}
+
 .head {
   flex-wrap: wrap;
   row-gap: 10px;
+}
+
+.checked {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--pos-text-3);
+}
+
+.lastKnown {
+  align-items: flex-start;
+  border-color: var(--pos-warn-line);
+  background: var(--pos-warn-soft);
+  color: var(--pos-warn-ink);
+}
+
+.lastKnown :global(.pos-ic) {
+  color: var(--pos-warn);
+}
+
+.lastKnown b {
+  display: block;
 }
 
 .tabs {

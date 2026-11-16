@@ -99,11 +99,11 @@ describe("web-approved work waiting at the counter", () => {
       stage: "ready_for_execution",
       dailyWorkKind: "held_adjustment.post",
       destination: "held_write_off",
-      destinationStatus: "planned",
+      destinationStatus: "available",
       freshness: { stale: false },
       signedExecution: { bodyIdKey: "heldAdjustmentId", approvalEvidenceId: writeOff.approvalId },
     });
-    expect(adj.task.nextAction.executable).toBe(false);
+    expect(adj.task.nextAction.executable).toBe(true);
 
     expect(items.find((i) => i.id === delivery.id)).toMatchObject({
       kind: "held_delivery",

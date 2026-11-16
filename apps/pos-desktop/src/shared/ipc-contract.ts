@@ -513,6 +513,27 @@ export type CounterWorkKind = (typeof counterWorkKinds)[number];
 
 const counterWorkPersonSchema = z.object({ name: z.string().nullable(), at: z.string().nullable() });
 
+/**
+ * The #172 task projection, as far as the counter reads it: stage, next action, blocker and
+ * freshness. Other fields pass through untouched. A server from before #172 sends none, and one
+ * the counter can't read is dropped rather than failing the whole list.
+ */
+export const counterWorkTaskSchema = z
+  .object({
+    contractVersion: z.number().int(),
+    stage: z.enum(["ready_for_execution", "blocked_approval"]),
+    destinationStatus: z.enum(["available", "planned"]),
+    nextAction: z.object({ label: z.string(), executable: z.boolean() }),
+    blocker: z.object({ code: z.string(), message: z.string() }).nullable(),
+    freshness: z.object({
+      asOf: z.string(),
+      evidenceAt: z.string().nullable(),
+      stale: z.boolean(),
+    }),
+  })
+  .passthrough();
+export type CounterWorkTask = z.infer<typeof counterWorkTaskSchema>;
+
 /** Web-approved work waiting at this branch's counter (`GET /counter-work`), with its approval state. */
 export const counterWorkItemSchema = z.object({
   kind: z.enum(counterWorkKinds),
@@ -534,7 +555,7 @@ export const counterWorkItemSchema = z.object({
   }),
   /** Present when the API includes #172 task projection or extended held rows. */
   operation: z.string().optional(),
-  task: z.unknown().optional(),
+  task: counterWorkTaskSchema.optional().catch(undefined),
   heldAdjustmentStatus: z
     .enum(["awaiting_approval", "approved", "accepted", "rejected"])
     .optional(),

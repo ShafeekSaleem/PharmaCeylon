@@ -10,6 +10,7 @@
     "build": "rm -rf dist/renderer && electron-vite build && node scripts/check-renderer-build.mjs",
     "build:screenshot": "rm -rf dist/renderer && POS_SCREENSHOT_BUILD=1 sh -c \"electron-vite build && node scripts/check-renderer-build.mjs\"",
     "capture:shell": "node scripts/capture-shell-window.mjs",
+    "capture:work": "node scripts/capture-counter-work.mjs",
     "lint": "tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.web.json --noEmit",
     "test": "jest",
     "package": "electron-vite build && electron-builder --win dir",

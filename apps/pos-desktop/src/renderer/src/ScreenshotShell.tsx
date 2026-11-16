@@ -11,7 +11,13 @@ import type {
   OfflineBackup,
   Printer,
 } from "../../shared/ipc-contract";
-import { KeyMap, KeyMapProvider } from "./keymap";
+import { KeyMap, KeyMapProvider, KeyScope } from "./keymap";
+import { CounterWork } from "./CounterWork";
+import {
+  installCounterWorkFixture,
+  workShotState,
+  type WorkShotState,
+} from "./ScreenshotCounterWork";
 
 const screenshotKeys = new KeyMap();
 import sell from "./Sell.module.css";
@@ -144,7 +150,13 @@ function readyUntilBackup(): OfflineBackup {
   };
 }
 
+const workShot = workShotState(window.location.search);
+const workCount = workShot ? installCounterWorkFixture(workShot) : 0;
+const shotApi: ApiReachability =
+  workShot === "offline" ? { ...api, reachable: false, latencyMs: null } : api;
+
 export function ScreenshotShell() {
+  if (workShot) return <WorkShot state={workShot} />;
   return (
     <KeyMapProvider map={screenshotKeys}>
       <div className={shell.win} data-screenshot-shell>
@@ -176,6 +188,51 @@ export function ScreenshotShell() {
           <StatusBar
             state={state}
             api={api}
+            journal={journal}
+            offlineBackup={readyUntilBackup()}
+            printer={printer}
+            info={info}
+            shift={shift}
+          />
+        </div>
+      </div>
+    </KeyMapProvider>
+  );
+}
+
+/** The shell around the real Counter work page, with fixture data (#172). */
+function WorkShot({ state: shot }: { state: WorkShotState }) {
+  return (
+    <KeyMapProvider map={screenshotKeys}>
+      <div className={shell.win} data-screenshot-shell data-screenshot-work={shot}>
+        <TitleBar state={state} api={shotApi} journal={journal} />
+        <div className={shell.work}>
+          <div className={shell.frame}>
+            <Rail
+              page="work"
+              onPage={() => undefined}
+              workCount={workCount}
+              showWork
+              session={session}
+              personOpen={false}
+              onPerson={() => undefined}
+              onLock={() => undefined}
+            />
+            <main className={shell.content}>
+              <div className={shell.page}>
+                <KeyScope active>
+                  <CounterWork
+                    online={shot !== "offline"}
+                    you="Sachini Rathnayake"
+                    counterLabel="Counter 2"
+                  />
+                </KeyScope>
+              </div>
+            </main>
+          </div>
+          <StatusBar
+            state={state}
+            api={shotApi}
             journal={journal}
             offlineBackup={readyUntilBackup()}
             printer={printer}

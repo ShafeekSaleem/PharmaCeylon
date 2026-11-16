@@ -277,8 +277,17 @@ function statePill(item: CounterWorkItem) {
   return KINDS[item.kind].ready;
 }
 
+/** Held like a changed approval when the server says its evidence is stale (#172), too. */
 const blocked = (item: CounterWorkItem) =>
-  item.approval.state === "changed" || item.approval.state === "revoked";
+  item.approval.state === "changed" ||
+  item.approval.state === "revoked" ||
+  item.task?.freshness.stale === true;
+
+/** What the counter does next, in the server's words when it sent them (#172). */
+export function nextAction(item: CounterWorkItem) {
+  const label = item.task?.nextAction.label.replace(/\s*\(screen planned\)$/, "");
+  return label || KINDS[item.kind].title;
+}
 
 function QueueCard({
   item,
@@ -577,7 +586,7 @@ function Detail({
           <div className={cx(ui.note, styles.waiting)} role="note">
             <Icon name="clock" />
             <div>
-              <b>Done at the counter once its screen is ready</b>
+              <b>Next: {nextAction(item)}</b>
               {kind.title} {item.reference} is approved and waiting here. The
               screen for {kind.doing.toLowerCase()} it at the counter comes
               next; until then nothing moves from this page.
@@ -633,7 +642,7 @@ function Detail({
           <button
             type="button"
             className={cx(ui.btn, ui.primary, ui.lg)}
-            disabled={busy || !ready || !refund || !canRefund}
+            disabled={busy || !ready || !refund || !canRefund || !online}
             onClick={() => onRefund(item.id)}
           >
             <Icon name="rotate-ccw" />
@@ -645,7 +654,7 @@ function Detail({
           <button
             type="button"
             className={cx(ui.btn, ui.primary, ui.lg)}
-            disabled={busy || !ready || !stockCase || !canRefund || !countsComplete}
+            disabled={busy || !ready || !stockCase || !canRefund || !countsComplete || !online}
             onClick={() =>
               onResolve(
                 item.id,
@@ -970,13 +979,23 @@ export function CounterWork({
   const [confirmError, setConfirmError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [staleError, setStaleError] = useState<string | null>(null);
+  /** When the list on screen was last checked: the server's `asOf` when it sent one (#172). */
+  const [checkedAt, setCheckedAt] = useState<string | null>(null);
+  const [checkFailed, setCheckFailed] = useState(false);
 
   const load = useCallback(
     (quiet = false) => {
       // A failed check keeps the list it had: a network blip shouldn't empty the page or the badge.
-      void invoke(() => window.pos.counterWork()).then((result) =>
-        setItems((list) => (result.ok ? result.value : (list ?? []))),
-      );
+      // That list is then last-known only, so the page goes read-only until a check succeeds.
+      void invoke(() => window.pos.counterWork()).then((result) => {
+        setItems((list) => (result.ok ? result.value : (list ?? [])));
+        setCheckFailed(!result.ok);
+        if (result.ok)
+          setCheckedAt(
+            result.value.find((i) => i.task)?.task?.freshness.asOf ??
+              new Date().toISOString(),
+          );
+      });
       void invoke(() => window.pos.refundsReady()).then((result) => {
         if (result.ok) setRefunds(result.value);
       });
@@ -1078,10 +1097,15 @@ export function CounterWork({
     setStaleError(null);
   }
 
+  // Counter work is online only (#172): offline, or when the last check failed, the list on
+  // screen is last-known and nothing on it can be done until a fresh one arrives.
+  const live = online && !checkFailed;
+
   // Ctrl+Enter confirms an unconfirmed action first, so nothing is done twice. Otherwise F12 or
   // Ctrl+Enter refunds the open refund.
   const onlyPending = pending.length === 1 ? pending[0] : null;
   const openRefund =
+    live &&
     !pending.length &&
     !busy &&
     selected?.kind === "refund" &&
@@ -1115,6 +1139,11 @@ export function CounterWork({
             Approved on the web and waiting for this branch. Stock and cash
             only move when you finish it here.
           </p>
+          {live && checkedAt && (
+            <p className={styles.checked}>
+              Checked {when(checkedAt)}
+            </p>
+          )}
         </div>
         <div className={cx(ui.seg, styles.tabs)} role="group" aria-label="Kind of work">
           {TABS.map(({ tab: t, label }) => (
@@ -1129,6 +1158,19 @@ export function CounterWork({
           ))}
         </div>
       </div>
+      {!live && (
+        <div className={cx(ui.note, styles.lastKnown)} role="alert">
+          <Icon name="wifi-off" />
+          <div>
+            <b>
+              {online ? "Couldn't check for new work" : "Offline"}
+              {checkedAt ? ` · showing the list from ${when(checkedAt)}` : ""}
+            </b>
+            Nothing here can be done until the counter checks again online.
+            Approvals may have changed on the web since then.
+          </div>
+        </div>
+      )}
       <div className={styles.body}>
         <div className={styles.queue} aria-label="Waiting at the counter">
           {pending.length > 0 && (
@@ -1199,7 +1241,7 @@ export function CounterWork({
             counterLabel={counterLabel}
             busy={busy}
             canRefund={!pending.length}
-            online={online}
+            online={live}
             staleError={staleError}
             onStaleError={setStaleError}
             onPosted={() => {
@@ -1222,7 +1264,7 @@ export function CounterWork({
             stockCase={stockCases.find((p) => p.resolutionId === selected.id)}
             onResolve={(id, counts) => void resolve(id, counts)}
             error={error}
-            online={online}
+            online={live}
             staleError={staleError}
             onStaleError={setStaleError}
             onPosted={() => {

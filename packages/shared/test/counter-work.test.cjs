@@ -94,6 +94,23 @@ test('planned P6 screens still list as ready_for_execution with non-executable n
   assert.match(task.nextAction.label, /screen planned/);
 });
 
+test('screens the desktop ships are executable: refund, held write-off, offline sale stock, cash payout', () => {
+  for (const kind of ['refund', 'held_adjustment', 'stock_case', 'supplier_cash_payout']) {
+    const task = c.projectCounterWorkTask({
+      kind,
+      id: '00000000-0000-4000-8000-000000000005',
+      approval: { evidenceId: 'ev-5', state: 'matches', changes: [] },
+      approvedAt: '2026-11-11T09:00:00.000Z',
+      readyAt: '2026-11-11T09:00:00.000Z',
+      asOf,
+      ...(kind === 'held_adjustment' ? { heldAdjustmentStatus: 'approved' } : {}),
+    });
+    assert.equal(task.destinationStatus, 'available', kind);
+    assert.equal(task.nextAction.executable, true, kind);
+    assert.doesNotMatch(task.nextAction.label, /screen planned/, kind);
+  }
+});
+
 test('transfer_receive pins dispatch approval, not approvalEvidenceId', () => {
   const dispatchId = '00000000-0000-4000-8000-0000000000aa';
   const task = c.projectCounterWorkTask({

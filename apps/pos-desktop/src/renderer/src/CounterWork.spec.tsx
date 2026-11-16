@@ -9,7 +9,7 @@ import type {
 } from "../../shared/ipc-contract";
 import { press, renderWithKeys, stubPos } from "../test/harness";
 import { CounterWork, shortName, when } from "./CounterWork";
-import { KeyScope } from "./keymap";
+import { KeyMapProvider, KeyScope } from "./keymap";
 
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 const now = new Date();
@@ -200,8 +200,112 @@ describe("the shared detail header", () => {
 
   it("holds kinds whose screen isn't built yet, without an action", async () => {
     await renderWork();
-    expect(screen.getByText("Done at the counter once its screen is ready")).toBeTruthy();
+    expect(screen.getByText("Next: Receive goods")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Post|Refund now/ })).toBeNull();
+  });
+});
+
+/** The #172 task projection the server adds to each row. */
+function task(overrides: Partial<NonNullable<CounterWorkItem["task"]>> = {}): NonNullable<CounterWorkItem["task"]> {
+  return {
+    contractVersion: 1,
+    stage: "ready_for_execution",
+    destinationStatus: "available",
+    nextAction: { label: "Refund customer", executable: true },
+    blocker: null,
+    freshness: { asOf: today(14, 32), evidenceAt: "2026-10-29T05:10:00.000Z", stale: false },
+    ...overrides,
+  };
+}
+
+describe("task state, next action and freshness (#172)", () => {
+  it("says when the list was checked, from the server's asOf", async () => {
+    items = [{ ...refund, task: task() }];
+    await renderWork();
+    expect(screen.getByText("Checked 14:32")).toBeTruthy();
+    expect(screen.queryByText(/showing the list from/)).toBeNull();
+  });
+
+  it("names the next action in the server's words for a screen still to come", async () => {
+    items = [
+      {
+        ...receive,
+        task: task({
+          destinationStatus: "planned",
+          nextAction: { label: "Book in held delivery (screen planned)", executable: false },
+        }),
+      },
+    ];
+    await renderWork();
+    expect(screen.getByText("Next: Book in held delivery")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Post|Refund now/ })).toBeNull();
+  });
+
+  it("holds a row whose evidence the server marks stale, even if the approval still reads as matching", async () => {
+    items = [
+      {
+        ...refund,
+        task: task({
+          stage: "blocked_approval",
+          nextAction: { label: "Approve again on the web", executable: false },
+          freshness: { asOf: today(14, 32), evidenceAt: null, stale: true },
+        }),
+      },
+    ];
+    await renderWork();
+    expect((screen.getByRole("button", { name: /Refund now/ }) as HTMLButtonElement).disabled).toBe(true);
+    press("F12");
+    expect(pos.executeRefund).not.toHaveBeenCalled();
+  });
+
+  it("offline, keeps the last list read-only with its time and does nothing", async () => {
+    items = [{ ...refund, task: task() }];
+    await renderWork({ online: false });
+    const banner = screen.getByRole("alert");
+    expect(banner.textContent).toContain("Offline · showing the list from 14:32");
+    expect(banner.textContent).toContain("Nothing here can be done until the counter checks again online.");
+    expect(screen.queryByText("Checked 14:32")).toBeNull();
+    expect((screen.getByRole("button", { name: /Refund now/ }) as HTMLButtonElement).disabled).toBe(true);
+    press("F12");
+    expect(pos.executeRefund).not.toHaveBeenCalled();
+  });
+
+  it("when a later check fails, keeps the last list read-only until one succeeds", async () => {
+    items = [{ ...refund, task: task() }];
+    const view = await renderWork({ reloadKey: 0 });
+    pos.counterWork!.mockImplementation(async () => ({
+      ok: false, error: { code: "NETWORK", message: "The server can't be reached." },
+    }));
+    view.rerender(
+      <KeyMapProvider map={view.map}>
+        <KeyScope active>
+          <CounterWork you="Sachini Rathnayake" counterLabel="Counter 2" reloadKey={1} />
+        </KeyScope>
+      </KeyMapProvider>,
+    );
+    await act(async () => undefined);
+    expect(screen.getByRole("alert").textContent).toContain(
+      "Couldn't check for new work · showing the list from 14:32",
+    );
+    expect(within(queue()).getAllByRole("button")).toHaveLength(1);
+    expect((screen.getByRole("button", { name: /Refund now/ }) as HTMLButtonElement).disabled).toBe(true);
+
+    pos.counterWork!.mockImplementation(async () => ({ ok: true, value: items }));
+    view.rerender(
+      <KeyMapProvider map={view.map}>
+        <KeyScope active>
+          <CounterWork you="Sachini Rathnayake" counterLabel="Counter 2" reloadKey={2} />
+        </KeyScope>
+      </KeyMapProvider>,
+    );
+    await act(async () => undefined);
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect((screen.getByRole("button", { name: /Refund now/ }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("falls back to the time it checked when the server sends no task (before #172)", async () => {
+    await renderWork();
+    expect(screen.getByText(/^Checked \d{2}:\d{2}$/)).toBeTruthy();
   });
 });
 
