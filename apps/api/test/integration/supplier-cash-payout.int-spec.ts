@@ -348,10 +348,10 @@ describe("supplier cash payout contract (#174)", () => {
       stage: "ready_for_execution",
       dailyWorkKind: "supplier_cash_payout.execute",
       destination: "supplier_payout",
-      destinationStatus: "planned",
+      destinationStatus: "available",
       signedExecution: { bodyIdKey: "cashPayoutId", approvalEvidenceId: payout.executionApprovalId },
     });
-    expect(item.task.nextAction.executable).toBe(false);
+    expect(item.task.nextAction.executable).toBe(true);
     expect((await counterWork.list(owner, fx.otherBranchId)).map((row) => row.id)).not.toContain(payout.id);
   });
 
