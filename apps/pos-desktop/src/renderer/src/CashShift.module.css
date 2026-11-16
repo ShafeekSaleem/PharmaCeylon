@@ -704,3 +704,217 @@ span.gateIcon {
     margin-top: 8px;
   }
 }
+
+/* ---------- pay out tab (#174) ---------- */
+.payoutBody {
+  display: grid;
+  grid-template-columns: 360px minmax(0, 1fr);
+  gap: 14px;
+  min-height: 0;
+  flex: 1;
+}
+
+.payoutList {
+  min-height: 0;
+  overflow: auto;
+}
+
+.payoutQueue {
+  list-style: none;
+  margin: 0;
+  padding: 0 8px 12px;
+}
+
+.payoutRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 10px;
+  border-radius: 10px;
+  border: none;
+  background: transparent;
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+}
+
+.payoutRow:hover {
+  background: var(--pos-surface-2);
+}
+
+.payoutSel {
+  background: var(--pos-primary-soft);
+}
+
+.payoutShort {
+  opacity: 0.92;
+}
+
+.payoutIcon {
+  width: 28px;
+  height: 28px;
+  color: var(--pos-t-indigo);
+  background: color-mix(in srgb, var(--pos-t-indigo) 15%, transparent);
+}
+
+.payoutMain {
+  flex: 1;
+  min-width: 0;
+}
+
+.payoutMain b {
+  display: block;
+  font-size: 13px;
+}
+
+.payoutMain small {
+  display: block;
+  margin-top: 2px;
+  font-size: 11.5px;
+  color: var(--pos-text-3);
+}
+
+.payoutMain .pill {
+  margin-top: 6px;
+}
+
+.payoutAmt {
+  flex: none;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.payoutDetail {
+  min-height: 0;
+  overflow: auto;
+}
+
+.payoutEmpty {
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 20px;
+}
+
+.payoutKind {
+  color: var(--pos-t-indigo);
+  background: color-mix(in srgb, var(--pos-t-indigo) 15%, transparent);
+}
+
+.dh {
+  display: flex;
+  gap: 12px;
+  padding: 16px 18px 8px;
+}
+
+.meta {
+  margin-top: 4px;
+  font-size: 12.5px;
+  color: var(--pos-text-2);
+}
+
+.footText {
+  font-size: 12.5px;
+  color: var(--pos-text-2);
+}
+
+.physTick {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px solid var(--pos-line);
+  cursor: pointer;
+}
+
+.physTick input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.physOn {
+  border-color: var(--pos-primary);
+  background: var(--pos-primary-soft);
+}
+
+.doneText {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.seg button i {
+  font-style: normal;
+  margin-left: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  opacity: 0.85;
+}
+
+.waitingPaid {
+  padding: 0 8px 12px;
+}
+
+.pmSub {
+  padding: 10px 10px 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--pos-text-3);
+}
+
+.waitingLog {
+  list-style: none;
+  margin: 0;
+  padding: 0 4px 6px;
+}
+
+.waitRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 8px;
+  border-radius: 10px;
+  border: none;
+  background: transparent;
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+}
+
+.waitRow:hover {
+  background: var(--pos-surface-2);
+}
+
+.waitMain b {
+  display: block;
+  font-size: 12.5px;
+}
+
+.waitMain small {
+  display: block;
+  margin-top: 2px;
+  font-size: 11.5px;
+  color: var(--pos-text-3);
+}
+
+.waitIcon {
+  width: 28px;
+  height: 28px;
+  color: var(--pos-t-indigo);
+}
+
+.waitAmt {
+  margin-left: auto;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.warnAmt {
+  color: var(--pos-warn-ink);
+}

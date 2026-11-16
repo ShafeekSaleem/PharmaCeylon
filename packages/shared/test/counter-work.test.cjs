@@ -63,7 +63,7 @@ test('revoked approval uses APPROVAL_INVALID', () => {
   assert.match(task.blocker.message, /withdrawn/);
 });
 
-test('supplier cash payout is planned on P6 until supplier_payout ships', () => {
+test('supplier cash payout is available at supplier_payout', () => {
   const task = c.projectCounterWorkTask({
     kind: 'supplier_cash_payout',
     id: '00000000-0000-4000-8000-000000000030',
@@ -74,9 +74,9 @@ test('supplier cash payout is planned on P6 until supplier_payout ships', () => 
   });
   assert.equal(task.dailyWorkKind, 'supplier_cash_payout.execute');
   assert.equal(task.destination, 'supplier_payout');
-  assert.equal(task.destinationStatus, 'planned');
+  assert.equal(task.destinationStatus, 'available');
   assert.equal(task.signedExecution.bodyIdKey, 'cashPayoutId');
-  assert.equal(task.nextAction.executable, false);
+  assert.equal(task.nextAction.executable, true);
 });
 
 test('planned P6 screens still list as ready_for_execution with non-executable next action label', () => {
@@ -106,6 +106,28 @@ test('transfer_receive pins dispatch approval, not approvalEvidenceId', () => {
   });
   assert.equal(task.signedExecution.approvalEvidenceId, null);
   assert.equal(task.signedExecution.dispatchApprovalId, dispatchId);
+});
+
+test('read-only held write-offs block execution without signed approval', () => {
+  for (const status of ['awaiting_approval', 'rejected']) {
+    const task = c.projectCounterWorkTask({
+      kind: 'held_adjustment',
+      id: '00000000-0000-4000-8000-000000000010',
+      approval: { evidenceId: null, state: 'not_needed', changes: [] },
+      approvedAt: null,
+      readyAt: '2026-11-11T08:00:00.000Z',
+      asOf,
+      heldAdjustmentStatus: status,
+    });
+    assert.equal(task.stage, 'blocked_approval');
+    assert.equal(task.nextAction.executable, false);
+    assert.equal(task.signedExecution.approvalEvidenceId, null);
+    assert.deepEqual(task.executeErrors, []);
+  }
+});
+
+test('rejected held write-off counter visibility window is positive', () => {
+  assert.ok(c.COUNTER_REJECTED_HELD_WRITE_OFF_VISIBLE_DAYS > 0);
 });
 
 test('coverage matrix includes every counter-work kind', () => {

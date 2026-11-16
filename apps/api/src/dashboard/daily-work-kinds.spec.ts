@@ -76,5 +76,7 @@ describe("daily-work kinds", () => {
     expect(workPlace("sale_refund.execute", true)).toBe("counter");
     expect(workPlace("sale_refund.approve", true)).toBe("web");
     expect(workPlace("offline_journal.review", true)).toBe("web");
+    expect(workPlace("batch.expiry_review", true)).toBe("counter");
+    expect(counterKinds(true)).toContain("batch.expiry_review");
   });
 });

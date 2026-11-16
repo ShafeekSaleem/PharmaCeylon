@@ -334,8 +334,10 @@ export class DailyWorkService {
         'approvals', count(*) FILTER (WHERE approval AND NOT blocked), 'overdue', count(*) FILTER (WHERE overdue),
         'counter', count(*) FILTER (WHERE place = 'counter')) FROM scoped) AS counts,
       COALESCE((SELECT jsonb_object_agg(category, n) FROM (SELECT category, count(*)::int n FROM source_scope GROUP BY category) c), '{}'::jsonb) AS categories`);
+    const items = result.items.map((item) => enrichCounterExecution(item));
     return {
       ...result,
+      items,
       page: query.page,
       pageSize,
       asOf: now.toISOString(),
@@ -344,4 +346,18 @@ export class DailyWorkService {
       counterLive,
     };
   }
+}
+
+/** Maps daily-work rows to the signed counter step the desktop prepares (#173). */
+function enrichCounterExecution(item: DailyWorkResponse["items"][number]): DailyWorkResponse["items"][number] {
+  if (item.kind !== "batch.expiry_review" || item.where !== "counter") return item;
+  const batchId = item.id.startsWith("expiry:") ? item.id.slice("expiry:".length) : null;
+  if (!batchId) return item;
+  return {
+    ...item,
+    counterExecution: {
+      operation: "POST /api/v1/inventory/batches/:id/quarantine",
+      signedBody: { batchId, reasonCode: "expired", reason: null, qty: null },
+    },
+  };
 }

@@ -17,10 +17,9 @@ import {
 import { ProductContextBanner } from "@/components/product-context-banner";
 import { ActionButton, ActiveFilterBanner, PageHeader, StatCard } from "@/components/ui";
 import type { FilterPill } from "@/components/ui";
-import { apiJson } from "@/lib/auth-client";
-import { ConfirmDialog } from "../../products/components/confirm-dialog";
 import { AdjustmentModal } from "../components/adjustment-modal";
 import { BatchesTable } from "../components/batches-table";
+import { QuarantineExpiredDialog } from "../components/quarantine-dialogs";
 import { InventoryFilterSelect } from "../components/inventory-filter-select";
 import { InventorySubnav } from "../components/inventory-subnav";
 import { ProductStockSheet } from "../components/product-stock-sheet";
@@ -60,7 +59,6 @@ function BatchesContent() {
     searchParams.get("quarantined") === "1" ? "quarantined" : "all",
   );
   const [includeZero, setIncludeZero] = useState(false);
-  const [quarantineBusy, setQuarantineBusy] = useState(false);
   const [quarantineConfirmOpen, setQuarantineConfirmOpen] = useState(false);
   const [notice, setNotice] = useState<{ tone: "success" | "error"; text: string } | null>(null);
   const [adjustmentOpen, setAdjustmentOpen] = useState(searchParams.get("openAdjustment") === "1");
@@ -227,31 +225,6 @@ function BatchesContent() {
     [scopedRows],
   );
 
-  async function quarantineAllExpired() {
-    setQuarantineBusy(true);
-    try {
-      const result = await apiJson<{ quarantined: number; units: number }>(
-        "/inventory/quarantine-expired",
-        { method: "POST" },
-      );
-      setNotice({
-        tone: "success",
-        text:
-          result.quarantined === 0
-            ? "No expired stock needed quarantining."
-            : `Quarantined ${formatUnits(result.units)} across ${result.quarantined} expired batch${
-                result.quarantined === 1 ? "" : "es"
-              }.`,
-      });
-      await batches.reload();
-    } catch (err) {
-      setNotice({ tone: "error", text: err instanceof Error ? err.message : "Quarantine failed" });
-    } finally {
-      setQuarantineBusy(false);
-      setQuarantineConfirmOpen(false);
-    }
-  }
-
   const exportRows = () => {
     const escapeCsv = (value: string | number) => {
       const text = String(value);
@@ -314,7 +287,6 @@ function BatchesContent() {
                 icon={<IconAlertTriangle size={16} />}
                 tooltip="Hold every expired unit that is still sellable"
                 onClick={() => setQuarantineConfirmOpen(true)}
-                disabled={quarantineBusy}
               >
                 Quarantine expired
               </ActionButton>
@@ -486,32 +458,17 @@ function BatchesContent() {
         onOpenProduct={setSheetProductId}
       />
 
-      <ConfirmDialog
+      <QuarantineExpiredDialog
         open={quarantineConfirmOpen}
-        title="Quarantine expired stock"
-        confirmLabel="Quarantine expired"
-        loading={quarantineBusy}
-        onCancel={() => {
-          if (!quarantineBusy) setQuarantineConfirmOpen(false);
-        }}
-        onConfirm={() => void quarantineAllExpired()}
-      >
-        <p>
-          Hold every sellable unit on <strong>{summary.expiredOpen}</strong> expired batch
-          {summary.expiredOpen === 1 ? "" : "es"} at this branch. Units already quarantined, or reserved for a
-          transfer, are left as they are.
-        </p>
-      </ConfirmDialog>
+        expiredOpenBatchCount={summary.expiredOpen}
+        onClose={() => setQuarantineConfirmOpen(false)}
+      />
 
       <ProductStockSheet
         productId={sheetProductId}
         access={access}
         onClose={() => setSheetProductId(null)}
         onAdjust={(pid, batchId) => openAdjustment({ productId: pid, id: batchId })}
-        onChanged={(message) => {
-          setNotice({ tone: "success", text: message });
-          void batches.reload();
-        }}
       />
 
       <AdjustmentModal
