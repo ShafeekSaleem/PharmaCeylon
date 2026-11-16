@@ -389,20 +389,9 @@ try {
     for (const [filter, label] of filterCases) {
       let d;
       if (v6Queue) {
-        const response = page.waitForResponse(
-          (r) =>
-            r.url().includes("/dashboard/work?") &&
-            new URL(r.url()).searchParams.get("filter") === filter,
-          { timeout: 30_000 },
-        );
         await clickQueueFilter(label);
-        try {
-          const r = await response;
-          assert.equal(r.status(), 200);
-          d = await r.json();
-        } catch {
-          d = await queueData(page, filter);
-        }
+        await page.waitForTimeout(400);
+        d = await queueData(page, filter);
       } else {
         const response = page.waitForResponse(
           (r) =>
