@@ -296,6 +296,9 @@ export class DailyWorkService {
       : Prisma.sql`'web'`;
     const category = query.category ? Prisma.sql`category = ${query.category}` : Prisma.sql`true`;
     const term = query.q?.trim() ?? "";
+    // The search follows the "Refund or invoice number" placeholder: reference and detail only. `title` is a fixed
+    // per-kind phrase ("Approve prepared refund"), so matching it made "refund" or "approve" hit every row.
+    // Category counts below come from source_scope, so they follow kind / q on purpose; the dashboard sends neither.
     const sourceScope = Prisma.sql`${query.kind ? Prisma.sql`kind = ${query.kind}` : Prisma.sql`true`} AND ${
       opts.kinds
         ? opts.kinds.length
@@ -303,7 +306,7 @@ export class DailyWorkService {
           : Prisma.sql`false`
         : Prisma.sql`true`
     } AND (${term} = '' OR strpos(lower(reference), lower(${term})) > 0
-      OR strpos(lower(detail), lower(${term})) > 0 OR strpos(lower(title), lower(${term})) > 0)`;
+      OR strpos(lower(detail), lower(${term})) > 0)`;
     // One statement: page, total and filter counts describe the same database snapshot.
     const [result] = await this.prisma.$queryRaw<
       Array<{

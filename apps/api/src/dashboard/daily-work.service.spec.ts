@@ -119,6 +119,16 @@ describe("DailyWorkService", () => {
     expect(sql().sql).toContain("FROM source_scope GROUP BY category");
   });
 
+  it("searches reference and detail only, never the fixed title, with a literal strpos match", async () => {
+    const { service, sql } = setup("live", ["returns.approve"]);
+    await service.get(user, branchId, { filter: "all", q: " Approve ", page: 1, pageSize: 25 }, { kinds: ["sale_refund.approve"] });
+    expect(sql().sql).toContain("strpos(lower(reference), lower(?))");
+    expect(sql().sql).toContain("strpos(lower(detail), lower(?))");
+    expect(sql().sql).not.toMatch(/strpos\(lower\(title\)/);
+    expect(sql().sql).not.toMatch(/LIKE/i);
+    expect(sql().values).toContain("Approve");
+  });
+
   it("returns an empty queue with the counter count when the caller sees no sources", async () => {
     const { prisma, service } = setup("live", []);
     const result = await service.get(user, branchId, { filter: "all", page: 1 });
