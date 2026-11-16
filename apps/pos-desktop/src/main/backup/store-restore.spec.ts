@@ -29,6 +29,7 @@ import {
 } from "../terminal/reconnect-drain";
 import {
   createStoreRestoreSync,
+  explainStoreRestore,
   RESTORE_POLL_MS,
   restoresAwaitingAcknowledgement,
   storeRestoreBlocksOffline,
@@ -49,6 +50,9 @@ import {
 import { openStoreAtStartup, type RestorePrompt } from "./startup-restore";
 import {
   listStoreBackups,
+  openCipherFile,
+  readWrappedKey,
+  sha256File,
   takeStoreBackup,
   type StoreBackup,
 } from "./store-backup";
@@ -764,6 +768,86 @@ describe("backup time in the encrypted copy", () => {
     ) as Signed<OfflineCounterRestoreReport>;
     expect(signed.payload.backupTakenAt).toBe(NOW);
     expect(signed.payload.backupTakenAt).toBeLessThan(manifest.takenAt);
+    const [restore] = restoresAwaitingAcknowledgement(db, identity.enrollmentId);
+    expect(restore!.backupTimeVerified).toBe(true);
+    expect(explainStoreRestore(restore!)).not.toMatch(/unverified/);
+    db.close();
+  });
+
+  /**
+   * A copy from a build before `store_backup_meta` (#165): drop the meta row from the encrypted
+   * copy and re-seal the manifest over the changed file, as such a copy would have been written.
+   */
+  function preMetaCopy(backup: StoreBackup, takenAt: number): StoreBackup {
+    const file = join(backup.dir, "pos.db");
+    const copy = openCipherFile(
+      file,
+      readWrappedKey(join(backup.dir, "pos.db.key"), thisUser),
+    );
+    copy.exec("DROP TABLE store_backup_meta");
+    copy.close();
+    const manifestPath = join(backup.dir, "backup.json");
+    const manifest = {
+      ...(JSON.parse(readFileSync(manifestPath, "utf8")) as StoreBackup["manifest"]),
+      sha256: sha256File(file),
+      takenAt,
+    };
+    writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+    return { dir: backup.dir, manifest };
+  }
+
+  function restored() {
+    const { db } = reopen();
+    const signed = JSON.parse(
+      (db.prepare("SELECT report_envelope FROM store_restore").get() as {
+        report_envelope: string;
+      }).report_envelope,
+    ) as Signed<OfflineCounterRestoreReport>;
+    const [restore] = restoresAwaitingAcknowledgement(db, identity.enrollmentId);
+    return { db, signed, restore: restore! };
+  }
+
+  it("flags the time as unverified for a manifest-edited pre-meta copy with an empty journal", () => {
+    const later = NOW + 24 * 60 * 60_000;
+    const backup = preMetaCopy(takeBackup(NOW), later);
+    breakStore();
+    restoreStoreBackup({
+      dataDir,
+      backup,
+      protector: thisUser,
+      migrations,
+      now: () => later + 60_000,
+    });
+    const { db, signed, restore } = restored();
+    // Nothing in the copy bounds it: the manifest's time is all there is, and the card says so.
+    expect(signed.payload.backupTakenAt).toBe(later);
+    expect(restore.backupTimeVerified).toBe(false);
+    expect(explainStoreRestore(restore)).toMatch(/backup time unverified/);
+    expect(readJournalSyncView(db, identity.enrollmentId).issue?.message).toMatch(
+      /backup time unverified/,
+    );
+    db.close();
+  });
+
+  it("keeps a pre-meta copy's time verified when its journal caps it", () => {
+    const v1 = authority(1, NOW - 60_000);
+    expect(installOfflineAuthority(local.db, v1, expected(NOW))).toBe(
+      "installed",
+    );
+    sellOffline(local.db, v1, 1);
+    const backup = preMetaCopy(takeBackup(NOW + 5_000), NOW + 24 * 60 * 60_000);
+    breakStore();
+    restoreStoreBackup({
+      dataDir,
+      backup,
+      protector: thisUser,
+      migrations,
+      now: () => NOW + 25 * 60 * 60_000,
+    });
+    const { db, signed, restore } = restored();
+    expect(signed.payload.backupTakenAt).toBe(NOW);
+    expect(restore.backupTimeVerified).toBe(true);
+    expect(explainStoreRestore(restore)).not.toMatch(/unverified/);
     db.close();
   });
 });

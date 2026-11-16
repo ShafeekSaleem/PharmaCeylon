@@ -258,22 +258,28 @@ export function newestJournalTimestampMs(db: PosDatabase): number | null {
  * The backup time to sign into a restore report. Prefer the in-copy meta row; cross-check with the
  * journal. An edited `backup.json` must never move this later and shrink what the back office must
  * check (never trust the manifest alone when the copy proves an earlier time).
+ *
+ * `verified` is false only for a copy taken before the meta row existed whose journal is empty:
+ * nothing inside the encrypted copy bounds the time, so it is the editable manifest's alone and
+ * the counter says so (#165).
  */
 export function authoritativeBackupTakenAt(
   db: PosDatabase,
   manifestTakenAt: number,
-): number {
+): { at: number; verified: boolean } {
   const inCopy = readStoreBackupMetaTakenAt(db);
   const journalLatest = newestJournalTimestampMs(db);
   if (inCopy !== null) {
     if (manifestTakenAt > inCopy) {
-      if (journalLatest !== null) return Math.min(inCopy, journalLatest);
-      return inCopy;
+      if (journalLatest !== null)
+        return { at: Math.min(inCopy, journalLatest), verified: true };
+      return { at: inCopy, verified: true };
     }
-    return Math.min(inCopy, manifestTakenAt);
+    return { at: Math.min(inCopy, manifestTakenAt), verified: true };
   }
-  if (journalLatest !== null) return Math.min(journalLatest, manifestTakenAt);
-  return manifestTakenAt;
+  if (journalLatest !== null)
+    return { at: Math.min(journalLatest, manifestTakenAt), verified: true };
+  return { at: manifestTakenAt, verified: false };
 }
 
 function compactTime(at: number): string {

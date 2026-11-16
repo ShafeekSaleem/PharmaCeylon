@@ -37,6 +37,7 @@ type Row = {
   restore_id: string;
   enrollment_id: string;
   backup_taken_at: number;
+  backup_time_verified: 0 | 1;
   restored_at: number;
   status: Status;
   report_envelope: string;
@@ -48,6 +49,8 @@ export type LocalStoreRestore = {
   restoreId: string;
   status: Status;
   backupTakenAt: number;
+  /** False: the backup time is only what the backup's own `backup.json` said (#165). */
+  backupTimeVerified: boolean;
   restoredAt: number;
   acknowledgedAt: string | null;
   latestGrantVersion: number | null;
@@ -57,6 +60,7 @@ const toLocal = (row: Row): LocalStoreRestore => ({
   restoreId: row.restore_id,
   status: row.status,
   backupTakenAt: row.backup_taken_at,
+  backupTimeVerified: row.backup_time_verified !== 0,
   restoredAt: row.restored_at,
   acknowledgedAt: row.acknowledged_at,
   latestGrantVersion: row.latest_grant_version,
@@ -150,7 +154,9 @@ export function explainStoreRestore(
   restore: LocalStoreRestore,
   timeOf: (at: number) => string = backupTime,
 ): string {
-  const taken = timeOf(restore.backupTakenAt);
+  const taken = restore.backupTimeVerified
+    ? timeOf(restore.backupTakenAt)
+    : `${timeOf(restore.backupTakenAt)} (backup time unverified: this older backup cannot confirm when it was taken)`;
   return restore.status === "reporting"
     ? `This computer was restored from a backup taken ${taken}. Offline selling stays off until the server has been told and a manager has checked it.`
     : `This computer was restored from a backup taken ${taken}. Offline selling stays off until the owner or a delegated manager acknowledges the restore in Settings → Offline policy, after checking receipts, cash and stock since then.`;
