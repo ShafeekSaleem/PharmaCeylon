@@ -1,6 +1,7 @@
 import { verify, type KeyObject } from "node:crypto";
 import {
   MAX_OFFLINE_JOURNAL_SYNC_COMMANDS,
+  MAX_OFFLINE_JOURNAL_SYNC_SIGN_INS,
   MAX_OFFLINE_JOURNAL_SYNC_SUPPORT_RECORDS,
   terminalSigningText,
   type OfflineJournalCommand,
@@ -57,6 +58,8 @@ export const JOURNAL_CONFIRM_MS = 5 * 60_000;
 export const JOURNAL_BATCH = MAX_OFFLINE_JOURNAL_SYNC_COMMANDS;
 /** Support records per request (P4 #50), sent with the entries or on their own. */
 export const SUPPORT_BATCH = MAX_OFFLINE_JOURNAL_SYNC_SUPPORT_RECORDS;
+/** Staff sign-ins per request (#161); the batch is cut so the entries and records sent stay within it. */
+export const SYNC_SIGN_IN_CAP = MAX_OFFLINE_JOURNAL_SYNC_SIGN_INS;
 /** Batches per cycle, so one cycle can't run unbounded on a very long journal. */
 const MAX_BATCHES = 20;
 const FIRST_BACKOFF_MS = 15_000;
@@ -459,33 +462,77 @@ export function createOfflineJournalSync(deps: OfflineJournalSyncDeps) {
       .all(enrollmentId, SUPPORT_BATCH) as SupportRow[];
   }
 
-  /** The staff sign-ins the batch cites: each entry's own, an assisted close's manager, a support record's. */
-  function signInsFor(
+  /**
+   * The request's contents, oldest first, cut so the sign-ins it carries stay within
+   * `SYNC_SIGN_IN_CAP` (#161): the server refuses a larger request whole. Each entry and record goes
+   * with every sign-in it cites (its own, an assisted close's manager), so a long run of re-sign-ins
+   * shortens the request instead of leaving an entry without its evidence; what's cut goes in the
+   * next request. Support records share what the entries leave.
+   */
+  function planRequest(
     enrollmentId: string,
-    commands: Signed<OfflineJournalCommand>[],
-    support: Signed<OfflineSupportRecord>[] = [],
-  ): Signed<OfflineStaffSignIn>[] {
-    const ids = new Set<string>();
-    for (const { payload } of commands) {
-      ids.add(payload.staffSignInId);
-      if (payload.kind === "shift_close" && payload.assistance)
-        ids.add(payload.assistance.managerSignInId);
-    }
-    for (const { payload } of support)
-      if ("staffSignInId" in payload) ids.add(payload.staffSignInId);
+    rows: CommandRow[],
+    supportRows: SupportRow[],
+  ): {
+    rows: CommandRow[];
+    supportRows: SupportRow[];
+    commands: Signed<OfflineJournalCommand>[];
+    supportRecords: Signed<OfflineSupportRecord>[];
+    staffSignIns: Signed<OfflineStaffSignIn>[];
+  } {
     const read = deps.db.prepare(
       "SELECT envelope_json FROM offline_journal_staff_sign_in WHERE enrollment_id = ? AND staff_sign_in_id = ?",
     );
-    const found: Signed<OfflineStaffSignIn>[] = [];
-    for (const id of ids) {
-      const row = read.get(enrollmentId, id) as
-        | { envelope_json: string }
-        | undefined;
-      // A missing one is sent without: the server holds the entry (SESSION_INVALID) and says so.
-      if (row)
-        found.push(JSON.parse(row.envelope_json) as Signed<OfflineStaffSignIn>);
+    const chosen = new Map<string, Signed<OfflineStaffSignIn>>();
+    /** Adds the sign-ins `ids` name if they all fit; returns whether they did. */
+    const fit = (ids: string[]): boolean => {
+      const added: [string, Signed<OfflineStaffSignIn>][] = [];
+      for (const id of new Set(ids)) {
+        if (chosen.has(id)) continue;
+        const row = read.get(enrollmentId, id) as
+          | { envelope_json: string }
+          | undefined;
+        // A missing one is sent without: the server holds the entry (SESSION_INVALID) and says so.
+        if (row)
+          added.push([
+            id,
+            JSON.parse(row.envelope_json) as Signed<OfflineStaffSignIn>,
+          ]);
+      }
+      if (chosen.size + added.length > SYNC_SIGN_IN_CAP) return false;
+      for (const [id, envelope] of added) chosen.set(id, envelope);
+      return true;
+    };
+    const plan = {
+      rows: [] as CommandRow[],
+      supportRows: [] as SupportRow[],
+      commands: [] as Signed<OfflineJournalCommand>[],
+      supportRecords: [] as Signed<OfflineSupportRecord>[],
+    };
+    for (const row of rows) {
+      const command = JSON.parse(
+        row.envelope_json,
+      ) as Signed<OfflineJournalCommand>;
+      const { payload } = command;
+      const cited = [payload.staffSignInId];
+      if (payload.kind === "shift_close" && payload.assistance)
+        cited.push(payload.assistance.managerSignInId);
+      // In order: an entry left out holds back everything after it.
+      if (!fit(cited)) break;
+      plan.rows.push(row);
+      plan.commands.push(command);
     }
-    return found;
+    for (const row of supportRows) {
+      const record = JSON.parse(
+        row.envelope_json,
+      ) as Signed<OfflineSupportRecord>;
+      const cited =
+        "staffSignInId" in record.payload ? [record.payload.staffSignInId] : [];
+      if (!fit(cited)) break;
+      plan.supportRows.push(row);
+      plan.supportRecords.push(record);
+    }
+    return { ...plan, staffSignIns: [...chosen.values()] };
   }
 
   function confirmDue(enrollmentId: string): boolean {
@@ -638,19 +685,15 @@ export function createOfflineJournalSync(deps: OfflineJournalSyncDeps) {
   /** One request: the next batch, or an empty confirmation. Returns whether to send another batch. */
   async function send(
     identity: TerminalIdentity,
-    rows: CommandRow[],
-    supportRows: SupportRow[],
+    waitingRows: CommandRow[],
+    waitingSupport: SupportRow[],
   ): Promise<{ complete: boolean; more: boolean; allAccepted: boolean }> {
-    const commands = rows.map(
-      (row) => JSON.parse(row.envelope_json) as Signed<OfflineJournalCommand>,
-    );
-    const supportRecords = supportRows.map(
-      (row) => JSON.parse(row.envelope_json) as Signed<OfflineSupportRecord>,
-    );
+    const { rows, supportRows, commands, supportRecords, staffSignIns } =
+      planRequest(identity.enrollmentId, waitingRows, waitingSupport);
     const body: SyncRequest = {
       contractVersion: 1,
       identity,
-      staffSignIns: signInsFor(identity.enrollmentId, commands, supportRecords),
+      staffSignIns,
       commands,
       // P4 #50: sale incidents and external-card attempt events, evidence apart from the journal.
       supportRecords,
@@ -690,14 +733,18 @@ export function createOfflineJournalSync(deps: OfflineJournalSyncDeps) {
     const sentIds = new Set(supportRows.map((row) => row.record_id));
     const stillPending = pendingSupport(identity.enrollmentId);
     const moreSupport =
-      supportRows.length === SUPPORT_BATCH &&
+      (supportRows.length === SUPPORT_BATCH ||
+        supportRows.length < waitingSupport.length) &&
       stillPending.length > 0 &&
       !stillPending.some((row) => sentIds.has(row.record_id));
     return {
       complete,
       more:
         !complete &&
-        ((rows.length === JOURNAL_BATCH && allAccepted) || moreSupport),
+        (((rows.length === JOURNAL_BATCH ||
+          rows.length < waitingRows.length) &&
+          allAccepted) ||
+          moreSupport),
       allAccepted,
     };
   }
