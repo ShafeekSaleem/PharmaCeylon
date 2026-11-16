@@ -305,7 +305,7 @@ export function TodaysPriorities({
     <section className={css.card} aria-labelledby="todays-priorities-title">
       <header className={css.header}>
         <div className={css.headerTitle}>
-          <h2 id="todays-priorities-title">Today&apos;s priorities</h2>
+          <h2 id="todays-priorities-title">Today’s priorities</h2>
           <p>{subtitle}</p>
         </div>
         <button
