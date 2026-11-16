@@ -2,7 +2,8 @@
 -- tell two counters apart in the enrollment picker, reports and at the till.
 --
 -- Existing duplicates are handled first and nothing is deleted: within each group of counters that
--- share a name at a branch, the oldest-created row (lowest id) keeps its name and every later one is
+-- share a name at a branch, the row with the lowest id keeps its name (ids are UUIDs, so this is
+-- arbitrary but repeatable; the table has no created-at column) and every other one is
 -- renamed "<name> (2)", "<name> (3)", ... picking the first suffix not already used at that branch.
 -- Ids, till ids, enrollments, shifts and history are untouched; only the label text changes.
 DO $$
