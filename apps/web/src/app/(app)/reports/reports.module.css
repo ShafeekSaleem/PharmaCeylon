@@ -5064,3 +5064,26 @@ button.mirrorRow:hover {
   }
 }
 
+
+/* ── Offline sync freshness caveat (P5 #51 item 11) ── */
+.syncFreshness {
+  margin: 0 0 0.75rem;
+  padding: 0.55rem 0.8rem;
+  border: 1px solid var(--pc-border);
+  border-radius: 8px;
+  background: var(--pc-card-bg);
+  color: var(--pc-muted-fg);
+  font-size: 0.8rem;
+}
+.syncFreshness ul {
+  margin: 0.25rem 0;
+  padding-left: 1.1rem;
+}
+.syncFreshnessIncomplete {
+  background: var(--pc-alert-warning-bg);
+  border-color: var(--pc-alert-warning-border);
+  color: var(--pc-alert-warning-text);
+}
+.syncFreshnessFoot {
+  font-size: 0.75rem;
+}

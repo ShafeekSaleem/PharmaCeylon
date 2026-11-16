@@ -184,3 +184,30 @@ protection against a hostile local administrator. Retain named physical-action c
 P7 records the share of normal trade that this scope can preserve; P0 sets no invented numerical
 success target. If continuity is inadequate, improve backup connectivity and bring scope findings
 to Shafeek. Do not quietly expand offline prescription dispensing or general management actions.
+
+## Offline journal retention and report freshness (P5 #51 item 11)
+
+**Retention rule.** Nothing that answers an offline journal replay is ever purged: no TTL, no
+`expires_at` sweep, no `auditLogRetentionDays` job and no other cleanup may delete journal
+receipts (`terminal_command_receipt`, which also holds the command-ID and per-enrollment sequence
+watermark), retained refusals, settlements, offline sign-ins, grants and snapshots, support-record
+receipts and conflicts, or stock case and batch-block evidence. A counter can resend the same
+signed entry at any time (lost response, restore from backup, after its grant expired, after its
+key was revoked), and the server must answer an identical replay with the original receipt
+(`duplicate`) and a changed copy with `REPLAY_CONFLICT`, never with a new business effect.
+Expiry only stops a *new* command being accepted; it never removes what was accepted.
+
+- The list of tables, each with its reason, is `apps/api/src/terminals/journal/replay-retention.ts`
+  (`REPLAY_RETAINED_TABLES`; `REPLAY_RETENTION_EXEMPT` for `offline_*` tables that are not evidence).
+- Each listed table refuses row DELETE with a trigger from its migration.
+  `test/integration/offline-replay-retention.int-spec.ts` fails if a listed table loses its guard or a
+  new `offline_*` table is not classified, and proves an identical replay 30 days after grant expiry,
+  after an attempted purge, returns the original receipts with no new sale or stock movement.
+- Any future retention job must exclude these tables. `TRUNCATE` bypasses row triggers and is an
+  operator action outside the application's role; it must never be used on them.
+
+**Report freshness.** Sales, profitability and inventory reports show a caveat
+(`GET /reports/offline-sync-freshness?days=&scope=`) naming, per branch and counter, the last
+accepted offline journal sync, any journal stopped on a held or refused entry (sales after it are
+not on the server), open stock cases, and in-range offline sales whose stock posting is pending.
+It never changes a report figure. Sales a counter has not sent yet cannot be known by the server.

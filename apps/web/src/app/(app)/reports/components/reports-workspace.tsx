@@ -8,6 +8,7 @@ import { CategoryNav } from "./category-nav";
 import { FilterBar } from "./filter-bar";
 import { ReportSelect } from "./report-select";
 import { ComingSoonPanel } from "./coming-soon-panel";
+import { SyncFreshnessNotice } from "./sync-freshness-notice";
 import { SalesSection } from "../sections/sales-section";
 import { ProductSalesSection } from "../sections/product-sales-section";
 import { CategorySalesSection } from "../sections/category-sales-section";
@@ -71,6 +72,11 @@ const COMPARABLE_REPORTS = new Set([
   "branch-profitability",
   "expiry-batch-risk",
 ]);
+
+/** Reports built from sales or stock: their totals miss what an offline counter hasn't synced or
+ *  whose stock hasn't posted, so they carry the P5 freshness caveat. Purchasing doesn't. */
+const SYNC_SENSITIVE_CATEGORIES = new Set(["sales", "profitability", "inventory"]);
+const EVERY_BRANCH_REPORTS = new Set(["branch-sales", "branch-profitability"]);
 
 export function ReportsWorkspace() {
   const filters = useReportsFilters();
@@ -295,6 +301,15 @@ export function ReportsWorkspace() {
         exportDisabled={!exportPayload}
         onPrint={handlePrint}
       />
+
+      {SYNC_SENSITIVE_CATEGORIES.has(category) && !(activeCategory.comingSoon || activeReport?.comingSoon) ? (
+        <SyncFreshnessNotice
+          days={period}
+          scope={scope}
+          isOwner={isOwner}
+          everyBranch={EVERY_BRANCH_REPORTS.has(report)}
+        />
+      ) : null}
 
       {activeCategory.comingSoon || activeReport?.comingSoon ? (
         <ComingSoonPanel label={activeReport?.label ?? activeCategory.label} />

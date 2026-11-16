@@ -5,6 +5,7 @@ import { RequirePermission } from "../security/decorators/require-permission.dec
 import { RequireBranchId } from "../security/decorators/require-branch.decorator";
 import { RequestUser } from "../security/interfaces/authenticated-request.interface";
 import { CategoryReportGroupBy, MovementGranularity, MovementTypeFilterKey, ReportsService } from "./reports.service";
+import { ReportSyncFreshnessService } from "./report-sync-freshness.service";
 
 const CATEGORY_GROUP_BY_VALUES: CategoryReportGroupBy[] = [
   "commercial",
@@ -28,7 +29,10 @@ const MOVEMENT_GRANULARITY_VALUES: MovementGranularity[] = ["daily", "weekly", "
 
 @Controller("reports")
 export class ReportsController {
-  constructor(private readonly reports: ReportsService) {}
+  constructor(
+    private readonly reports: ReportsService,
+    private readonly freshness: ReportSyncFreshnessService,
+  ) {}
 
   private isOwner(user: RequestUser): boolean {
     return user.branchRoles.some((r) => r.role === RoleName.owner);
@@ -369,5 +373,25 @@ export class ReportsController {
   @Get("branch-sales-trend")
   branchSalesTrend(@CurrentUser() user: RequestUser, @Query("days") days?: string) {
     return this.reports.branchSalesTrend(user.tenantId, days ? Number(days) : 30);
+  }
+
+  // P5 #51 item 11 (W10 #72): the "may be incomplete" caveat beside sales and stock reports — the
+  // last accepted offline journal sync per counter, stopped journals, open stock cases and in-range
+  // sales whose stock is pending. `scope=tenant` follows the owner rule above; `scope=branches` is
+  // for Branch Sales/Profitability, which already list every branch to anyone with reports.view.
+  @RequirePermission("reports.view")
+  @Get("offline-sync-freshness")
+  offlineSyncFreshness(
+    @CurrentUser() user: RequestUser,
+    @RequireBranchId() branchId: string,
+    @Query("days") days?: string,
+    @Query("scope") scope?: string,
+  ) {
+    const n = Number(days);
+    return this.freshness.freshness(
+      user.tenantId,
+      this.tenantScope(user, scope) || scope === "branches" ? null : branchId,
+      Number.isFinite(n) && n > 0 ? Math.min(Math.floor(n), 3650) : 30,
+    );
   }
 }

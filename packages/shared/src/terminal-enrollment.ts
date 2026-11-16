@@ -75,6 +75,44 @@ export type CounterJournalSyncStatus = Readonly<{
   enrollments: ReadonlyArray<CounterJournalSyncView>;
 }>;
 
+/**
+ * P5 #51 item 11 (W10 #72 shows it): one branch in GET `/reports/offline-sync-freshness`, so a
+ * sales or stock report can say what it may be missing. Counters that have never sent an offline
+ * journal and have nothing outstanding are left out: they have nothing to be late with.
+ */
+export type ReportSyncFreshnessBranch = Readonly<{
+  branchId: string;
+  branchName: string;
+  /** The branch's own timezone, for the times below. */
+  timezone: string;
+  /** Sales in the report's range that were accepted from an offline journal but whose stock has
+   * not posted yet (`stockPosting = pending_reconciliation`): their sale and payment stand, but
+   * stock reports don't show the units leaving until the stock case settles. */
+  pendingStockSales: number;
+  counters: ReadonlyArray<
+    Readonly<{
+      enrollmentId: string;
+      terminalLabel: string;
+      current: boolean;
+      /** When the server accepted the counter's latest journal entry. Null: none yet. */
+      lastAcceptedAt: number | null;
+      lastReceivedAt: number | null;
+      stoppedAt: CounterJournalSyncView["stoppedAt"];
+      openStockCases: number;
+    }>
+  >;
+}>;
+
+/** P5 #51 item 11: GET `/reports/offline-sync-freshness?days=&scope=`. A caveat, not a figure:
+ * nothing here changes a report's totals. `complete` is false while any branch in scope has a
+ * stopped journal, an open stock case or a sale in range whose stock is pending. */
+export type ReportSyncFreshness = Readonly<{
+  days: number;
+  asOf: number;
+  complete: boolean;
+  branches: ReadonlyArray<ReportSyncFreshnessBranch>;
+}>;
+
 /** POST `/terminals/enrollments/challenge`. The desktop generates the Ed25519 key and keeps the
  * private half in its main process; `publicKeyHex` is the raw 32-byte key, lowercase hex. */
 export type TerminalEnrollmentChallengeRequest = Readonly<{

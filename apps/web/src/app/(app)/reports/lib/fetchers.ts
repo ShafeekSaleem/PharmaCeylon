@@ -1,3 +1,4 @@
+import type { ReportSyncFreshness } from "@pharmaceylon/shared";
 import { apiJson } from "@/lib/auth-client";
 import type {
   BranchMarginResponse,
@@ -573,4 +574,11 @@ export async function fetchBranchSalesReportComparison(days: number) {
     unitsSold: combinedTotals.unitsSold - currentTotals.unitsSold,
   };
   return { current: current.branches, previousByBranch, currentTotals, previousTotals };
+}
+
+/** P5 #51 item 11: the "may be incomplete" caveat beside sales and stock reports. `scope`: null for
+ *  the caller's branch, "tenant" for an owner's all-branches view, "branches" for the every-branch
+ *  reports (Branch Sales/Profitability). */
+export function fetchOfflineSyncFreshness(days: number, scope: "tenant" | "branches" | null) {
+  return apiJson<ReportSyncFreshness>(`/reports/offline-sync-freshness?days=${days}${scope ? `&scope=${scope}` : ""}`);
 }
