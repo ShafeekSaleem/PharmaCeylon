@@ -425,6 +425,48 @@ try {
       }
       assert.equal(d.total, d.counts[filter], role + " " + filter);
     }
+    let stockChipTested = false;
+    if (v6Queue) {
+      const lowTab = queue.getByRole("tab", { name: /^Low stock/ });
+      if (await lowTab.count()) {
+        stockChipTested = true;
+        const countRaw = (
+          await lowTab.locator("span").last().textContent()
+        )?.trim();
+        const chipCount =
+          countRaw === "200+" ? 200 : Number.parseInt(countRaw ?? "0", 10);
+        assert.ok(chipCount > 0, role + " low stock chip count");
+        const stockResponses = page.waitForResponse(
+          (r) =>
+            r.url().includes("/inventory/stock-by-product") &&
+            r.url().includes("status=low") &&
+            r.status() < 400,
+        );
+        await lowTab.click();
+        await stockResponses;
+        await page.waitForTimeout(500);
+        const rows = queue.locator("div").filter({
+          has: page.getByText(/ available$/),
+        });
+        const pageSize = workPageSize;
+        const expectedOnPage = Math.min(chipCount, pageSize);
+        assert.equal(
+          await rows.count(),
+          expectedOnPage,
+          role + " low stock first page",
+        );
+        if (chipCount > pageSize) {
+          await queue.getByRole("button", { name: /^Next/ }).click();
+          await page.waitForTimeout(400);
+          assert.equal(
+            await rows.count(),
+            chipCount - pageSize,
+            role + " low stock second page",
+          );
+          await queue.getByRole("button", { name: /^Previous/ }).click();
+        }
+      }
+    }
     let categoryTested = false;
     const paginated = await queueData(
       page,
@@ -657,6 +699,7 @@ try {
       total: data.total,
       counts: data.counts,
       filters: true,
+      stockChip: stockChipTested,
       pagination: paginationTested,
       category: v6Queue ? false : categoryTested,
       desktopOverflow: false,

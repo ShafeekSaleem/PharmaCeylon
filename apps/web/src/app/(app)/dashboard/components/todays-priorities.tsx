@@ -18,8 +18,16 @@ import type { DashboardData } from "../hooks/use-dashboard-data";
 import { useDailyWork } from "../hooks/use-daily-work";
 import {
   stockItemsForFilter,
+  stockListForChipCount,
   usePriorityStock,
 } from "../hooks/use-priority-stock";
+import {
+  chipCountForDisplay,
+  formatPriorityListTotal,
+  priorityListCount,
+  PRIORITY_LIST_TAKE,
+  type PriorityListCount,
+} from "../lib/priority-list-count";
 import { WORK_PAGE_SIZE } from "../lib/fixed-layout";
 import {
   isStockFilter,
@@ -84,29 +92,55 @@ export function TodaysPriorities({
   }, [filter]);
   const work = useDailyWork(branchId, refreshKey, workFilter, WORK_PAGE_SIZE);
 
-  const stockLists = usePriorityStock(branchId, refreshKey, true);
+  const stockListsEnabled =
+    Boolean(branchId) && filter !== "overdue_deliveries";
+  const stockLists = usePriorityStock(
+    branchId,
+    refreshKey,
+    stockListsEnabled,
+  );
 
   const overduePosAll = useMemo(
     () => data.purchaseOrders.filter(isPoOverdue),
     [data.purchaseOrders],
   );
+  const purchaseOrdersFailed = data.failedSections.has("Purchase orders");
 
-  const counts = useMemo((): Partial<Record<PriorityFilterKey, number>> => {
+  const stockListsReady =
+    stockListsEnabled && !stockLists.loading && !stockLists.error;
+
+  const counts = useMemo((): Partial<Record<PriorityFilterKey, PriorityListCount>> => {
     const w = work.data?.counts;
+    const stockCount = (key: PriorityFilterKey): PriorityListCount | undefined => {
+      if (!stockListsEnabled) return undefined;
+      if (stockLists.loading && !stockListsReady) return undefined;
+      if (stockLists.error) return 0;
+      return priorityListCount(stockListForChipCount(stockLists, key).length);
+    };
     return {
       all: w?.all,
       approvals: w?.approvals,
       counter: counterLive || work.data?.counterLive ? w?.counter : undefined,
-      overdue_deliveries: data.overduePos,
-      low_stock:
-        data.inventory?.lowStock ?? data.ownerLowStock ?? data.lowStockCount ?? 0,
-      near_expiry: data.nearExpiryCount,
-      controlled: data.controlledAttentionCount,
+      overdue_deliveries: purchaseOrdersFailed
+        ? 0
+        : priorityListCount(overduePosAll.length),
+      low_stock: stockCount("low_stock"),
+      near_expiry: stockCount("near_expiry"),
+      controlled: stockCount("controlled"),
       out_of_stock: showManagerStockChips
-        ? data.inventory?.outOfStock
+        ? stockCount("out_of_stock")
         : undefined,
     };
-  }, [counterLive, data, showManagerStockChips, work.data]);
+  }, [
+    counterLive,
+    overduePosAll.length,
+    purchaseOrdersFailed,
+    showManagerStockChips,
+    stockLists,
+    stockListsEnabled,
+    stockListsReady,
+    work.data,
+  ]);
 
   const chips = useMemo(() => {
     const base = [...WORK_PRIORITY_CHIPS];
@@ -122,8 +156,9 @@ export function TodaysPriorities({
     );
     return base.filter((chip) => {
       if (chip.key === "all") return true;
-      const n = counts[chip.key] ?? 0;
-      return n > 0;
+      const n = counts[chip.key];
+      if (n === "200+") return true;
+      return (n ?? 0) > 0;
     });
   }, [counts, counterLive, showManagerStockChips, work.data?.counterLive]);
 
@@ -141,6 +176,18 @@ export function TodaysPriorities({
     setClientPage(1);
   }, [filter]);
 
+  useEffect(() => {
+    if (filter === "all") return;
+    if (isStockFilter(filter) && stockLists.error) return;
+    if (filter === "overdue_deliveries" && purchaseOrdersFailed) return;
+    const n = counts[filter];
+    if (n === undefined) return;
+    if (n === 0) {
+      setFilter("all");
+      work.selectFilter("all");
+    }
+  }, [counts, filter, purchaseOrdersFailed, stockLists.error, work]);
+
   const selectFilter = useCallback(
     (key: PriorityFilterKey) => {
       setFilter(key);
@@ -155,7 +202,11 @@ export function TodaysPriorities({
       void data.reload();
       return;
     }
-    if (isStockFilter(filter) || filter === "overdue_deliveries") return;
+    if (filter === "overdue_deliveries") {
+      void data.reload();
+      return;
+    }
+    if (isStockFilter(filter)) return;
     work.reload();
   }, [data, filter, forceUnavailable, work]);
 
@@ -183,10 +234,14 @@ export function TodaysPriorities({
 
   const usingClientPager =
     isStockFilter(filter) || filter === "overdue_deliveries";
+  const clientListCapped =
+    usingClientPager &&
+    (isStockFilter(filter)
+      ? stockItemsForFilter(stockLists, filter).length >= PRIORITY_LIST_TAKE
+      : overduePosAll.length >= PRIORITY_LIST_TAKE);
   const page = usingClientPager ? clientPage : work.page;
-  const total = usingClientPager
-    ? allClientRows.length
-    : (work.data?.total ?? 0);
+  const clientTotal = allClientRows.length;
+  const total = usingClientPager ? clientTotal : (work.data?.total ?? 0);
   const pageItems = usingClientPager
     ? paginate(allClientRows, page - 1, WORK_PAGE_SIZE)
     : allClientRows.map((r) => r);
@@ -195,12 +250,55 @@ export function TodaysPriorities({
   const rangeStart = total ? (page - 1) * WORK_PAGE_SIZE + 1 : 0;
   const rangeEnd = Math.min(page * WORK_PAGE_SIZE, total);
 
+  const rowNoun =
+    filter === "overdue_deliveries"
+      ? "orders"
+      : isStockFilter(filter)
+        ? "items"
+        : "tasks";
+
   const loading =
     (!usingClientPager && work.loading && !work.data) ||
-    (isStockFilter(filter) && stockLists.loading && allClientRows.length === 0);
-  const error =
-    forceUnavailable ||
-    (!usingClientPager ? Boolean(work.error) : Boolean(stockLists.error));
+    (filter === "overdue_deliveries" && data.loading && overdueRows.length === 0) ||
+    (isStockFilter(filter) &&
+      stockLists.loading &&
+      allClientRows.length === 0);
+  const error = forceUnavailable
+    ? true
+    : filter === "overdue_deliveries"
+      ? purchaseOrdersFailed
+      : isStockFilter(filter)
+        ? Boolean(stockLists.error)
+        : Boolean(work.error);
+
+  const errorCopy = useMemo(() => {
+    if (forceUnavailable) {
+      return {
+        title: "Work queue unavailable",
+        body: "Can't reach the server.",
+        hint: "Items may still need attention — open the relevant operation to check.",
+      };
+    }
+    if (filter === "overdue_deliveries" && purchaseOrdersFailed) {
+      return {
+        title: "Purchase orders unavailable",
+        body: "Couldn't load purchase orders.",
+        hint: "Overdue deliveries may still need attention — open Purchasing to check.",
+      };
+    }
+    if (isStockFilter(filter) && stockLists.error) {
+      return {
+        title: "Stock lists unavailable",
+        body: stockLists.error,
+        hint: "Stock may still need attention — open Inventory to check.",
+      };
+    }
+    return {
+      title: "Work queue unavailable",
+      body: work.error ?? "Can't reach the server.",
+      hint: "Tasks may still need attention — open the relevant operation to check.",
+    };
+  }, [filter, forceUnavailable, purchaseOrdersFailed, stockLists.error, work.error]);
 
   const subtitle = work.data
     ? `${work.data.branchName} · Relevant work, including carry-over · ${asOfLabel(work.data.asOf, work.data.timezone)}`
@@ -350,7 +448,14 @@ export function TodaysPriorities({
                 {selected ? <IconCheck size={12} aria-hidden /> : null}
                 {chip.label}
                 <span className={css.chipCount}>
-                  {loading && count == null ? "—" : (count ?? 0)}
+                  {chipCountForDisplay(
+                    count,
+                    Boolean(
+                      isStockFilter(chip.key) &&
+                        stockLists.loading &&
+                        count == null,
+                    ),
+                  )}
                 </span>
               </button>
             );
@@ -361,12 +466,9 @@ export function TodaysPriorities({
       <div className={css.list} aria-busy={loading}>
         {error ? (
           <div className={css.error} role="alert">
-            <strong>Work queue unavailable</strong>
-            <p>Can&apos;t reach the server.</p>
-            <p>
-              Tasks may still need attention — open the relevant operation to
-              check.
-            </p>
+            <strong>{errorCopy.title}</strong>
+            <p>{errorCopy.body}</p>
+            <p>{errorCopy.hint}</p>
             <button type="button" onClick={reload}>
               Try again
             </button>
@@ -400,7 +502,9 @@ export function TodaysPriorities({
         <span role="status">
           {loading
             ? "Updating…"
-            : `${rangeStart}–${rangeEnd} of ${total} tasks`}
+            : usingClientPager
+              ? `${rangeStart}–${rangeEnd} of ${formatPriorityListTotal(total, clientListCapped)} ${rowNoun}`
+              : `${rangeStart}–${rangeEnd} of ${total} ${rowNoun}`}
         </span>
         <div className={css.pager}>
           <button

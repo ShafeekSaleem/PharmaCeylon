@@ -4,36 +4,40 @@ import { useEffect, useState } from "react";
 import type { BatchRow, StockRow } from "@/app/(app)/inventory/types";
 import { apiJson } from "@/lib/auth-client";
 import type { PriorityFilterKey } from "../lib/priority-filters";
+import { PRIORITY_LIST_TAKE } from "../lib/priority-list-count";
 
 type StockLists = {
   low: StockRow[];
   out: StockRow[];
   controlledLow: StockRow[];
+  controlledOut: StockRow[];
   nearExpiry: BatchRow[];
   loading: boolean;
   error: string | null;
 };
 
-const TAKE = 200;
-
 export function usePriorityStock(
   branchId: string | null,
   refreshKey: string | null,
-  _enabled: boolean,
+  enabled: boolean,
 ): StockLists {
   const [low, setLow] = useState<StockRow[]>([]);
   const [out, setOut] = useState<StockRow[]>([]);
   const [controlledLow, setControlledLow] = useState<StockRow[]>([]);
+  const [controlledOut, setControlledOut] = useState<StockRow[]>([]);
   const [nearExpiry, setNearExpiry] = useState<BatchRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!branchId) {
+    if (!enabled || !branchId) {
       setLow([]);
       setOut([]);
       setControlledLow([]);
+      setControlledOut([]);
       setNearExpiry([]);
+      setLoading(false);
+      setError(null);
       return;
     }
     const controller = new AbortController();
@@ -41,9 +45,9 @@ export function usePriorityStock(
     setError(null);
     const headers = { "x-branch-id": branchId };
     const signal = controller.signal;
-  const stock = (status: string, controlled?: boolean) =>
+    const stock = (status: string, controlled?: boolean) =>
       apiJson<{ items: StockRow[] }>(
-        `/inventory/stock-by-product?ledgerOnly=1&status=${status}&take=${TAKE}${
+        `/inventory/stock-by-product?ledgerOnly=1&status=${status}&take=${PRIORITY_LIST_TAKE}${
           controlled ? "&controlled=controlled" : ""
         }`,
         { headers, signal },
@@ -53,16 +57,18 @@ export function usePriorityStock(
       stock("low"),
       stock("out"),
       stock("low", true),
+      stock("out", true),
       apiJson<{ items: BatchRow[] }>(
-        `/inventory/batches?nearExpiryDays=30&includeZero=false&take=${TAKE}`,
+        `/inventory/batches?nearExpiryDays=30&includeZero=false&take=${PRIORITY_LIST_TAKE}`,
         { headers, signal },
       ).then((r) => (r.items ?? []).filter((b) => b.nearExpiry || b.expired)),
     ])
-      .then(([lowRows, outRows, ctrlRows, batchRows]) => {
+      .then(([lowRows, outRows, ctrlLowRows, ctrlOutRows, batchRows]) => {
         if (signal.aborted) return;
         setLow(lowRows);
         setOut(outRows);
-        setControlledLow(ctrlRows);
+        setControlledLow(ctrlLowRows);
+        setControlledOut(ctrlOutRows);
         setNearExpiry(batchRows);
       })
       .catch((err: unknown) => {
@@ -76,9 +82,31 @@ export function usePriorityStock(
       });
 
     return () => controller.abort();
-  }, [branchId, refreshKey]);
+  }, [branchId, refreshKey, enabled]);
 
-  return { low, out, controlledLow, nearExpiry, loading, error };
+  return {
+    low,
+    out,
+    controlledLow,
+    controlledOut,
+    nearExpiry,
+    loading,
+    error,
+  };
+}
+
+function mergeControlledStock(
+  lowRows: StockRow[],
+  outRows: StockRow[],
+): StockRow[] {
+  const seen = new Set<string>();
+  const merged: StockRow[] = [];
+  for (const row of [...outRows, ...lowRows]) {
+    if (seen.has(row.productId)) continue;
+    seen.add(row.productId);
+    merged.push(row);
+  }
+  return merged;
 }
 
 export function stockItemsForFilter(
@@ -91,10 +119,17 @@ export function stockItemsForFilter(
     case "out_of_stock":
       return lists.out;
     case "controlled":
-      return lists.controlledLow;
+      return mergeControlledStock(lists.controlledLow, lists.controlledOut);
     case "near_expiry":
       return lists.nearExpiry;
     default:
       return [];
   }
+}
+
+export function stockListForChipCount(
+  lists: Omit<StockLists, "loading" | "error">,
+  key: PriorityFilterKey,
+): Array<StockRow | BatchRow> {
+  return stockItemsForFilter(lists, key);
 }
