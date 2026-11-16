@@ -193,3 +193,23 @@ describe("offline sales (P5 #51)", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 });
+
+it("tells the person when a counter with that name already exists, and keeps what they typed", async () => {
+  const taken = "A counter named 'Front counter' already exists at this branch";
+  (apiJson as jest.Mock).mockImplementation((path: string, init?: RequestInit) => {
+    if (init?.method === "POST" && path === "/terminals/counters")
+      return Promise.reject(new Error(taken));
+    if (path === "/terminals/counters") return Promise.resolve([empty, enrolled]);
+    if (path === "/terminals/enrollment-codes") return Promise.resolve([code]);
+    if (path === "/terminals/offline-journal/sync-status") return Promise.resolve(status(synced));
+    return Promise.reject(new Error(path));
+  });
+  render(<CountersSettingsPage />);
+  const form = await screen.findByRole("form", { name: "Add a counter" });
+  fireEvent.change(within(form).getByLabelText("New counter"), {
+    target: { value: "Front counter" },
+  });
+  fireEvent.click(within(form).getByRole("button", { name: "Add counter" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent(taken);
+  expect(within(form).getByLabelText("New counter")).toHaveValue("Front counter");
+});

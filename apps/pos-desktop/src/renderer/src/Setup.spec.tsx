@@ -91,6 +91,22 @@ describe("Setup's Ctrl+Enter, now on the key map", () => {
     expect(pos.enroll).not.toHaveBeenCalled();
   });
 
+  it("shows the server's message when the counter name is already taken", async () => {
+    const taken = "A counter named 'Counter 1' already exists at this branch";
+    const pos = await renderEnroll();
+    pos.createCounter!.mockImplementation(async () => ({
+      ok: false,
+      error: { code: "COUNTER_NAME_TAKEN", message: taken },
+    }));
+    act(() => screen.getByRole("button", { name: /Add a counter/ }).click());
+    fireEvent.change(screen.getByLabelText("New counter name"), {
+      target: { value: "Counter 1" },
+    });
+    await act(async () => void press("Enter"));
+    expect(screen.getByRole("alert").textContent).toBe(taken);
+    expect(screen.getByLabelText("New counter name")).toBeTruthy();
+  });
+
   it("cancels adding a counter with Esc", async () => {
     await renderEnroll();
     act(() => screen.getByRole("button", { name: /Add a counter/ }).click());

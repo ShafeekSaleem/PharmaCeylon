@@ -92,9 +92,30 @@ export class TerminalTrustService {
   ) {
     await this.actor(tx, user, branchId, "tenant.management");
     text(label, 120);
-    const counter = await tx.terminalCounter.create({
-      data: { tenantId: user.tenantId, branchId, label },
-    });
+    const name = label.trim();
+    const taken = () =>
+      new ConflictException({
+        code: "COUNTER_NAME_TAKEN",
+        message: `A counter named '${name}' already exists at this branch`,
+      });
+    const existing = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM terminal_counter
+      WHERE tenant_id = ${user.tenantId}::uuid AND branch_id = ${branchId}::uuid
+      AND lower(btrim(label)) = lower(${name}) LIMIT 1`;
+    if (existing.length) throw taken();
+    let counter;
+    try {
+      counter = await tx.terminalCounter.create({
+        data: { tenantId: user.tenantId, branchId, label: name },
+      });
+    } catch (error) {
+      // Two creates racing past the check above: the unique index decides.
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === "P2002"
+      )
+        throw taken();
+      throw error;
+    }
     await this.audit.log(
       {
         tenantId: user.tenantId,

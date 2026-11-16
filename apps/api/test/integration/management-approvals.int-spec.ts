@@ -146,7 +146,7 @@ async function enrolledDevice() {
   const trust = new TerminalTrustService(access, audit, local);
   const device = terminalDevice();
   const counter = await tx((c) =>
-    trust.createCounter(c, owner, fx.mainBranchId, "Evidence review counter"),
+    trust.createCounter(c, owner, fx.mainBranchId, `Evidence review counter ${randomUUID().slice(0, 6)}`),
   );
   const proof = (
     payload: { identity: TerminalIdentity },
