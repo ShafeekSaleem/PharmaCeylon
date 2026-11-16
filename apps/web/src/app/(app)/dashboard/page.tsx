@@ -15,6 +15,11 @@ import { DashboardHeader } from "./components/dashboard-header";
 import { useDashboardData } from "./hooks/use-dashboard-data";
 import { useDashboardLayout } from "./hooks/use-dashboard-layout";
 import { resolvePrimaryDashboardRole } from "./lib/dashboard-role";
+import { shortcutsForRole } from "./lib/dashboard-shortcuts";
+import {
+  shouldShowLegacyFailedSectionsAlert,
+  shouldShowV6ServerAlert,
+} from "./lib/dashboard-v6-alerts";
 import { dashboardPosHidden, PosHiddenContext } from "./lib/pos-links";
 import { CashierDashboard } from "./roles/cashier-dashboard";
 import { InventoryClerkDashboard } from "./roles/inventory-clerk-dashboard";
@@ -76,6 +81,15 @@ function DashboardWorkspace() {
     () => new Set(layout.layout.map((w) => w.key)),
     [layout.layout],
   );
+  const shortcuts = useMemo(
+    () => shortcutsForRole(viewRole),
+    [viewRole],
+  );
+  const showV6ServerAlert = shouldShowV6ServerAlert(viewRole, data);
+  const showLegacyFailedSections = shouldShowLegacyFailedSectionsAlert(
+    viewRole,
+    data,
+  );
 
   return (
     <PosHiddenContext.Provider value={posHidden}>
@@ -95,6 +109,7 @@ function DashboardWorkspace() {
                 : "Overview metrics cover every branch. Shell branch still applies to operational pages (POS, inventory)."
               : "Active branch — switch in the app header"
           }
+          shortcuts={shortcuts ?? undefined}
           customize={{
             isEditing: layout.isEditing,
             onToggleEdit: () => layout.setIsEditing(true),
@@ -155,9 +170,28 @@ function DashboardWorkspace() {
           </Alert>
         ) : null}
 
-        {data.error ? <Alert variant="error">{data.error}</Alert> : null}
+        {data.error && !isV6DashboardRole(viewRole) ? (
+          <Alert variant="error">{data.error}</Alert>
+        ) : null}
 
-        {data.failedSections.size > 0 ? (
+        {showV6ServerAlert ? (
+          <Alert variant="error" className={css.serverUnreachableAlert}>
+            <strong>Can&apos;t reach the server</strong>
+            <p>
+              The figures below may be incomplete or out of date. Daily work,
+              sales and inventory all need a connection.
+            </p>
+            <button
+              type="button"
+              className={css.serverUnreachableRetry}
+              onClick={() => void data.reload()}
+            >
+              Try again
+            </button>
+          </Alert>
+        ) : null}
+
+        {showLegacyFailedSections ? (
           <Alert variant="warning">
             Couldn&apos;t load: {Array.from(data.failedSections).join(", ")}.
             The figures below may be incomplete —{" "}

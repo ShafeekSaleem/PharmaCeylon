@@ -4604,6 +4604,140 @@ a.alertItem:hover {
   font-style: italic;
 }
 
+.serverUnreachableAlert {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.serverUnreachableAlert p {
+  margin: 0;
+  font-size: 0.85rem;
+}
+
+.serverUnreachableRetry {
+  align-self: flex-start;
+  appearance: none;
+  border: 1px solid var(--pc-border);
+  background: var(--pc-card-bg);
+  color: var(--pc-foreground);
+  border-radius: var(--pc-radius-sm, 8px);
+  padding: 0.35rem 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.serverUnreachableRetry:hover {
+  border-color: var(--pc-primary);
+  color: var(--pc-primary);
+}
+
+.shortcutsMenuWrap {
+  position: relative;
+}
+
+.shortcutsMenuPanel {
+  position: absolute;
+  top: calc(100% + 0.35rem);
+  right: 0;
+  z-index: 30;
+  min-width: 13.5rem;
+  padding: 0.35rem;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-md, 10px);
+  background: var(--pc-card-bg);
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.12);
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.shortcutsMenuItem {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.45rem 0.55rem;
+  border-radius: var(--pc-radius-sm, 8px);
+  text-decoration: none;
+  color: var(--pc-foreground);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.shortcutsMenuItem:hover {
+  background: var(--pc-muted-bg);
+}
+
+.shortcutsMenuIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.65rem;
+  height: 1.65rem;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
+.shortcutsMenuIcon_primary {
+  background: color-mix(in srgb, var(--pc-primary) 14%, transparent);
+  color: var(--pc-primary);
+}
+
+.shortcutsMenuIcon_success {
+  background: color-mix(in srgb, var(--pc-success) 14%, transparent);
+  color: var(--pc-success);
+}
+
+.shortcutsMenuIcon_warning {
+  background: color-mix(in srgb, var(--pc-warning) 14%, transparent);
+  color: var(--pc-warning);
+}
+
+.shortcutsMenuIcon_danger {
+  background: color-mix(in srgb, var(--pc-danger) 14%, transparent);
+  color: var(--pc-danger);
+}
+
+.shortcutsMenuIcon_info {
+  background: color-mix(in srgb, var(--pc-info, var(--pc-primary)) 14%, transparent);
+  color: var(--pc-info, var(--pc-primary));
+}
+
+.fixedWidgetError {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.55rem;
+  padding: 1rem 1.05rem;
+  min-height: 8rem;
+}
+
+.fixedWidgetError p {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--pc-muted-fg);
+}
+
+.fixedWidgetRetryBtn {
+  appearance: none;
+  border: 1px solid var(--pc-border);
+  background: var(--pc-card-bg);
+  color: var(--pc-foreground);
+  border-radius: var(--pc-radius-sm, 8px);
+  padding: 0.35rem 0.7rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.fixedWidgetRetryBtn:hover {
+  border-color: var(--pc-primary);
+  color: var(--pc-primary);
+}
+
 .inlineLinkBtn {
   border: none;
   background: none;

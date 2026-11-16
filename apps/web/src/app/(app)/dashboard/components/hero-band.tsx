@@ -19,6 +19,7 @@ export type HeroSecondaryMetric = {
   label: string;
   value: ReactNode;
   meta?: ReactNode;
+  unavailable?: boolean;
   trend?: HeroTrend;
   /** When set, shows a small "go to detail" link in the tile's bottom-right corner. */
   href?: string;
@@ -37,6 +38,7 @@ type Props = {
   sparkline?: ChartPoint[];
   secondary: HeroSecondaryMetric[];
   loading?: boolean;
+  unavailable?: boolean;
 };
 
 export function TrendChip({ trend }: { trend: HeroTrend }) {
@@ -109,9 +111,20 @@ export function HeroBand({
   sparkline,
   secondary,
   loading,
+  unavailable,
 }: Props) {
   const posHidden = usePosHidden();
   const columns = `1.5fr ${secondary.map(() => "1fr").join(" ")}`.trim();
+  const primaryUnavailable = Boolean(unavailable);
+  const showPrimaryValue = loading ? "…" : primaryUnavailable ? "—" : value;
+  const showPrimaryTrend = !loading && !primaryUnavailable && trend;
+  const showPrimaryMeta = loading
+    ? undefined
+    : primaryUnavailable
+      ? "Unavailable"
+      : meta;
+  const showSparkline =
+    !loading && !primaryUnavailable && sparkline && sparkline.length > 1;
 
   return (
     <section
@@ -125,33 +138,38 @@ export function HeroBand({
           {scope ? <span className={css.heroScope}>{scope}</span> : null}
         </div>
         <div className={css.heroValueRow}>
-          <span className={css.heroValue}>{loading ? "…" : value}</span>
-          {!loading && trend ? <TrendChip trend={trend} /> : null}
+          <span className={css.heroValue}>{showPrimaryValue}</span>
+          {showPrimaryTrend ? <TrendChip trend={trend!} /> : null}
         </div>
-        {meta ? <p className={css.heroMeta}>{meta}</p> : null}
-        {!loading && sparkline && sparkline.length > 1 ? (
-          <HeroSpark points={sparkline} />
-        ) : null}
+        {showPrimaryMeta ? <p className={css.heroMeta}>{showPrimaryMeta}</p> : null}
+        {showSparkline ? <HeroSpark points={sparkline!} /> : null}
       </div>
       {secondary.map((m) => {
         const href = dashboardHref(m.href, posHidden);
-        const hasLink = !loading && href;
+        const metricUnavailable = Boolean(m.unavailable);
+        const hasLink = !loading && !metricUnavailable && href;
         const cellCls = [css.heroCell, hasLink ? css.heroCellWithLink : ""]
           .filter(Boolean)
           .join(" ");
+        const metricValue = loading ? "…" : metricUnavailable ? "—" : m.value;
+        const metricMeta = loading
+          ? undefined
+          : metricUnavailable
+            ? "Unavailable"
+            : m.meta;
         return (
           <div key={m.key} className={cellCls}>
             <div className={css.heroEyebrow}>
               <span>{m.label}</span>
             </div>
             <div className={css.heroValueRow}>
-              <span className={css.heroValue}>{loading ? "…" : m.value}</span>
+              <span className={css.heroValue}>{metricValue}</span>
             </div>
-            {!loading && (m.meta || m.trend) ? (
+            {!loading && (metricMeta || (!metricUnavailable && m.trend)) ? (
               <p className={css.heroMeta}>
-                {m.meta}
-                {m.trend ? (
-                  <span style={{ marginLeft: m.meta ? "0.4rem" : 0 }}>
+                {metricMeta}
+                {!metricUnavailable && m.trend ? (
+                  <span style={{ marginLeft: metricMeta ? "0.4rem" : 0 }}>
                     <TrendChip trend={m.trend} />
                   </span>
                 ) : null}

@@ -3,8 +3,10 @@
 import type { ComponentType } from "react";
 import type { DashboardData } from "../hooks/use-dashboard-data";
 import type { DashboardRole } from "../lib/dashboard-role";
+import { isDashboardServerUnreachable, isFixedWidgetUnavailable } from "../lib/dashboard-connectivity";
 import { FIXED_WIDGET_KEYS } from "../lib/fixed-layout";
 import { WIDGET_REGISTRY } from "../widgets/registry";
+import { FixedWidgetLoadError } from "./fixed-widget-load-error";
 import { TodaysPriorities } from "./todays-priorities";
 import css from "../dashboard.module.css";
 
@@ -31,6 +33,25 @@ export function DashboardFixedGrid({
   const Secondary = widgetBody(secondaryKey);
   const Wide = widgetBody(wideKey);
   const Side = widgetBody(sideKey);
+  const serverUnreachable = isDashboardServerUnreachable(data);
+  const titleFor = (key: string) =>
+    WIDGET_REGISTRY.find((entry) => entry.key === key)?.title ?? "Widget";
+
+  function renderWidget(key: string, Component: NonNullable<ReturnType<typeof widgetBody>>) {
+    const unavailable = isFixedWidgetUnavailable(key, data, serverUnreachable);
+    return (
+      <>
+        {unavailable ? (
+          <FixedWidgetLoadError
+            title={titleFor(key)}
+            onRetry={() => void data.reload()}
+          />
+        ) : (
+          <Component data={data} />
+        )}
+      </>
+    );
+  }
 
   return (
     <div className={css.dashGridV6}>
@@ -39,27 +60,26 @@ export function DashboardFixedGrid({
         refreshKey={refreshKey}
         counterLive={counterLive}
         showManagerStockChips={role === "manager"}
+        forceUnavailable={serverUnreachable}
       />
       <div className={css.dashGridRightStack}>
         {Health ? (
-          <div className={css.dashGridPanel}>
-            <Health data={data} />
-          </div>
+          <div className={css.dashGridPanel}>{renderWidget(healthKey, Health)}</div>
         ) : null}
         {Secondary ? (
           <div className={css.dashGridPanel}>
-            <Secondary data={data} />
+            {renderWidget(secondaryKey, Secondary)}
           </div>
         ) : null}
       </div>
       {Wide ? (
         <div className={`${css.dashGridPanel} ${css.dashGridWide}`}>
-          <Wide data={data} />
+          {renderWidget(wideKey, Wide)}
         </div>
       ) : null}
       {Side ? (
         <div className={`${css.dashGridPanel} ${css.dashGridSide}`}>
-          <Side data={data} />
+          {renderWidget(sideKey, Side)}
         </div>
       ) : null}
     </div>

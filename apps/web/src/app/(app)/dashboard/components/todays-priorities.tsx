@@ -40,6 +40,8 @@ type Props = {
   refreshKey: string | null;
   counterLive?: boolean;
   showManagerStockChips?: boolean;
+  /** When the dashboard cannot reach the server, hide stale queue rows. */
+  forceUnavailable?: boolean;
 };
 
 const CHIP_SELECTED_TONE: Record<PriorityFilterKey, string> = {
@@ -65,6 +67,7 @@ export function TodaysPriorities({
   refreshKey,
   counterLive = false,
   showManagerStockChips = false,
+  forceUnavailable = false,
 }: Props) {
   const branchId = data.branchId;
   const [filter, setFilter] = useState<PriorityFilterKey>("all");
@@ -148,9 +151,13 @@ export function TodaysPriorities({
   );
 
   const reload = useCallback(() => {
+    if (forceUnavailable) {
+      void data.reload();
+      return;
+    }
     if (isStockFilter(filter) || filter === "overdue_deliveries") return;
     work.reload();
-  }, [filter, work]);
+  }, [data, filter, forceUnavailable, work]);
 
   const workRows = work.data?.items ?? [];
   const stockRows = isStockFilter(filter)
@@ -191,7 +198,9 @@ export function TodaysPriorities({
   const loading =
     (!usingClientPager && work.loading && !work.data) ||
     (isStockFilter(filter) && stockLists.loading && allClientRows.length === 0);
-  const error = !usingClientPager ? work.error : stockLists.error;
+  const error =
+    forceUnavailable ||
+    (!usingClientPager ? Boolean(work.error) : Boolean(stockLists.error));
 
   const subtitle = work.data
     ? `${work.data.branchName} · Relevant work, including carry-over · ${asOfLabel(work.data.asOf, work.data.timezone)}`
