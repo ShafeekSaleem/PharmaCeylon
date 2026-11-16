@@ -245,6 +245,19 @@ describe("the counter's own running expected cash", () => {
     shifts.recordRefund(randomUUID(), [{ method: "cash", amountMinor: 700 }], cashier.staffUserId);
     expect(shifts.state().current!.expectedCashMinor).toBe(500_000 + 2_000 - 500 - 700);
   });
+
+  it("records supplier payouts as payout postings, once", async () => {
+    const shifts = service();
+    await shifts.open(PIN, FIVE_THOUSAND);
+    const payoutId = randomUUID();
+    shifts.recordSupplierPayout(payoutId, 1_250_000, cashier.staffUserId);
+    shifts.recordSupplierPayout(payoutId, 1_250_000, cashier.staffUserId);
+    expect(shifts.state().current!.expectedCashMinor).toBe(500_000 - 1_250_000);
+    const row = local.db.prepare("SELECT kind FROM till_shift_posting WHERE id = ?").get(`payout:${payoutId}`) as
+      | { kind: string }
+      | undefined;
+    expect(row?.kind).toBe("payout");
+  });
 });
 
 describe("closing a shift", () => {

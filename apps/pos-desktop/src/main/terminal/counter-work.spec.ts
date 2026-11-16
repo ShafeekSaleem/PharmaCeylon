@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { ApiError, type ApiSession } from "../api/api-client";
 import { CounterWorkService } from "./counter-work";
 import type { SignedCommandService } from "./signed-commands";
-import type { TerminalService } from "./terminal-service";
+import { ActionFailure, type TerminalService } from "./terminal-service";
 
 const branchId = randomUUID();
 const refundId = randomUUID();
@@ -167,5 +167,105 @@ describe("offline sale stock at the counter (P5 #51)", () => {
     const gone = withCommands([]);
     await expect(gone.work.resolveStockCase(resolutionId, [])).rejects.toMatchObject({ code: "STOCK_CASE_NOT_READY" });
     expect(gone.executed).toEqual([]);
+  });
+});
+
+describe("supplier cash payouts at the counter", () => {
+  const cashPayoutId = randomUUID();
+  const payApproval = randomUUID();
+  const payoutRow = {
+    id: cashPayoutId,
+    payoutNumber: "SCP-0042",
+    status: "approved",
+    supplier: { id: randomUUID(), code: "HEM", name: "Hemas Pharmaceuticals" },
+    purchaseOrder: null,
+    amount: "12500.00",
+    paidOn: "2026-11-14",
+    reference: null,
+    notes: null,
+    allocations: [],
+    executionApprovalId: payApproval,
+    approvalRevoked: false,
+    readyAtCounter: true,
+    approvalReview: null,
+    approvalVersion: 1,
+    requester: { id: randomUUID(), fullName: "Kasun" },
+    requestedAt: "2026-11-14T10:00:00.000Z",
+    approver: { id: randomUUID(), fullName: "Dilini" },
+    approvedAt: "2026-11-14T11:00:00.000Z",
+    executor: null,
+    executedAt: null,
+    supplierPaymentId: null,
+    cancelledBy: null,
+    cancelledAt: null,
+  };
+
+  function payoutCommands(
+    ready: unknown[],
+    executeResult: Record<string, unknown>,
+    executeError?: Error,
+  ) {
+    const executed: unknown[][] = [];
+    const commands = {
+      execute: async (...args: unknown[]) => {
+        executed.push(args);
+        if (executeError) throw executeError;
+        return {
+          result: {
+            type: "supplier_cash_payout.executed",
+            cashPayoutId,
+            approvalId: payApproval,
+            effect: "applied",
+            ...executeResult,
+          },
+        };
+      },
+    };
+    const work = new CounterWorkService({
+      api: {
+        request: async (_m: string, path: string) =>
+          path.includes("cash-payouts") ? ready : [],
+      } as unknown as ApiSession,
+      terminal: { current: () => ({ identity: { branchId } }) } as unknown as TerminalService,
+      commands: commands as unknown as SignedCommandService,
+    });
+    return { work, executed };
+  }
+
+  it("executes a ready payout with its execution approval pinned", async () => {
+    const paymentId = randomUUID();
+    const { work, executed } = payoutCommands([payoutRow], {
+      supplierPaymentId: paymentId,
+      amountMinor: 1_250_000,
+    });
+    const done = await work.executeCashPayout(cashPayoutId);
+    expect(executed).toEqual([
+      [
+        "POST /api/v1/purchasing/cash-payouts/:id/execute",
+        { cashPayoutId },
+        payApproval,
+      ],
+    ]);
+    expect(done).toMatchObject({
+      payoutNumber: "SCP-0042",
+      amountMinor: 1_250_000,
+      supplierPaymentId: paymentId,
+      supplierName: "Hemas Pharmaceuticals",
+      movementReason: "Supplier payout · SCP-0042",
+    });
+  });
+
+  it("refuses when the payout left the ready list", async () => {
+    const { work } = payoutCommands([], {});
+    await expect(work.executeCashPayout(cashPayoutId)).rejects.toMatchObject({ code: "PAYOUT_NOT_READY" });
+  });
+
+  it("surfaces stale approval refusals from the signed command", async () => {
+    const { work } = payoutCommands(
+      [payoutRow],
+      {},
+      new ActionFailure("APPROVAL_STALE", "Approval changed; refresh and review before paying out"),
+    );
+    await expect(work.executeCashPayout(cashPayoutId)).rejects.toMatchObject({ code: "APPROVAL_STALE" });
   });
 });
