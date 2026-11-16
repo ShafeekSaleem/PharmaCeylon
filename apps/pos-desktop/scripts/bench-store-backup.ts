@@ -190,7 +190,9 @@ async function writesDuringWorkerBackup(): Promise<void> {
     `  copy written                       ${backup ? (backup.manifest.bytes / 2 ** 20).toFixed(0) : "none"} MB`,
   );
   console.log(
-    `  ${latencies.length} writes meanwhile: p50 ${sorted[Math.floor(sorted.length / 2)]?.toFixed(1)} ms, max ${sorted.at(-1)?.toFixed(1)} ms; ` +
+    `  ${latencies.length} writes meanwhile: p50 ${sorted[Math.floor(sorted.length / 2)]?.toFixed(1)} ms, ` +
+      `p99 ${sorted[Math.floor(sorted.length * 0.99)]?.toFixed(1)} ms, max ${sorted.at(-1)?.toFixed(1)} ms, ` +
+      `${sorted.filter((ms) => ms > 250).length} over 250 ms; ` +
       `event-loop lateness max ${stalls.at(-1)?.toFixed(0)} ms`,
   );
 }
