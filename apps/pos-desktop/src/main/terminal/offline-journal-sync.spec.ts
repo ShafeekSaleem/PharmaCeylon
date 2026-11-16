@@ -9,6 +9,7 @@ import {
   type BranchStockSnapshot,
   type OfflineGrant,
   type OfflineSaleCommand,
+  type OfflineShiftCloseCommand,
   type Signed,
   type SyncAcknowledgement,
   type SyncRequest,
@@ -36,6 +37,7 @@ import {
   ISSUE_RETRY_MS,
   JOURNAL_BATCH,
   SUPPORT_BATCH,
+  SYNC_SIGN_IN_CAP,
   JOURNAL_CONFIRM_MS,
   journalSyncState,
   LAST_SUCCESSFUL_SYNC_KEY,
@@ -236,7 +238,10 @@ afterEach(() => {
 });
 
 /** The counter goes offline and sells `count` single units, as P4 will write them. */
-function sellOffline(count: number): Signed<OfflineSaleCommand>[] {
+function sellOffline(
+  count: number,
+  signInFor: (i: number) => string = () => signInId,
+): Signed<OfflineSaleCommand>[] {
   outage = writer.ensureOfflineOutageSession(identity.enrollmentId, NOW);
   const sales: Signed<OfflineSaleCommand>[] = [];
   for (let i = 0; i < count; i++) {
@@ -247,7 +252,7 @@ function sellOffline(count: number): Signed<OfflineSaleCommand>[] {
       commandId: randomUUID(),
       identity,
       session,
-      staffSignInId: signInId,
+      staffSignInId: signInFor(i),
       sequence: head.sequence + 1,
       previousCommandHash: head.previousHash,
       occurredAt: NOW + 1_000 * (head.sequence + 1),
@@ -285,6 +290,51 @@ function sellOffline(count: number): Signed<OfflineSaleCommand>[] {
     sales.push(envelope);
   }
   return sales;
+}
+
+/** The same cashier signs in again at the counter (a new sign-in each time, as P4 records them). */
+function signInAgain(): string {
+  return writer.recordStaffSignInFromPin({
+    enrollmentId: identity.enrollmentId,
+    identity,
+    ...counter,
+    session: staff,
+    key: deviceKey,
+    confirmedPinVersion: 1,
+  })!.payload.staffSignInId;
+}
+
+/** The shift closes offline with a manager's help: the entry cites the manager's sign-in too. */
+function closeShiftAssisted(
+  staffSignInId: string,
+  managerSignInId: string,
+): Signed<OfflineShiftCloseCommand> {
+  const head = writer.getHead(identity.enrollmentId);
+  const grant = installed.grant.payload;
+  const command: OfflineShiftCloseCommand = {
+    contractVersion: 1,
+    commandId: randomUUID(),
+    identity,
+    session,
+    staffSignInId,
+    sequence: head.sequence + 1,
+    previousCommandHash: head.previousHash,
+    occurredAt: NOW + 1_000 * (head.sequence + 1),
+    grantId: grant.grantId,
+    grantVersion: grant.grantVersion,
+    nominationVersion: grant.nominationVersion,
+    offlineSessionId: outage.offlineSessionId,
+    offlineStartedAt: outage.offlineStartedAt,
+    businessHoursAcknowledgementId: null,
+    kind: "shift_close",
+    currency: "LKR",
+    closingCashCountMinor: 0,
+    expectedCashMinor: 0,
+    assistance: { managerSignInId, reason: "cashier could not count" },
+  };
+  const envelope = deviceKey.sign(command, "command");
+  writer.appendSignedCommand(envelope);
+  return envelope;
 }
 
 type Refusal = { status: "held" | "rejected"; code: string; once?: boolean };
@@ -355,15 +405,26 @@ function fakeServer() {
         commandHash: hash,
         sequence: command.sequence,
       };
-      const committed = (status: "committed" | "duplicate") => ({
-        ...base,
+      const committed = (
+        status: "committed" | "duplicate",
+      ): SyncAcknowledgement =>
+        command.kind === "ordinary_sale"
+          ? {
+              ...base,
         commandKind: "ordinary_sale" as const,
         status,
         saleId: `sale-${command.commandId}`,
         committedAt: NOW,
         stockPosting: "posted" as const,
         reconciliationCaseId: null,
-      });
+            }
+          : {
+              ...base,
+              commandKind: command.kind,
+              status,
+              workSessionId: command.session.workSessionId,
+              committedAt: NOW,
+            };
       const reviewed = (decision: Decision): SyncAcknowledgement => ({
         ...base,
         status: "reviewed",
@@ -744,6 +805,46 @@ describe("uploading the offline journal", () => {
       accepted: JOURNAL_BATCH * 2 + 20,
       waiting: 0,
     });
+  });
+
+  it("keeps each request within the sign-in cap when re-sign-ins and an assisted close cite more than it allows (#161)", async () => {
+    // The cashier signs in again before every sale, then a manager helps close the shift: a full
+    // batch of entries cites one sign-in more than one request may carry.
+    const cashier = Array.from({ length: JOURNAL_BATCH - 1 }, signInAgain);
+    sellOffline(JOURNAL_BATCH - 1, (i) => cashier[i]!);
+    const lastCashier = signInAgain();
+    const manager = signInAgain();
+    closeShiftAssisted(lastCashier, manager);
+    expect(JOURNAL_BATCH + 1).toBeGreaterThan(SYNC_SIGN_IN_CAP);
+
+    const u = uploader();
+    await u.sync.tick();
+
+    expect(u.srv.requests.length).toBeGreaterThan(1);
+    for (const request of u.srv.requests) {
+      expect(request.staffSignIns.length).toBeLessThanOrEqual(
+        SYNC_SIGN_IN_CAP,
+      );
+      // Every entry goes with every sign-in it cites.
+      const carried = new Set(
+        request.staffSignIns.map((s) => s.payload.staffSignInId),
+      );
+      for (const { payload } of request.commands) {
+        expect(carried.has(payload.staffSignInId)).toBe(true);
+        if (payload.kind === "shift_close")
+          expect(carried.has(payload.assistance!.managerSignInId)).toBe(true);
+      }
+    }
+    // The assisted close went in the next request, in order, within the same cycle.
+    expect(u.srv.requests.map((r) => r.commands.length)).toEqual([
+      JOURNAL_BATCH - 1,
+      1,
+    ]);
+    expect(
+      u.srv.requests[1]!.staffSignIns.map((s) => s.payload.staffSignInId),
+    ).toEqual([lastCashier, manager]);
+    expect(u.view()).toMatchObject({ accepted: JOURNAL_BATCH, waiting: 0 });
+    expect(u.view().issue).toBeNull();
   });
 
   it("shows only this enrollment's last sync: a re-enrolled counter has none until its first confirmation", async () => {
