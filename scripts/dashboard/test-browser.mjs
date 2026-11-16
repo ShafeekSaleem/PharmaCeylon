@@ -430,7 +430,7 @@ try {
     const hasSecondPage = Math.ceil(data.total / listPageSize) > 1;
     if (hasSecondPage) {
       if (v6Queue) {
-        await queue.getByRole("button", { name: "Next", exact: true }).click();
+        await queue.getByRole("button", { name: /Next/ }).click();
         await page.waitForTimeout(500);
         const second = await page.request
           .get(
@@ -441,14 +441,14 @@ try {
         assert.ok(
           second.items.every((i) => !data.items.some((j) => i.id === j.id)),
         );
-        await queue.getByRole("button", { name: "Previous", exact: true }).click();
+        await queue.getByRole("button", { name: /Previous/ }).click();
       } else {
         const response = page.waitForResponse(
           (r) =>
             r.url().includes("/dashboard/work?") &&
             new URL(r.url()).searchParams.get("page") === "2",
         );
-        await queue.getByRole("button", { name: "Next", exact: true }).click();
+        await queue.getByRole("button", { name: /Next/ }).click();
         const second = await (await response).json();
         assert.ok(
           second.items.every((i) => !data.items.some((j) => i.id === j.id)),
