@@ -1,4 +1,5 @@
 import { generateKeyPairSync, randomUUID, sign } from "node:crypto";
+import { join } from "node:path";
 import {
   MAX_OFFLINE_GRANT_MS,
   MAX_SNAPSHOT_AGE_AT_OUTAGE_MS,
@@ -13,6 +14,12 @@ import {
 import type { PosDatabase } from "../db/database";
 import type { SecretProtector } from "../db/key-store";
 import { DeviceKey } from "../device/device-key";
+import {
+  openCipherFile,
+  workerCopyRunner,
+  writeBackupCopy,
+  type BackupCopyRunner,
+} from "./store-backup";
 import type { OfflineAuthority } from "../terminal/offline-authority";
 import {
   journalCommandHash,
@@ -263,3 +270,22 @@ export function sellOffline(
   }
   return out;
 }
+
+/** Writes backup copies on the calling thread, from a connection of its own, as the worker does. */
+export const copyInThisThread: BackupCopyRunner = (job) => ({
+  result: new Promise((resolve) => {
+    const source = openCipherFile(job.storePath, job.liveKey);
+    try {
+      resolve(writeBackupCopy(source, job));
+    } finally {
+      source.close();
+    }
+  }),
+  cancel: () => undefined,
+});
+
+/** The app's worker thread, run from its TypeScript source (the app runs the built JS). */
+export const copyInWorker: BackupCopyRunner = workerCopyRunner(
+  `require("tsx/cjs"); require(${JSON.stringify(join(__dirname, "backup-worker.ts"))});`,
+  { eval: true },
+);

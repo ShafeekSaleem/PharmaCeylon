@@ -1,6 +1,7 @@
 import { MAX_SNAPSHOT_AGE_AT_OUTAGE_MS } from "@pharmaceylon/shared";
 import { drainHoldSentences } from "../shared/drain-holds";
 import type { OfflineBackup, ReadinessCheck, ReadinessReport } from "../shared/ipc-contract";
+import type { StoreBackupStatus } from "./backup/store-backup";
 import type { OfflineAuthorityRefreshStatus } from "./terminal/offline-authority-refresh";
 import type { JournalSyncView } from "./terminal/offline-journal-sync";
 
@@ -30,6 +31,8 @@ export type ReadinessFacts = {
       lines: number;
     } | null;
   };
+  /** Backups of this computer's store (P5 #51, #166). Absent: not running (no store open). */
+  storeBackups?: StoreBackupStatus;
   /** The offline journal's upload (P5 #51). Absent: not looked at (not enrolled). */
   journalSync?: {
     /** False when this computer has no pinned server key, so nothing can be verified. */
@@ -199,6 +202,24 @@ const DEVICE_CHECK: Record<"none" | "pending" | "active" | "revoked" | "retired"
  * `not_ready` until that exists, so the terminal can never claim to be ready
  * for an outage on the strength of the parts that happen to be built.
  */
+/** Backups fail quietly otherwise: a counter that cannot back up must not look like one that can. */
+export const BACKUP_FAILURES_SHOWN = 2;
+
+function backupRow(facts: ReadinessFacts, now: Date): Row | null {
+  const backups = facts.storeBackups;
+  // Only a counter is backed up; before enrollment there is nothing to say.
+  if (!backups || !facts.enrollmentStatus) return null;
+  const last =
+    backups.lastBackupAt === null ? "There is no backup on this computer." : `Last backup ${clockTime(backups.lastBackupAt, now)}.`;
+  if (backups.failures >= BACKUP_FAILURES_SHOWN)
+    return {
+      status: "warning",
+      detail: `The last ${backups.failures} backups failed (since ${clockTime(backups.failingSince ?? now.getTime(), now)}). ${last} Contact support: the app log says why.`,
+    };
+  if (backups.lastBackupAt === null) return { status: "ok", detail: "The first backup is being taken." };
+  return { status: "ok", detail: `${last} Backups stay on this computer.` };
+}
+
 export function buildReadinessReport(facts: ReadinessFacts, now: Date): ReadinessReport {
   const offline = offlineRows(facts, now);
   const offlineStaff = offline.backup ? offline.backup.authorizedStaff : null;
@@ -260,6 +281,8 @@ export function buildReadinessReport(facts: ReadinessFacts, now: Date): Readines
     { id: "printer", label: "Receipt printer", status: "not_ready", detail: "No receipt printer has been set up." },
     { id: "sync", label: "Synchronisation", ...syncRow(facts, now) },
   ];
+  const backups = backupRow(facts, now);
+  if (backups) checks.splice(3, 0, { id: "backups", label: "Store backups", ...backups });
 
   return {
     ready: checks.every((check) => check.status === "ok"),

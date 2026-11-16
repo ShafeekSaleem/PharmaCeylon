@@ -44,7 +44,14 @@ const STATUS_PILL: Record<CheckStatus, string | undefined> = {
 const GROUPS: { title: string; ids: string[] }[] = [
   {
     title: "This computer",
-    ids: ["database", "schema", "credential-store", "device", "printer"],
+    ids: [
+      "database",
+      "schema",
+      "credential-store",
+      "backups",
+      "device",
+      "printer",
+    ],
   },
   { title: "Staff and records", ids: ["staff", "unconfirmed"] },
   {
