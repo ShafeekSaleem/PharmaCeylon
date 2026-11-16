@@ -81,7 +81,7 @@ const descriptor = {
 async function deviceSetup() {
   const device = terminalDevice();
   const counter = await tx((c) =>
-    trust.createCounter(c, owner, fx.mainBranchId, "Counter"),
+    trust.createCounter(c, owner, fx.mainBranchId, `Counter ${randomUUID().slice(0, 6)}`),
   );
   const enrollment = await tx((c) =>
     trust.beginEnrollment(c, owner, fx.mainBranchId, {
@@ -440,7 +440,7 @@ describe("P1 terminal verification with real PostgreSQL and Ed25519 devices", ()
   it("default production attendance denies owner enrollment and preserves the unconsumed challenge", async () => {
     const device = terminalDevice();
     const counter = await tx((c) =>
-      trust.createCounter(c, owner, fx.mainBranchId, "Blocked"),
+      trust.createCounter(c, owner, fx.mainBranchId, `Blocked ${randomUUID().slice(0, 6)}`),
     );
     const p = await tx((c) =>
       trust.beginEnrollment(c, owner, fx.mainBranchId, {
@@ -484,7 +484,7 @@ describe("P1 terminal verification with real PostgreSQL and Ed25519 devices", ()
     const candidate = terminalDevice();
     const attacker = terminalDevice();
     const counter = await tx((c) =>
-      trust.createCounter(c, owner, fx.mainBranchId, "Candidate"),
+      trust.createCounter(c, owner, fx.mainBranchId, `Candidate ${randomUUID().slice(0, 6)}`),
     );
     const p = await tx((c) =>
       trust.beginEnrollment(c, owner, fx.mainBranchId, {
@@ -731,7 +731,7 @@ describe("P1 terminal verification with real PostgreSQL and Ed25519 devices", ()
   it("rolls back enrollment and nonce if its success audit fails", async () => {
     const device = terminalDevice();
     const counter = await tx((c) =>
-      trust.createCounter(c, owner, fx.mainBranchId, "Audit rollback"),
+      trust.createCounter(c, owner, fx.mainBranchId, `Audit rollback ${randomUUID().slice(0, 6)}`),
     );
     const p = await tx((c) =>
       trust.beginEnrollment(c, owner, fx.mainBranchId, {
@@ -1014,7 +1014,7 @@ describe("P1 terminal verification with real PostgreSQL and Ed25519 devices", ()
     };
     await expect(
       tx((c) =>
-        trust.createCounter(c, staleOwner, fx.mainBranchId, "Unauthorized"),
+        trust.createCounter(c, staleOwner, fx.mainBranchId, `Unauthorized ${randomUUID().slice(0, 6)}`),
       ),
     ).rejects.toThrow();
     await prisma.tenantMembership.updateMany({

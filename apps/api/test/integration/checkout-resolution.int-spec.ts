@@ -99,7 +99,7 @@ const record = (device: Device, a: LocalAttendanceAttestation, actor: RequestUse
 
 async function enroll() {
   const device = terminalDevice();
-  const { id: registerId } = await tx((c) => trust.createCounter(c, owner, fx.mainBranchId, "Counter"));
+  const { id: registerId } = await tx((c) => trust.createCounter(c, owner, fx.mainBranchId, `Counter ${randomUUID().slice(0, 6)}`));
   const challenge = await tx((c) =>
     trust.beginEnrollment(c, owner, fx.mainBranchId, {
       registerId,

@@ -115,7 +115,7 @@ const proof = (
 async function enroll() {
   const device = terminalDevice();
   const counter = await tx((c) =>
-    trust.createCounter(c, owner, fx.mainBranchId, "Counter"),
+    trust.createCounter(c, owner, fx.mainBranchId, `Counter ${randomUUID().slice(0, 6)}`),
   );
   const challenge = await tx((c) =>
     trust.beginEnrollment(c, owner, fx.mainBranchId, {
