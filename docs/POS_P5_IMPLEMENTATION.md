@@ -304,6 +304,13 @@ supervised online procedures, both approved by a person in the back office:
 - **Stale is final.** A recovery or sign-off is bound to the server head (and, for a sign-off,
   the nomination version and the grants) it was made over; anything that moves them supersedes
   it and asks again, rather than approving something nobody looked at.
+- **The person who reported may also approve (decided 2026-11-17, #163).** The report comes
+  from whoever is signed in on the counter; the approval comes from the owner or a delegated
+  manager. They can be the same person: in a small pharmacy the owner is often the one at the
+  counter. The control is the authority (owner or delegated manager only), the mandatory written
+  reason and the record of both names, not a second person. Nothing refuses
+  `approvedByUserId === createdByUserId`, and no screen hides the action. If a branch later
+  needs four-eyes, that is a new decision with its own enforcement and tests.
 
 ### Tests
 
@@ -481,6 +488,26 @@ was lost.
   server records it and the card tells the acknowledging manager the counter's times can't be
   trusted. Refusing to restore until the clock is fixed was the alternative, but when the
   backup's own time was the wrong one there is no clock to fix.
+- **The person who restored may also acknowledge (decided 2026-11-17, #163).** Same rule as
+  journal recovery above: the user who reported the restore on the counter can be the owner or
+  delegated manager who acknowledges it. The acknowledgement records how receipts, cash and stock
+  since the backup were checked, with both names.
+
+### After a restore: take the original computer out of service (#167)
+
+A restored counter and the computer it was copied from **share one enrollment key**. That is by
+design (D11 presumes the original is gone), and it is why the restored copy waits out the last
+offline grant before it is issued offline authority again. It does not make the original safe to
+keep using. Once the restored counter is in use:
+
+1. In Settings → Counters & devices, revoke the original computer's enrollment (or retire it),
+   so only one computer holds that counter's key.
+2. If the original is still switched on or could be found again, wipe or disconnect it. A
+   disconnected original can keep selling on a grant it already holds until that grant expires.
+3. Keep the old computer's journal if it can still be read. Entries the server never received are
+   what a journal recovery reviews.
+
+This is operational guidance only; nothing in the product revokes the original automatically.
 
 ### Tests
 
