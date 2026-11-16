@@ -1,45 +1,37 @@
 "use client";
 
 import { useMemo } from "react";
-import {
-  IconActivity,
-  IconAlertTriangle,
-  IconArchive,
-  IconBox,
-  IconCalendar,
-  IconClipboardList,
-  IconTruck,
-} from "@/components/icons";
 import { formatMoney } from "@/app/(app)/inventory/utils";
-import { OPERATIONS_ROLES, PURCHASING_ROLES } from "@/lib/role-access";
-import {
-  AttentionTicker,
-  type TickerItem,
-} from "../components/attention-ticker";
 import { DashboardCanvas } from "../components/dashboard-canvas";
+import { DashboardFixedGrid } from "../components/dashboard-fixed-grid";
 import { HeroBand } from "../components/hero-band";
-import { QuickActionsBar } from "../components/quick-actions-bar";
+import {
+  isDashboardServerUnreachable,
+  isMetricUnavailable,
+} from "../lib/dashboard-connectivity";
 import type { DashboardData } from "../hooks/use-dashboard-data";
 import type { UseDashboardLayoutResult } from "../hooks/use-dashboard-layout";
 import type { WidgetDef } from "../widgets/types";
+import css from "../dashboard.module.css";
 
 type Props = {
   data: DashboardData;
   catalog: WidgetDef[];
   layout: UseDashboardLayoutResult;
+  refreshKey: string | null;
+  counterLive: boolean;
 };
 
-export function OwnerDashboard({ data, catalog, layout }: Props) {
+export function OwnerDashboard({
+  data,
+  catalog,
+  layout,
+  refreshKey,
+  counterLive,
+}: Props) {
   const {
     loading,
-    ownerLowStock,
-    nearExpiryCount,
     salesTrend7d,
-    overduePos,
-    pendingApproval,
-    financial,
-    openTransfers,
-    controlledAttentionCount,
     ownerScopeLabel,
     ownerTodaySalesTotal,
     ownerTodayTxnCount,
@@ -51,93 +43,26 @@ export function OwnerDashboard({ data, catalog, layout }: Props) {
     ownerScope,
     hasMarginData,
     marginPct,
-    pendingApprovalListFull,
+    financial,
+    failedSections,
   } = data;
 
-  const pendingApprovalValue = useMemo(
-    () =>
-      pendingApprovalListFull.reduce(
-        (sum, po) =>
-          sum +
-          po.items.reduce(
-            (lineSum, item) =>
-              lineSum + Number(item.unitCost) * item.orderedQty,
-            0,
-          ),
-        0,
-      ),
-    [pendingApprovalListFull],
+  const serverUnreachable = isDashboardServerUnreachable(data);
+  const salesUnavailable = isMetricUnavailable(
+    failedSections,
+    serverUnreachable,
+    ["Sales metrics"],
   );
-
-  const tickerItems: TickerItem[] = useMemo(() => {
-    const items: TickerItem[] = [];
-    if (controlledAttentionCount > 0) {
-      items.push({
-        key: "ctrl",
-        count: controlledAttentionCount,
-        label: "controlled-drug alerts",
-        tone: "danger",
-        href: "/inventory?controlled=controlled",
-      });
-    }
-    if ((ownerLowStock ?? 0) > 0) {
-      items.push({
-        key: "low",
-        count: ownerLowStock!,
-        label: "low stock items",
-        tone: "warning",
-        href: "/inventory?view=low",
-      });
-    }
-    if (nearExpiryCount > 0) {
-      items.push({
-        key: "expiry",
-        count: nearExpiryCount,
-        label: "expiring ≤30 days",
-        tone: "warning",
-        href: "/inventory/batches?nearExpiryDays=30",
-      });
-    }
-    if (overduePos > 0) {
-      items.push({
-        key: "overdue",
-        count: overduePos,
-        label: "overdue deliveries",
-        tone: "danger",
-        href: "/purchasing?status=overdue",
-      });
-    }
-    if (pendingApproval > 0) {
-      items.push({
-        key: "po",
-        count: pendingApproval,
-        label: `POs pending approval · ${formatMoney(pendingApprovalValue)}`,
-        tone: "info",
-        href: "/purchasing?status=pending_approval",
-      });
-    }
-    if (openTransfers > 0) {
-      items.push({
-        key: "xfer",
-        count: openTransfers,
-        label: "open transfers",
-        tone: "info",
-        href: "/transfers",
-      });
-    }
-    return items;
-  }, [
-    controlledAttentionCount,
-    ownerLowStock,
-    nearExpiryCount,
-    overduePos,
-    pendingApproval,
-    pendingApprovalValue,
-    openTransfers,
-  ]);
-
-  const scopePhrase = ownerScopeLabel.toLowerCase();
-  const kpisLoading = loading || data.ownerKpisPending;
+  const marginUnavailable = isMetricUnavailable(
+    failedSections,
+    serverUnreachable,
+    ["Product margins"],
+  );
+  const financialUnavailable = isMetricUnavailable(
+    failedSections,
+    serverUnreachable,
+    ["Financial Snapshot"],
+  );
 
   const heroMeta = useMemo(() => {
     const txnLabel = `${ownerTodayTxnCount} transaction${ownerTodayTxnCount === 1 ? "" : "s"}`;
@@ -152,88 +77,28 @@ export function OwnerDashboard({ data, catalog, layout }: Props) {
 
   return (
     <>
-      <QuickActionsBar
-        title="Owner Quick Actions"
-        actions={[
-          {
-            href: "/purchasing?action=create-po",
-            label: "Create PO",
-            icon: <IconClipboardList size={17} />,
-            roles: PURCHASING_ROLES,
-            tone: "primary",
-          },
-          {
-            href: "/purchasing?status=pending_approval",
-            label: "Approve POs",
-            icon: <IconTruck size={17} />,
-            roles: PURCHASING_ROLES,
-            tone: "warning",
-          },
-          {
-            href: "/inventory?view=low",
-            label: "Low stock queue",
-            icon: <IconAlertTriangle size={17} />,
-            roles: OPERATIONS_ROLES,
-            tone: "warning",
-          },
-          {
-            href: "/inventory/batches?nearExpiryDays=30",
-            label: "Near expiry",
-            icon: <IconCalendar size={17} />,
-            roles: OPERATIONS_ROLES,
-            tone: "danger",
-          },
-          {
-            href: "/inventory?openAdjustment=1",
-            label: "Adjust stock",
-            icon: <IconBox size={17} />,
-            roles: OPERATIONS_ROLES,
-            tone: "info",
-          },
-          {
-            href: "/inventory/movements",
-            label: "Stock movements",
-            icon: <IconActivity size={17} />,
-            roles: OPERATIONS_ROLES,
-            tone: "success",
-          },
-          {
-            href: "/transfers?status=requested",
-            label: "Transfer approvals",
-            icon: <IconTruck size={17} />,
-            roles: OPERATIONS_ROLES,
-            tone: "info",
-          },
-          {
-            href: "/returns?status=pending_approval",
-            label: "Return approvals",
-            icon: <IconArchive size={17} />,
-            roles: OPERATIONS_ROLES,
-            tone: "danger",
-          },
-        ]}
-      />
-
       <HeroBand
         label="Today's Sales"
         value={formatMoney(ownerTodaySalesTotal)}
         scope={`${ownerScopeLabel} · vs yesterday`}
-        meta={loading ? undefined : heroMeta}
+        meta={heroMeta}
         loading={loading}
-        sparkline={salesTrend7d}
+        unavailable={salesUnavailable}
+        sparkline={salesUnavailable ? undefined : salesTrend7d}
         trend={
-          ownerSalesTrendLabel
-            ? {
+          salesUnavailable || !ownerSalesTrendLabel
+            ? undefined
+            : {
                 label: ownerSalesTrendLabel,
                 direction: ownerSalesTrendPositive ? "up" : "down",
               }
-            : undefined
         }
         secondary={[
           {
             key: "gp",
             label: "Gross Profit · Last 30 Days",
             value: hasMarginData ? formatMoney(ownerGrossProfit30d) : "—",
+            unavailable: marginUnavailable,
             meta:
               hasMarginData && marginPct != null
                 ? `30-day margin ${marginPct.toFixed(1)}%`
@@ -247,6 +112,7 @@ export function OwnerDashboard({ data, catalog, layout }: Props) {
             value: financial
               ? formatMoney(financial.receivablesOutstanding)
               : "—",
+            unavailable: financialUnavailable,
             meta: financial
               ? `${financial.receivablesCustomerCount} customers`
               : undefined,
@@ -255,6 +121,7 @@ export function OwnerDashboard({ data, catalog, layout }: Props) {
             key: "payables",
             label: "Outstanding Payables",
             value: financial ? formatMoney(financial.payablesOutstanding) : "—",
+            unavailable: financialUnavailable,
             meta: financial
               ? `${financial.payablesSupplierCount} suppliers`
               : undefined,
@@ -264,21 +131,24 @@ export function OwnerDashboard({ data, catalog, layout }: Props) {
         ]}
       />
 
-      <AttentionTicker
-        items={tickerItems}
-        loading={kpisLoading}
-        allClearText={`No alerts — ${scopePhrase} looks healthy`}
+      <DashboardFixedGrid
+        role="owner"
+        data={data}
+        refreshKey={refreshKey}
+        counterLive={counterLive}
       />
 
-      <DashboardCanvas
-        catalog={catalog}
-        layout={layout.layout}
-        data={data}
-        isEditing={layout.isEditing}
-        loading={layout.loading}
-        onLayoutChange={layout.updateLayout}
-        onRemoveWidget={layout.removeWidget}
-      />
+      <div className={css.optionalWidgets}>
+        <DashboardCanvas
+          catalog={catalog}
+          layout={layout.layout}
+          data={data}
+          isEditing={layout.isEditing}
+          loading={layout.loading}
+          onLayoutChange={layout.updateLayout}
+          onRemoveWidget={layout.removeWidget}
+        />
+      </div>
     </>
   );
 }

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiJson } from "@/lib/auth-client";
 import type { DashboardRole } from "../lib/dashboard-role";
+import { isFixedWidget } from "../lib/fixed-layout";
 import { DEFAULT_LAYOUTS } from "../widgets/default-layouts";
 import type { WidgetDef, WidgetInstance } from "../widgets/types";
 
@@ -39,7 +40,9 @@ export function useDashboardLayout(role: DashboardRole, catalog: WidgetDef[]) {
     void apiJson<SavedLayoutResponse>("/dashboard/layout")
       .then((res) => {
         if (cancelled) return;
-        const widgets = res?.widgets?.filter((w) => catalogKeys.has(w.key));
+        const widgets = res?.widgets?.filter(
+          (w) => catalogKeys.has(w.key) && !isFixedWidget(role, w.key),
+        );
         const resolved = widgets && widgets.length > 0 ? widgets : defaultLayout;
         setSavedLayout(resolved);
         setDraftLayout(resolved);
@@ -67,6 +70,7 @@ export function useDashboardLayout(role: DashboardRole, catalog: WidgetDef[]) {
       if (!def) return;
       setDraftLayout((prev) => {
         if (prev.some((w) => w.key === key)) return prev;
+      if (isFixedWidget(role, key)) return prev;
         // Append below the tallest existing widget — height comes from each
         // widget's fixed registry size, never from stored state.
         const y = prev.reduce((max, w) => {
@@ -77,7 +81,7 @@ export function useDashboardLayout(role: DashboardRole, catalog: WidgetDef[]) {
         return [...prev, { key, x: 0, y }];
       });
     },
-    [catalog],
+    [catalog, role],
   );
 
   const removeWidget = useCallback((key: string) => {

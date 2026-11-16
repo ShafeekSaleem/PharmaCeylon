@@ -1085,6 +1085,7 @@ export function useDashboardData() {
       pendingApprovalListFull: pendingApproval,
       /** Overdue POs, unsliced-ish (top 6) — used for AI-insight example chips. */
       overduePosListFull: overduePos.slice(0, 6),
+      purchaseOrders,
       reorderCount: reorder?.items.length ?? 0,
       topReorder: reorder?.items.slice(0, 5) ?? [],
       /** Unsliced — for panels that paginate instead of truncating. */
