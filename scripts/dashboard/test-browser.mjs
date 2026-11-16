@@ -270,9 +270,12 @@ async function seed() {
     });
   return { tenantId, main, other, orders };
 }
-async function queueData(page, filter = "all", category = "") {
+async function queueData(page, filter = "all", category = "", pageSize) {
+  const params = new URLSearchParams({ filter, page: "1" });
+  if (category) params.set("category", category);
+  if (pageSize) params.set("pageSize", String(pageSize));
   const response = await page.request.get(
-    `http://localhost:3000/api/v1/dashboard/work?filter=${filter}&page=1${category ? "&category=" + category : ""}`,
+    `http://localhost:3000/api/v1/dashboard/work?${params}`,
     { headers: { "x-branch-id": fixture.main.id } },
   );
   assert.equal(response.status(), 200, await response.text());
@@ -361,9 +364,14 @@ try {
         }),
       })
       .first();
-    const data = await queueData(page);
+    const workPageSize = v6Queue ? 8 : 6;
+    const data = await queueData(
+      page,
+      "all",
+      "",
+      v6Queue ? workPageSize : undefined,
+    );
     assert.ok(data.total > 0, role + " needs seeded work");
-  const workPageSize = v6Queue ? 8 : 6;
   async function clickQueueFilter(label) {
     const tab = queue.getByRole("tab", { name: new RegExp("^" + label) });
     if (await tab.count()) {
@@ -395,7 +403,7 @@ try {
       if (v6Queue) {
         await clickQueueFilter(label);
         await page.waitForTimeout(400);
-        d = await queueData(page, filter);
+        d = await queueData(page, filter, "", v6Queue ? workPageSize : undefined);
       } else {
         const response = page.waitForResponse(
           (r) =>
@@ -418,13 +426,15 @@ try {
       assert.equal(d.total, d.counts[filter], role + " " + filter);
     }
     let categoryTested = false;
-    if (data.total > workPageSize) {
+    const listPageSize = data.pageSize ?? workPageSize;
+    const hasSecondPage = Math.ceil(data.total / listPageSize) > 1;
+    if (hasSecondPage) {
       if (v6Queue) {
         await queue.getByRole("button", { name: "Next", exact: true }).click();
         await page.waitForTimeout(500);
         const second = await page.request
           .get(
-            `http://localhost:3000/api/v1/dashboard/work?filter=all&page=2&pageSize=${workPageSize}`,
+            `http://localhost:3000/api/v1/dashboard/work?filter=all&page=2&pageSize=${listPageSize}`,
             { headers: { "x-branch-id": fixture.main.id } },
           )
           .then((r) => r.json());
@@ -640,7 +650,7 @@ try {
       total: data.total,
       counts: data.counts,
       filters: true,
-      pagination: data.total > workPageSize,
+      pagination: hasSecondPage,
       category: v6Queue ? false : categoryTested,
       desktopOverflow: false,
       mobileOverflow: false,
