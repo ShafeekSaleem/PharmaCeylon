@@ -427,33 +427,37 @@ try {
     }
     let stockChipTested = false;
     if (v6Queue) {
+      const lowApi = await page.request
+        .get(
+          "http://localhost:3000/api/v1/inventory/stock-by-product?ledgerOnly=1&status=low&take=200",
+          { headers: { "x-branch-id": fixture.main.id } },
+        )
+        .then((r) => r.json());
+      const lowCount = lowApi.items?.length ?? 0;
       const lowTab = queue.getByRole("tab", { name: /^Low stock/ });
-      if (await lowTab.count()) {
+      if (lowCount > 0 && (await lowTab.count())) {
         stockChipTested = true;
-        const countRaw = (
-          await lowTab.locator("span").last().textContent()
-        )?.trim();
-        const chipCount =
-          countRaw === "200+" ? 200 : Number.parseInt(countRaw ?? "0", 10);
-        assert.ok(chipCount > 0, role + " low stock chip count");
+        const expectedChip = lowCount >= 200 ? "200+" : String(lowCount);
+        assert.match(
+          (await lowTab.innerText()).replace(/\s+/g, " "),
+          new RegExp(expectedChip.replace("+", "\\+") + "\\s*$"),
+          role + " low stock chip matches API list",
+        );
         await lowTab.click();
         await page.waitForTimeout(600);
-        const rows = queue.locator("div").filter({
-          has: page.getByText(/ available$/),
-        });
+        const rows = queue.getByRole("link", { name: /^Open$/ });
         const pageSize = workPageSize;
-        const expectedOnPage = Math.min(chipCount, pageSize);
         assert.equal(
           await rows.count(),
-          expectedOnPage,
+          Math.min(lowCount, pageSize),
           role + " low stock first page",
         );
-        if (chipCount > pageSize) {
+        if (lowCount > pageSize) {
           await queue.getByRole("button", { name: /^Next/ }).click();
           await page.waitForTimeout(400);
           assert.equal(
             await rows.count(),
-            chipCount - pageSize,
+            lowCount - pageSize,
             role + " low stock second page",
           );
           await queue.getByRole("button", { name: /^Previous/ }).click();
