@@ -215,6 +215,8 @@ export function verifyStoreBackup(
   key: string;
   facts: ReturnType<typeof readStoreFacts>;
   backupTakenAt: number;
+  /** False when nothing inside the copy bounds the time (see `authoritativeBackupTakenAt`). */
+  backupTimeVerified: boolean;
 } {
   const file = join(backup.dir, "pos.db");
   if (sha256File(file) !== backup.manifest.sha256)
@@ -259,10 +261,12 @@ export function verifyStoreBackup(
         "BACKUP_NEWER_THAN_APP",
         "This backup was taken by a newer version of the app.",
       );
+    const taken = authoritativeBackupTakenAt(db, backup.manifest.takenAt);
     return {
       key,
       facts,
-      backupTakenAt: authoritativeBackupTakenAt(db, backup.manifest.takenAt),
+      backupTakenAt: taken.at,
+      backupTimeVerified: taken.verified,
     };
   } finally {
     db.close();
@@ -286,6 +290,8 @@ export function applyRestoreGuards(
     restoreId: string;
     backupId: string;
     backupTakenAt: number;
+    /** Omitted: verified (a time bounded by the copy itself). */
+    backupTimeVerified?: boolean;
     restoredAt: number;
     setAsidePath: string | null;
   },
@@ -330,8 +336,9 @@ export function applyRestoreGuards(
       db.prepare(
         `INSERT INTO store_restore (restore_id, enrollment_id, backup_id, backup_taken_at, restored_at,
            journal_head_sequence, journal_head_hash, accepted_sequence, accepted_hash, outage_active,
-           removed_grant_version, set_aside_path, report_envelope, status, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'reporting', ?)`,
+           removed_grant_version, set_aside_path, report_envelope, status, updated_at,
+           backup_time_verified)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'reporting', ?, ?)`,
       ).run(
         input.restoreId,
         enrollmentId,
@@ -347,6 +354,7 @@ export function applyRestoreGuards(
         input.setAsidePath,
         JSON.stringify(key.sign(report, "command")),
         at,
+        input.backupTimeVerified === false ? 0 : 1,
       );
       return {
         restoreId: input.restoreId,
@@ -480,11 +488,11 @@ export function restoreStoreBackup(options: {
       "STORE_IN_USE",
       "This computer's store opens and holds a counter. A backup is restored only over a store that is broken or empty.",
     );
-  const { key: backupKey, backupTakenAt } = verifyStoreBackup(
-    backup,
-    protector,
-    options.migrations,
-  );
+  const {
+    key: backupKey,
+    backupTakenAt,
+    backupTimeVerified,
+  } = verifyStoreBackup(backup, protector, options.migrations);
 
   const restoredAt = now();
   const restoreId = randomUUID();
@@ -520,6 +528,7 @@ export function restoreStoreBackup(options: {
       restoreId,
       backupId: backup.manifest.backupId,
       backupTakenAt,
+      backupTimeVerified,
       restoredAt,
       setAsidePath: existsSync(join(dataDir, "pos.db"))
         ? relative(dataDir, join(dataDir, intent.setAside))
