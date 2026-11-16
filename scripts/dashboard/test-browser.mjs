@@ -376,8 +376,12 @@ try {
   }
     const filterCases = v6Queue
       ? [
-          ["approvals", "Needs my decision"],
-          ["counter", "At the counter"],
+          ...((data.counts?.approvals ?? 0) > 0
+            ? [["approvals", "Needs my decision"]]
+            : []),
+          ...((data.counts?.counter ?? 0) > 0
+            ? [["counter", "At the counter"]]
+            : []),
           ["all", "All"],
         ]
       : [
