@@ -254,6 +254,56 @@ describe("the backup schedule", () => {
     expect(await schedule.tick()).toBeNull();
     expect(report).toHaveBeenCalled();
     expect(listStoreBackups(backupsDir)).toEqual([]);
+    // Counted, so the readiness checks can say backups are failing.
+    expect(schedule.status()).toEqual({
+      lastBackupAt: null,
+      failures: 2,
+      failingSince: expect.any(Number),
+    });
+  });
+
+  it("clears the failures once a backup succeeds again, and remembers backups from an earlier run", async () => {
+    seedDevice(local.db);
+    const first = backup(NOW - 60_000);
+    const key = readFileSync(local.keyPath);
+    rmSync(local.keyPath);
+    const report = jest.fn();
+    const schedule = startStoreBackups({
+      db: local.db,
+      keyPath: local.keyPath,
+      backupsDir,
+      protector: thisUser,
+      appVersion: "1",
+      runCopy: copyInThisThread,
+      report,
+      now: () => NOW,
+      timer: false,
+    });
+    await schedule.idle();
+    expect(schedule.status()).toEqual({
+      lastBackupAt: first.manifest.takenAt,
+      failures: 1,
+      failingSince: NOW,
+    });
+    writeFileSync(local.keyPath, key);
+    expect((await schedule.tick())?.manifest.takenAt).toBe(NOW);
+    expect(schedule.status()).toEqual({
+      lastBackupAt: NOW,
+      failures: 0,
+      failingSince: null,
+    });
+  });
+
+  it("fails closed, saying so, on a store object it cannot copy yet", () => {
+    seedDevice(local.db);
+    local.db.exec("CREATE VIRTUAL TABLE note_search USING fts5(body)");
+    expect(() => backup()).toThrow(
+      expect.objectContaining({
+        code: "STORE_UNSUPPORTED",
+        message: expect.stringContaining('table "note_search"'),
+      }),
+    );
+    expect(readdirSync(backupsDir)).toEqual([]);
   });
 
   it("reports a store it cannot even read, at start and on every check, and never throws", async () => {

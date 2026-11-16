@@ -81,7 +81,11 @@ export type StoreBackup = { dir: string; manifest: StoreBackupManifest };
 
 export class StoreBackupError extends Error {
   constructor(
-    readonly code: "KEY_UNREADABLE" | "BACKUP_DAMAGED" | "BACKUP_UNREADABLE",
+    readonly code:
+      | "KEY_UNREADABLE"
+      | "BACKUP_DAMAGED"
+      | "BACKUP_UNREADABLE"
+      | "STORE_UNSUPPORTED",
     message: string,
     options?: { cause?: unknown },
   ) {
@@ -322,16 +326,22 @@ export type BackupCopyResult = {
   bytes: number;
 };
 
-/** Rewrites a `CREATE ...` statement from `sqlite_master` to create the object in `schema`. */
-function inSchema(sql: string, schema: string): string {
+type SchemaObject = { type: string; name: string; sql: string };
+
+/**
+ * Rewrites a `CREATE ...` statement from `sqlite_master` to create the object in `schema`. Fails
+ * closed on anything else (a virtual or FTS table, say): a migration that adds one must teach the
+ * backup to copy it, and until then every backup fails with this, never with a copy missing it.
+ */
+function inSchema(object: SchemaObject, schema: string): string {
   const created =
-    /^CREATE\s+(TABLE|UNIQUE\s+INDEX|INDEX|TRIGGER|VIEW)\s+/i.exec(sql);
+    /^CREATE\s+(TABLE|UNIQUE\s+INDEX|INDEX|TRIGGER|VIEW)\s+/i.exec(object.sql);
   if (!created)
     throw new StoreBackupError(
-      "BACKUP_DAMAGED",
-      "The store holds an object the backup cannot copy.",
+      "STORE_UNSUPPORTED",
+      `The store holds an object backups cannot copy yet (${object.type} "${object.name}"): ${object.sql.split("(")[0]!.trim()}.`,
     );
-  return `${created[0]}${schema}.${sql.slice(created[0].length)}`;
+  return `${created[0]}${schema}.${object.sql.slice(created[0].length)}`;
 }
 
 const quoteName = (name: string) => `"${name.replace(/"/g, '""')}"`;
@@ -375,10 +385,9 @@ export function writeBackupCopy(
         .prepare(
           "SELECT type, name, sql FROM main.sqlite_master WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%' ORDER BY rowid",
         )
-        .all() as { type: string; name: string; sql: string }[];
+        .all() as SchemaObject[];
       const tables = objects.filter((o) => o.type === "table");
-      for (const table of tables)
-        source.exec(inSchema(table.sql, "backup_copy"));
+      for (const table of tables) source.exec(inSchema(table, "backup_copy"));
       for (const table of tables)
         if (table.name !== "staff_credential")
           source.exec(
@@ -392,7 +401,7 @@ export function writeBackupCopy(
       for (const type of ["index", "trigger", "view"])
         for (const object of objects)
           if (object.type === type)
-            source.exec(inSchema(object.sql, "backup_copy"));
+            source.exec(inSchema(object, "backup_copy"));
       const userVersion = source.pragma("main.user_version", {
         simple: true,
       }) as number;
@@ -535,7 +544,8 @@ function fromWorkerFailure(failure: WorkerFailure): Error {
     failure.name === "StoreBackupError" &&
     (failure.code === "KEY_UNREADABLE" ||
       failure.code === "BACKUP_DAMAGED" ||
-      failure.code === "BACKUP_UNREADABLE")
+      failure.code === "BACKUP_UNREADABLE" ||
+      failure.code === "STORE_UNSUPPORTED")
   )
     return new StoreBackupError(failure.code, failure.message);
   return Object.assign(new Error(failure.message), {
@@ -713,6 +723,15 @@ function journalFingerprint(facts: ReturnType<typeof readStoreFacts>): string {
   ]);
 }
 
+/** How backups are going, for the readiness checks (a failing disk must not look healthy). */
+export type StoreBackupStatus = {
+  /** The newest finished backup on this computer, from this run or an earlier one. */
+  lastBackupAt: number | null;
+  /** Backups (or checks whether one is due) that failed in a row since the last good one. */
+  failures: number;
+  failingSince: number | null;
+};
+
 export type StoreBackupSchedule = {
   /**
    * One check: starts a backup if one is due and none is running, and resolves with it once it is
@@ -723,6 +742,7 @@ export type StoreBackupSchedule = {
   idle(): Promise<StoreBackup | null>;
   /** Stops the timer and abandons a backup in progress (its partial folder is pruned later). */
   stop(): void;
+  status(): StoreBackupStatus;
 };
 
 /**
@@ -755,6 +775,22 @@ export function startStoreBackups(options: {
     cancel(): void;
   } | null = null;
   let stopped = false;
+  const status: StoreBackupStatus = {
+    lastBackupAt: null,
+    failures: 0,
+    failingSince: null,
+  };
+  try {
+    status.lastBackupAt =
+      listStoreBackups(options.backupsDir)[0]?.manifest.takenAt ?? null;
+  } catch {
+    // An unreadable backups folder shows up as the first backup failing.
+  }
+  const failed = (error: unknown) => {
+    status.failures += 1;
+    status.failingSince ??= now();
+    options.report(error);
+  };
 
   const totalChanges = () =>
     (options.db.prepare("SELECT total_changes() AS n").get() as { n: number })
@@ -777,6 +813,9 @@ export function startStoreBackups(options: {
           fingerprint: journalFingerprint(backup.manifest),
           changes,
         };
+        status.lastBackupAt = backup.manifest.takenAt;
+        status.failures = 0;
+        status.failingSince = null;
         try {
           pruneStoreBackups(options.backupsDir, now());
         } catch (error) {
@@ -786,7 +825,7 @@ export function startStoreBackups(options: {
         return backup;
       },
       (error: unknown) => {
-        if (!stopped) options.report(error);
+        if (!stopped) failed(error);
         return null;
       },
     );
@@ -819,7 +858,7 @@ export function startStoreBackups(options: {
     } catch (error) {
       // A failing disk is what backups exist for: report it, never throw out of a timer or into
       // start-up.
-      options.report(error);
+      failed(error);
       return Promise.resolve(null);
     }
     return reason ? take(reason) : Promise.resolve(null);
@@ -839,5 +878,6 @@ export function startStoreBackups(options: {
       if (interval) clearInterval(interval);
       running?.cancel();
     },
+    status: () => ({ ...status }),
   };
 }

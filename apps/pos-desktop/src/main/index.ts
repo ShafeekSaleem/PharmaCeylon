@@ -10,7 +10,12 @@ import { migrations } from "./db/migrations";
 import { registerIpcHandlers } from "./ipc/handle";
 import type { LocalStore } from "./local-store";
 import { openStoreAtStartup, type RestorePrompt } from "./backup/startup-restore";
-import { startStoreBackups, workerCopyRunner, type StoreBackup } from "./backup/store-backup";
+import {
+  startStoreBackups,
+  workerCopyRunner,
+  type StoreBackup,
+  type StoreBackupSchedule,
+} from "./backup/store-backup";
 import { createLogger } from "./logging/logger";
 import { printTestReceipt } from "./printing/test-receipt";
 import { printHtml } from "./printing/print-html";
@@ -120,6 +125,7 @@ const restorePrompt: RestorePrompt = {
 
 let mainWindow: BrowserWindow | null = null;
 let store: LocalStore | null = null;
+let storeBackups: StoreBackupSchedule | null = null;
 let terminal: TerminalService | null = null;
 let checkout: CheckoutService | null = null;
 let dispensing: DispensingService | null = null;
@@ -245,6 +251,7 @@ function registerIpc(schemaVersion: number, logger: ReturnType<typeof createLogg
             ...unconfirmedFacts(),
             ...offlineAuthorityFacts(),
             ...journalSyncFacts(),
+            ...(storeBackups ? { storeBackups: storeBackups.status() } : {}),
           },
           new Date(),
         ),
@@ -656,6 +663,7 @@ async function start(): Promise<void> {
     runCopy: workerCopyRunner(join(__dirname, "backup-worker.js")),
     report: (error) => logger.warn("store_backup.failed", { error }),
   });
+  storeBackups = backups;
   app.once("before-quit", () => backups.stop());
 
   logger.info("startup.ready", { appVersion: app.getVersion(), schemaVersion: store.schemaVersion });

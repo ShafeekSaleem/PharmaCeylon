@@ -297,3 +297,36 @@ describe("synchronisation readiness (P5 #51)", () => {
     expect(sync({ issue: { code: "JOURNAL_MISMATCH", message: "Contact support.", sequence: 3, at: "" } }).status).toBe("failed");
   });
 });
+
+describe("store backup readiness (#166)", () => {
+  const now = new Date(2026, 10, 10, 14, 32);
+  const t = now.getTime();
+  const active = {
+    databaseOpen: true, schemaVersion: 1, latestSchemaVersion: 1, credentialStoreAvailable: true,
+    enrollmentStatus: "active" as const,
+  };
+  const row = (storeBackups: { lastBackupAt: number | null; failures: number; failingSince: number | null }, over = {}) =>
+    buildReadinessReport({ ...active, ...over, storeBackups }, now).checks.find((c) => c.id === "backups");
+
+  it("shows the last backup, and nothing before the counter is enrolled", () => {
+    expect(row({ lastBackupAt: t - 5 * 60_000, failures: 0, failingSince: null })).toEqual({
+      id: "backups",
+      label: "Store backups",
+      status: "ok",
+      detail: "Last backup 14:27 today. Backups stay on this computer.",
+    });
+    expect(row({ lastBackupAt: null, failures: 0, failingSince: null })?.detail).toBe("The first backup is being taken.");
+    expect(row({ lastBackupAt: null, failures: 0, failingSince: null }, { enrollmentStatus: null })).toBeUndefined();
+    expect(buildReadinessReport(active, now).checks.find((c) => c.id === "backups")).toBeUndefined();
+  });
+
+  it("warns once backups fail repeatedly, so a counter without backups never looks healthy", () => {
+    // One failure may be a moment's contention; the next check retries it.
+    expect(row({ lastBackupAt: t - 60 * 60_000, failures: 1, failingSince: t - 5 * 60_000 })?.status).toBe("ok");
+    expect(row({ lastBackupAt: t - 60 * 60_000, failures: 3, failingSince: t - 15 * 60_000 })).toMatchObject({
+      status: "warning",
+      detail: "The last 3 backups failed (since 14:17 today). Last backup 13:32 today. Contact support: the app log says why.",
+    });
+    expect(row({ lastBackupAt: null, failures: 2, failingSince: t })?.detail).toContain("There is no backup on this computer.");
+  });
+});
