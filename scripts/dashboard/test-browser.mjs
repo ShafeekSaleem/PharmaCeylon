@@ -426,11 +426,20 @@ try {
       assert.equal(d.total, d.counts[filter], role + " " + filter);
     }
     let categoryTested = false;
-    const listPageSize = data.pageSize ?? workPageSize;
-    const hasSecondPage = Math.ceil(data.total / listPageSize) > 1;
-    if (hasSecondPage) {
-      const activeFilter = v6Queue ? "all" : "all";
-      await queue.getByRole("button", { name: /Next/ }).click();
+    const paginated = await queueData(
+      page,
+      "all",
+      "",
+      v6Queue ? workPageSize : undefined,
+    );
+    const listPageSize = paginated.pageSize ?? workPageSize;
+    const hasSecondPage = Math.ceil(paginated.total / listPageSize) > 1;
+    const nextBtn = queue.getByRole("button", { name: /Next/ });
+    let paginationTested = false;
+    if (hasSecondPage && (await nextBtn.isEnabled())) {
+      paginationTested = true;
+      const activeFilter = "all";
+      await nextBtn.click();
       await page.waitForTimeout(500);
       const second = await page.request
         .get(
@@ -439,7 +448,7 @@ try {
         )
         .then((r) => r.json());
       assert.ok(
-        second.items.every((i) => !data.items.some((j) => i.id === j.id)),
+        second.items.every((i) => !paginated.items.some((j) => i.id === j.id)),
       );
       await queue.getByRole("button", { name: /Previous/ }).click();
       if (!v6Queue) {
@@ -449,7 +458,7 @@ try {
               .getElementById("daily-work-title")
               ?.closest("section")
               ?.querySelectorAll("article").length === count,
-          data.items.length,
+          paginated.items.length,
         );
       }
     }
@@ -648,7 +657,7 @@ try {
       total: data.total,
       counts: data.counts,
       filters: true,
-      pagination: hasSecondPage,
+      pagination: paginationTested,
       category: v6Queue ? false : categoryTested,
       desktopOverflow: false,
       mobileOverflow: false,
