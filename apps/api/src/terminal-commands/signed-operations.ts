@@ -557,6 +557,7 @@ export class SignedOperations {
               cashPayoutId: body.cashPayoutId,
               approvalId: approvalId(context),
               supplierPaymentId: done.paymentId,
+              supplierPaymentNo: done.paymentNo,
               amountMinor: minor(done.row.amount.toFixed(2)),
               effect: done.changed ? "applied" : "already_applied",
             },

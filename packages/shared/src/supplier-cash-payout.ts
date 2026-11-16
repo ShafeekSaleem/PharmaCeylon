@@ -37,6 +37,8 @@ export type SupplierCashPayoutView = Readonly<{
   executor: SupplierCashPayoutPerson;
   executedAt: string | null;
   supplierPaymentId: string | null;
+  /** Ledger number of the payment (`PAY-00001`); null until executed. */
+  supplierPaymentNo: string | null;
   cancelledBy: SupplierCashPayoutPerson;
   cancelledAt: string | null;
 }>;
@@ -61,6 +63,8 @@ export type SupplierCashPayoutExecuted = Readonly<{
   payoutNumber: string;
   amountMinor: number;
   supplierPaymentId: string;
+  /** Human-readable ledger number of the payment, for the receipt. */
+  supplierPaymentNo: string;
   alreadyApplied: boolean;
   requestedBy: string | null;
   approvedBy: string | null;
