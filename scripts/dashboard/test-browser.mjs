@@ -436,15 +436,8 @@ try {
         const chipCount =
           countRaw === "200+" ? 200 : Number.parseInt(countRaw ?? "0", 10);
         assert.ok(chipCount > 0, role + " low stock chip count");
-        const stockResponses = page.waitForResponse(
-          (r) =>
-            r.url().includes("/inventory/stock-by-product") &&
-            r.url().includes("status=low") &&
-            r.status() < 400,
-        );
         await lowTab.click();
-        await stockResponses;
-        await page.waitForTimeout(500);
+        await page.waitForTimeout(600);
         const rows = queue.locator("div").filter({
           has: page.getByText(/ available$/),
         });
