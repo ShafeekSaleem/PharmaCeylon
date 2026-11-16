@@ -600,16 +600,25 @@ try {
     }
     if (role === "manager") {
       await page.setViewportSize({ width: 1440, height: 1100 });
-      const approvals = page.waitForResponse(
-        (r) =>
-          r.url().includes("/dashboard/work?") &&
-          new URL(r.url()).searchParams.get("filter") === "approvals",
-      );
-      await clickQueueFilter("Needs my decision");
-      await approvals;
-      await queue
-        .getByRole("link", { name: "Review order: PO-QA-0001", exact: true })
-        .click();
+      if (v6Queue) {
+        await clickQueueFilter("Needs my decision");
+        await page.waitForTimeout(400);
+        await queue
+          .getByRole("link", { name: /^Review order/ })
+          .first()
+          .click();
+      } else {
+        const approvals = page.waitForResponse(
+          (r) =>
+            r.url().includes("/dashboard/work?") &&
+            new URL(r.url()).searchParams.get("filter") === "approvals",
+        );
+        await clickQueueFilter("Needs my decision");
+        await approvals;
+        await queue
+          .getByRole("link", { name: "Review order: PO-QA-0001", exact: true })
+          .click();
+      }
       const dialog = page.getByRole("dialog").filter({
         has: page.getByRole("heading", { name: "PO-QA-0001", exact: true }),
       });
