@@ -376,9 +376,9 @@ try {
   }
     const filterCases = v6Queue
       ? [
-          ["all", "All"],
           ["approvals", "Needs my decision"],
           ["counter", "At the counter"],
+          ["all", "All"],
         ]
       : [
           ["mine", "Assigned to me"],
