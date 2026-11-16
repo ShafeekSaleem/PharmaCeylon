@@ -233,6 +233,8 @@ export const MUTATION_ACTIONS = Object.freeze({
   // remove a device/staff identity and move no stock, cash or grant.
   "POST /api/v1/terminals/attendance-proofs": "identity",
   "POST /api/v1/terminals/counters": "management",
+  "PATCH /api/v1/terminals/counters/:registerId": "management",
+  "DELETE /api/v1/terminals/counters/:registerId": "management",
   "POST /api/v1/terminals/devices/:terminalId/retire": "identity",
   "POST /api/v1/terminals/enrollments": "identity",
   "POST /api/v1/terminals/enrollments/:enrollmentId/revoke": "identity",
