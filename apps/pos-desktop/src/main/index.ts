@@ -10,7 +10,7 @@ import { migrations } from "./db/migrations";
 import { registerIpcHandlers } from "./ipc/handle";
 import type { LocalStore } from "./local-store";
 import { openStoreAtStartup, type RestorePrompt } from "./backup/startup-restore";
-import { startStoreBackups, type StoreBackup } from "./backup/store-backup";
+import { startStoreBackups, workerCopyRunner, type StoreBackup } from "./backup/store-backup";
 import { createLogger } from "./logging/logger";
 import { printTestReceipt } from "./printing/test-receipt";
 import { printHtml } from "./printing/print-html";
@@ -652,6 +652,8 @@ async function start(): Promise<void> {
     backupsDir,
     protector,
     appVersion: app.getVersion(),
+    // #166: the copy is written in a worker thread, never on the process checkout runs on.
+    runCopy: workerCopyRunner(join(__dirname, "backup-worker.js")),
     report: (error) => logger.warn("store_backup.failed", { error }),
   });
   app.once("before-quit", () => backups.stop());

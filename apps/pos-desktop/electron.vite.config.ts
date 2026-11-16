@@ -15,7 +15,14 @@ export default defineConfig({
     resolve: { alias: shared },
     build: {
       outDir: "dist/main",
-      lib: { entry: resolve(__dirname, "src/main/index.ts"), formats: ["cjs"] },
+      lib: {
+        // #166: store backups copy in a worker thread, loaded from its own file beside index.js.
+        entry: {
+          index: resolve(__dirname, "src/main/index.ts"),
+          "backup-worker": resolve(__dirname, "src/main/backup/backup-worker.ts"),
+        },
+        formats: ["cjs"],
+      },
     },
   },
   preload: {

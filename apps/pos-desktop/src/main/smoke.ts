@@ -2,6 +2,7 @@ import { app } from "electron";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { ipcContract } from "../shared/ipc-contract";
+import { openCipherFile, readWrappedKey, takeStoreBackupOffThread, workerCopyRunner } from "./backup/store-backup";
 import { openEncryptedDatabase } from "./db/database";
 import type { SecretProtector } from "./db/key-store";
 import { migrations } from "./db/migrations";
@@ -61,6 +62,26 @@ export async function runSmokeTest(opts: {
       wrongKeyRejected = true;
     }
     check("wrong key is rejected", wrongKeyRejected);
+
+    // #166: the native binding also loads in the worker thread backups copy in, and the copy
+    // opens under its own wrapped key with the store's rows in it.
+    const backup = await takeStoreBackupOffThread({
+      storePath: store.databasePath,
+      keyPath: store.keyPath,
+      backupsDir: join(opts.dataDir, "..", "backups"),
+      protector: opts.protector,
+      appVersion: app.getVersion(),
+      reason: "startup",
+      runCopy: workerCopyRunner(join(__dirname, "backup-worker.js")),
+    }).result;
+    const copy = openCipherFile(
+      join(backup.dir, "pos.db"),
+      readWrappedKey(join(backup.dir, "pos.db.key"), opts.protector),
+      { readonly: true },
+    );
+    const copied = copy.prepare("SELECT value FROM app_meta WHERE key = 'smoke'").get() as { value: string } | undefined;
+    copy.close();
+    check("store backup is written in a worker thread", copied?.value === MARKER, `${backup.manifest.bytes} bytes`);
 
     opts.registerIpc(store.schemaVersion);
     const window = createMainWindow({ devServerUrl: null, show: false });

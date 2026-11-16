@@ -1,4 +1,11 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { migrations } from "../db/migrations";
@@ -7,6 +14,8 @@ import { openLocalStore, type LocalStore } from "../local-store";
 import { installOfflineAuthority } from "../terminal/offline-authority";
 import {
   authority,
+  copyInThisThread,
+  copyInWorker,
   expected,
   identity,
   NOW,
@@ -27,6 +36,7 @@ import {
   startStoreBackups,
   StoreBackupError,
   takeStoreBackup,
+  takeStoreBackupOffThread,
   type StoreBackup,
 } from "./store-backup";
 
@@ -179,7 +189,7 @@ describe("keeping backups", () => {
 });
 
 describe("the backup schedule", () => {
-  it("backs up a counter's store at start, after journal changes, and hourly after other writes", () => {
+  it("backs up a counter's store at start, after journal changes, and hourly after other writes", async () => {
     let clock = NOW;
     const report = jest.fn();
     // No counter yet: nothing is backed up, so an empty store never crowds out real backups.
@@ -189,16 +199,18 @@ describe("the backup schedule", () => {
       backupsDir,
       protector: thisUser,
       appVersion: "1",
+      runCopy: copyInThisThread,
       report,
       now: () => clock,
       timer: false,
     });
+    await schedule.idle();
     expect(listStoreBackups(backupsDir)).toHaveLength(0);
 
     seedDevice(local.db);
-    expect(schedule.tick()?.manifest.reason).toBe("startup");
+    expect((await schedule.tick())?.manifest.reason).toBe("startup");
     clock += BACKUP_CHECK_MS;
-    expect(schedule.tick()).toBeNull();
+    expect(await schedule.tick()).toBeNull();
 
     const installed = authority(1, clock - 60_000);
     expect(installOfflineAuthority(local.db, installed, expected(clock))).toBe(
@@ -206,25 +218,25 @@ describe("the backup schedule", () => {
     );
     sellOffline(local.db, installed, 1, clock);
     clock += BACKUP_CHECK_MS;
-    expect(schedule.tick()?.manifest.reason).toBe("journal_changed");
+    expect((await schedule.tick())?.manifest.reason).toBe("journal_changed");
 
     local.db
       .prepare("UPDATE device_identity SET counter_label = 'Till 2'")
       .run();
     clock += BACKUP_CHECK_MS;
-    expect(schedule.tick()).toBeNull();
+    expect(await schedule.tick()).toBeNull();
     clock += BACKUP_MAX_AGE_MS;
-    expect(schedule.tick()?.manifest).toMatchObject({
+    expect((await schedule.tick())?.manifest).toMatchObject({
       reason: "scheduled",
       counterLabel: "Till 2",
     });
     clock += BACKUP_MAX_AGE_MS;
-    expect(schedule.tick()).toBeNull();
+    expect(await schedule.tick()).toBeNull();
     expect(report).not.toHaveBeenCalled();
     expect(listStoreBackups(backupsDir)).toHaveLength(3);
   });
 
-  it("reports a failed backup and keeps the till running", () => {
+  it("reports a failed backup and keeps the till running", async () => {
     seedDevice(local.db);
     const report = jest.fn();
     rmSync(local.keyPath);
@@ -234,15 +246,17 @@ describe("the backup schedule", () => {
       backupsDir,
       protector: thisUser,
       appVersion: "1",
+      runCopy: copyInThisThread,
       report,
       timer: false,
     });
-    expect(schedule.tick()).toBeNull();
+    expect(await schedule.idle()).toBeNull();
+    expect(await schedule.tick()).toBeNull();
     expect(report).toHaveBeenCalled();
     expect(listStoreBackups(backupsDir)).toEqual([]);
   });
 
-  it("reports a store it cannot even read, at start and on every check, and never throws", () => {
+  it("reports a store it cannot even read, at start and on every check, and never throws", async () => {
     seedDevice(local.db);
     const report = jest.fn();
     // A failing disk: reading what the store holds throws before any backup starts.
@@ -261,13 +275,174 @@ describe("the backup schedule", () => {
         backupsDir,
         protector: thisUser,
         appVersion: "1",
+        runCopy: copyInThisThread,
         report,
         timer: false,
       });
     }).not.toThrow();
     expect(report).toHaveBeenCalledTimes(1);
-    expect(schedule!.tick()).toBeNull();
+    expect(await schedule!.tick()).toBeNull();
     expect(report).toHaveBeenCalledTimes(2);
     expect(report.mock.calls[1]![0]).toMatchObject({ code: "SQLITE_IOERR" });
+  });
+});
+
+describe("a backup off the main process (#166)", () => {
+  // A worker thread starts by loading TypeScript through tsx here; the app loads built JS.
+  jest.setTimeout(60_000);
+
+  const offThread = (runCopy = copyInWorker) =>
+    takeStoreBackupOffThread({
+      storePath: local.databasePath,
+      keyPath: local.keyPath,
+      backupsDir,
+      protector: thisUser,
+      appVersion: "1.2.3",
+      reason: "journal_changed",
+      runCopy,
+      now: () => NOW,
+    });
+
+  /** Enough rows that copying them takes a moment (about 10 MB). */
+  function fillStore(): void {
+    const insert = local.db.prepare(
+      "INSERT INTO app_meta (key, value, updated_at) VALUES (?, ?, ?)",
+    );
+    local.db.transaction(() => {
+      for (let i = 0; i < 5_000; i++)
+        insert.run(`fill-${i}`, "x".repeat(2_000), new Date(NOW).toISOString());
+    })();
+  }
+
+  it("writes a usable encrypted copy in a worker thread while the till keeps writing", async () => {
+    seedDevice(local.db);
+    seedPin(local.db);
+    const installed = authority(1, NOW - 60_000);
+    installOfflineAuthority(local.db, installed, expected(NOW));
+    const sold = sellOffline(local.db, installed, 2);
+    fillStore();
+
+    const taking = offThread();
+    let finished = false;
+    void taking.result.finally(() => (finished = true));
+    // The till's own connection writes while the worker copies: nothing waits, nothing fails.
+    const write = local.db.prepare(
+      "INSERT INTO app_meta (key, value, updated_at) VALUES (?, 'sale', ?)",
+    );
+    let writes = 0;
+    while (!finished) {
+      write.run(`during-${writes++}`, new Date(NOW).toISOString());
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+    const { dir, manifest } = await taking.result;
+    expect(writes).toBeGreaterThan(1);
+    expect(manifest).toMatchObject({
+      reason: "journal_changed",
+      enrollmentId: identity.enrollmentId,
+      journalHead: { sequence: 2 },
+      outageActive: true,
+      sha256: sha256File(join(dir, "pos.db")),
+    });
+    expect(readdirSync(backupsDir)).toEqual([manifest.backupId]);
+
+    // Under its own key, wrapped for this Windows user only; the store's key does not open it.
+    const liveKey = readWrappedKey(local.keyPath, thisUser);
+    expect(() => openCipherFile(join(dir, "pos.db"), liveKey)).toThrow(
+      StoreBackupError,
+    );
+    const copy = openCipherFile(
+      join(dir, "pos.db"),
+      readWrappedKey(join(dir, "pos.db.key"), thisUser),
+      { readonly: true },
+    );
+    try {
+      expect(
+        copy
+          .prepare(
+            "SELECT command_id FROM offline_journal_command ORDER BY sequence",
+          )
+          .all(),
+      ).toEqual(sold.map((s) => ({ command_id: s.payload.commandId })));
+      expect(
+        copy.prepare("SELECT COUNT(*) AS n FROM staff_credential").get(),
+      ).toEqual({ n: 0 });
+      expect(copy.pragma("quick_check", { simple: true })).toBe("ok");
+    } finally {
+      copy.close();
+    }
+    // Every write the till made while it ran is in the live store.
+    expect(
+      local.db
+        .prepare("SELECT COUNT(*) AS n FROM app_meta WHERE key LIKE 'during-%'")
+        .get(),
+    ).toEqual({ n: writes });
+    const bytes = readFileSync(join(dir, "pos.db"));
+    expect(bytes.includes(Buffer.from("SQLite format 3"))).toBe(false);
+    expect(bytes.includes(Buffer.from("Kandy"))).toBe(false);
+  });
+
+  it("reports a copy that failed in the worker without either key, and leaves no partial folder", async () => {
+    seedDevice(local.db);
+    const liveKey = readWrappedKey(local.keyPath, thisUser);
+    rmSync(local.databasePath + "-missing", { force: true });
+    const taking = takeStoreBackupOffThread({
+      storePath: local.databasePath + "-missing",
+      keyPath: local.keyPath,
+      backupsDir,
+      protector: thisUser,
+      appVersion: "1",
+      reason: "scheduled",
+      runCopy: copyInWorker,
+    });
+    const error = (await taking.result.catch((e: unknown) => e)) as Error;
+    expect(error).toMatchObject({ code: "SQLITE_CANTOPEN" });
+    expect(String(error.message)).not.toContain(liveKey);
+    expect(JSON.stringify(error)).not.toContain(liveKey);
+    expect(readdirSync(backupsDir)).toEqual([]);
+  });
+
+  it("is abandoned when the app stops, without a report, and its partial folder is pruned later", async () => {
+    seedDevice(local.db);
+    fillStore();
+    const report = jest.fn();
+    const schedule = startStoreBackups({
+      db: local.db,
+      keyPath: local.keyPath,
+      backupsDir,
+      protector: thisUser,
+      appVersion: "1",
+      runCopy: copyInWorker,
+      report,
+      timer: false,
+    });
+    schedule.stop();
+    expect(await schedule.idle()).toBeNull();
+    expect(await schedule.tick()).toBeNull();
+    expect(report).not.toHaveBeenCalled();
+    expect(listStoreBackups(backupsDir)).toEqual([]);
+    // Whatever the stopped worker left is a partial folder, never a listed backup.
+    for (const name of existsSync(backupsDir) ? readdirSync(backupsDir) : [])
+      expect(name.startsWith(".partial-")).toBe(true);
+  });
+
+  it("runs one backup at a time: a check while one runs skips", async () => {
+    seedDevice(local.db);
+    const report = jest.fn();
+    const schedule = startStoreBackups({
+      db: local.db,
+      keyPath: local.keyPath,
+      backupsDir,
+      protector: thisUser,
+      appVersion: "1",
+      runCopy: copyInWorker,
+      report,
+      timer: false,
+    });
+    const startup = schedule.idle();
+    expect(await schedule.tick()).toBeNull();
+    expect((await startup)?.manifest.reason).toBe("startup");
+    expect(report).not.toHaveBeenCalled();
+    expect(listStoreBackups(backupsDir)).toHaveLength(1);
+    schedule.stop();
   });
 });

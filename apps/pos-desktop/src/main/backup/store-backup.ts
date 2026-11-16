@@ -10,6 +10,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
+import { Worker } from "node:worker_threads";
 import Database from "better-sqlite3-multiple-ciphers";
 import type { PosDatabase } from "../db/database";
 import type { SecretProtector } from "../db/key-store";
@@ -232,14 +233,16 @@ export function writeStoreBackupMeta(db: PosDatabase, takenAt: number): void {
     ) STRICT;
   `);
   db.prepare("DELETE FROM store_backup_meta").run();
-  db.prepare("INSERT INTO store_backup_meta (taken_at) VALUES (?)").run(takenAt);
+  db.prepare("INSERT INTO store_backup_meta (taken_at) VALUES (?)").run(
+    takenAt,
+  );
 }
 
 export function readStoreBackupMetaTakenAt(db: PosDatabase): number | null {
   if (!tableExists(db, "store_backup_meta")) return null;
-  const row = db.prepare("SELECT taken_at FROM store_backup_meta LIMIT 1").get() as
-    | { taken_at: number }
-    | undefined;
+  const row = db
+    .prepare("SELECT taken_at FROM store_backup_meta LIMIT 1")
+    .get() as { taken_at: number } | undefined;
   return row?.taken_at ?? null;
 }
 
@@ -287,22 +290,90 @@ function compactTime(at: number): string {
   return new Date(at).toISOString().replace(/[-:.]/g, "");
 }
 
+/** What a store backup's copy is made from: the live store, its key, and the copy's own key. */
+export type BackupCopyJob = {
+  /** The live store's file, opened afresh by whoever writes the copy. */
+  storePath: string;
+  liveKey: string;
+  copyPath: string;
+  backupKey: string;
+  takenAt: number;
+};
+
+export type BackupCopyResult = {
+  facts: ReturnType<typeof readStoreFacts>;
+  sha256: string;
+  bytes: number;
+};
+
 /**
- * Takes one backup of the open store. Synchronous from the copy to the rename, so nothing this
- * process writes can land between reading the facts and copying the pages; `VACUUM INTO` copies
- * one consistent read of the whole database, already encrypted under the store's key.
+ * Writes a backup copy of `source` (a connection to the live store) to `job.copyPath`: one
+ * consistent read of the whole store, with no PIN verifier, re-keyed under the backup's own key and
+ * checked. The facts come from the copy itself, so they describe exactly what it holds.
+ *
+ * #166: this is the slow part of a backup (seconds on a counter that has traded for a year; see
+ * `scripts/bench-store-backup.ts`). While the till is open the app runs it in a worker thread on a
+ * connection of its own (`backup-worker.ts`), never on the main process where checkout runs. It
+ * only reads the live store, which is in WAL mode, so the till keeps writing while it runs.
  */
-export function takeStoreBackup(
-  db: PosDatabase,
-  options: {
-    keyPath: string;
-    backupsDir: string;
-    protector: SecretProtector;
-    appVersion: string;
-    reason: BackupReason;
-    now?: () => number;
-  },
-): StoreBackup {
+export function writeBackupCopy(
+  source: PosDatabase,
+  job: Omit<BackupCopyJob, "storePath">,
+): BackupCopyResult {
+  source.prepare("VACUUM INTO ?").run(job.copyPath);
+  const copy = openCipherFile(job.copyPath, job.liveKey);
+  let facts: BackupCopyResult["facts"];
+  try {
+    facts = readStoreFacts(copy);
+    copy.pragma("journal_mode = DELETE");
+    // No PIN verifier leaves the live store, not even as freed pages: secure delete zeroes the
+    // cells, and the re-key below rewrites every page under the backup's own key.
+    copy.pragma("secure_delete = ON");
+    if (tableExists(copy, "staff_credential"))
+      copy.prepare("DELETE FROM staff_credential").run();
+    writeStoreBackupMeta(copy, job.takenAt);
+    copy.exec("VACUUM");
+    copy.pragma(`rekey = "x'${job.backupKey}'"`);
+  } finally {
+    copy.close();
+  }
+  const check = openCipherFile(job.copyPath, job.backupKey, {
+    readonly: true,
+  });
+  try {
+    const ok = check.pragma("quick_check", { simple: true });
+    if (ok !== "ok")
+      throw new StoreBackupError(
+        "BACKUP_DAMAGED",
+        `The new backup failed its check: ${String(ok)}`,
+      );
+  } finally {
+    check.close();
+  }
+  return {
+    facts,
+    sha256: sha256File(job.copyPath),
+    bytes: statSync(job.copyPath).size,
+  };
+}
+
+type BackupOptions = {
+  keyPath: string;
+  backupsDir: string;
+  protector: SecretProtector;
+  appVersion: string;
+  reason: BackupReason;
+  now?: () => number;
+};
+
+type BegunBackup = {
+  backupId: string;
+  partial: string;
+  job: Omit<BackupCopyJob, "storePath">;
+};
+
+/** The quick part before a copy, on the main process: the credential store is only there. */
+function beginBackup(options: BackupOptions): BegunBackup {
   const now = options.now ?? Date.now;
   if (!options.protector.isAvailable())
     throw new StoreBackupError(
@@ -315,63 +386,182 @@ export function takeStoreBackup(
   const backupId = `${compactTime(takenAt)}-${randomBytes(4).toString("hex")}`;
   const partial = join(options.backupsDir, `${PARTIAL_PREFIX}${backupId}`);
   mkdirSync(partial);
-  try {
-    const copyPath = join(partial, "pos.db");
-    const facts = readStoreFacts(db);
-    db.prepare("VACUUM INTO ?").run(copyPath);
-
-    const backupKey = randomBytes(32).toString("hex");
-    const copy = openCipherFile(copyPath, liveKey);
-    try {
-      copy.pragma("journal_mode = DELETE");
-      // No PIN verifier leaves the live store, not even as freed pages: secure delete zeroes the
-      // cells, and the re-key below rewrites every page under the backup's own key.
-      copy.pragma("secure_delete = ON");
-      if (tableExists(copy, "staff_credential"))
-        copy.prepare("DELETE FROM staff_credential").run();
-      writeStoreBackupMeta(copy, takenAt);
-      copy.exec("VACUUM");
-      copy.pragma(`rekey = "x'${backupKey}'"`);
-    } finally {
-      copy.close();
-    }
-    const check = openCipherFile(copyPath, backupKey, { readonly: true });
-    try {
-      const ok = check.pragma("quick_check", { simple: true });
-      if (ok !== "ok")
-        throw new StoreBackupError(
-          "BACKUP_DAMAGED",
-          `The new backup failed its check: ${String(ok)}`,
-        );
-    } finally {
-      check.close();
-    }
-
-    writeFileSync(
-      join(partial, "pos.db.key"),
-      options.protector.protect(backupKey),
-    );
-    const manifest: StoreBackupManifest = {
-      format: BACKUP_FORMAT,
-      backupId,
+  return {
+    backupId,
+    partial,
+    job: {
+      liveKey,
+      copyPath: join(partial, "pos.db"),
+      backupKey: randomBytes(32).toString("hex"),
       takenAt,
-      reason: options.reason,
-      appVersion: options.appVersion,
-      ...facts,
-      sha256: sha256File(copyPath),
-      bytes: statSync(copyPath).size,
-    };
-    writeFileSync(
-      join(partial, "backup.json"),
-      JSON.stringify(manifest, null, 2),
-    );
-    const dir = join(options.backupsDir, backupId);
-    renameSync(partial, dir);
-    return { dir, manifest };
-  } catch (error) {
+    },
+  };
+}
+
+/** The quick part after a copy: wrap its key for this Windows user, describe it, put it in place. */
+function finishBackup(
+  begun: BegunBackup,
+  copied: BackupCopyResult,
+  options: BackupOptions,
+): StoreBackup {
+  writeFileSync(
+    join(begun.partial, "pos.db.key"),
+    options.protector.protect(begun.job.backupKey),
+  );
+  const manifest: StoreBackupManifest = {
+    format: BACKUP_FORMAT,
+    backupId: begun.backupId,
+    takenAt: begun.job.takenAt,
+    reason: options.reason,
+    appVersion: options.appVersion,
+    ...copied.facts,
+    sha256: copied.sha256,
+    bytes: copied.bytes,
+  };
+  writeFileSync(
+    join(begun.partial, "backup.json"),
+    JSON.stringify(manifest, null, 2),
+  );
+  const dir = join(options.backupsDir, begun.backupId);
+  renameSync(begun.partial, dir);
+  return { dir, manifest };
+}
+
+function discardPartial(partial: string): void {
+  try {
     rmSync(partial, { recursive: true, force: true });
+  } catch {
+    // Still held open (a worker being stopped): the next prune removes it.
+  }
+}
+
+/**
+ * Takes one backup of the open store, synchronously, on this connection. Only for when the till
+ * is not open yet: before a schema upgrade, which must wait for it. The schedule that runs while
+ * the till is open uses `takeStoreBackupOffThread`.
+ */
+export function takeStoreBackup(
+  db: PosDatabase,
+  options: BackupOptions,
+): StoreBackup {
+  const begun = beginBackup(options);
+  try {
+    return finishBackup(begun, writeBackupCopy(db, begun.job), options);
+  } catch (error) {
+    discardPartial(begun.partial);
     throw error;
   }
+}
+
+/** Writes a backup copy somewhere other than the calling thread; `cancel` abandons it. */
+export type BackupCopyRunner = (job: BackupCopyJob) => {
+  result: Promise<BackupCopyResult>;
+  cancel(): void;
+};
+
+/** A copy that failed in the worker, as the worker described it (never with a key in it). */
+type WorkerFailure = { name: string; message: string; code?: string };
+export type BackupWorkerReply =
+  | { ok: true; result: BackupCopyResult }
+  | { ok: false; error: WorkerFailure };
+
+function fromWorkerFailure(failure: WorkerFailure): Error {
+  if (
+    failure.name === "StoreBackupError" &&
+    (failure.code === "KEY_UNREADABLE" ||
+      failure.code === "BACKUP_DAMAGED" ||
+      failure.code === "BACKUP_UNREADABLE")
+  )
+    return new StoreBackupError(failure.code, failure.message);
+  return Object.assign(new Error(failure.message), {
+    name: failure.name,
+    code: failure.code,
+  });
+}
+
+/**
+ * Runs each copy in a fresh worker thread (`backup-worker.ts`, built beside the main bundle). Both
+ * keys reach it only in `workerData`, in memory; nothing it reports back carries them.
+ */
+export function workerCopyRunner(
+  filename: string,
+  options: { eval?: boolean } = {},
+): BackupCopyRunner {
+  return (job) => {
+    const worker = new Worker(filename, {
+      workerData: job,
+      eval: options.eval,
+    });
+    let cancelled = false;
+    const result = new Promise<BackupCopyResult>((resolve, reject) => {
+      let settled = false;
+      const settle = (run: () => void) => {
+        if (settled) return;
+        settled = true;
+        run();
+      };
+      worker.once("message", (reply: BackupWorkerReply) =>
+        settle(() =>
+          reply.ok
+            ? resolve(reply.result)
+            : reject(fromWorkerFailure(reply.error)),
+        ),
+      );
+      worker.once("error", (error) => settle(() => reject(error)));
+      worker.once("exit", (code) =>
+        settle(() =>
+          reject(
+            new Error(
+              cancelled
+                ? "The backup was stopped."
+                : `The backup worker stopped (exit ${code}) before finishing.`,
+            ),
+          ),
+        ),
+      );
+    });
+    return {
+      result,
+      cancel: () => {
+        cancelled = true;
+        void worker.terminate();
+      },
+    };
+  };
+}
+
+/**
+ * Takes one backup of the store at `storePath`, with the copy written by `runCopy` (a worker
+ * thread, in the app). Only the key unwrap and wrap, the manifest and the rename run here.
+ */
+export function takeStoreBackupOffThread(
+  options: BackupOptions & { storePath: string; runCopy: BackupCopyRunner },
+): { result: Promise<StoreBackup>; cancel(): void } {
+  let begun: BegunBackup;
+  try {
+    begun = beginBackup(options);
+  } catch (error) {
+    return { result: Promise.reject(error), cancel: () => undefined };
+  }
+  const running = options.runCopy({
+    ...begun.job,
+    storePath: options.storePath,
+  });
+  const result = running.result.then(
+    (copied) => {
+      try {
+        return finishBackup(begun, copied, options);
+      } catch (error) {
+        discardPartial(begun.partial);
+        throw error;
+      }
+    },
+    (error: unknown) => {
+      discardPartial(begun.partial);
+      throw error;
+    },
+  );
+  return { result, cancel: running.cancel };
 }
 
 function readManifest(
@@ -459,8 +649,14 @@ function journalFingerprint(facts: ReturnType<typeof readStoreFacts>): string {
 }
 
 export type StoreBackupSchedule = {
-  /** One check: backs up if due. Never throws; failures are reported. */
-  tick(): StoreBackup | null;
+  /**
+   * One check: starts a backup if one is due and none is running, and resolves with it once it is
+   * in place (or null). Never rejects; failures are reported.
+   */
+  tick(): Promise<StoreBackup | null>;
+  /** The backup running now, if any (null when none is). */
+  idle(): Promise<StoreBackup | null>;
+  /** Stops the timer and abandons a backup in progress (its partial folder is pruned later). */
   stop(): void;
 };
 
@@ -469,6 +665,11 @@ export type StoreBackupSchedule = {
  * outage moved since the last backup, or `BACKUP_MAX_AGE_MS` after it if anything else was
  * written (`total_changes()` counts this connection's writes, and the app is the only writer).
  * Only a store that holds a counter is backed up.
+ *
+ * #166: the copy is written by `runCopy` (a worker thread in the app) from its own connection, so
+ * checkout keeps running, and writing, during a backup. Only the check whether one is due, the key
+ * unwrap and wrap, and the manifest run here. One backup runs at a time; a check that finds one
+ * still running skips.
  */
 export function startStoreBackups(options: {
   db: PosDatabase;
@@ -476,6 +677,7 @@ export function startStoreBackups(options: {
   backupsDir: string;
   protector: SecretProtector;
   appVersion: string;
+  runCopy: BackupCopyRunner;
   report: (error: unknown) => void;
   onBackup?: (backup: StoreBackup) => void;
   now?: () => number;
@@ -483,25 +685,52 @@ export function startStoreBackups(options: {
 }): StoreBackupSchedule {
   const now = options.now ?? Date.now;
   let last: { at: number; fingerprint: string; changes: number } | null = null;
+  let running: {
+    result: Promise<StoreBackup | null>;
+    cancel(): void;
+  } | null = null;
+  let stopped = false;
 
-  function take(reason: BackupReason): StoreBackup | null {
-    try {
-      const backup = takeStoreBackup(options.db, { ...options, reason, now });
-      const changes = (
-        options.db.prepare("SELECT total_changes() AS n").get() as { n: number }
-      ).n;
-      last = {
-        at: backup.manifest.takenAt,
-        fingerprint: journalFingerprint(backup.manifest),
-        changes,
-      };
-      pruneStoreBackups(options.backupsDir, now());
-      options.onBackup?.(backup);
-      return backup;
-    } catch (error) {
-      options.report(error);
-      return null;
-    }
+  const totalChanges = () =>
+    (options.db.prepare("SELECT total_changes() AS n").get() as { n: number })
+      .n;
+
+  function take(reason: BackupReason): Promise<StoreBackup | null> {
+    // Counted before the copy starts: a write that lands while it runs makes the next check see a
+    // change, at worst one backup more than needed, never one fewer.
+    const changes = totalChanges();
+    const taking = takeStoreBackupOffThread({
+      ...options,
+      storePath: options.db.name,
+      reason,
+      now,
+    });
+    const result = taking.result.then(
+      (backup) => {
+        last = {
+          at: backup.manifest.takenAt,
+          fingerprint: journalFingerprint(backup.manifest),
+          changes,
+        };
+        try {
+          pruneStoreBackups(options.backupsDir, now());
+        } catch (error) {
+          options.report(error);
+        }
+        options.onBackup?.(backup);
+        return backup;
+      },
+      (error: unknown) => {
+        if (!stopped) options.report(error);
+        return null;
+      },
+    );
+    const current = { result, cancel: taking.cancel };
+    running = current;
+    void result.finally(() => {
+      if (running === current) running = null;
+    });
+    return result;
   }
 
   function due(): BackupReason | null {
@@ -512,15 +741,13 @@ export function startStoreBackups(options: {
     if (!last) return "startup";
     if (journalFingerprint(facts) !== last.fingerprint)
       return "journal_changed";
-    const changes = (
-      options.db.prepare("SELECT total_changes() AS n").get() as { n: number }
-    ).n;
-    if (changes !== last.changes && now() - last.at >= BACKUP_MAX_AGE_MS)
+    if (totalChanges() !== last.changes && now() - last.at >= BACKUP_MAX_AGE_MS)
       return "scheduled";
     return null;
   }
 
-  function tick(): StoreBackup | null {
+  function tick(): Promise<StoreBackup | null> {
+    if (stopped || running) return Promise.resolve(null);
     let reason: BackupReason | null;
     try {
       reason = due();
@@ -528,21 +755,24 @@ export function startStoreBackups(options: {
       // A failing disk is what backups exist for: report it, never throw out of a timer or into
       // start-up.
       options.report(error);
-      return null;
+      return Promise.resolve(null);
     }
-    return reason ? take(reason) : null;
+    return reason ? take(reason) : Promise.resolve(null);
   }
 
-  tick();
+  void tick();
   let interval: ReturnType<typeof setInterval> | null = null;
   if (options.timer !== false) {
-    interval = setInterval(() => tick(), BACKUP_CHECK_MS);
+    interval = setInterval(() => void tick(), BACKUP_CHECK_MS);
     interval.unref();
   }
   return {
     tick,
+    idle: () => running?.result ?? Promise.resolve(null),
     stop: () => {
+      stopped = true;
       if (interval) clearInterval(interval);
+      running?.cancel();
     },
   };
 }
