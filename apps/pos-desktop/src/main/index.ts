@@ -284,7 +284,17 @@ function registerIpc(schemaVersion: number, logger: ReturnType<typeof createLogg
       signIn: ({ email, password }) => act(logger, "signIn", (service) => service.signIn(email, password)),
       signOut: () => act(logger, "signOut", (service) => service.signOut()),
       refreshEnrollment: () => act(logger, "refreshEnrollment", (service) => service.refreshStatus()),
-      listCounters: ({ branchId }) => act(logger, "listCounters", (service) => service.listCounters(branchId)),
+      listCounters: ({ branchId, includeInactive }) =>
+        act(logger, "listCounters", (service) => service.listCounters(branchId, includeInactive)),
+      updateCounter: ({ branchId, registerId, label, isActive }) =>
+        act(logger, "updateCounter", (service) =>
+          service.updateCounter(branchId, registerId, { label, isActive }),
+        ),
+      deleteCounter: ({ branchId, registerId }) =>
+        act(logger, "deleteCounter", async (service) => {
+          await service.deleteCounter(branchId, registerId);
+          return {};
+        }),
       createCounter: ({ branchId, label }) =>
         act(logger, "createCounter", (service) => service.createCounter(branchId, label)),
       enroll: (input) => act(logger, "enroll", (service) => service.enroll(input)),

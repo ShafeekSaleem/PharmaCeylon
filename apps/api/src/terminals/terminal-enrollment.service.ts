@@ -42,15 +42,28 @@ export class TerminalEnrollmentService {
   async listCounters(
     user: RequestUser,
     branchId: string,
+    includeInactive = false,
   ): Promise<TerminalCounterView[]> {
     return this.prisma.$transaction(
       async (tx): Promise<TerminalCounterView[]> => {
         const access = await this.access.resolveLive(user, uuid(branchId), tx);
         if (!access.has("tenant.management")) denied("PERMISSION_DENIED");
         const counters = await tx.terminalCounter.findMany({
-          where: { tenantId: user.tenantId, branchId },
+          where: {
+            tenantId: user.tenantId,
+            branchId,
+            ...(includeInactive ? {} : { isActive: true }),
+          },
           orderBy: [{ label: "asc" }, { id: "asc" }],
           include: {
+            _count: {
+              select: {
+                terminals: true,
+                sessions: true,
+                shifts: true,
+                enrollmentCodes: true,
+              },
+            },
             terminals: {
               where: { retiredAt: null },
               include: {
@@ -63,6 +76,14 @@ export class TerminalEnrollmentService {
             },
           },
         });
+        const openShifts = new Set(
+          (
+            await tx.tillShift.findMany({
+              where: { tenantId: user.tenantId, branchId, closedAt: null },
+              select: { registerId: true },
+            })
+          ).map((shift) => shift.registerId),
+        );
         return counters.map((counter) => {
           const terminal = counter.terminals[0] ?? null;
           const enrollment = terminal?.enrollments[0] ?? null;
@@ -71,6 +92,8 @@ export class TerminalEnrollmentService {
             tillId: counter.tillId,
             label: counter.label,
             isActive: counter.isActive,
+            hasHistory: Object.values(counter._count).some((n) => n > 0),
+            hasOpenShift: openShifts.has(counter.id),
             terminal: terminal
               ? {
                   terminalId: terminal.id,
@@ -98,8 +121,33 @@ export class TerminalEnrollmentService {
       tillId: counter.tillId,
       label: counter.label,
       isActive: counter.isActive,
+      hasHistory: false,
+      hasOpenShift: false,
       terminal: null,
     };
+  }
+
+  async updateCounter(
+    user: RequestUser,
+    branchId: string,
+    registerId: string,
+    changes: { label?: string; isActive?: boolean },
+  ): Promise<TerminalCounterView> {
+    const counter = await this.prisma.$transaction((tx) =>
+      this.trust.updateCounter(tx, user, branchId, registerId, changes),
+    );
+    const all = await this.listCounters(user, branchId, true);
+    return all.find((c) => c.registerId === counter.id)!;
+  }
+
+  async deleteCounter(
+    user: RequestUser,
+    branchId: string,
+    registerId: string,
+  ): Promise<void> {
+    await this.prisma.$transaction((tx) =>
+      this.trust.deleteCounter(tx, user, branchId, registerId),
+    );
   }
 
   beginEnrollment(

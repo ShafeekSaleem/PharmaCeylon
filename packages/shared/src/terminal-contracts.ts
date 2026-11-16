@@ -328,6 +328,11 @@ export const TERMINAL_ERROR_RETRYABLE = {
   // Counter sign-in, enrollment and PINs
   COUNTER_SESSION_ONLY: false,
   COUNTER_OCCUPIED: false,
+  COUNTER_LABEL_TAKEN: false,
+  COUNTER_IN_USE: false,
+  COUNTER_SHIFT_OPEN: false,
+  COUNTER_HAS_HISTORY: false,
+  COUNTER_NOT_FOUND: false,
   COUNTER_NAME_TAKEN: false,
   ACCOUNT_LOCKED: false,
   PASSWORD_INCORRECT: false,

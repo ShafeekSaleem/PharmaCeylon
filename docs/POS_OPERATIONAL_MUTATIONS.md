@@ -150,7 +150,9 @@ nomination, no grant). Contract: [API_CONTRACT.md](API_CONTRACT.md).
 
 ## P2 desktop enrollment and staff sessions
 
-`POST /terminals/counters` is `management`. The other fifteen routes are `identity`:
+`POST /terminals/counters`, `PATCH /terminals/counters/:registerId` (rename, stop or resume using) and
+`DELETE /terminals/counters/:registerId` (only a counter nobody has used) are `management`: they change what
+the branch calls its tills, never stock, money or a sale, and are audited. The other fifteen routes are `identity`:
 enrollment challenge/code-challenge/finish, enrollment code issue/revoke, revoke, retire,
 attendance proofs, staff-session challenge/finish/end, the caller's own PIN set/prepare, and PIN
 sign-in's challenge and finish (`POST /terminals/pin-sessions/challenge`, `POST /terminals/pin-sessions`,

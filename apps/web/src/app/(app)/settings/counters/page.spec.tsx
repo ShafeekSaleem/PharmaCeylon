@@ -17,6 +17,8 @@ const empty: TerminalCounterView = {
   tillId: "t1",
   label: "Front counter",
   isActive: true,
+  hasHistory: false,
+  hasOpenShift: false,
   terminal: null,
 };
 const enrolled: TerminalCounterView = {
@@ -24,12 +26,23 @@ const enrolled: TerminalCounterView = {
   tillId: "t2",
   label: "Back counter",
   isActive: true,
+  hasHistory: true,
+  hasOpenShift: false,
   terminal: {
     terminalId: "33333333-3333-4333-8333-333333333333",
     label: "DISPENSARY-PC",
     enrollmentId: "44444444-4444-4444-8444-444444444444",
     enrolledAt: Date.UTC(2026, 9, 30),
   },
+};
+const retired: TerminalCounterView = {
+  registerId: "77777777-7777-4777-8777-777777777777",
+  tillId: "t3",
+  label: "Old till",
+  isActive: false,
+  hasHistory: true,
+  hasOpenShift: false,
+  terminal: null,
 };
 const code: TerminalEnrollmentCodeView = {
   codeId: "55555555-5555-4555-8555-555555555555",
@@ -74,7 +87,10 @@ beforeEach(() => {
   (apiJson as jest.Mock).mockImplementation((path: string, init?: RequestInit) => {
     if (init?.method === "POST" && path === "/terminals/enrollment-codes")
       return Promise.resolve({ code: "ABCDE-FGHJK", view: code });
-    if (init?.method === "POST") return Promise.resolve(undefined);
+    if (init?.method === "PATCH") return Promise.resolve(empty);
+    if (init?.method === "DELETE" || init?.method === "POST") return Promise.resolve(undefined);
+    if (path === "/terminals/counters?includeInactive=true")
+      return Promise.resolve([empty, enrolled, retired]);
     if (path === "/terminals/counters") return Promise.resolve([empty, enrolled]);
     if (path === "/terminals/enrollment-codes") return Promise.resolve([code]);
     if (path === "/terminals/offline-journal/sync-status")
@@ -128,6 +144,78 @@ it("revokes a waiting code", async () => {
       method: "POST",
     }),
   );
+});
+
+describe("renaming, stopping use of and deleting counters (#180)", () => {
+  const rowOf = async (name: string) =>
+    (await screen.findByText(name, { selector: "td" })).closest("tr")!;
+  const sent = (method: string) =>
+    (apiJson as jest.Mock).mock.calls.find((c) => c[1]?.method === method);
+
+  it("renames a counter", async () => {
+    render(<CountersSettingsPage />);
+    fireEvent.click(within(await rowOf("Front counter")).getByRole("button", { name: "Rename" }));
+    fireEvent.change(screen.getByLabelText("Counter name"), { target: { value: "Front till" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save name" }));
+    await waitFor(() =>
+      expect(apiJson).toHaveBeenCalledWith(
+        `/terminals/counters/${empty.registerId}`,
+        expect.objectContaining({ method: "PATCH", body: JSON.stringify({ label: "Front till" }) }),
+      ),
+    );
+  });
+
+  it("shows the server's plain reason when a rename is refused", async () => {
+    render(<CountersSettingsPage />);
+    (apiJson as jest.Mock).mockImplementationOnce(() => Promise.reject(new Error("Another counter already has that name.")));
+    fireEvent.click(within(await rowOf("Front counter")).getByRole("button", { name: "Rename" }));
+    fireEvent.change(screen.getByLabelText("Counter name"), { target: { value: "Back counter" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save name" }));
+    expect(await screen.findByText("Another counter already has that name.")).toBeInTheDocument();
+  });
+
+  it("stops using an idle counter after confirming", async () => {
+    render(<CountersSettingsPage />);
+    fireEvent.click(within(await rowOf("Front counter")).getByRole("button", { name: "Stop using" }));
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Stop using" }));
+    await waitFor(() =>
+      expect(sent("PATCH")![1].body).toBe(JSON.stringify({ isActive: false })),
+    );
+  });
+
+  it("will not stop a counter that still has a computer, and says why", async () => {
+    render(<CountersSettingsPage />);
+    const back = await rowOf("Back counter");
+    expect(within(back).getByRole("button", { name: "Stop using" })).toBeDisabled();
+    expect(within(back).getByText(/A computer is still set up here/)).toBeInTheDocument();
+  });
+
+  it("only offers Delete on a counter that was never used", async () => {
+    render(<CountersSettingsPage />);
+    const back = await rowOf("Back counter");
+    expect(within(back).getByRole("button", { name: "Delete" })).toBeDisabled();
+    expect(within(back).getByText(/records are kept/)).toBeInTheDocument();
+    const front = await rowOf("Front counter");
+    fireEvent.click(within(front).getByRole("button", { name: "Delete" }));
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Delete counter" }));
+    await waitFor(() => expect(sent("DELETE")![0]).toBe(`/terminals/counters/${empty.registerId}`));
+  });
+
+  it("lists counters no longer in use on request, and starts using one again", async () => {
+    render(<CountersSettingsPage />);
+    await rowOf("Front counter");
+    expect(screen.queryByText("Old till")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText("Show counters no longer in use"));
+    const old = await rowOf("Old till");
+    expect(within(old).getByText("Inactive")).toBeInTheDocument();
+    fireEvent.click(within(old).getByRole("button", { name: "Use again" }));
+    await waitFor(() =>
+      expect(apiJson).toHaveBeenCalledWith(
+        `/terminals/counters/${retired.registerId}`,
+        expect.objectContaining({ method: "PATCH", body: JSON.stringify({ isActive: true }) }),
+      ),
+    );
+  });
 });
 
 describe("offline sales (P5 #51)", () => {

@@ -26,6 +26,21 @@ type PendingAction =
   | { kind: "revoke"; counter: TerminalCounterView }
   | { kind: "retire"; counter: TerminalCounterView };
 
+type CounterEdit =
+  | { kind: "rename"; counter: TerminalCounterView }
+  | { kind: "stop"; counter: TerminalCounterView }
+  | { kind: "delete"; counter: TerminalCounterView };
+
+/** Why a counter cannot be stopped yet, in words for staff; null when it can. */
+function stopBlocker(counter: TerminalCounterView): string | null {
+  if (counter.terminal) return "A computer is still set up here. Retire it first.";
+  if (counter.hasOpenShift) return "A shift is still open here. Close it first.";
+  return null;
+}
+/** Why a counter cannot be deleted; null when it has never been used. */
+const deleteBlocker = (counter: TerminalCounterView): string | null =>
+  counter.hasHistory ? "Used before, so its records are kept. Stop using it instead." : null;
+
 const message = (err: unknown, fallback: string) =>
   err instanceof Error && err.message ? err.message : fallback;
 
@@ -71,6 +86,8 @@ function Counters() {
   const [revoking, setRevoking] = useState<string | null>(null);
   const [journal, setJournal] = useState<CounterJournalSyncStatus | null>(null);
   const [journalFailed, setJournalFailed] = useState(false);
+  const [showInactive, setShowInactive] = useState(false);
+  const [edit, setEdit] = useState<CounterEdit | null>(null);
 
   const load = useCallback(async () => {
     // The sync status is extra: if it can't be read, the counters still can.
@@ -82,14 +99,14 @@ function Counters() {
       () => setJournalFailed(true),
     );
     try {
-      const [list, codeList] = await Promise.all([countersApi.counters(), countersApi.codes()]);
+      const [list, codeList] = await Promise.all([countersApi.counters(showInactive), countersApi.codes()]);
       setCounters(list);
       setCodes(codeList);
     } catch (err) {
       setError(message(err, "Couldn't load the counters."));
     }
     await journalRead;
-  }, []);
+  }, [showInactive]);
   useEffect(() => {
     void load();
   }, [load]);
@@ -107,6 +124,16 @@ function Counters() {
       setError(message(err, "Couldn't add the counter."));
     } finally {
       setAdding(false);
+    }
+  }
+
+  async function reactivate(counter: TerminalCounterView) {
+    setError(null);
+    try {
+      await countersApi.updateCounter(counter.registerId, { isActive: true });
+      await load();
+    } catch (err) {
+      setError(message(err, "Couldn't start using the counter again."));
     }
   }
 
@@ -136,6 +163,14 @@ function Counters() {
           here and enter it on the computer, or sign in there as a manager and choose the counter.
         </p>
         {error ? <Alert variant="error">{error}</Alert> : null}
+        <label className={css.rowHint}>
+          <input
+            type="checkbox"
+            checked={showInactive}
+            onChange={(e) => setShowInactive(e.target.checked)}
+          />{" "}
+          Show counters no longer in use
+        </label>
         {counters === null && !error ? <p className={css.rowHint}>Loading…</p> : null}
         {counters && counters.length === 0 ? (
           <p className={css.rowHint}>No counters yet. Add the first one below.</p>
@@ -210,7 +245,39 @@ function Counters() {
                             Retire computer
                           </ModalButton>
                         ) : null}
+                        <ModalButton
+                          variant="secondary"
+                          onClick={() => setEdit({ kind: "rename", counter })}
+                        >
+                          Rename
+                        </ModalButton>
+                        {counter.isActive ? (
+                          <ModalButton
+                            variant="secondary"
+                            disabled={stopBlocker(counter) !== null}
+                            onClick={() => setEdit({ kind: "stop", counter })}
+                          >
+                            Stop using
+                          </ModalButton>
+                        ) : (
+                          <ModalButton variant="secondary" onClick={() => void reactivate(counter)}>
+                            Use again
+                          </ModalButton>
+                        )}
+                        <ModalButton
+                          variant="danger"
+                          disabled={deleteBlocker(counter) !== null}
+                          onClick={() => setEdit({ kind: "delete", counter })}
+                        >
+                          Delete
+                        </ModalButton>
                       </div>
+                      {counter.isActive && stopBlocker(counter) ? (
+                        <div className={css.rowHint}>Stop using: {stopBlocker(counter)}</div>
+                      ) : null}
+                      {deleteBlocker(counter) ? (
+                        <div className={css.rowHint}>Delete: {deleteBlocker(counter)}</div>
+                      ) : null}
                     </td>
                   </tr>
                 );
@@ -282,6 +349,14 @@ function Counters() {
         }}
       />
       <IssuedCodeModal issued={issued} onClose={() => setIssued(null)} />
+      <EditCounterModal
+        edit={edit}
+        onClose={() => setEdit(null)}
+        onDone={() => {
+          setEdit(null);
+          void load();
+        }}
+      />
       <ReasonModal
         action={pending}
         onClose={() => setPending(null)}
@@ -291,6 +366,97 @@ function Counters() {
         }}
       />
     </>
+  );
+}
+
+function EditCounterModal({
+  edit,
+  onClose,
+  onDone,
+}: {
+  edit: CounterEdit | null;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [label, setLabel] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    setLabel(edit?.counter.label ?? "");
+    setError(null);
+  }, [edit]);
+
+  async function confirm() {
+    if (!edit) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const id = edit.counter.registerId;
+      if (edit.kind === "rename") await countersApi.updateCounter(id, { label: label.trim() });
+      else if (edit.kind === "stop") await countersApi.updateCounter(id, { isActive: false });
+      else await countersApi.deleteCounter(id);
+      onDone();
+    } catch (err) {
+      setError(message(err, "That didn't go through."));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const name = edit?.counter.label ?? "this counter";
+  const copy = {
+    rename: {
+      title: `Rename ${name}`,
+      description: "Past sales and shifts show the new name too.",
+      button: "Save name",
+    },
+    stop: {
+      title: `Stop using ${name}?`,
+      description:
+        "It no longer shows when setting up a computer, and its records are kept. You can start using it again later.",
+      button: "Stop using",
+    },
+    delete: {
+      title: `Delete ${name}?`,
+      description: "This counter has never been used. Deleting it cannot be undone.",
+      button: "Delete counter",
+    },
+  }[edit?.kind ?? "rename"];
+
+  return (
+    <Modal
+      open={edit !== null}
+      onClose={onClose}
+      canDismiss={!busy}
+      size="sm"
+      title={copy.title}
+      description={copy.description}
+      footer={
+        <ModalFooter>
+          <ModalButton variant="secondary" onClick={onClose} disabled={busy}>
+            Cancel
+          </ModalButton>
+          <ModalButton
+            variant={edit?.kind === "delete" ? "danger" : "primary"}
+            onClick={() => void confirm()}
+            loading={busy}
+            disabled={edit?.kind === "rename" && !label.trim()}
+          >
+            {copy.button}
+          </ModalButton>
+        </ModalFooter>
+      }
+    >
+      {edit?.kind === "rename" ? (
+        <FormField
+          label="Counter name"
+          value={label}
+          onChange={(e) => setLabel(e.target.value)}
+          maxLength={120}
+        />
+      ) : null}
+      {error ? <Alert variant="error">{error}</Alert> : null}
+    </Modal>
   );
 }
 

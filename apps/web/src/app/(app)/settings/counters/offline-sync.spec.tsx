@@ -45,6 +45,8 @@ const counter: TerminalCounterView = {
   tillId: "till",
   label: "Front",
   isActive: true,
+  hasHistory: true,
+  hasOpenShift: false,
   terminal: {
     terminalId: "t1",
     label: "FRONT-PC",

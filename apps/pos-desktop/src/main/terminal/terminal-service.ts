@@ -563,11 +563,38 @@ export class TerminalService {
     return { staff: this.staff, device };
   }
 
-  async listCounters(branchId: string): Promise<TerminalCounterView[]> {
+  async listCounters(
+    branchId: string,
+    includeInactive = false,
+  ): Promise<TerminalCounterView[]> {
     this.requireBranch(branchId);
     return this.deps.api.request<TerminalCounterView[]>(
       "GET",
-      "/terminals/counters",
+      includeInactive
+        ? "/terminals/counters?includeInactive=true"
+        : "/terminals/counters",
+      { branchId },
+    );
+  }
+
+  async updateCounter(
+    branchId: string,
+    registerId: string,
+    changes: { label?: string; isActive?: boolean },
+  ): Promise<TerminalCounterView> {
+    this.requireBranch(branchId);
+    return this.deps.api.request<TerminalCounterView>(
+      "PATCH",
+      `/terminals/counters/${registerId}`,
+      { branchId, body: changes },
+    );
+  }
+
+  async deleteCounter(branchId: string, registerId: string): Promise<void> {
+    this.requireBranch(branchId);
+    await this.deps.api.request<unknown>(
+      "DELETE",
+      `/terminals/counters/${registerId}`,
       { branchId },
     );
   }

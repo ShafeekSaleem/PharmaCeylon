@@ -1055,6 +1055,16 @@
     "source": "apps/api/src/terminals/terminal-enrollment.controller.ts"
   },
   {
+    "method": "DELETE",
+    "path": "/api/v1/terminals/counters/:registerId",
+    "source": "apps/api/src/terminals/terminal-enrollment.controller.ts"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/terminals/counters/:registerId",
+    "source": "apps/api/src/terminals/terminal-enrollment.controller.ts"
+  },
+  {
     "method": "POST",
     "path": "/api/v1/terminals/devices/:terminalId/retire",
     "source": "apps/api/src/terminals/terminal-enrollment.controller.ts"
