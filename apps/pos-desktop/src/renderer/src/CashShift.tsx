@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import type {
+  CashPayoutAtCounter,
   DeviceState,
   LocalShift,
   PastShift,
@@ -7,6 +8,7 @@ import type {
   ShiftState,
   ShiftSummary,
 } from "../../shared/ipc-contract";
+import { SupplierCashPayoutTab } from "./SupplierCashPayoutTab";
 import {
   counted,
   describeCount,
@@ -19,10 +21,11 @@ import {
 import styles from "./CashShift.module.css";
 import shell from "./Shell.module.css";
 import { shortName, time } from "./format";
+import { invoke } from "./invoke";
 import { Icon, type IconName } from "./Icon";
 import { KeyHint } from "./KeyHint";
 import { clickSubmit, useKeyBinding } from "./keymap";
-import { money } from "./sell-model";
+import { minor, money } from "./sell-model";
 import { Avatar } from "./Shell";
 import { ROLE_LABELS } from "./SignIn";
 import ui from "./ui.module.css";
@@ -925,6 +928,78 @@ const dayTime = (iso: string) => {
   return `${date.toLocaleDateString("en-GB", { day: "numeric", month: "short" })} · ${time(date)}`;
 };
 
+const payoutMinor = (amount: string) => minor(amount);
+
+/** Approved payouts from the web, with drawer-short warnings on This shift. */
+function WaitingToBePaidOut({
+  shift,
+  online,
+  onOpen,
+}: {
+  shift: LocalShift;
+  online: boolean;
+  onOpen: (cashPayoutId: string) => void;
+}) {
+  const [rows, setRows] = useState<CashPayoutAtCounter[] | null>(null);
+  const load = useCallback(() => {
+    if (!online) return;
+    void invoke(() => window.pos.cashPayoutsReady()).then((result) => {
+      if (result.ok) setRows(result.value);
+    });
+  }, [online]);
+  useEffect(() => load(), [load]);
+  if (!online || rows === null) return null;
+  return (
+    <div className={cx(ui.panel, styles.waitingPaid)}>
+      <div className={styles.pmSub}>Waiting to be paid out</div>
+      {!rows.length ? (
+        <p className={styles.wait}>
+          <b>Nothing waiting</b>
+          <small>Approved cash payouts from the web appear here.</small>
+        </p>
+      ) : (
+        <ul className={styles.waitingLog}>
+          {rows.map((row) => {
+            const isShort = payoutMinor(row.amount) > shift.expectedCashMinor;
+            const title = row.purchaseOrderNumber
+              ? `Supplier payout · ${row.purchaseOrderNumber}`
+              : `Supplier payout · ${row.payoutNumber}`;
+            return (
+              <li key={row.cashPayoutId}>
+                <button
+                  type="button"
+                  className={cx(styles.waitRow, isShort && styles.waitShort)}
+                  onClick={() => onOpen(row.cashPayoutId)}
+                >
+                  <span className={cx(ui.kind, styles.waitIcon)}>
+                    <Icon name="truck" />
+                  </span>
+                  <span className={styles.waitMain}>
+                    <b>{title}</b>
+                    <small>
+                      {row.supplierName ?? "Supplier"}
+                      {row.approvedBy ? ` · approved by ${shortName(row.approvedBy)}` : ""}
+                    </small>
+                    {isShort && (
+                      <span className={cx(ui.pill, ui.warn)}>
+                        <Icon name="alert-triangle" />
+                        Drawer is short
+                      </span>
+                    )}
+                  </span>
+                  <span className={cx(styles.waitAmt, isShort && styles.warnAmt)}>
+                    {money(payoutMinor(row.amount))}
+                  </span>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 /** Prints the X report: a mid-shift summary on the receipt printer. The shift stays open. */
 function XReportButton({ printer }: { printer: Printer | null | undefined }) {
   const [state, setState] = useState<"idle" | "printing" | "done">("idle");
@@ -975,6 +1050,9 @@ export function CashShiftPage({
   printer,
   onHandover = () => undefined,
   active = true,
+  online = true,
+  focusPayoutId = null,
+  onFocusPayoutConsumed,
 }: {
   device: DeviceState;
   shift: ShiftState | null;
@@ -984,13 +1062,33 @@ export function CashShiftPage({
   onHandover?: (nextStaffUserId: string | null) => void;
   /** Whether the page is the one shown (Past shifts loads only then). */
   active?: boolean;
+  online?: boolean;
+  focusPayoutId?: string | null;
+  onFocusPayoutConsumed?: () => void;
 }) {
-  const [view, setView] = useState<"shift" | "past">("shift");
+  const [view, setView] = useState<"shift" | "payout" | "past">("shift");
+  const [payoutBadge, setPayoutBadge] = useState(0);
+  const [focusId, setFocusId] = useState<string | null>(focusPayoutId);
   const me = device.staffSession?.staffUserId;
   const current = shift?.current ?? null;
   const counter = device.enrollment?.counterLabel ?? "this counter";
   const mine = current && current.staffUserId === me;
   const open = current && current.status !== "opening";
+  useEffect(() => {
+    if (!focusPayoutId) return;
+    setFocusId(focusPayoutId);
+    setView("payout");
+  }, [focusPayoutId]);
+  useEffect(() => {
+    if (!active || !online) return;
+    void invoke(() => window.pos.cashPayoutsReady()).then((result) => {
+      if (result.ok) setPayoutBadge(result.value.length);
+    });
+  }, [active, online, view, focusId]);
+  const openPayout = (id: string) => {
+    setFocusId(id);
+    setView("payout");
+  };
   return (
     <div className={styles.page}>
       <div className={ui.pageH}>
@@ -1005,12 +1103,29 @@ export function CashShiftPage({
           <button type="button" aria-pressed={view === "shift"} onClick={() => setView("shift")}>
             This shift
           </button>
+          <button type="button" aria-pressed={view === "payout"} onClick={() => setView("payout")}>
+            Pay out{payoutBadge > 0 ? <i>{payoutBadge}</i> : null}
+          </button>
           <button type="button" aria-pressed={view === "past"} onClick={() => setView("past")}>
             Past shifts
           </button>
         </div>
       </div>
-      {view === "past" ? (
+      {view === "payout" ? (
+        <SupplierCashPayoutTab
+          device={device}
+          shift={open ? current : null}
+          online={online}
+          focusPayoutId={focusId}
+          onFocusConsumed={() => {
+            setFocusId(null);
+            onFocusPayoutConsumed?.();
+          }}
+          onExecuted={() => {
+            void window.pos.refreshShift().then((s) => s.ok && onShift(s.value));
+          }}
+        />
+      ) : view === "past" ? (
         <PastShifts active={active && view === "past"} />
       ) : (
         <div className={styles.body}>
@@ -1051,10 +1166,13 @@ export function CashShiftPage({
               </div>
             )}
             {open && (
-              <div className={styles.two}>
-                <Takings summary={current.summary} />
-                <CashLog shift={current} />
-              </div>
+              <>
+                <WaitingToBePaidOut shift={current} online={online} onOpen={openPayout} />
+                <div className={styles.two}>
+                  <Takings summary={current.summary} />
+                  <CashLog shift={current} />
+                </div>
+              </>
             )}
             {!current && shift?.lastClosed && <LastClose shift={shift.lastClosed} />}
           </div>

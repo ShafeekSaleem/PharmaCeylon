@@ -5,7 +5,7 @@ export function widgetDataSources(key: string): string[] {
   if (key.endsWith(".recent-transactions"))
     return ["Recent sales", "Sales metrics"];
   if (
-    /\.(shift-performance|payment-methods|dispensing-throughput|frequently-dispensed|fast-moving-items|top-products-today|staff-productivity)$/.test(
+    /\.(shift-performance|payment-methods|payment-mix|dispensing-throughput|frequently-dispensed|fast-moving-items|top-products-today|staff-productivity)$/.test(
       key,
     )
   )

@@ -172,7 +172,7 @@ const record = (
     device.sign(a, a.identity.keyId, "attendance"),
   );
 
-async function counter(label = "Counter") {
+async function counter(label = `Counter ${randomUUID().slice(0, 8)}`) {
   return tx((c) => trust.createCounter(c, owner, fx.mainBranchId, label));
 }
 
@@ -1445,7 +1445,7 @@ describe("GET enrollment status for This counter", () => {
     const foreignOwner = user(foreign.ownerId);
     foreignOwner.tenantId = foreign.tenantId;
     const device = terminalDevice();
-    const counterRow = await tx((c) => trust.createCounter(c, foreignOwner, foreign.mainBranchId, "Foreign"));
+    const counterRow = await tx((c) => trust.createCounter(c, foreignOwner, foreign.mainBranchId, `Foreign ${randomUUID().slice(0, 6)}`));
     const challenge = await tx((c) =>
       trust.beginEnrollment(c, foreignOwner, foreign.mainBranchId, {
         registerId: counterRow.id,
@@ -1471,7 +1471,7 @@ describe("GET enrollment status for This counter", () => {
 
   it("returns offline backup authorization, activation, and full names for this enrollment only", async () => {
     const device = terminalDevice();
-    const counterRow = await tx((c) => trust.createCounter(c, owner, fx.mainBranchId, "Desk A"));
+    const counterRow = await tx((c) => trust.createCounter(c, owner, fx.mainBranchId, `Desk A ${randomUUID().slice(0, 6)}`));
     const challenge = await tx((c) =>
       trust.beginEnrollment(c, owner, fx.mainBranchId, {
         registerId: counterRow.id,

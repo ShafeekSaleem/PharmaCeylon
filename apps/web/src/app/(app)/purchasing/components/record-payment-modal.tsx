@@ -502,7 +502,7 @@ export function RecordPaymentModal({
       {counterOnly && (
         <Alert variant="warning">
           {rollout
-            ? "This branch sells on PharmaCeylon POS, so cash and other supplier payouts are not recorded from the web here, and the counter can't record them yet. Pay by bank transfer, cheque or card with its document."
+            ? "This branch sells on PharmaCeylon POS, so cash supplier payouts are prepared under Purchasing → Cash payouts, then paid out from the counter drawer. Pay by bank transfer, cheque or card here with its document."
             : "This branch's PharmaCeylon POS state isn't confirmed yet, so cash and other supplier payouts are held back. Reload the page if this doesn't clear."}
         </Alert>
       )}
@@ -570,7 +570,9 @@ export function RecordPaymentModal({
           <PurchasingSelect
             label="Paid by"
             value={method}
-            options={PAYMENT_METHOD_OPTIONS.map((o) => ({
+            options={PAYMENT_METHOD_OPTIONS.filter(
+              (o) => !counterOnly || !["cash", "other"].includes(o.value),
+            ).map((o) => ({
               value: o.value,
               label: o.label,
             }))}

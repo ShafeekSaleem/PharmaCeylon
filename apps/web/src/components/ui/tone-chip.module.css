@@ -31,3 +31,21 @@
   border-color: color-mix(in srgb, var(--pc-tone-rose) 26%, var(--pc-border));
   color: var(--pc-tone-rose-strong);
 }
+
+.orangeTone {
+  background: color-mix(in srgb, var(--pc-tone-orange) 14%, var(--pc-card-bg));
+  border-color: color-mix(in srgb, var(--pc-tone-orange) 32%, var(--pc-border));
+  color: var(--pc-tone-orange-strong);
+}
+
+.violetTone {
+  background: color-mix(in srgb, var(--pc-tone-violet) 13%, var(--pc-card-bg));
+  border-color: color-mix(in srgb, var(--pc-tone-violet) 28%, var(--pc-border));
+  color: var(--pc-tone-violet-strong);
+}
+
+.dangerStrongTone {
+  background: color-mix(in srgb, var(--pc-tone-danger) 14%, var(--pc-card-bg));
+  border-color: color-mix(in srgb, var(--pc-tone-danger) 32%, var(--pc-border));
+  color: var(--pc-tone-danger-strong);
+}

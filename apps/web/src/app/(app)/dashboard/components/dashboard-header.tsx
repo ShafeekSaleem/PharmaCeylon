@@ -14,6 +14,8 @@ import { formatRelativeTime } from "@/app/(app)/inventory/utils";
 import type { DashboardRole } from "../lib/dashboard-role";
 import { formatRoleLabel } from "../lib/dashboard-role";
 import type { OwnerAnalyticsScope } from "../hooks/use-dashboard-data";
+import type { QuickAction } from "./quick-actions-bar";
+import { DashboardShortcutsMenu } from "./dashboard-shortcuts-menu";
 import css from "../dashboard.module.css";
 
 type CustomizeProps = {
@@ -37,6 +39,7 @@ type Props = {
   loading?: boolean;
   lastUpdatedAt?: string | null;
   onRefresh?: () => void;
+  shortcuts?: QuickAction[];
   customize?: CustomizeProps;
 };
 
@@ -49,6 +52,7 @@ export function DashboardHeader({
   loading,
   lastUpdatedAt,
   onRefresh,
+  shortcuts,
   customize,
 }: Props) {
   const showOwnerScope = role === "owner" && ownerScope && onOwnerScopeChange;
@@ -148,6 +152,7 @@ export function DashboardHeader({
               </span>
             </span>
           ) : null}
+          {shortcuts?.length ? <DashboardShortcutsMenu actions={shortcuts} /> : null}
           {customize ? (
             customize.isEditing ? (
               <div className={css.customizeBar}>

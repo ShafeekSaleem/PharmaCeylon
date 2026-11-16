@@ -639,9 +639,14 @@ export class ShiftService {
     this.post(`refund:${requestNumber}`, "refund", executorId, { cashIn: 0, change: 0, cashOut });
   }
 
+  /** A supplier cash payout executed here: cash leaves the drawer's expected figure once. */
+  recordSupplierPayout(cashPayoutId: string, amountMinor: number, executorId: string) {
+    this.post(`payout:${cashPayoutId}`, "payout", executorId, { cashIn: 0, change: 0, cashOut: amountMinor });
+  }
+
   private post(
     id: string,
-    kind: "sale" | "refund",
+    kind: "sale" | "refund" | "payout",
     staffUserId: string,
     cash: { cashIn: number; change: number; cashOut: number },
   ) {

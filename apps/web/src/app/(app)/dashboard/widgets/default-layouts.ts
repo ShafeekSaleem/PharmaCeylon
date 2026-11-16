@@ -36,20 +36,8 @@ function buildDefaultLayout(
 
 // Keep the default page focused. Additional supported widgets remain available through Customize.
 const DEFAULT_KEYS: Record<DashboardRole, string[]> = {
-  owner: [
-    "owner.business-overview",
-    "owner.inventory-health",
-    "counter.waiting",
-    "owner.branch-revenue-contribution",
-    "owner.cash-flow",
-  ],
-  manager: [
-    "manager.business-overview",
-    "manager.inventory-health",
-    "counter.waiting",
-    "manager.staff-productivity",
-    "manager.branch-sales-vs-target",
-  ],
+  owner: ["counter.waiting", "owner.cash-flow", "owner.ai-insights"],
+  manager: ["counter.waiting", "manager.top-products-today", "manager.ai-insights"],
   pharmacist: [
     "pharmacist.dispensing-throughput",
     "pharmacist.controlled-drug-activity",

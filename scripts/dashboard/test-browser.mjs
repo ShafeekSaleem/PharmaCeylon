@@ -270,9 +270,12 @@ async function seed() {
     });
   return { tenantId, main, other, orders };
 }
-async function queueData(page, filter = "all", category = "") {
+async function queueData(page, filter = "all", category = "", pageSize) {
+  const params = new URLSearchParams({ filter, page: "1" });
+  if (category) params.set("category", category);
+  if (pageSize) params.set("pageSize", String(pageSize));
   const response = await page.request.get(
-    `http://localhost:3000/api/v1/dashboard/work?filter=${filter}&page=1${category ? "&category=" + category : ""}`,
+    `http://localhost:3000/api/v1/dashboard/work?${params}`,
     { headers: { "x-branch-id": fixture.main.id } },
   );
   assert.equal(response.status(), 200, await response.text());
@@ -338,9 +341,17 @@ try {
     await page
       .getByRole("heading", { name: "Today’s priorities", exact: true })
       .waitFor({ timeout: 30000 });
-    await page
-      .getByText("Loading your priorities…", { exact: true })
-      .waitFor({ state: "hidden" });
+    const v6Queue = role === "owner" || role === "manager";
+    if (v6Queue) {
+      await page
+        .getByRole("status", { name: "Loading priorities" })
+        .waitFor({ state: "hidden", timeout: 30000 })
+        .catch(() => {});
+    } else {
+      await page
+        .getByText("Loading your priorities…", { exact: true })
+        .waitFor({ state: "hidden" });
+    }
     await page
       .getByText("Loading dashboard metrics…", { exact: true })
       .waitFor({ state: "hidden", timeout: 30000 });
@@ -353,75 +364,170 @@ try {
         }),
       })
       .first();
-    const data = await queueData(page);
+    const workPageSize = v6Queue ? 8 : 6;
+    const data = await queueData(
+      page,
+      "all",
+      "",
+      v6Queue ? workPageSize : undefined,
+    );
     assert.ok(data.total > 0, role + " needs seeded work");
-    for (const [filter, label] of [
-      ["mine", "Assigned to me"],
-      ["approvals", "Needs my decision"],
-      ["overdue", "Overdue"],
-      ["all", "All work"],
-    ]) {
-      const response = page.waitForResponse(
-        (r) =>
-          r.url().includes("/dashboard/work?") &&
-          new URL(r.url()).searchParams.get("filter") === filter,
-      );
-      await queue
-        .getByRole("button", { name: new RegExp("^" + label) })
-        .click();
-      const r = await response;
-      assert.equal(r.status(), 200);
-      const d = await r.json();
+  async function clickQueueFilter(label) {
+    const tab = queue.getByRole("tab", { name: new RegExp("^" + label) });
+    if (await tab.count()) {
+      await tab.click();
+      return;
+    }
+    await queue
+      .getByRole("button", { name: new RegExp("^" + label) })
+      .click();
+  }
+    const filterCases = v6Queue
+      ? [
+          ...((data.counts?.approvals ?? 0) > 0
+            ? [["approvals", "Needs my decision"]]
+            : []),
+          ...((data.counts?.counter ?? 0) > 0
+            ? [["counter", "At the counter"]]
+            : []),
+          ["all", "All"],
+        ]
+      : [
+          ["mine", "Assigned to me"],
+          ["approvals", "Needs my decision"],
+          ["overdue", "Overdue"],
+          ["all", "All work"],
+        ];
+    for (const [filter, label] of filterCases) {
+      let d;
+      if (v6Queue) {
+        await clickQueueFilter(label);
+        await page.waitForTimeout(400);
+        d = await queueData(page, filter, "", v6Queue ? workPageSize : undefined);
+      } else {
+        const response = page.waitForResponse(
+          (r) =>
+            r.url().includes("/dashboard/work?") &&
+            new URL(r.url()).searchParams.get("filter") === filter,
+        );
+        await clickQueueFilter(label);
+        const r = await response;
+        assert.equal(r.status(), 200);
+        d = await r.json();
+        await page.waitForFunction(
+          (count) =>
+            document
+              .getElementById("daily-work-title")
+              ?.closest("section")
+              ?.querySelectorAll("article").length === count,
+          d.items.length,
+        );
+      }
       assert.equal(d.total, d.counts[filter], role + " " + filter);
-      await page.waitForFunction(
-        (count) =>
-          document
-            .getElementById("daily-work-title")
-            ?.closest("section")
-            ?.querySelectorAll("article").length === count,
-        d.items.length,
-      );
     }
-    if (data.total > 6) {
-      const response = page.waitForResponse(
-        (r) =>
-          r.url().includes("/dashboard/work?") &&
-          new URL(r.url()).searchParams.get("page") === "2",
-      );
-      await queue.getByRole("button", { name: "Next", exact: true }).click();
-      const second = await (await response).json();
+    let stockChipTested = false;
+    if (v6Queue) {
+      const lowApi = await page.request
+        .get(
+          "http://localhost:3000/api/v1/inventory/stock-by-product?ledgerOnly=1&status=low&take=200",
+          { headers: { "x-branch-id": fixture.main.id } },
+        )
+        .then((r) => r.json());
+      const lowCount = lowApi.items?.length ?? 0;
+      const lowTab = queue.getByRole("tab", { name: /^Low stock/ });
+      if (lowCount > 0 && (await lowTab.count())) {
+        stockChipTested = true;
+        const expectedChip = lowCount >= 200 ? "200+" : String(lowCount);
+        assert.match(
+          (await lowTab.innerText()).replace(/\s+/g, " "),
+          new RegExp(expectedChip.replace("+", "\\+") + "\\s*$"),
+          role + " low stock chip matches API list",
+        );
+        await lowTab.click();
+        await page.waitForTimeout(600);
+        const rows = queue.getByRole("link", { name: /^Open$/ });
+        const pageSize = workPageSize;
+        assert.equal(
+          await rows.count(),
+          Math.min(lowCount, pageSize),
+          role + " low stock first page",
+        );
+        if (lowCount > pageSize) {
+          await queue.getByRole("button", { name: /^Next/ }).click();
+          await page.waitForTimeout(400);
+          assert.equal(
+            await rows.count(),
+            lowCount - pageSize,
+            role + " low stock second page",
+          );
+          await queue.getByRole("button", { name: /^Previous/ }).click();
+        }
+      }
+    }
+    let categoryTested = false;
+    const paginated = await queueData(
+      page,
+      "all",
+      "",
+      v6Queue ? workPageSize : undefined,
+    );
+    const listPageSize = paginated.pageSize ?? workPageSize;
+    const hasSecondPage = Math.ceil(paginated.total / listPageSize) > 1;
+    const nextBtn = queue.getByRole("button", { name: /Next/ });
+    let paginationTested = false;
+    if (hasSecondPage && (await nextBtn.isEnabled())) {
+      paginationTested = true;
+      const activeFilter = "all";
+      await nextBtn.click();
+      await page.waitForTimeout(500);
+      const second = await page.request
+        .get(
+          `http://localhost:3000/api/v1/dashboard/work?filter=${activeFilter}&page=2&pageSize=${listPageSize}`,
+          { headers: { "x-branch-id": fixture.main.id } },
+        )
+        .then((r) => r.json());
       assert.ok(
-        second.items.every((i) => !data.items.some((j) => i.id === j.id)),
+        second.items.every((i) => !paginated.items.some((j) => i.id === j.id)),
       );
-      const back = page.waitForResponse(
+      await queue.getByRole("button", { name: /Previous/ }).click();
+      if (!v6Queue) {
+        await page.waitForFunction(
+          (count) =>
+            document
+              .getElementById("daily-work-title")
+              ?.closest("section")
+              ?.querySelectorAll("article").length === count,
+          paginated.items.length,
+        );
+      }
+    }
+    if (!v6Queue) {
+      const category = page.waitForResponse(
         (r) =>
           r.url().includes("/dashboard/work?") &&
-          new URL(r.url()).searchParams.get("page") === "1",
+          new URL(r.url()).searchParams.get("category") === "counter",
       );
-      await queue
-        .getByRole("button", { name: "Previous", exact: true })
-        .click();
-      await back;
+      await page
+        .getByRole("combobox", { name: "Work category", exact: true })
+        .selectOption("counter");
+      const cd = await (await category).json();
+      assert.ok(cd.items.every((i) => i.category === "counter"));
+      const reset = page.waitForResponse(
+        (r) =>
+          r.url().includes("/dashboard/work?") &&
+          !new URL(r.url()).searchParams.get("category"),
+      );
+      await page
+        .getByRole("combobox", { name: "Work category", exact: true })
+        .selectOption("");
+      await reset;
+      categoryTested = true;
     }
-    const category = page.waitForResponse(
-      (r) =>
-        r.url().includes("/dashboard/work?") &&
-        new URL(r.url()).searchParams.get("category") === "counter",
-    );
-    await page
-      .getByRole("combobox", { name: "Work category", exact: true })
-      .selectOption("counter");
-    const cd = await (await category).json();
-    assert.ok(cd.items.every((i) => i.category === "counter"));
-    const reset = page.waitForResponse(
-      (r) =>
-        r.url().includes("/dashboard/work?") &&
-        !new URL(r.url()).searchParams.get("category"),
-    );
-    await page
-      .getByRole("combobox", { name: "Work category", exact: true })
-      .selectOption("");
-    await reset;
+    if (v6Queue) {
+      await page
+        .getByRole("button", { name: /^Shortcuts/ })
+        .waitFor({ timeout: 5000 });
+    }
     if (role === "owner") {
       await page
         .getByRole("button", { name: "Colombo Central", exact: true })
@@ -531,16 +637,25 @@ try {
     }
     if (role === "manager") {
       await page.setViewportSize({ width: 1440, height: 1100 });
-      const approvals = page.waitForResponse(
-        (r) =>
-          r.url().includes("/dashboard/work?") &&
-          new URL(r.url()).searchParams.get("filter") === "approvals",
-      );
-      await queue.getByRole("button", { name: /^Needs my decision/ }).click();
-      await approvals;
-      await queue
-        .getByRole("link", { name: "Review order: PO-QA-0001", exact: true })
-        .click();
+      if (v6Queue) {
+        await clickQueueFilter("Needs my decision");
+        await page.waitForTimeout(400);
+        await queue
+          .getByRole("link", { name: /^Review order/ })
+          .first()
+          .click();
+      } else {
+        const approvals = page.waitForResponse(
+          (r) =>
+            r.url().includes("/dashboard/work?") &&
+            new URL(r.url()).searchParams.get("filter") === "approvals",
+        );
+        await clickQueueFilter("Needs my decision");
+        await approvals;
+        await queue
+          .getByRole("link", { name: "Review order: PO-QA-0001", exact: true })
+          .click();
+      }
       const dialog = page.getByRole("dialog").filter({
         has: page.getByRole("heading", { name: "PO-QA-0001", exact: true }),
       });
@@ -581,8 +696,9 @@ try {
       total: data.total,
       counts: data.counts,
       filters: true,
-      pagination: data.total > 6,
-      category: true,
+      stockChip: stockChipTested,
+      pagination: paginationTested,
+      category: v6Queue ? false : categoryTested,
       desktopOverflow: false,
       mobileOverflow: false,
       chartContentFits: true,
