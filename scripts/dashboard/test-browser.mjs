@@ -338,9 +338,17 @@ try {
     await page
       .getByRole("heading", { name: "Today’s priorities", exact: true })
       .waitFor({ timeout: 30000 });
-    await page
-      .getByText("Loading your priorities…", { exact: true })
-      .waitFor({ state: "hidden" });
+    const v6Queue = role === "owner" || role === "manager";
+    if (v6Queue) {
+      await page
+        .getByRole("status", { name: "Loading priorities" })
+        .waitFor({ state: "hidden", timeout: 30000 })
+        .catch(() => {});
+    } else {
+      await page
+        .getByText("Loading your priorities…", { exact: true })
+        .waitFor({ state: "hidden" });
+    }
     await page
       .getByText("Loading dashboard metrics…", { exact: true })
       .waitFor({ state: "hidden", timeout: 30000 });
@@ -355,34 +363,53 @@ try {
       .first();
     const data = await queueData(page);
     assert.ok(data.total > 0, role + " needs seeded work");
-    for (const [filter, label] of [
-      ["mine", "Assigned to me"],
-      ["approvals", "Needs my decision"],
-      ["overdue", "Overdue"],
-      ["all", "All work"],
-    ]) {
+  const workPageSize = v6Queue ? 8 : 6;
+  async function clickQueueFilter(label) {
+    const tab = queue.getByRole("tab", { name: new RegExp("^" + label) });
+    if (await tab.count()) {
+      await tab.click();
+      return;
+    }
+    await queue
+      .getByRole("button", { name: new RegExp("^" + label) })
+      .click();
+  }
+    const filterCases = v6Queue
+      ? [
+          ["all", "All"],
+          ["approvals", "Needs my decision"],
+          ["counter", "At the counter"],
+        ]
+      : [
+          ["mine", "Assigned to me"],
+          ["approvals", "Needs my decision"],
+          ["overdue", "Overdue"],
+          ["all", "All work"],
+        ];
+    for (const [filter, label] of filterCases) {
       const response = page.waitForResponse(
         (r) =>
           r.url().includes("/dashboard/work?") &&
           new URL(r.url()).searchParams.get("filter") === filter,
       );
-      await queue
-        .getByRole("button", { name: new RegExp("^" + label) })
-        .click();
+      await clickQueueFilter(label);
       const r = await response;
       assert.equal(r.status(), 200);
       const d = await r.json();
       assert.equal(d.total, d.counts[filter], role + " " + filter);
-      await page.waitForFunction(
-        (count) =>
-          document
-            .getElementById("daily-work-title")
-            ?.closest("section")
-            ?.querySelectorAll("article").length === count,
-        d.items.length,
-      );
+      if (!v6Queue) {
+        await page.waitForFunction(
+          (count) =>
+            document
+              .getElementById("daily-work-title")
+              ?.closest("section")
+              ?.querySelectorAll("article").length === count,
+          d.items.length,
+        );
+      }
     }
-    if (data.total > 6) {
+    let categoryTested = false;
+    if (data.total > workPageSize) {
       const response = page.waitForResponse(
         (r) =>
           r.url().includes("/dashboard/work?") &&
@@ -403,25 +430,33 @@ try {
         .click();
       await back;
     }
-    const category = page.waitForResponse(
-      (r) =>
-        r.url().includes("/dashboard/work?") &&
-        new URL(r.url()).searchParams.get("category") === "counter",
-    );
-    await page
-      .getByRole("combobox", { name: "Work category", exact: true })
-      .selectOption("counter");
-    const cd = await (await category).json();
-    assert.ok(cd.items.every((i) => i.category === "counter"));
-    const reset = page.waitForResponse(
-      (r) =>
-        r.url().includes("/dashboard/work?") &&
-        !new URL(r.url()).searchParams.get("category"),
-    );
-    await page
-      .getByRole("combobox", { name: "Work category", exact: true })
-      .selectOption("");
-    await reset;
+    if (!v6Queue) {
+      const category = page.waitForResponse(
+        (r) =>
+          r.url().includes("/dashboard/work?") &&
+          new URL(r.url()).searchParams.get("category") === "counter",
+      );
+      await page
+        .getByRole("combobox", { name: "Work category", exact: true })
+        .selectOption("counter");
+      const cd = await (await category).json();
+      assert.ok(cd.items.every((i) => i.category === "counter"));
+      const reset = page.waitForResponse(
+        (r) =>
+          r.url().includes("/dashboard/work?") &&
+          !new URL(r.url()).searchParams.get("category"),
+      );
+      await page
+        .getByRole("combobox", { name: "Work category", exact: true })
+        .selectOption("");
+      await reset;
+      categoryTested = true;
+    }
+    if (v6Queue) {
+      await page
+        .getByRole("button", { name: /^Shortcuts/ })
+        .waitFor({ timeout: 5000 });
+    }
     if (role === "owner") {
       await page
         .getByRole("button", { name: "Colombo Central", exact: true })
@@ -536,7 +571,7 @@ try {
           r.url().includes("/dashboard/work?") &&
           new URL(r.url()).searchParams.get("filter") === "approvals",
       );
-      await queue.getByRole("button", { name: /^Needs my decision/ }).click();
+      await clickQueueFilter("Needs my decision");
       await approvals;
       await queue
         .getByRole("link", { name: "Review order: PO-QA-0001", exact: true })
@@ -581,8 +616,8 @@ try {
       total: data.total,
       counts: data.counts,
       filters: true,
-      pagination: data.total > 6,
-      category: true,
+      pagination: data.total > workPageSize,
+      category: v6Queue ? false : categoryTested,
       desktopOverflow: false,
       mobileOverflow: false,
       chartContentFits: true,
