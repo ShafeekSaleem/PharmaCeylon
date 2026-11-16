@@ -1096,7 +1096,14 @@ is locked, so a revocation that commits first refuses the sale and a later one w
     Refund tasks link to `/sales?view=pending-approvals&request=<id>`. The old `/refund-approvals`
     web route redirects there for draft-MR bookmarks; there is no separate sidebar destination.
     `GET /sales/refund-requests/:id` admits `sales.refund` **or** `returns.approve`, so an
-    approver need not have sale execution/history permissions. Detail includes exact approval
+    approver need not have sale execution/history permissions. This is a deliberate widening
+    (#159, from #144): either permission, held at the request's branch (owners always pass), reads
+    **any** refund request at that branch, whatever its status (prepared, approved, executed,
+    cancelled) and whoever raised it. It stays scoped to the caller's tenant and the `x-branch-id`
+    branch (another branch's or tenant's id is **404**). The response names the people involved:
+    `requester`, `approver`, `executor` and `cancelledBy`, each `{ id, fullName }` or `null`. The
+    list (`GET /sales/refund-requests`) is unchanged and still needs `sales.refund`. Narrowing this
+    is a separate product decision, not a revert. Detail includes exact approval
     evidence, priced lines and nullable `productName`/`batchNo` display labels (outside the digest).
     The existing approval command and separate counter execution boundary are unchanged.
     Revoked/missing pinned evidence returns open refunds to pending review even if the threshold
