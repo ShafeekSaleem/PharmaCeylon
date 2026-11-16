@@ -358,7 +358,9 @@ later distinct command gets `effect: "already_applied"` with an empty `refundedT
 Supplier cash payout execute always requires the pinned `executionApprovalId` as
 `approvalEvidenceId` (management action `supplier_cash_payout.execute`). Result:
 `{ type: "supplier_cash_payout.executed", cashPayoutId, approvalId, supplierPaymentId,
-amountMinor, effect }`. Cash leaves the executor's open till shift; replay returns the same receipt
+supplierPaymentNo, amountMinor, effect }`. `supplierPaymentNo` is the ledger's per-tenant payment number
+(`PAY-00001`, unique per tenant, allocated in the same transaction); a replay returns the same one.
+The cash-payout view carries it too, as `supplierPaymentNo` (null until executed). Cash leaves the executor's open till shift; replay returns the same receipt
 with `effect: "already_applied"`. Before posting the ledger payment the server update-locks the open
 shift and refuses with 409 `INSUFFICIENT_DRAWER_CASH` when expected cash is below the payout amount.
 A payout of exactly the expected balance is allowed.

@@ -288,6 +288,8 @@ describe("supplier cash payout contract (#174)", () => {
       where: { tenantId: fx.tenantId, id: (first.result as { supplierPaymentId: string }).supplierPaymentId },
     });
     expect(payment).toMatchObject({ method: "cash", amount: new Prisma.Decimal("300"), voidedAt: null });
+    expect((first.result as { supplierPaymentNo: string }).supplierPaymentNo).toBe(payment.paymentNo);
+    expect(payment.paymentNo).toMatch(/^PAY-\d{5}$/);
     expect((await owedOn(invoiceId))).toBe("300.00");
     const movement = await prisma.tillCashMovement.findFirst({
       where: { tenantId: fx.tenantId, referenceType: "supplier_payment", referenceId: payment.id },

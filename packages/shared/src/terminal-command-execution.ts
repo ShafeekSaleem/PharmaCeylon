@@ -192,7 +192,7 @@ export type SignedOperationResult = {
   /** Each batch of the case, once: what was posted, corrected or linked. */
   "POST /api/v1/purchasing/cash-payouts/:id/execute": Readonly<{
     type: "supplier_cash_payout.executed"; cashPayoutId: string; approvalId: string;
-    supplierPaymentId: string; amountMinor: number; effect: SignedOperationEffect;
+    supplierPaymentId: string; supplierPaymentNo: string; amountMinor: number; effect: SignedOperationEffect;
   }>;
   "POST /api/v1/offline-stock-cases/resolutions/:id/execute": Readonly<{
     type: "offline_stock_case.resolved"; resolutionId: string; caseId: string; saleId: string; approvalId: string;

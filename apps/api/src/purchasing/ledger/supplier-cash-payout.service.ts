@@ -287,7 +287,12 @@ export class SupplierCashPayoutService {
       throw new ConflictException({ code: "APPROVAL_STALE", message: "Approval changed; refresh and review before paying out" });
     }
     if (row.status === SupplierCashPayoutStatus.executed) {
-      return { changed: false, row, paymentId: row.supplierPaymentId! };
+      return {
+        changed: false,
+        row,
+        paymentId: row.supplierPaymentId!,
+        paymentNo: await this.paymentNo(tx, tenantId, row.supplierPaymentId!),
+      };
     }
     if (row.status !== SupplierCashPayoutStatus.approved) throw new BadRequestException("This payout is not approved yet");
     if (!row.executionApprovalId) denied("APPROVAL_REQUIRED");
@@ -323,6 +328,7 @@ export class SupplierCashPayoutService {
         })),
       },
     );
+    const paymentNo = await this.paymentNo(tx, tenantId, paymentId);
     const poRef = row.purchaseOrderId
       ? await tx.purchaseOrder.findFirst({
           where: { tenantId, branchId, supplierId: row.supplierId, id: row.purchaseOrderId },
@@ -362,6 +368,7 @@ export class SupplierCashPayoutService {
       payload: {
         supplierId: row.supplierId,
         paymentId,
+        paymentNo,
         approvalId: evidence.approvalId,
         amount: row.amount.toFixed(2),
         requestedByUserId: row.requestedBy,
@@ -375,7 +382,16 @@ export class SupplierCashPayoutService {
           : {}),
       },
     }, tx);
-    return { changed: true, row: executed, paymentId };
+    return { changed: true, row: executed, paymentId, paymentNo };
+  }
+
+  /** The human-readable number the ledger gave the payment (`PAY-00001`, per tenant). */
+  private async paymentNo(tx: Tx, tenantId: string, paymentId: string) {
+    const payment = await tx.supplierPayment.findFirstOrThrow({
+      where: { tenantId, id: paymentId },
+      select: { paymentNo: true },
+    });
+    return payment.paymentNo;
   }
 
   async list(tenantId: string, branchId: string, query: ListSupplierCashPayoutsQueryDto) {
@@ -407,7 +423,8 @@ export class SupplierCashPayoutService {
     const poIds = rows.map((r) => r.purchaseOrderId).filter((id): id is string => !!id);
     const userIds = [...new Set(rows.flatMap((r) => [r.requestedBy, r.approvedBy, r.executedBy, r.cancelledBy])
       .filter((v): v is string => !!v))];
-    const [suppliers, orders, people, evidence] = await Promise.all([
+    const paymentIds = rows.map((r) => r.supplierPaymentId).filter((id): id is string => !!id);
+    const [suppliers, orders, people, evidence, payments] = await Promise.all([
       this.prisma.supplier.findMany({ where: { tenantId, id: { in: supplierIds } }, select: { id: true, code: true, name: true } }),
       poIds.length
         ? this.prisma.purchaseOrder.findMany({ where: { tenantId, id: { in: poIds } }, select: { id: true, poNumber: true } })
@@ -421,6 +438,12 @@ export class SupplierCashPayoutService {
         },
         select: { id: true, revokedAt: true },
       }),
+      paymentIds.length
+        ? this.prisma.supplierPayment.findMany({
+            where: { tenantId, id: { in: paymentIds } },
+            select: { id: true, paymentNo: true },
+          })
+        : Promise.resolve([] as { id: string; paymentNo: string }[]),
     ]);
     const person = (id: string | null) => (id ? people.find((p) => p.id === id) ?? null : null);
     const revoked = new Set(evidence.filter((e) => e.revokedAt).map((e) => e.id));
@@ -452,6 +475,7 @@ export class SupplierCashPayoutService {
         executor: person(row.executedBy),
         executedAt: row.executedAt?.toISOString() ?? null,
         supplierPaymentId: row.supplierPaymentId,
+        supplierPaymentNo: payments.find((p) => p.id === row.supplierPaymentId)?.paymentNo ?? null,
         cancelledBy: person(row.cancelledBy),
         cancelledAt: row.cancelledAt?.toISOString() ?? null,
       };
