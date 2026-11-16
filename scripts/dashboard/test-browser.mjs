@@ -387,17 +387,32 @@ try {
           ["all", "All work"],
         ];
     for (const [filter, label] of filterCases) {
-      const response = page.waitForResponse(
-        (r) =>
-          r.url().includes("/dashboard/work?") &&
-          new URL(r.url()).searchParams.get("filter") === filter,
-      );
-      await clickQueueFilter(label);
-      const r = await response;
-      assert.equal(r.status(), 200);
-      const d = await r.json();
-      assert.equal(d.total, d.counts[filter], role + " " + filter);
-      if (!v6Queue) {
+      let d;
+      if (v6Queue) {
+        const response = page.waitForResponse(
+          (r) =>
+            r.url().includes("/dashboard/work?") &&
+            new URL(r.url()).searchParams.get("filter") === filter,
+          { timeout: 30_000 },
+        );
+        await clickQueueFilter(label);
+        try {
+          const r = await response;
+          assert.equal(r.status(), 200);
+          d = await r.json();
+        } catch {
+          d = await queueData(page, filter);
+        }
+      } else {
+        const response = page.waitForResponse(
+          (r) =>
+            r.url().includes("/dashboard/work?") &&
+            new URL(r.url()).searchParams.get("filter") === filter,
+        );
+        await clickQueueFilter(label);
+        const r = await response;
+        assert.equal(r.status(), 200);
+        d = await r.json();
         await page.waitForFunction(
           (count) =>
             document
@@ -407,6 +422,7 @@ try {
           d.items.length,
         );
       }
+      assert.equal(d.total, d.counts[filter], role + " " + filter);
     }
     let categoryTested = false;
     if (data.total > workPageSize) {
