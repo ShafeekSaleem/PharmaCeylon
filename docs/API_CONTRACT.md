@@ -1857,8 +1857,8 @@ are kept as evidence and never posted.
 
 **Back office** (`x-branch-id`):
 
-- `GET /api/v1/offline-journal-recoveries` → open restores, the newest 20 others, and
-  `offlineCounter` (the nominated counter's cutoff, accepted head, retained refusals,
+- `GET /api/v1/offline-journal-recoveries` → the branch's `timezone` (the web shows these times in
+  it), open restores, the newest 20 others, and `offlineCounter` (the nominated counter's cutoff, accepted head, retained refusals,
   `signOffAvailableAt`, current sign-off and `journalCleared`). `GET …/:id` → one recovery with
   its unmatched entries received so far (who, when, total, lines; the report names
   `localHead.sequence − commonPrefix.sequence`), `closure`, `offlineResumesAt` (when offline
@@ -2013,8 +2013,8 @@ own version, as before.
 Back office (`tenant.management`; acknowledging also needs revised D13 authority, an owner or a
 manager with a live delegation, else 403 `OFFLINE_ASSIGNMENT_NOT_DELEGATED`):
 
-- `GET /offline-counter-restores` → `OfflineCounterRestoresView`: restores awaiting
-  acknowledgement, then the newest 20 others, each with the backup and restore times (the
+- `GET /offline-counter-restores` → `OfflineCounterRestoresView`: the branch's `timezone` (the web
+  shows these times in it), restores awaiting acknowledgement, then the newest 20 others, each with the backup and restore times (the
   counter's clock), the restored journal head beside the server's accepted head, `outageActive`,
   `removedGrantVersion`, `latestGrantVersion`, `lastContactAt` (a sign-in counts, so it proves no
   upload: what may be missing is reckoned from the backup), `clockSkew` (null, or how far the

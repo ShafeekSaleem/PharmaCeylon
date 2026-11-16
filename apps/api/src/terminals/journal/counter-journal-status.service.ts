@@ -1,6 +1,5 @@
 import { Injectable } from "@nestjs/common";
 import type { CounterJournalSyncStatus } from "@pharmaceylon/shared";
-import { safeTimeZone } from "../../common/business-date.util";
 import { PrismaService } from "../../prisma/prisma.service";
 import { AccessService } from "../../security/access.service";
 import type { RequestUser } from "../../security/interfaces/authenticated-request.interface";
@@ -10,6 +9,7 @@ import {
   journalSyncViews,
   type JournalStatusRow,
 } from "./counter-journal-status";
+import { branchTimeZone } from "./branch-time-zone";
 
 /**
  * P5 #51: how far each counter's offline journal has reached the server, for the managers who
@@ -27,16 +27,13 @@ export class CounterJournalStatusService {
     return this.prisma.$transaction(async (tx) => {
       const access = await this.access.resolveLive(user, uuid(branchId), tx);
       if (!access.has("tenant.management")) denied("PERMISSION_DENIED");
-      const branch = await tx.branch.findFirst({
-        where: { tenantId: user.tenantId, id: branchId },
-        select: { timezone: true },
-      });
+      const timezone = await branchTimeZone(tx, user.tenantId, branchId);
       // One statement reads one snapshot: a head that moves meanwhile can't count twice.
       const rows = await tx.$queryRaw<JournalStatusRow[]>(
         journalStatusQuery(user.tenantId, branchId),
       );
       return {
-        timezone: safeTimeZone(branch?.timezone),
+        timezone,
         enrollments: journalSyncViews(rows),
       };
     });
