@@ -107,6 +107,34 @@ export const journalSyncSchema = z.object({
 });
 export type JournalSync = z.infer<typeof journalSyncSchema>;
 
+/**
+ * P4 #50: whether this counter sells online, drains an outage, sells offline, or can do neither,
+ * and why. Times are ISO. Worked out in main from its own connection checks and trusted clock.
+ */
+export const offlineModeSchema = z.object({
+  mode: z.enum(["online", "draining", "offline", "stopped"]),
+  reason: z
+    .enum([
+      "NOT_ENROLLED",
+      "TERMINAL_REVOKED",
+      "NO_OFFLINE_AUTHORITY",
+      "SNAPSHOT_STALE",
+      "GRANT_EXPIRED",
+      "CLOCK_UNTRUSTED",
+      "RECONCILIATION_REQUIRED",
+      "SYNC_PAUSED",
+    ])
+    .nullable(),
+  /** Why there is no trusted time, when `reason` is `CLOCK_UNTRUSTED`. */
+  clock: z.enum(["NO_ANCHOR", "NEW_BOOT"]).nullable(),
+  connected: z.boolean(),
+  outageStartedAt: z.string().nullable(),
+  /** When offline selling ends at the latest: the installed grant's expiry. */
+  grantExpiresAt: z.string().nullable(),
+  snapshotGeneratedAt: z.string().nullable(),
+});
+export type OfflineModeState = z.infer<typeof offlineModeSchema>;
+
 /** An offline sale recorded on this counter, as the "note a problem" sheet lists it. */
 export const offlineSaleSchema = z.object({
   saleCommandId: z.string().uuid(),
@@ -1313,6 +1341,8 @@ export const ipcContract = {
   getShift: { channel: "pos:shift:get", input: noInput, output: shiftStateSchema },
   /** The offline journal's upload and the reconnect pause (P5 #51). Local only. */
   getJournalSync: { channel: "pos:journal-sync:get", input: noInput, output: journalSyncSchema },
+  /** Online, draining an outage, selling offline, or stopped, and why (P4 #50). Local only. */
+  getOfflineMode: { channel: "pos:offline-mode:get", input: noInput, output: offlineModeSchema },
   /** Offline sales recorded on this counter, for noting a problem with one (P4 #50). Local only. */
   offlineSales: { channel: "pos:offline-support:sales", input: noInput, output: result(z.array(offlineSaleSchema)) },
   /** A note on an offline sale. It changes nothing about the sale, stock or cash. */

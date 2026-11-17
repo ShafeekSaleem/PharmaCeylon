@@ -49,6 +49,7 @@ import {
   type CheckoutSyncPause,
 } from "./reconnect-drain";
 import type { TerminalService } from "./terminal-service";
+import type { TrustedClock } from "./trusted-clock";
 
 /** How often the counter looks; most looks end locally (nothing to send, or backing off). */
 export const JOURNAL_SYNC_TICK_MS = 15_000;
@@ -327,6 +328,8 @@ export type OfflineJournalSyncDeps = {
   signer: { keyId: string; publicKey: KeyObject };
   report: (error: unknown) => void;
   now?: () => number;
+  /** P4 #50: a verified reply's signed `serverTime` anchors the trusted clock. */
+  clock?: Pick<TrustedClock, "observe"> | null;
 };
 
 function setMeta(
@@ -720,6 +723,7 @@ export function createOfflineJournalSync(deps: OfflineJournalSyncDeps) {
         supportRows.map((row) => [row.record_id, row.record_hash]),
       ),
     });
+    deps.clock?.observe(response.serverTime, "sync_response");
     const complete = apply(identity.enrollmentId, response, rows, supportRows);
     const allAccepted =
       response.acknowledgements.length === rows.length &&

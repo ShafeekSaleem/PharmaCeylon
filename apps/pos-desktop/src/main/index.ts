@@ -29,6 +29,8 @@ import { journalSyncForRenderer } from "./journal-sync-renderer";
 import { readInstalledOfflineAuthority } from "./terminal/offline-authority";
 import { startOfflineAuthorityRefresh, type OfflineAuthorityRefresh } from "./terminal/offline-authority-refresh";
 import { OfflineJournalWriter } from "./terminal/offline-journal-writer";
+import { offlineModeForRenderer, startOfflineMode, type OfflineModeService } from "./terminal/offline-mode";
+import { TrustedClock } from "./terminal/trusted-clock";
 import {
   readJournalSyncView,
   startOfflineJournalSync,
@@ -137,6 +139,7 @@ let offlineSupport: OfflineSupportService | null = null;
 let returns: ReturnsService | null = null;
 let authorityRefresh: OfflineAuthorityRefresh | null = null;
 let journalSync: OfflineJournalSync | null = null;
+let offlineMode: OfflineModeService | null = null;
 // Receipts can be reprinted for sales completed since the app started; nothing is kept on disk.
 const recentSales = new Map<string, CompletedSale>();
 
@@ -549,6 +552,7 @@ function registerIpc(schemaVersion: number, logger: ReturnType<typeof createLogg
           authorityRefresh?.status() ?? null,
         );
       },
+      getOfflineMode: () => offlineModeForRenderer(offlineMode?.view() ?? null),
       offlineSales: () => act(logger, "offlineSales", () => requireOfflineSupport().sales()),
       noteSaleProblem: (input) => act(logger, "noteSaleProblem", () => requireOfflineSupport().recordIncident(input)),
       cardAttempts: () => act(logger, "cardAttempts", () => requireOfflineSupport().cardAttempts()),
@@ -669,6 +673,8 @@ async function start(): Promise<void> {
   logger.info("startup.ready", { appVersion: app.getVersion(), schemaVersion: store.schemaVersion });
   const deviceStore = new DeviceStore(store.db);
   const offlineJournalWriter = new OfflineJournalWriter({ db: store.db });
+  // P4 #50: offline time is the last server-signed time plus Windows uptime since.
+  const trustedClock = new TrustedClock({ db: store.db });
   // Offline PIN lockouts count down in uptime; save their progress so a restart resumes it.
   const pins = new PinStore(store.db);
   pins.checkpoint();
@@ -701,6 +707,7 @@ async function start(): Promise<void> {
         readDevice: () => deviceStore.read(),
         signer: { keyId: authorityKeyId, publicKey },
         report: (error) => logger.warn("offline_authority.refresh_failed", { error }),
+        clock: trustedClock,
       });
       authorityRefresh = refresh;
       app.once("before-quit", stopRefresh);
@@ -712,9 +719,23 @@ async function start(): Promise<void> {
         signer: { keyId: authorityKeyId, publicKey },
         refresh,
         report: (error) => logger.warn("offline_journal.sync_failed", { error }),
+        clock: trustedClock,
       });
       journalSync = sync;
       app.once("before-quit", stopSync);
+      // P4 #50: going offline, and back. Only with a server key: without one nothing is verified.
+      const { mode, stop: stopMode } = startOfflineMode({
+        db: store.db,
+        clock: trustedClock,
+        journal: offlineJournalWriter,
+        readDevice: () => deviceStore.read(),
+        probe: async () => (await checkApi(currentApiBaseUrl(), mainFetch)).reachable,
+        report: (view, previous) =>
+          logger.info("offline_mode.changed", { from: previous, to: view.mode, reason: view.reason, clock: view.clock }),
+        onError: (error) => logger.warn("offline_mode.check_failed", { error }),
+      });
+      offlineMode = mode;
+      app.once("before-quit", stopMode);
     } catch (error) {
       logger.error("offline_authority.invalid_public_key", { error });
     }
