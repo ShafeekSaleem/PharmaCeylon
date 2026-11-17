@@ -12,15 +12,24 @@ mapping and P6 desktop destinations is `packages/shared/src/counter-work.ts`.
 | `transfer_ship` | `transfer.ship` | `POST …/transfers/:id/ship` | `transfer_ship` | planned |
 | `transfer_receive` | `transfer.receive` | `POST …/transfers/:id/receive` | `transfer_receive` | planned |
 | `refund` | `sale_refund.execute` | `POST …/refund-requests/:id/execute` | `refund` | **available** |
-| `supplier_cash_payout` | `supplier_cash_payout.execute` | `POST …/cash-payouts/:id/execute` | `supplier_payout` | planned |
+| `supplier_cash_payout` | `supplier_cash_payout.execute` | `POST …/cash-payouts/:id/execute` | `supplier_payout` | **available** (#187, on Cash & shift) |
 | `stocktake` | `stocktake.post` | `POST …/stocktakes/:id/post` | `stocktake` | planned |
-| `held_adjustment` | `held_adjustment.post` | `POST …/held-adjustments/:id/post` | `held_write_off` | planned |
+| `held_adjustment` | `held_adjustment.post` | `POST …/held-adjustments/:id/post` | `held_write_off` | **available** (#173) |
 | `supplier_return` | `goods_return.complete` | `POST …/returns/:id/complete` | `supplier_return` | planned |
 | `import_stock` | `import_stock.post` | `POST …/import/:importId/stock/post` | `import_post` | planned |
-| `stock_case` | `offline_stock_case.resolve` | `POST …/resolutions/:id/execute` | `offline_stock_case` | planned |
+| `stock_case` | `offline_stock_case.resolve` | `POST …/resolutions/:id/execute` | `offline_stock_case` | **available** (P5 #51) |
 
 Planned destinations still appear in Counter work with `task.nextAction.executable: false` until P6
 ships the operation screen inside the #122 frame.
+
+## Desktop display (#172 Stage 2)
+
+The counter shows, per item, the approval state (pill and trail), the next action (from
+`task.nextAction`; planned screens say the screen comes next and offer no action) and when the
+list was last checked (`task.freshness.asOf`). When the counter is offline or the last check
+failed, the last list stays on screen read-only with its check time, and every action on the page
+is off until a fresh list arrives. Rows whose `task.freshness.stale` is true are held like a
+changed approval.
 
 ## Related physical operations not listed here
 
