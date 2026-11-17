@@ -10,7 +10,6 @@ import {
   terminalSigningText,
   type BranchStockSnapshot,
   type CommittedCommandReceipt,
-  type OfflineBusinessHoursAcknowledgement,
   type OfflineBusinessHoursEvidence,
   type OfflineGrant,
   type OfflineJournalCommand,
@@ -33,7 +32,7 @@ import { AccessService } from "../../security/access.service";
 import type { RequestUser } from "../../security/interfaces/authenticated-request.interface";
 import { OfflineSupportRecords } from "../offline-support-records.service";
 import { TillShiftsService } from "../shifts/till-shifts.service";
-import { SUPPORT_RECORD_CLOCK_SKEW_MS, type SupportRecordReceipt } from "../support-record-intake";
+import { existingSupportRecord, SUPPORT_RECORD_CLOCK_SKEW_MS, type SupportRecordReceipt } from "../support-record-intake";
 import { denied, verifySignature } from "../terminal-wire";
 import {
   parseCommandEnvelope,
@@ -49,6 +48,7 @@ import {
   storedCommand,
 } from "./journal-chain";
 import { authenticateJournalUploader } from "./journal-uploader";
+import { SupportEvidenceReconciler } from "./support-evidence";
 import { commitOfflineSale, resolveSaleLines } from "./offline-sale-commit";
 import { localOpenShift, readTillShiftState, replayShiftClose, replayShiftOpen } from "./offline-shift-replay";
 
@@ -99,6 +99,13 @@ type Device = { publicKeyHex: string };
  * Late arrival is not a refusal. Prices and tax come from the signed snapshot, never today's
  * catalog. Shift and sale policies are the shared `offlineShiftTransition` /
  * `offlineSalePolicyError` fixtures.
+ *
+ * Support evidence (#51): a command citing a D8 acknowledgement has it verified first
+ * (`SupportEvidenceReconciler.hoursEvidence`). After the commands, every held support record of
+ * the enrollment is re-checked against the sign-ins, shifts and journal entries now on the server
+ * and promoted to `accepted` when all it cites is verified, so records may arrive before or after
+ * their entries. The response's `supportEvidence` says whether every record is accepted and every
+ * card attempt resolved (D12); each uploaded record's acknowledgement reflects that pass.
  */
 @Injectable()
 export class OfflineJournalService {
@@ -110,6 +117,7 @@ export class OfflineJournalService {
     private readonly supportRecords: OfflineSupportRecords,
     private readonly shifts: TillShiftsService,
     private readonly config: ConfigService,
+    private readonly supportEvidence: SupportEvidenceReconciler,
   ) {}
 
   async sync(user: RequestUser, branchId: string, raw: unknown, now: number = Date.now()): Promise<Signed<SyncResponse>> {
@@ -123,11 +131,9 @@ export class OfflineJournalService {
       if (!sameIdentity(item.payload.identity, identity)) denied("IDENTITY_MISMATCH");
     const device = await this.authenticate(user, branchId, identity, [...signIns, ...commands]);
 
-    const supportAcknowledgements: SupportAcknowledgement[] = [];
-    for (const record of request.supportRecords) {
-      const receipt = await this.prisma.$transaction((tx) => this.supportRecords.record(tx, user, branchId, record, now), COMMAND_TX);
-      supportAcknowledgements.push(supportAcknowledgement(receipt));
-    }
+    const receipts: SupportRecordReceipt[] = [];
+    for (const record of request.supportRecords)
+      receipts.push(await this.prisma.$transaction((tx) => this.supportRecords.record(tx, user, branchId, record, now), COMMAND_TX));
     for (const signIn of signIns) await this.retainSignIn(user, identity, signIn);
 
     const acknowledgements: SyncAcknowledgement[] = [];
@@ -138,6 +144,12 @@ export class OfflineJournalService {
       if (ack.status === "held" || ack.status === "rejected") break;
     }
 
+    // Support evidence cites sign-ins and journal entries that may arrive before or after it:
+    // every upload re-checks what is still held (a revoked counter's evidence waits for review).
+    if (!(await this.revoked(identity))) await this.supportEvidence.reconcile(user, identity, now);
+    const supportAcknowledgements = await this.settledSupportAcknowledgements(identity, receipts);
+    const supportEvidence = await this.supportEvidence.status(this.prisma, identity);
+
     const head = await this.head(this.prisma, identity);
     const payload: SyncResponse = {
       contractVersion: 1,
@@ -147,6 +159,7 @@ export class OfflineJournalService {
       acknowledgements,
       committedThroughSequence: head ? Number(head.offlineSequence) : 0,
       committedThroughHash: head?.requestDigest ?? null,
+      supportEvidence,
     };
     return {
       algorithm: "Ed25519",
@@ -154,6 +167,37 @@ export class OfflineJournalService {
       payload,
       signature: sign(null, Buffer.from(terminalSigningText("sync_response", payload)), signer.privateKey).toString("base64url"),
     };
+  }
+
+  private async revoked(identity: TerminalIdentity): Promise<boolean> {
+    const enrollment = await this.prisma.terminalEnrollment.findFirstOrThrow({
+      where: { tenantId: identity.tenantId, id: identity.enrollmentId },
+      select: { revokedAt: true, terminal: { select: { retiredAt: true } } },
+    });
+    return Boolean(enrollment.revokedAt || enrollment.terminal.retiredAt);
+  }
+
+  /**
+   * Each uploaded record's acknowledgement, as it stands after this upload's promotion pass: a
+   * record accepted by this sync answers `accepted`; one still held names its current reason.
+   * A conflict keeps answering for the original, which is untouched.
+   */
+  private async settledSupportAcknowledgements(
+    identity: TerminalIdentity,
+    receipts: readonly SupportRecordReceipt[],
+  ): Promise<SupportAcknowledgement[]> {
+    const settled: SupportAcknowledgement[] = [];
+    for (const receipt of receipts) {
+      if (receipt.status !== "held") {
+        settled.push(supportAcknowledgement(receipt));
+        continue;
+      }
+      const now = await existingSupportRecord(this.prisma as unknown as Tx, identity.tenantId, identity.enrollmentId, receipt.recordId);
+      settled.push(supportAcknowledgement(
+        now ? { ...receipt, status: now.status as "held" | "accepted" | "rejected", heldReason: now.heldReason } : receipt,
+      ));
+    }
+    return settled;
   }
 
   private signer(): { keyId: string; privateKey: KeyObject } {
@@ -310,8 +354,8 @@ export class OfflineJournalService {
 
       const outcome =
         command.kind === "ordinary_sale"
-          ? await this.acceptSale(tx, user, identity, item as JournalItem<OfflineSaleCommand>)
-          : await this.acceptShift(tx, user, identity, item as JournalItem<OfflineShiftOpenCommand | OfflineShiftCloseCommand>);
+          ? await this.acceptSale(tx, user, identity, item as JournalItem<OfflineSaleCommand>, now)
+          : await this.acceptShift(tx, user, identity, item as JournalItem<OfflineShiftOpenCommand | OfflineShiftCloseCommand>, now);
       if ("status" in outcome) return this.refuse(tx, user, identity, item, outcome);
 
       const committedAt = new Date();
@@ -385,28 +429,22 @@ export class OfflineJournalService {
     return row ? (row.envelope as unknown as Signed<OfflineStaffSignIn>).payload : null;
   }
 
-  /** The D8 acknowledgement a command cites, with its manager's sign-in, from stored evidence. */
+  /**
+   * The D8 acknowledgement a command cites, resolved before the command is judged: verified
+   * against the issued grant, its manager's stored sign-in and this command's outage. A rejected
+   * one is no evidence, so the shared policy refuses the command only if it needed it.
+   */
   private async hoursEvidence(
     tx: Tx,
+    user: RequestUser,
     identity: TerminalIdentity,
     command: OfflineJournalCommand,
+    now: number,
   ): Promise<OfflineBusinessHoursEvidence | undefined | Refusal> {
-    if (!command.businessHoursAcknowledgementId) return undefined;
-    const missing = held("BUSINESS_HOURS_ACK_REQUIRED", "Upload the manager's business-hours acknowledgement first.");
-    const row = await tx.businessHoursAcknowledgement.findUnique({
-      where: {
-        tenantId_enrollmentId_recordId: {
-          tenantId: identity.tenantId,
-          enrollmentId: identity.enrollmentId,
-          recordId: command.businessHoursAcknowledgementId,
-        },
-      },
-      select: { envelope: true },
-    });
-    if (!row) return missing;
-    const acknowledgement = (row.envelope as unknown as Signed<OfflineBusinessHoursAcknowledgement>).payload;
-    const managerSignIn = await this.signIn(tx, identity, acknowledgement.managerSignInId);
-    return managerSignIn ? { acknowledgement, managerSignIn } : missing;
+    const evidence = await this.supportEvidence.hoursEvidence(tx, user, identity, command, now);
+    return evidence === "missing"
+      ? held("BUSINESS_HOURS_ACK_REQUIRED", "Upload the manager's business-hours acknowledgement first.")
+      : evidence;
   }
 
   private async acceptSale(
@@ -414,6 +452,7 @@ export class OfflineJournalService {
     user: RequestUser,
     identity: TerminalIdentity,
     item: JournalItem<OfflineSaleCommand>,
+    now: number,
   ): Promise<Refusal | { resource: { commandKind: "ordinary_sale"; saleId: string } & StockPostingOutcome; actorUserId: string }> {
     const command = item.payload;
     const grant = await this.issuedGrant(tx, identity, command.grantId);
@@ -426,7 +465,7 @@ export class OfflineJournalService {
     const snapshot = (snapshotRow.envelope as unknown as Signed<BranchStockSnapshot>).payload;
     const signIn = await this.signIn(tx, identity, command.staffSignInId);
     if (!signIn) return held("SESSION_INVALID", "Upload the staff sign-in this sale cites.");
-    const hours = await this.hoursEvidence(tx, identity, command);
+    const hours = await this.hoursEvidence(tx, user, identity, command, now);
     if (hours && "status" in hours) return hours;
 
     // The shift the sale belongs to, share-locked so it cannot close underneath this sale.
@@ -496,13 +535,14 @@ export class OfflineJournalService {
     user: RequestUser,
     identity: TerminalIdentity,
     item: JournalItem<OfflineShiftOpenCommand | OfflineShiftCloseCommand>,
+    now: number,
   ): Promise<Refusal | { resource: { commandKind: "shift_open" | "shift_close"; workSessionId: string }; actorUserId: string }> {
     const command = item.payload;
     const grant = await this.issuedGrant(tx, identity, command.grantId);
     if (!grant) return rejected("GRANT_INVALID", "No such grant was issued to this counter.");
     const signIn = await this.signIn(tx, identity, command.staffSignInId);
     if (!signIn) return held("SESSION_INVALID", "Upload the staff sign-in this shift entry cites.");
-    const hours = await this.hoursEvidence(tx, identity, command);
+    const hours = await this.hoursEvidence(tx, user, identity, command, now);
     if (hours && "status" in hours) return hours;
     const { state, open } = await readTillShiftState(tx, identity, { registerId: grant.registerId, tillId: grant.tillId }, command);
     const result = offlineShiftTransition(grant, command, state, signIn, command.occurredAt, "offline", hours);
@@ -711,7 +751,7 @@ function supportAcknowledgement(receipt: SupportRecordReceipt): SupportAcknowled
   if (receipt.status === "conflict")
     return { ...base, status: "held", error: error("REPLAY_CONFLICT", "This record ID already holds other content.") };
   if (receipt.status === "accepted") return { ...base, status: receipt.replayed ? "duplicate" : "accepted" };
-  // Stored durably; it is still `held` (or was rejected) on verification against P3/P5 evidence.
+  // Stored durably; still `held` (waiting on evidence or a manager), or rejected on verification.
   return {
     ...base,
     status: "held",

@@ -15,6 +15,7 @@ import { OfflineAuthorityController } from "./offline-authority.controller";
 import { CounterJournalStatusService } from "./journal/counter-journal-status.service";
 import { OfflineJournalController } from "./journal/offline-journal.controller";
 import { OfflineJournalService } from "./journal/offline-journal.service";
+import { SupportEvidenceReconciler } from "./journal/support-evidence";
 import { OfflineJournalRecoveriesController } from "./journal/journal-recoveries.controller";
 import { OfflineJournalRecoveryController } from "./journal/journal-recovery.controller";
 import { OfflineJournalRecoveryService } from "./journal/journal-recovery.service";
@@ -66,6 +67,7 @@ import { TillShiftsService } from "./shifts/till-shifts.service";
     OfflineActivationService,
     TillShiftsService,
     OfflineJournalService,
+    SupportEvidenceReconciler,
     OfflineJournalRecoveryService,
     OfflineCounterRestoreService,
     CounterJournalStatusService,

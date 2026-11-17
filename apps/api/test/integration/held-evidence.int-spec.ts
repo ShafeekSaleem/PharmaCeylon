@@ -32,6 +32,7 @@ import { TerminalTrustService } from "../../src/terminals/terminal-trust.service
 import { boundedCanonical, sha256 } from "../../src/terminals/terminal-wire";
 import { terminalDevice } from "../fixtures/terminal-device";
 import { createPrisma, createTenant, type TenantFixture } from "./fixtures";
+import * as kit from "./offline-counter.kit";
 
 /**
  * P3 #49: held offline evidence verified against grants issued through `issueOfflineAuthority`,
@@ -249,7 +250,7 @@ beforeAll(async () => {
   await setHours(null);
 });
 afterAll(async () => {
-  await prisma.$disconnect();
+  await Promise.all([prisma.$disconnect(), kit.prisma.$disconnect()]);
 });
 
 describe("D8 acknowledgements against the issued grant", () => {
@@ -514,5 +515,94 @@ describe("D11: P3's authority cutoff", () => {
     }, { timeout: 15_000 });
     await expect(issuance).rejects.toMatchObject({ response: { code: "IDENTITY_MISMATCH" } });
     expect(await prisma.offlineAuthorityIssuance.count({ where: { enrollmentId: late.enrollmentId } })).toBe(0);
+  });
+});
+
+/**
+ * P5 #51: a journal entry citing a D8 acknowledgement has it resolved first, from the manager's
+ * uploaded sign-in and the entry's own outage. Signed by a real nominated counter (`offline-counter.kit`).
+ */
+describe("D8 acknowledgements resolved before the entries that cite them", () => {
+  function outage(c: kit.Counter) {
+    const j = kit.offlineJournal(c);
+    const managerIn = j.signIn(c.manager.userId, randomUUID());
+    const cashierIn = j.signIn(c.cashier.userId, randomUUID());
+    const ackId = randomUUID();
+    const open = j.open(cashierIn, 0, null, { businessHoursAcknowledgementId: ackId });
+    const acknowledge = (by: typeof managerIn, overrides: Partial<OfflineBusinessHoursAcknowledgement> = {}) => {
+      const recordedAt = j.offlineStartedAt + 10;
+      return c.device.sign({
+        contractVersion: 1, kind: "business_hours_acknowledgement", recordId: ackId, identity: c.identity,
+        grantId: c.grant.grantId, grantVersion: c.grant.grantVersion, nominationVersion: c.grant.nominationVersion,
+        offlineSessionId: open.payload.offlineSessionId, managerSignInId: by.payload.staffSignInId,
+        recordedAt, startsAt: recordedAt, endsAt: recordedAt + 30 * 60_000, reason: "Late delivery of stock",
+        ...overrides,
+      } satisfies OfflineBusinessHoursAcknowledgement, c.identity.keyId);
+    };
+    return { j, managerIn, cashierIn, ackId, open, acknowledge };
+  }
+  const storedAck = (c: kit.Counter, recordId: string) =>
+    kit.prisma.businessHoursAcknowledgement.findUniqueOrThrow({
+      where: { tenantId_enrollmentId_recordId: { tenantId: c.fx.tenantId, enrollmentId: c.identity.enrollmentId, recordId } },
+    });
+
+  it("verifies the acknowledgement against the grant, its manager and the outage before accepting the entry", async () => {
+    const c = await kit.counter();
+    expect(c.grant.authorizedStaff).toEqual(expect.arrayContaining([
+      expect.objectContaining({ staffUserId: c.manager.userId, offlineManagerActions: expect.arrayContaining(["acknowledge_business_hours"]) }),
+    ]));
+    const o = outage(c);
+    const response = await kit.sync(c, {
+      staffSignIns: [o.managerIn, o.cashierIn], commands: [o.open], supportRecords: [o.acknowledge(o.managerIn) as never],
+    });
+    expect(response.payload.acknowledgements.map((a) => a.status)).toEqual(["committed"]);
+    expect(await storedAck(c, o.ackId)).toMatchObject({ status: "accepted", heldReason: null, verifiedAt: expect.any(Date) });
+    expect(response.payload.supportAcknowledgements).toEqual([expect.objectContaining({ recordId: o.ackId, status: "accepted" })]);
+    expect(response.payload.supportEvidence).toMatchObject({ heldRecords: 0, supportRecordsAccepted: true });
+  });
+
+  it("holds the entry until the manager's sign-in arrives, then resolves both", async () => {
+    const c = await kit.counter();
+    const o = outage(c);
+    const first = await kit.sync(c, { staffSignIns: [o.cashierIn], commands: [o.open], supportRecords: [o.acknowledge(o.managerIn) as never] });
+    expect(first.payload.acknowledgements).toEqual([
+      expect.objectContaining({ status: "held", error: expect.objectContaining({ code: "BUSINESS_HOURS_ACK_REQUIRED" }) }),
+    ]);
+    expect(await storedAck(c, o.ackId)).toMatchObject({ status: "held", heldReason: "sign_in_unverified" });
+
+    const second = await kit.sync(c, { staffSignIns: [o.managerIn], commands: [o.open] });
+    expect(second.payload.acknowledgements.map((a) => a.status)).toEqual(["committed"]);
+    expect(await storedAck(c, o.ackId)).toMatchObject({ status: "accepted" });
+  });
+
+  it("rejects an acknowledgement by staff without the capability; an entry inside opening hours still stands", async () => {
+    const c = await kit.counter();
+    const o = outage(c);
+    const response = await kit.sync(c, {
+      staffSignIns: [o.managerIn, o.cashierIn], commands: [o.open], supportRecords: [o.acknowledge(o.cashierIn) as never],
+    });
+    expect(await storedAck(c, o.ackId)).toMatchObject({ status: "rejected", heldReason: "manager_lacks_capability" });
+    // The branch is open around the clock, so the shared policy never needed the acknowledgement.
+    expect(response.payload.acknowledgements.map((a) => a.status)).toEqual(["committed"]);
+    expect(response.payload.supportEvidence).toMatchObject({ rejectedRecords: 1, supportRecordsAccepted: false });
+  });
+
+  it("verifies an acknowledgement no entry cites from its outage's journal, and waits when that outage has none", async () => {
+    const c = await kit.counter();
+    const o = outage(c);
+    const sale = o.j.sale(o.cashierIn, [[c.batches.main!, 1]]);
+    const uncited = o.acknowledge(o.managerIn, { recordId: randomUUID() });
+    const elsewhere = o.acknowledge(o.managerIn, { recordId: randomUUID(), offlineSessionId: randomUUID() });
+    const response = await kit.sync(c, {
+      staffSignIns: [o.managerIn, o.cashierIn],
+      commands: [o.open, sale],
+      supportRecords: [o.acknowledge(o.managerIn), uncited, elsewhere] as never[],
+    });
+    expect(response.payload.acknowledgements.map((a) => a.status)).toEqual(["committed", "committed"]);
+    expect(await storedAck(c, uncited.payload.recordId)).toMatchObject({ status: "accepted" });
+    expect(await storedAck(c, elsewhere.payload.recordId)).toMatchObject({ status: "held", heldReason: "outage_unverified" });
+    expect(await kit.supportEvidence.listHeld(c.owner, c.fx.mainBranchId)).toEqual([
+      expect.objectContaining({ kind: "business_hours_acknowledgement", recordId: elsewhere.payload.recordId, clearsOnUpload: true }),
+    ]);
   });
 });

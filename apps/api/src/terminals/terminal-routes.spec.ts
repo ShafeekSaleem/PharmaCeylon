@@ -38,6 +38,7 @@ describe("terminal route permissions", () => {
       expect(permissions(EnrollmentCodesController, method)).toEqual(["tenant.management"]);
     // P5 #51: the counters' journal sync status is for whoever manages the counters.
     expect(permissions(OfflineJournalController, "syncStatus")).toEqual(["tenant.management"]);
+    expect(permissions(OfflineJournalController, "heldSupportRecords")).toEqual(["tenant.management"]);
     expect(permissions(OfflineJournalController, "sync")).toEqual(["terminal.execute"]);
   });
 

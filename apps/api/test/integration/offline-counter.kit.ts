@@ -28,7 +28,9 @@ import { AccessService } from "../../src/security/access.service";
 import type { RequestUser } from "../../src/security/interfaces/authenticated-request.interface";
 import { AttendanceProofsService } from "../../src/terminals/attendance-proofs.service";
 import { BusinessHoursAcknowledgements } from "../../src/terminals/business-hours-acknowledgements.service";
+import { HeldEvidenceVerifier } from "../../src/terminals/held-evidence-verifier.service";
 import { OfflineJournalService } from "../../src/terminals/journal/offline-journal.service";
+import { SupportEvidenceReconciler } from "../../src/terminals/journal/support-evidence";
 import { LocalAttendanceVerifier } from "../../src/terminals/local-attendance.verifier";
 import { OfflineActivationClearance, OfflineActivationService } from "../../src/terminals/offline-activation.service";
 import { OfflineAssignmentService } from "../../src/terminals/offline-assignment.service";
@@ -68,10 +70,12 @@ export const config = {
       : key === "OFFLINE_AUTHORITY_PRIVATE_KEY" ? (server.privateKey.export({ format: "pem", type: "pkcs8" }) as string)
         : undefined,
 };
+export const verifier = new HeldEvidenceVerifier(access, audit);
+export const supportEvidence = new SupportEvidenceReconciler(prisma as never, access, audit, verifier);
 export const journal = new OfflineJournalService(
   prisma as never, access, audit, stock,
   new OfflineSupportRecords(access, audit, new BusinessHoursAcknowledgements(access, audit)),
-  shifts, config as never,
+  shifts, config as never, supportEvidence,
 );
 
 export type Device = ReturnType<typeof terminalDevice>;
@@ -127,7 +131,10 @@ export async function stockedBatch(fx: TenantFixture, qty: number) {
   return row.id;
 }
 
-export async function counter(stockByBatch: Record<string, number> = { main: 40 }): Promise<Counter> {
+export async function counter(
+  stockByBatch: Record<string, number> = { main: 40 },
+  options: { externalCard?: boolean } = {},
+): Promise<Counter> {
   const fx = await createTenant(prisma, "offline-journal");
   const [owner, manager, cashier] = [fx.ownerId, fx.managerId, fx.clerkId].map((id) => user(fx, id));
   await prisma.userBranchRole.createMany({
@@ -141,7 +148,12 @@ export async function counter(stockByBatch: Record<string, number> = { main: 40 
   await prisma.branch.update({
     where: { id: fx.mainBranchId },
     data: {
-      counterPolicy: { ...defaultCounterPolicy(), offlineEnabled: true } as unknown as Prisma.InputJsonValue,
+      counterPolicy: {
+        ...defaultCounterPolicy(), offlineEnabled: true,
+        ...(options.externalCard
+          ? { offlineExternalCardEnabled: true, externalCardMerchants: [{ provider: "Test Acquirer", merchantId: "M-0001" }] }
+          : {}),
+      } as unknown as Prisma.InputJsonValue,
       operatingHours: {
         schemaVersion: 1,
         weekly: { mon: open24, tue: open24, wed: open24, thu: open24, fri: open24, sat: open24, sun: open24 },
