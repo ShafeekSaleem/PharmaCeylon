@@ -539,7 +539,7 @@ function fakeServer() {
 
 function uploader(
   srv = fakeServer(),
-  options: { signedIn?: () => boolean } = {},
+  options: { signedIn?: () => boolean; observe?: (at: number, source: string) => void } = {},
 ) {
   let clock = NOW;
   const report = jest.fn();
@@ -549,6 +549,7 @@ function uploader(
     signer,
     report,
     now: () => clock,
+    clock: options.observe ? { observe: options.observe } : null,
     terminal: {
       current: () =>
         (options.signedIn ?? (() => true))()
@@ -638,6 +639,18 @@ describe("uploading the offline journal", () => {
     expect(drainAwaitsFreshSnapshot(local.db, identity.enrollmentId)).toBe(
       true,
     );
+  });
+
+  it("anchors the trusted clock to a verified reply's signed server time, and never to an unverified one (P4 #50)", async () => {
+    sellOffline(1);
+    const observe = jest.fn();
+    const forged = uploader(fakeServer(), { observe });
+    forged.srv.signWith(generateKeyPairSync("ed25519").privateKey);
+    await forged.sync.tick();
+    expect(observe).not.toHaveBeenCalled();
+    const u = uploader(fakeServer(), { observe });
+    await u.sync.tick();
+    expect(observe).toHaveBeenCalledWith(NOW, "sync_response");
   });
 
   it("recovers a lost reply by sending the same entries again: the server answers duplicate, nothing twice", async () => {

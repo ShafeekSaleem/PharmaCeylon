@@ -13,6 +13,7 @@ import { localJournalHead } from "./offline-journal";
 import { readAcceptedWatermark } from "./reconnect-drain";
 import { restoresAwaitingAcknowledgement } from "./store-restore-sync";
 import type { TerminalService } from "./terminal-service";
+import type { TrustedClock } from "./trusted-clock";
 
 const operation = "POST /api/v1/terminals/offline-authority";
 
@@ -67,6 +68,8 @@ export type OfflineAuthorityRefreshDeps = {
   now?: () => number;
   /** An extra local-use veto for the installer (tests); the installer checks the journal itself. */
   localUsage?: (db: PosDatabase, enrollmentId: string) => boolean;
+  /** P4 #50: a freshly installed pair's signed grant `issuedAt` anchors the trusted clock. */
+  clock?: Pick<TrustedClock, "observe"> | null;
 };
 
 function failureCode(error: unknown): string {
@@ -163,6 +166,8 @@ export function createOfflineAuthorityRefresh(deps: OfflineAuthorityRefreshDeps)
     deps.db.prepare("DELETE FROM offline_authority_request WHERE enrollment_id = ? AND request_id = ?")
       .run(identity.enrollmentId, requestId);
     if (result !== "installed" && result !== "already_installed") throw new OfflineAuthorityInstallError(result);
+    // Only a pair minted for this request: a replayed one carries an older time.
+    if (result === "installed") deps.clock?.observe(response.grant.payload.issuedAt, "snapshot");
     return "installed";
   }
 

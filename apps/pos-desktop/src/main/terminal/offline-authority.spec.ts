@@ -217,7 +217,7 @@ describe("refreshing in the background", () => {
   /** A fake server: each new request ID is the next version; a known one replays its pair. */
   function refresh(
     reply: () => Promise<unknown> = async () => undefined,
-    options: { usage?: () => boolean; sequence?: () => number } = {},
+    options: { usage?: () => boolean; sequence?: () => number; observe?: (at: number, source: string) => void } = {},
   ) {
     let clock = NOW;
     let version = 0;
@@ -254,6 +254,7 @@ describe("refreshing in the background", () => {
       terminal: { current: () => ({ staff, identity, key }), attendCommand } as never,
       readDevice: () => device,
       localUsage: options.usage,
+      clock: options.observe ? { observe: options.observe } : null,
     });
     /** Ticks once a minute, as the timer does, for this long. */
     async function run(ms: number) {
@@ -288,6 +289,17 @@ describe("refreshing in the background", () => {
     expect(new Set(r.issued.keys()).size).toBe(14);
     expect(r.report).not.toHaveBeenCalled();
     expect(r.loop.status()).toMatchObject({ nominated: true, consecutiveFailures: 0, lastFailure: null, lastSuccessAt: r.now() });
+  });
+
+  it("anchors the trusted clock to each newly installed grant's signed issue time (P4 #50)", async () => {
+    const observe = jest.fn();
+    const r = refresh(undefined, { observe });
+    await r.loop.tick();
+    const issuedAt = r.installed()!.grant.payload.issuedAt;
+    expect(observe).toHaveBeenCalledWith(issuedAt, "snapshot");
+    // Fresh enough: nothing installed, nothing observed.
+    await r.loop.tick();
+    expect(observe).toHaveBeenCalledTimes(1);
   });
 
   it("keeps the saved stock under 15 minutes old through a failed renewal and its retries", async () => {
