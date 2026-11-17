@@ -8,6 +8,7 @@ import type {
   OfflineStaffSignIn,
   Signed,
   TerminalIdentity,
+  WorkSessionIdentity,
 } from "@pharmaceylon/shared";
 import {
   MAX_SNAPSHOT_AGE_AT_OUTAGE_MS,
@@ -186,6 +187,60 @@ export class OfflineJournalWriter {
       authenticatedAt: trustedNow,
     };
     const envelope = options.key.sign(payload, "command");
+    this.persistSignIn(options.enrollmentId, envelope);
+    return envelope;
+  }
+
+  /**
+   * P4 #50: a sign-in made offline, after main has checked the person's PIN against the verifier
+   * prepared on this counter (`PinStore.check`) at the grant's credential version. The caller
+   * chooses the work session it binds to — the person's open shift, or a new one for the shift
+   * they are about to open (D7a) — and gives the trusted time it happened at.
+   */
+  recordOfflineStaffSignIn(options: {
+    enrollmentId: string;
+    identity: TerminalIdentity;
+    grant: OfflineGrant;
+    session: WorkSessionIdentity;
+    staffAuthorizationId: string;
+    credentialVersion: number;
+    authenticatedAt: number;
+    key: { sign: <T>(payload: T, purpose: "command") => Signed<T> };
+  }): Signed<OfflineStaffSignIn> {
+    const payload: OfflineStaffSignIn = {
+      contractVersion: 1,
+      kind: "offline_staff_sign_in",
+      staffSignInId: randomUUID(),
+      identity: options.identity,
+      session: options.session,
+      grantId: options.grant.grantId,
+      grantVersion: options.grant.grantVersion,
+      staffAuthorizationId: options.staffAuthorizationId,
+      credentialVersion: options.credentialVersion,
+      method: "personal_pin",
+      authenticatedAt: options.authenticatedAt,
+    };
+    const envelope = options.key.sign(payload, "command");
+    this.persistSignIn(options.enrollmentId, envelope);
+    return envelope;
+  }
+
+  /** A sign-in recorded here, by its ID. */
+  readStaffSignIn(staffSignInId: string): Signed<OfflineStaffSignIn> | null {
+    const row = this.deps.db
+      .prepare("SELECT envelope_json FROM offline_journal_staff_sign_in WHERE staff_sign_in_id = ?")
+      .get(staffSignInId) as { envelope_json: string } | undefined;
+    return row ? (JSON.parse(row.envelope_json) as Signed<OfflineStaffSignIn>) : null;
+  }
+
+  /** The latest sign-in at this counter, online or offline, if any. */
+  activeStaffSignIn(enrollmentId: string): Signed<OfflineStaffSignIn> | null {
+    const json = readState(this.deps.db, enrollmentId)?.active_staff_envelope_json;
+    return json ? (JSON.parse(json) as Signed<OfflineStaffSignIn>) : null;
+  }
+
+  private persistSignIn(enrollmentId: string, envelope: Signed<OfflineStaffSignIn>): void {
+    const staffSignInId = envelope.payload.staffSignInId;
     const at = this.atIso();
     const tx = this.deps.db.transaction(() => {
       this.deps.db
@@ -193,8 +248,8 @@ export class OfflineJournalWriter {
           `INSERT INTO offline_journal_staff_sign_in (staff_sign_in_id, enrollment_id, envelope_json, created_at)
            VALUES (?, ?, ?, ?)`,
         )
-        .run(staffSignInId, options.enrollmentId, JSON.stringify(envelope), at);
-      this.upsertStateRow(options.enrollmentId, (prev) => ({
+        .run(staffSignInId, enrollmentId, JSON.stringify(envelope), at);
+      this.upsertStateRow(enrollmentId, (prev) => ({
         journal_last_sequence: prev?.journal_last_sequence ?? 0,
         journal_last_hash: prev?.journal_last_hash ?? null,
         offline_session_id: prev?.offline_session_id ?? null,
@@ -204,7 +259,6 @@ export class OfflineJournalWriter {
       }));
     });
     tx();
-    return envelope;
   }
 
   /**

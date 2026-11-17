@@ -21,6 +21,7 @@ import { offlineSupportRecords } from "./0019-offline-support-records";
 import { tillShiftPayoutKind } from "./0020-till-shift-payout-kind";
 import { storeRestoreTimeVerified } from "./0021-store-restore-time-verified";
 import { trustedClock } from "./0022-trusted-clock";
+import { offlineTillShifts } from "./0023-offline-till-shifts";
 
 /** Append only. A released migration is never edited or reordered. */
 export const migrations: readonly Migration[] = [
@@ -46,4 +47,5 @@ export const migrations: readonly Migration[] = [
   tillShiftPayoutKind,
   storeRestoreTimeVerified,
   trustedClock,
+  offlineTillShifts,
 ];

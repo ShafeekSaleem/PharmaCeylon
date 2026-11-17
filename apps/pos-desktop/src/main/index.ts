@@ -30,6 +30,7 @@ import { readInstalledOfflineAuthority } from "./terminal/offline-authority";
 import { startOfflineAuthorityRefresh, type OfflineAuthorityRefresh } from "./terminal/offline-authority-refresh";
 import { OfflineJournalWriter } from "./terminal/offline-journal-writer";
 import { offlineModeForRenderer, startOfflineMode, type OfflineModeService } from "./terminal/offline-mode";
+import { OfflineCounterService, offlineStaffForRenderer } from "./terminal/offline-counter";
 import { TrustedClock } from "./terminal/trusted-clock";
 import {
   readJournalSyncView,
@@ -140,6 +141,12 @@ let returns: ReturnsService | null = null;
 let authorityRefresh: OfflineAuthorityRefresh | null = null;
 let journalSync: OfflineJournalSync | null = null;
 let offlineMode: OfflineModeService | null = null;
+let offlineCounter: OfflineCounterService | null = null;
+
+function requireOfflineCounter(): OfflineCounterService {
+  if (!offlineCounter) throw new ActionFailure("NOT_READY", "This counter isn't set up to work offline.");
+  return offlineCounter;
+}
 // Receipts can be reprinted for sales completed since the app started; nothing is kept on disk.
 const recentSales = new Map<string, CompletedSale>();
 
@@ -553,6 +560,20 @@ function registerIpc(schemaVersion: number, logger: ReturnType<typeof createLogg
         );
       },
       getOfflineMode: () => offlineModeForRenderer(offlineMode?.view() ?? null),
+      offlineStaff: () =>
+        offlineStaffForRenderer(offlineCounter?.state() ?? { signedIn: null, people: [] }),
+      offlineSignIn: ({ staffUserId, pin }) =>
+        act(logger, "offlineSignIn", () =>
+          offlineStaffForRenderer(requireOfflineCounter().signIn(staffUserId, pin)),
+        ),
+      offlineOpenShift: ({ pin, count }) =>
+        act(logger, "offlineOpenShift", () =>
+          offlineStaffForRenderer(requireOfflineCounter().openShift(pin, count)),
+        ),
+      offlineCloseShift: ({ count, varianceNote, assistance }) =>
+        act(logger, "offlineCloseShift", () =>
+          offlineStaffForRenderer(requireOfflineCounter().closeShift(count, { varianceNote, assistance })),
+        ),
       offlineSales: () => act(logger, "offlineSales", () => requireOfflineSupport().sales()),
       noteSaleProblem: (input) => act(logger, "noteSaleProblem", () => requireOfflineSupport().recordIncident(input)),
       cardAttempts: () => act(logger, "cardAttempts", () => requireOfflineSupport().cardAttempts()),
@@ -736,6 +757,15 @@ async function start(): Promise<void> {
       });
       offlineMode = mode;
       app.once("before-quit", stopMode);
+      offlineCounter = new OfflineCounterService({
+        db: store.db,
+        device: deviceStore,
+        pins,
+        journal: offlineJournalWriter,
+        clock: trustedClock,
+        mode,
+        logger,
+      });
     } catch (error) {
       logger.error("offline_authority.invalid_public_key", { error });
     }

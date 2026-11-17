@@ -135,6 +135,23 @@ export const offlineModeSchema = z.object({
 });
 export type OfflineModeState = z.infer<typeof offlineModeSchema>;
 
+/** P4 #50: who is signed in offline, and who may sign in. Times are ISO. */
+export const offlineStaffSchema = z.object({
+  signedIn: z
+    .object({ staffUserId: z.string(), staffName: z.string(), signedInAt: z.string(), workSessionId: z.string() })
+    .nullable(),
+  people: z.array(
+    z.object({
+      staffUserId: z.string(),
+      staffName: z.string(),
+      /** May close someone else's shift for them (a prepared manager). */
+      canAssistClose: z.boolean(),
+      lockRemainingMs: z.number().int().min(0),
+    }),
+  ),
+});
+export type OfflineStaff = z.infer<typeof offlineStaffSchema>;
+
 /** An offline sale recorded on this counter, as the "note a problem" sheet lists it. */
 export const offlineSaleSchema = z.object({
   saleCommandId: z.string().uuid(),
@@ -1379,6 +1396,30 @@ export const ipcContract = {
     channel: "pos:shift:open",
     input: z.object({ pin, count: cashCountSchema }),
     output: result(shiftStateSchema),
+  },
+  /** Who is signed in offline, and who may sign in (P4 #50). Local only; empty unless offline. */
+  offlineStaff: { channel: "pos:offline-staff:get", input: noInput, output: offlineStaffSchema },
+  /** Signs a prepared person in offline with their PIN, checked on this counter (P4 #50). */
+  offlineSignIn: {
+    channel: "pos:offline-staff:sign-in",
+    input: z.object({ staffUserId: uuid, pin }),
+    output: result(offlineStaffSchema),
+  },
+  /** Opens the offline-signed-in person's shift as a journal entry (P4 #50). */
+  offlineOpenShift: {
+    channel: "pos:offline-shift:open",
+    input: z.object({ pin, count: cashCountSchema }),
+    output: result(offlineStaffSchema),
+  },
+  /** Closes the open shift as a journal entry; someone else's needs a manager's `assistance` (P4 #50). */
+  offlineCloseShift: {
+    channel: "pos:offline-shift:close",
+    input: z.object({
+      count: cashCountSchema,
+      varianceNote: z.string().trim().max(500).optional(),
+      assistance: z.object({ pin, reason: z.string().trim().min(1).max(500) }).optional(),
+    }),
+    output: result(offlineStaffSchema),
   },
   /** Closes the open shift; someone else's needs `assistance` (their own PIN and why). */
   closeShift: {
