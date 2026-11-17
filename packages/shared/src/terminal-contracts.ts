@@ -460,6 +460,24 @@ export type SyncResponse = Readonly<{
   acknowledgements: ReadonlyArray<SyncAcknowledgement>;
   committedThroughSequence: number;
   committedThroughHash: string | null;
+  /** P5 #51: where this enrollment's support evidence stands on the server, after this upload.
+   * Optional so a counter built before it still verifies the response. */
+  supportEvidence?: SupportEvidenceStatus;
+}>;
+
+/**
+ * The server's own view of one enrollment's support evidence (sale-incident notes, card-attempt
+ * events, D8 acknowledgements), for D12's `supportRecordsAccepted` / `paymentAttemptsResolved`.
+ * `held` records wait on evidence still to come (a sign-in, shift or sale entry) or on a manager;
+ * `rejected` ones are final and stay visible to managers. An attempt is resolved once one of its
+ * `declined` or `linked_to_sale` events is accepted.
+ */
+export type SupportEvidenceStatus = Readonly<{
+  heldRecords: number;
+  rejectedRecords: number;
+  unresolvedCardAttempts: number;
+  supportRecordsAccepted: boolean;
+  paymentAttemptsResolved: boolean;
 }>;
 
 export type OfflineTerminalState = "nominated" | "ready" | "offline" | "draining" | "revoked";

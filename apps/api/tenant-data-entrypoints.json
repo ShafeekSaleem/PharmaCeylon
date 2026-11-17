@@ -379,6 +379,11 @@
       "reason": "Read-only counter journal sync status (P5 #51) in one statement after live tenant.management at the branch: enrollments WHERE the bound tenant_id and branch_id, and every receipt, review, sign-in and stock case subquery or lateral constrained to the enrollment's tenant_id and branch_id. The branch timezone read is filtered by tenantId and id."
     },
     {
+      "path": "src/terminals/journal/support-evidence.ts",
+      "mode": "tenant-filtered-read-model",
+      "reason": "Support evidence status for the sync response (P5 #51): one read-only statement counting offline_support_record and business_hours_acknowledgement rows WHERE the bound tenant_id, branch_id and enrollment_id from the authenticated sync identity; the card-attempt NOT EXISTS subquery is constrained to the outer row's tenant_id and enrollment_id. The per-record advisory locks hash the tenant id into the key."
+    },
+    {
       "path": "src/security/offline-stock-resolution-approval-material.ts",
       "mode": "scoped-domain-lock",
       "reason": "The one lock order for offline stock case resolution, shared by the stock cases service and approval resolution: one discrepancy case and then one resolution plan by the bound tenant, branch and id (FOR UPDATE), before batch locks through StockService; nothing is read or written by raw SQL."

@@ -77,7 +77,7 @@ export async function verifySupportUpload<
 
   for (const key of [
     ...extraLocks(record),
-    `support:${user.tenantId}:${identity.enrollmentId}:${record.recordId}`,
+    supportRecordLockKey(user.tenantId, identity.enrollmentId, record.recordId),
   ])
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${key}, 0))`;
   await access.resolveLive(user, branchId, tx);
@@ -99,6 +99,14 @@ export async function verifySupportUpload<
     recordHash: sha256(commandText(envelope.payload)),
     revoked: Boolean(enrollment.revokedAt || enrollment.terminal.retiredAt),
   };
+}
+
+/**
+ * The transaction-scoped advisory lock every writer of one support record ID takes: intake, a
+ * replay, P3 verification and P5 promotion all serialize on it.
+ */
+export function supportRecordLockKey(tenantId: string, enrollmentId: string, recordId: string): string {
+  return `support:${tenantId}:${enrollmentId}:${recordId}`;
 }
 
 /** The stored record under this ID, whichever support table holds it. Call under the record lock. */

@@ -18,9 +18,10 @@ import {
 } from "../../src/terminals/local-attendance.verifier";
 import { OfflineSupportRecords } from "../../src/terminals/offline-support-records.service";
 import { TerminalTrustService } from "../../src/terminals/terminal-trust.service";
-import { boundedCanonical, sha256 } from "../../src/terminals/terminal-wire";
+import { boundedCanonical, commandText, sha256 } from "../../src/terminals/terminal-wire";
 import { terminalDevice } from "../fixtures/terminal-device";
 import { createPrisma, createTenant, TenantFixture } from "./fixtures";
+import * as kit from "./offline-counter.kit";
 
 /** P1 #47: counter-signed sale-incident notes and external-card attempt events. */
 const prisma = createPrisma();
@@ -142,7 +143,7 @@ beforeAll(async () => {
     ],
   });
 });
-afterAll(() => prisma.$disconnect());
+afterAll(() => Promise.all([prisma.$disconnect(), kit.prisma.$disconnect()]));
 
 describe("sale-incident notes", () => {
   it("persists the signed note as held evidence, replays identical uploads and moves nothing", async () => {
@@ -409,5 +410,175 @@ describe("refusals and retention", () => {
       { ...base, recordId: randomUUID(), kind: "sale_incident", saleCommandId: randomUUID(), recordedByUserId: fx.clerkId, incidentCategory: "theft", description: "x" },
     ])
       await expect(prisma.offlineSupportRecord.create({ data })).rejects.toThrow(/offline_support_record_shape/);
+  });
+});
+
+/**
+ * P5 #51: held support evidence is promoted once its sign-in, shift, sale entry and card result
+ * are on the server, whichever arrives first. Signed by a real nominated counter (`offline-counter.kit`).
+ */
+describe("promotion once the cited evidence is verified", () => {
+  const RRN = "RRN 610099887766";
+  const CODE = "771204";
+  type Uploaded = { payload: { recordId: string } };
+
+  /** A counter's outage: a signed sign-in, a shift and one card-paid sale, plus its card attempt. */
+  function cardSale(c: kit.Counter, paid: { approvalCode?: string } = {}) {
+    const j = kit.offlineJournal(c);
+    const cashierIn = j.signIn(c.cashier.userId, randomUUID());
+    const open = j.open(cashierIn, 0);
+    const known = c.snapshot.lines.find((l) => l.batchId === c.batches.main)!;
+    const net = 2 * known.unitPriceMinor;
+    const total = net + Number((BigInt(net) * BigInt(known.taxBasisPoints) + 5000n) / 10000n);
+    const approvedAt = j.offlineStartedAt + 1500;
+    const sale = j.sale(cashierIn, [[c.batches.main!, 2]], {
+      payments: [{ method: "external_card", amountMinor: total, providerReference: RRN, approvalCode: paid.approvalCode ?? CODE, approvedAt }],
+    });
+    const { staffSignInId, session } = cashierIn.payload;
+    const attempt = {
+      attemptId: randomUUID(), checkoutDraftId: randomUUID(), reviewedSaleDigest: sha256(randomUUID()),
+      amountMinor: total, staffSignInId, workSessionId: session.workSessionId,
+    };
+    const card = (state: Record<string, unknown>, at: number) => c.device.sign({
+      contractVersion: 1, kind: "external_card_attempt", recordId: randomUUID(), identity: c.identity,
+      ...attempt, recordedAt: at, ...state,
+    } as ExternalCardAttemptRecord, c.identity.keyId);
+    const events = [
+      card({ state: "prepared" }, approvedAt - 500),
+      card({ state: "approved", providerReference: RRN, approvalCode: CODE, approvedAt }, approvedAt + 100),
+      card({ state: "linked_to_sale", providerReference: RRN, saleCommandId: sale.payload.commandId }, approvedAt + 200),
+    ];
+    const incident = c.device.sign({
+      contractVersion: 1, kind: "sale_incident", recordId: randomUUID(), identity: c.identity,
+      saleCommandId: sale.payload.commandId, recordedByUserId: c.cashier.userId, staffSignInId,
+      workSessionId: session.workSessionId, recordedAt: approvedAt + 300, category: "payment_uncertain",
+      description: "Card terminal printed twice",
+    } satisfies OfflineSaleIncident, c.identity.keyId);
+    return { cashierIn, open, sale, events, incident, records: [...events, incident] as never[] };
+  }
+  const stored = (c: kit.Counter, recordId: string) =>
+    kit.prisma.offlineSupportRecord.findUniqueOrThrow({
+      where: { tenantId_enrollmentId_recordId: { tenantId: c.fx.tenantId, enrollmentId: c.identity.enrollmentId, recordId } },
+    });
+  const statuses = (response: Awaited<ReturnType<typeof kit.sync>>) =>
+    response.payload.supportAcknowledgements.map((a) => a.status);
+
+  it("holds records that arrive before their sign-in and sale, then accepts them when the journal follows", async () => {
+    const c = await kit.counter(undefined, { externalCard: true });
+    const s = cardSale(c);
+    const first = await kit.sync(c, { supportRecords: s.records });
+    expect(statuses(first)).toEqual(["held", "held", "held", "held"]);
+    for (const r of s.records as Uploaded[])
+      expect(await stored(c, r.payload.recordId)).toMatchObject({ status: "held", heldReason: "sign_in_unverified" });
+    expect(first.payload.supportEvidence).toEqual({
+      heldRecords: 4, rejectedRecords: 0, unresolvedCardAttempts: 1,
+      supportRecordsAccepted: false, paymentAttemptsResolved: false,
+    });
+
+    // The journal arrives later; no record has to be sent again.
+    const second = await kit.sync(c, { staffSignIns: [s.cashierIn], commands: [s.open, s.sale] });
+    expect(second.payload.acknowledgements.map((a) => a.status)).toEqual(["committed", "committed"]);
+    expect(second.payload.supportEvidence).toEqual({
+      heldRecords: 0, rejectedRecords: 0, unresolvedCardAttempts: 0,
+      supportRecordsAccepted: true, paymentAttemptsResolved: true,
+    });
+    for (const r of s.records as Uploaded[])
+      expect(await stored(c, r.payload.recordId)).toMatchObject({ status: "accepted", heldReason: null, verifiedAt: expect.any(Date) });
+
+    // A resend learns the outcome; nothing moves twice.
+    expect(statuses(await kit.sync(c, { supportRecords: s.records }))).toEqual(["duplicate", "duplicate", "duplicate", "duplicate"]);
+    expect(await kit.prisma.auditEvent.count({
+      where: { tenantId: c.fx.tenantId, eventName: "terminal.support_record_accepted" },
+    })).toBe(4);
+  });
+
+  it("accepts records in the same upload as the entries they cite", async () => {
+    const c = await kit.counter(undefined, { externalCard: true });
+    const s = cardSale(c);
+    const response = await kit.sync(c, { staffSignIns: [s.cashierIn], commands: [s.open, s.sale], supportRecords: s.records });
+    expect(statuses(response)).toEqual(["accepted", "accepted", "accepted", "accepted"]);
+    expect(response.payload.supportEvidence).toMatchObject({ supportRecordsAccepted: true, paymentAttemptsResolved: true });
+  });
+
+  it("says what each record still waits on, and a prepared attempt with no result stays unresolved", async () => {
+    const c = await kit.counter(undefined, { externalCard: true });
+    const s = cardSale(c);
+    const [prepared, approved] = s.events;
+    // The sign-in is uploaded but not the shift or sale: each record names the next missing piece.
+    const response = await kit.sync(c, { staffSignIns: [s.cashierIn], supportRecords: [prepared, approved, s.incident] as never[] });
+    expect(await stored(c, prepared!.payload.recordId)).toMatchObject({ status: "held", heldReason: "shift_unverified" });
+    expect(response.payload.supportAcknowledgements[0]).toMatchObject({
+      status: "held", error: { code: "RECONCILIATION_REQUIRED", message: expect.stringContaining("shift_unverified") },
+    });
+    await kit.sync(c, { commands: [s.open] });
+    // Prepared cites no card result: accepted. The approval waits for its sale link.
+    expect(await stored(c, prepared!.payload.recordId)).toMatchObject({ status: "accepted" });
+    expect(await stored(c, approved!.payload.recordId)).toMatchObject({ status: "held", heldReason: "payment_unverified" });
+    expect(await stored(c, s.incident.payload.recordId)).toMatchObject({ status: "held", heldReason: "sale_unverified" });
+    expect(await kit.supportEvidence.status(kit.prisma as never, c.identity)).toEqual({
+      heldRecords: 2, rejectedRecords: 0, unresolvedCardAttempts: 1,
+      supportRecordsAccepted: false, paymentAttemptsResolved: false,
+    });
+
+    // A manager sees why each is held, and whether the counter's next upload clears it.
+    const held = await kit.supportEvidence.listHeld(c.owner, c.fx.mainBranchId);
+    expect(held).toEqual(expect.arrayContaining([
+      expect.objectContaining({ recordId: approved!.payload.recordId, heldReason: "payment_unverified", clearsOnUpload: true, attemptId: expect.any(String) }),
+      expect.objectContaining({ recordId: s.incident.payload.recordId, heldReason: "sale_unverified", clearsOnUpload: true }),
+    ]));
+    await expect(kit.supportEvidence.listHeld(c.cashier, c.fx.mainBranchId)).rejects.toMatchObject({ response: { code: "PERMISSION_DENIED" } });
+  });
+
+  it("keeps a card link whose sale holds another approval held for a manager", async () => {
+    const c = await kit.counter(undefined, { externalCard: true });
+    const s = cardSale(c, { approvalCode: "000000" });
+    const response = await kit.sync(c, { staffSignIns: [s.cashierIn], commands: [s.open, s.sale], supportRecords: s.records });
+    expect(statuses(response)).toEqual(["accepted", "held", "held", "accepted"]);
+    for (const e of s.events.slice(1))
+      expect(await stored(c, e.payload.recordId)).toMatchObject({ status: "held", heldReason: "card_payment_mismatch" });
+    expect(response.payload.supportEvidence).toMatchObject({ heldRecords: 2, paymentAttemptsResolved: false });
+    const held = await kit.supportEvidence.listHeld(c.owner, c.fx.mainBranchId);
+    expect(held.filter((h) => h.heldReason === "card_payment_mismatch")).toEqual([
+      expect.objectContaining({ clearsOnUpload: false }), expect.objectContaining({ clearsOnUpload: false }),
+    ]);
+    // Uploading again changes nothing: a person decides.
+    await kit.sync(c, { supportRecords: s.records });
+    expect(await stored(c, s.events[1]!.payload.recordId)).toMatchObject({ status: "held", heldReason: "card_payment_mismatch" });
+  });
+
+  it("rejects a record whose sign-in is for someone the grant did not prepare", async () => {
+    const c = await kit.counter(undefined, { externalCard: true });
+    const s = cardSale(c);
+    const stranger = c.device.sign({
+      ...s.cashierIn.payload, staffSignInId: randomUUID(),
+      session: { ...s.cashierIn.payload.session, staffUserId: c.owner.userId },
+    }, c.identity.keyId);
+    const note = c.device.sign({ ...s.incident.payload, recordId: randomUUID(), staffSignInId: stranger.payload.staffSignInId }, c.identity.keyId);
+    const response = await kit.sync(c, { staffSignIns: [s.cashierIn, stranger], commands: [s.open, s.sale], supportRecords: [note as never] });
+    expect(await stored(c, note.payload.recordId)).toMatchObject({ status: "rejected", heldReason: "staff_not_prepared" });
+    expect(response.payload.supportEvidence).toMatchObject({ rejectedRecords: 1, supportRecordsAccepted: false });
+  });
+
+  it("keeps a revoked counter's upload held, and altered content under an ID as a conflict", async () => {
+    const c = await kit.counter(undefined, { externalCard: true });
+    const s = cardSale(c);
+    await kit.sync(c, { staffSignIns: [s.cashierIn], commands: [s.open, s.sale], supportRecords: [s.incident as never] });
+    expect(await stored(c, s.incident.payload.recordId)).toMatchObject({ status: "accepted" });
+
+    // Altered content reusing the accepted ID: a conflict naming the original, which is untouched.
+    const altered = c.device.sign({ ...s.incident.payload, description: "Changed afterwards" }, c.identity.keyId);
+    const conflict = await kit.sync(c, { supportRecords: [altered as never] });
+    expect(conflict.payload.supportAcknowledgements).toEqual([
+      expect.objectContaining({ status: "held", error: expect.objectContaining({ code: "REPLAY_CONFLICT" }) }),
+    ]);
+    expect(await stored(c, s.incident.payload.recordId))
+      .toMatchObject({ status: "accepted", recordHash: sha256(commandText(s.incident.payload)) });
+
+    await kit.prisma.$transaction((t) => kit.trust.revokeEnrollment(t, c.owner, c.fx.mainBranchId, c.identity.enrollmentId, "Lost"));
+    const late = c.device.sign({ ...s.incident.payload, recordId: randomUUID() }, c.identity.keyId);
+    await kit.sync(c, { supportRecords: [late as never] });
+    expect(await stored(c, late.payload.recordId)).toMatchObject({ status: "held", heldReason: "enrollment_revoked" });
+    expect(await kit.supportEvidence.listHeld(c.owner, c.fx.mainBranchId))
+      .toEqual([expect.objectContaining({ recordId: late.payload.recordId, clearsOnUpload: false })]);
   });
 });

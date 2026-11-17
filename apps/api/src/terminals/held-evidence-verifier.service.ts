@@ -17,6 +17,7 @@ import {
   supportRecordRefusal,
   type HeldEvidenceRefusal,
 } from "./held-evidence-verification";
+import { supportRecordLockKey } from "./support-record-intake";
 import { denied, uuid } from "./terminal-wire";
 
 type Tx = Prisma.TransactionClient;
@@ -52,8 +53,9 @@ const NOT_P3_TO_DECIDE: readonly string[] = ["enrollment_revoked", "attempt_mism
  *   database trigger from P1 enforces it).
  * - D8 acknowledgements move to `accepted` or `rejected` with the reason.
  * - Sale incidents and card-attempt events move to `rejected` when the grant or staff evidence
- *   fails. When it passes they stay `held` under their existing reason: the sale and the card
- *   result are P5's to verify. They never post a sale, stock, cash or refund effect.
+ *   fails. When it passes they stay `held` under their existing reason: the shift, sale and card
+ *   result are P5's to verify (`SupportEvidenceReconciler` promotes them). They never post a
+ *   sale, stock, cash or refund effect.
  */
 @Injectable()
 export class HeldEvidenceVerifier {
@@ -184,7 +186,7 @@ export class HeldEvidenceVerifier {
     uuid(input.enrollmentId);
     uuid(input.recordId);
     await this.access.resolveLive(user, branchId, tx);
-    const key = `support:${user.tenantId}:${input.enrollmentId}:${input.recordId}`;
+    const key = supportRecordLockKey(user.tenantId, input.enrollmentId, input.recordId);
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${key}, 0))`;
     return { tenantId: user.tenantId, enrollmentId: input.enrollmentId, recordId: input.recordId };
   }
