@@ -369,6 +369,11 @@
       "reason": "Locks one counter by the bound tenant, branch and the grant's register id (FOR UPDATE) to serialize replayed shift opens/closes with online ones, and one till shift by tenant, branch and id (FOR UPDATE) before a replayed close; no data is written by raw SQL."
     },
     {
+      "path": "src/reports/report-sync-freshness.service.ts",
+      "mode": "tenant-filtered-read-model",
+      "reason": "Read-only report freshness caveat (P5 #51 item 11) after reports.view: branches filtered by the bound tenantId (and the caller's branch unless owner tenant scope or the every-branch reports' scope), then the counter journal status statement per branch, which binds tenant_id and branch_id on the enrollments and constrains every receipt, review, sign-in and stock case subquery or lateral to the enrollment's tenant_id and branch_id. Pending-stock sales are a Prisma groupBy filtered by tenantId and those branch ids."
+    },
+    {
       "path": "src/terminals/journal/counter-journal-status.service.ts",
       "mode": "tenant-filtered-read-model",
       "reason": "Read-only counter journal sync status (P5 #51) in one statement after live tenant.management at the branch: enrollments WHERE the bound tenant_id and branch_id, and every receipt, review, sign-in and stock case subquery or lateral constrained to the enrollment's tenant_id and branch_id. The branch timezone read is filtered by tenantId and id."
