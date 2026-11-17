@@ -65,6 +65,33 @@ export function sameTerminalIdentity(a: TerminalIdentity, b: TerminalIdentity): 
   );
 }
 
+/**
+ * P4 #50: an offline sign-in's payload, unsigned and unstored, so the step it backs can be checked
+ * against the shared policy before anything is signed or written.
+ */
+export function draftOfflineStaffSignIn(options: {
+  identity: TerminalIdentity;
+  grant: Pick<OfflineGrant, "grantId" | "grantVersion">;
+  session: WorkSessionIdentity;
+  staffAuthorizationId: string;
+  credentialVersion: number;
+  authenticatedAt: number;
+}): OfflineStaffSignIn {
+  return {
+    contractVersion: 1,
+    kind: "offline_staff_sign_in",
+    staffSignInId: randomUUID(),
+    identity: options.identity,
+    session: options.session,
+    grantId: options.grant.grantId,
+    grantVersion: options.grant.grantVersion,
+    staffAuthorizationId: options.staffAuthorizationId,
+    credentialVersion: options.credentialVersion,
+    method: "personal_pin",
+    authenticatedAt: options.authenticatedAt,
+  };
+}
+
 export function readSnapshotScope(
   db: PosDatabase,
   enrollmentId: string,
@@ -207,22 +234,18 @@ export class OfflineJournalWriter {
     authenticatedAt: number;
     key: { sign: <T>(payload: T, purpose: "command") => Signed<T> };
   }): Signed<OfflineStaffSignIn> {
-    const payload: OfflineStaffSignIn = {
-      contractVersion: 1,
-      kind: "offline_staff_sign_in",
-      staffSignInId: randomUUID(),
-      identity: options.identity,
-      session: options.session,
-      grantId: options.grant.grantId,
-      grantVersion: options.grant.grantVersion,
-      staffAuthorizationId: options.staffAuthorizationId,
-      credentialVersion: options.credentialVersion,
-      method: "personal_pin",
-      authenticatedAt: options.authenticatedAt,
-    };
-    const envelope = options.key.sign(payload, "command");
-    this.persistSignIn(options.enrollmentId, envelope);
+    const envelope = options.key.sign(draftOfflineStaffSignIn(options), "command");
+    this.storeOfflineStaffSignIn(options.enrollmentId, envelope);
     return envelope;
+  }
+
+  /**
+   * Stores a signed offline sign-in and makes it the counter's active one. Called inside the
+   * transaction that appends the command it backs, so a step the policy refuses leaves no
+   * sign-in behind.
+   */
+  storeOfflineStaffSignIn(enrollmentId: string, envelope: Signed<OfflineStaffSignIn>): void {
+    this.persistSignIn(enrollmentId, envelope);
   }
 
   /** A sign-in recorded here, by its ID. */
@@ -238,7 +261,6 @@ export class OfflineJournalWriter {
     const json = readState(this.deps.db, enrollmentId)?.active_staff_envelope_json;
     return json ? (JSON.parse(json) as Signed<OfflineStaffSignIn>) : null;
   }
-
   private persistSignIn(enrollmentId: string, envelope: Signed<OfflineStaffSignIn>): void {
     const staffSignInId = envelope.payload.staffSignInId;
     const at = this.atIso();

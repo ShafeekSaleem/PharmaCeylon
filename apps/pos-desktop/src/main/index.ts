@@ -31,6 +31,7 @@ import { startOfflineAuthorityRefresh, type OfflineAuthorityRefresh } from "./te
 import { OfflineJournalWriter } from "./terminal/offline-journal-writer";
 import { offlineModeForRenderer, startOfflineMode, type OfflineModeService } from "./terminal/offline-mode";
 import { OfflineCounterService, offlineStaffForRenderer } from "./terminal/offline-counter";
+import { OfflineSaleService } from "./terminal/offline-sale";
 import { TrustedClock } from "./terminal/trusted-clock";
 import {
   readJournalSyncView,
@@ -146,6 +147,12 @@ let offlineCounter: OfflineCounterService | null = null;
 function requireOfflineCounter(): OfflineCounterService {
   if (!offlineCounter) throw new ActionFailure("NOT_READY", "This counter isn't set up to work offline.");
   return offlineCounter;
+}
+let offlineSale: OfflineSaleService | null = null;
+
+function requireOfflineSale(): OfflineSaleService {
+  if (!offlineSale) throw new ActionFailure("NOT_READY", "This counter isn't set up to work offline.");
+  return offlineSale;
 }
 // Receipts can be reprinted for sales completed since the app started; nothing is kept on disk.
 const recentSales = new Map<string, CompletedSale>();
@@ -574,6 +581,19 @@ function registerIpc(schemaVersion: number, logger: ReturnType<typeof createLogg
         act(logger, "offlineCloseShift", () =>
           offlineStaffForRenderer(requireOfflineCounter().closeShift(count, { varianceNote, assistance })),
         ),
+      offlineStock: () => act(logger, "offlineStock", () => requireOfflineSale().stock()),
+      offlineQuote: ({ items }) => act(logger, "offlineQuote", () => requireOfflineSale().quote(items)),
+      offlinePrepareCard: (input) => act(logger, "offlinePrepareCard", () => requireOfflineSale().prepareCard(input)),
+      offlineCardOutcome: ({ attemptId, outcome }) =>
+        act(logger, "offlineCardOutcome", () => {
+          if (outcome.kind !== "approved") return requireOfflineSale().recordCardOutcome({ attemptId, outcome });
+          // The time on the slip, not the time it was recorded: it may be recorded long after.
+          const approvedAt = Date.parse(outcome.approvedAt);
+          if (!Number.isSafeInteger(approvedAt))
+            throw new ActionFailure("INVALID_RECORD", "Check the time on the card slip.");
+          return requireOfflineSale().recordCardOutcome({ attemptId, outcome: { ...outcome, approvedAt } });
+        }),
+      offlineCommitSale: (input) => act(logger, "offlineCommitSale", () => requireOfflineSale().commit(input)),
       offlineSales: () => act(logger, "offlineSales", () => requireOfflineSupport().sales()),
       noteSaleProblem: (input) => act(logger, "noteSaleProblem", () => requireOfflineSupport().recordIncident(input)),
       cardAttempts: () => act(logger, "cardAttempts", () => requireOfflineSupport().cardAttempts()),
@@ -764,6 +784,12 @@ async function start(): Promise<void> {
         journal: offlineJournalWriter,
         clock: trustedClock,
         mode,
+        logger,
+      });
+      offlineSale = new OfflineSaleService({
+        db: store.db,
+        counter: offlineCounter,
+        journal: offlineJournalWriter,
         logger,
       });
     } catch (error) {

@@ -1,8 +1,11 @@
 import { randomUUID } from "node:crypto";
 import {
   offlineShiftTransition,
+  type LocalOpenTillShift,
   type OfflineGrant,
   type OfflineCommandContext,
+  type OfflineStaffAuthorization,
+  type Signed,
   type OfflineShiftCloseCommand,
   type OfflineShiftOpenCommand,
   type OfflineStaffSignIn,
@@ -19,7 +22,10 @@ import type { Logger } from "../logging/logger";
 import type { PinStore } from "../staff/pin-store";
 import { readInstalledOfflineAuthority } from "./offline-authority";
 import { activeOutage } from "./offline-journal";
-import type { OfflineJournalWriter } from "./offline-journal-writer";
+import {
+  draftOfflineStaffSignIn,
+  type OfflineJournalWriter,
+} from "./offline-journal-writer";
 import type { OfflineModeService, OfflineStopReason } from "./offline-mode";
 import { ActionFailure } from "./terminal-service";
 import type { TrustedClock } from "./trusted-clock";
@@ -135,7 +141,7 @@ export type OfflineCounterDeps = {
   pins: Pick<PinStore, "check" | "preparedVersion" | "prepared">;
   journal: Pick<
     OfflineJournalWriter,
-    | "recordOfflineStaffSignIn"
+    | "storeOfflineStaffSignIn"
     | "activeStaffSignIn"
     | "appendSignedCommand"
     | "getHead"
@@ -145,7 +151,7 @@ export type OfflineCounterDeps = {
   logger?: Pick<Logger, "info" | "warn">;
 };
 
-type Ready = {
+export type Ready = {
   enrollmentId: string;
   identity: TerminalIdentity;
   grant: OfflineGrant;
@@ -224,13 +230,70 @@ export class OfflineCounterService {
     return signIn;
   }
 
-  /** Checks a PIN here and records the sign-in, bound to `workSessionId`. */
-  private authenticate(
+  /**
+   * Who may sign in offline: named by the grant, with a PIN prepared here at exactly the version
+   * the grant vouches for. Returns the unsigned sign-in bound to `workSessionId`; nothing is
+   * checked against the PIN or written yet.
+   */
+  private draftSignIn(
     ready: Ready,
     staffUserId: string,
-    pin: string,
     workSessionId: string,
   ): OfflineStaffSignIn {
+    const staff = this.authorizedStaff(ready, staffUserId);
+    return draftOfflineStaffSignIn({
+      identity: ready.identity,
+      grant: ready.grant,
+      session: {
+        registerId: ready.grant.registerId,
+        tillId: ready.grant.tillId,
+        workSessionId,
+        staffUserId,
+      },
+      staffAuthorizationId: staff.staffAuthorizationId,
+      credentialVersion: staff.credentialVersion,
+      authenticatedAt: ready.trustedNow,
+    });
+  }
+
+  /**
+   * Checks the PIN of a drafted sign-in on this counter (with its durable lockout) and signs it.
+   * The caller stores it with `journal.storeOfflineStaffSignIn`, in the transaction that writes
+   * the step it backs — so a step the policy refuses leaves no sign-in behind.
+   */
+  private authenticate(
+    ready: Ready,
+    draft: OfflineStaffSignIn,
+    pin: string,
+  ): Signed<OfflineStaffSignIn> {
+    const staffUserId = draft.session.staffUserId;
+    const check = this.deps.pins.check(staffUserId, ready.enrollmentId, pin);
+    if (check !== "ok")
+      throw new ActionFailure(
+        check === "wrong"
+          ? "PIN_WRONG"
+          : check === "locked"
+            ? "PIN_LOCKED"
+            : "PIN_NOT_PREPARED",
+        PIN_MESSAGES[check],
+      );
+    return ready.key.sign(draft, "command");
+  }
+
+  private storeSignIn(
+    ready: Ready,
+    envelope: Signed<OfflineStaffSignIn>,
+  ): void {
+    this.deps.journal.storeOfflineStaffSignIn(ready.enrollmentId, envelope);
+    this.deps.logger?.info("offline.staff_signed_in", {
+      staffSignInId: envelope.payload.staffSignInId,
+    });
+  }
+
+  private authorizedStaff(
+    ready: Ready,
+    staffUserId: string,
+  ): OfflineStaffAuthorization {
     const staff = ready.grant.authorizedStaff.find(
       (s) => s.staffUserId === staffUserId,
     );
@@ -251,35 +314,7 @@ export class OfflineCounterService {
         "PIN_VERSION_MISMATCH",
         "This person's PIN changed after the counter last went online, so it can't be checked offline.",
       );
-    const check = this.deps.pins.check(staffUserId, ready.enrollmentId, pin);
-    if (check !== "ok")
-      throw new ActionFailure(
-        check === "wrong"
-          ? "PIN_WRONG"
-          : check === "locked"
-            ? "PIN_LOCKED"
-            : "PIN_NOT_PREPARED",
-        PIN_MESSAGES[check],
-      );
-    const envelope = this.deps.journal.recordOfflineStaffSignIn({
-      enrollmentId: ready.enrollmentId,
-      identity: ready.identity,
-      grant: ready.grant,
-      session: {
-        registerId: ready.grant.registerId,
-        tillId: ready.grant.tillId,
-        workSessionId,
-        staffUserId,
-      },
-      staffAuthorizationId: staff.staffAuthorizationId,
-      credentialVersion: staff.credentialVersion,
-      authenticatedAt: ready.trustedNow,
-      key: ready.key,
-    });
-    this.deps.logger?.info("offline.staff_signed_in", {
-      staffSignInId: envelope.payload.staffSignInId,
-    });
-    return envelope.payload;
+    return staff;
   }
 
   private shifts(enrollmentId: string): ShiftRow[] {
@@ -435,12 +470,13 @@ export class OfflineCounterService {
     const open = this.shifts(ready.enrollmentId).find(
       (r) => r.state === "open" && r.staff_user_id === staffUserId,
     );
-    this.authenticate(
+    const draft = this.draftSignIn(
       ready,
       staffUserId,
-      pin,
       open?.work_session_id ?? randomUUID(),
     );
+    const envelope = this.authenticate(ready, draft, pin);
+    this.deps.db.transaction(() => this.storeSignIn(ready, envelope))();
     return this.state();
   }
 
@@ -459,8 +495,9 @@ export class OfflineCounterService {
           : `${open.staff_name}'s shift is still open on this till. It's counted and closed first.`,
       );
     const current = this.tillState(ready, rows);
-    // A new shift, a new work session: the PIN again, and a sign-in bound to it.
-    const signIn = this.authenticate(ready, person, pin, randomUUID());
+    // A new shift, a new work session: a sign-in bound to it, checked against the policy before
+    // the PIN is, and written only with the entry it backs.
+    const signIn = this.draftSignIn(ready, person, randomUUID());
     const command: OfflineShiftOpenCommand = {
       ...this.context(ready, signIn.session, signIn),
       kind: "shift_open",
@@ -469,9 +506,11 @@ export class OfflineCounterService {
       previousClosedWorkSessionId: current.lastClosedWorkSessionId,
     };
     this.checkTransition(ready, command, current, signIn);
+    const signedIn = this.authenticate(ready, signIn, pin);
     const envelope = ready.key.sign(command, "command");
     const at = new Date(ready.trustedNow).toISOString();
     this.deps.db.transaction(() => {
+      this.storeSignIn(ready, signedIn);
       this.deps.journal.appendSignedCommand(envelope);
       this.deps.db
         .prepare(
@@ -545,7 +584,7 @@ export class OfflineCounterService {
     const session = this.shiftSession(ready, open);
     // An assisted close: the manager's PIN again, signed in under a work session of their own.
     const signIn = options.assistance
-      ? this.authenticate(ready, person, options.assistance.pin, randomUUID())
+      ? this.draftSignIn(ready, person, randomUUID())
       : signer;
     if (!assisted && signIn.session.workSessionId !== open.work_session_id)
       throw new ActionFailure(
@@ -566,9 +605,13 @@ export class OfflineCounterService {
         : null,
     };
     this.checkTransition(ready, command, current, signIn);
+    const managerSignIn = options.assistance
+      ? this.authenticate(ready, signIn, options.assistance.pin)
+      : null;
     const envelope = ready.key.sign(command, "command");
     const at = new Date(ready.trustedNow).toISOString();
     this.deps.db.transaction(() => {
+      if (managerSignIn) this.storeSignIn(ready, managerSignIn);
       this.deps.journal.appendSignedCommand(envelope);
       const changed = this.deps.db
         .prepare(
@@ -606,5 +649,47 @@ export class OfflineCounterService {
       assisted,
     });
     return this.state();
+  }
+
+  /**
+   * What an offline sale is written under (PR 3): the counter selling offline, the person signed
+   * in here in this outage, and their own open shift on this till — the shift the sale's cash
+   * lands in and the work session the server replays it into.
+   */
+  saleContext(): {
+    ready: Ready;
+    signIn: OfflineStaffSignIn;
+    sellerName: string;
+    openShift: LocalOpenTillShift;
+    command: () => OfflineCommandContext;
+  } {
+    const ready = this.ready();
+    const signIn = this.requireSigner(ready);
+    const rows = this.shifts(ready.enrollmentId);
+    this.refuseUnconfirmed(rows);
+    const open = rows.find((r) => r.state === "open");
+    if (!open || open.work_session_id !== signIn.session.workSessionId)
+      throw new ActionFailure(
+        "SHIFT_NOT_OPEN",
+        open
+          ? `${open.staff_name}'s shift is open on this till. Sell under your own shift.`
+          : "Open your shift before selling.",
+      );
+    const session = this.shiftSession(ready, open);
+    return {
+      ready,
+      signIn,
+      sellerName: this.staffName(
+        ready.enrollmentId,
+        signIn.session.staffUserId,
+      ),
+      openShift: {
+        identity: ready.identity,
+        session,
+        openedAt: Date.parse(open.opened_at),
+        openingCashMinor: open.opening_cash_minor,
+      },
+      command: () => this.context(ready, session, signIn),
+    };
   }
 }
