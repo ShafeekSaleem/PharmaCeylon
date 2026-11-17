@@ -91,6 +91,9 @@ type Row = {
   summary_json: string | null;
   summary_at: string | null;
   updated_at: string;
+  /** P4 #50: the journal entry that opened or closed it offline. */
+  journal_open_command_id: string | null;
+  journal_close_command_id: string | null;
 };
 
 /** Refusals that mean the step didn't and won't happen as sent (`definite-refusal.ts` reasoning:
@@ -233,9 +236,13 @@ export class ShiftService {
         // An open shift the server closed some other way is fetched on its own (below).
       }
     })();
+    // A shift opened offline (P4 #50) reaches the server with the journal upload: until then the
+    // server not knowing it says nothing, and there is nothing to fetch.
     const orphaned = (
       this.deps.db
-        .prepare("SELECT work_session_id FROM till_shift WHERE enrollment_id = ? AND state = 'open'")
+        .prepare(
+          "SELECT work_session_id FROM till_shift WHERE enrollment_id = ? AND state = 'open' AND journal_open_command_id IS NULL",
+        )
         .all(enrollmentId) as { work_session_id: string }[]
     ).filter((r) => r.work_session_id !== open?.shift.workSessionId);
     for (const row of orphaned) void this.fetchClosed(row.work_session_id, enrollmentId, branchId);
@@ -260,6 +267,8 @@ export class ShiftService {
   private upsertOpen(detail: ServerDetail, enrollmentId: string, branchId: string, at: string) {
     const { shift, summary } = detail;
     const existing = this.row(shift.workSessionId);
+    // P4 #50: closed offline, and the server hasn't had the journal entry yet.
+    if (existing?.journal_close_command_id && existing.state === "closed" && existing.sync !== "synced") return;
     if (existing?.state === "closing") {
       // A close is saved here and not confirmed yet: keep it; only the totals move.
       this.deps.db
