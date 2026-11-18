@@ -93,7 +93,7 @@ function pair(hoursEnd: number): OfflineAuthority {
     credentialVersion: 1,
     signInMethod: "personal_pin" as const,
     offlineManagerActions: assist
-      ? (["assist_shift_handover"] as const)
+      ? (["assist_shift_handover", "acknowledge_business_hours"] as const)
       : ([] as const),
   });
   const grant: OfflineGrant = {
@@ -268,7 +268,11 @@ describe("offline staff and shifts (P4 #50)", () => {
       () => service.signIn(cashier.staffUserId, cashier.pin),
       "CLOCK_UNTRUSTED",
     );
-    expect(service.state()).toEqual({ signedIn: null, people: [] });
+    expect(service.state()).toEqual({
+      signedIn: null,
+      people: [],
+      hours: null,
+    });
     mode = "online";
     reason = null;
     fails(() => service.signIn(cashier.staffUserId, cashier.pin), "ONLINE");
@@ -573,5 +577,132 @@ describe("offline shifts after selling hours (P4 #50)", () => {
         ?.lockRemainingMs,
     ).toBe(0);
     expect(journal()).toHaveLength(0);
+  });
+});
+
+describe("a manager's after-hours acknowledgement (D8, P4 #50)", () => {
+  beforeEach(() => setUp(NOW + 60_000));
+
+  const acknowledgements = () =>
+    (
+      local.db
+        .prepare(
+          "SELECT envelope_json, sync_status FROM offline_support_record WHERE kind = 'business_hours_acknowledgement' ORDER BY rowid",
+        )
+        .all() as { envelope_json: string; sync_status: string }[]
+    ).map((r) => ({
+      ...(
+        JSON.parse(r.envelope_json) as Signed<{
+          recordId: string;
+          managerSignInId: string;
+          startsAt: number;
+          endsAt: number;
+          reason: string;
+        }>
+      ).payload,
+      syncStatus: r.sync_status,
+    }));
+  const acknowledge = (
+    overrides: Partial<{
+      staffUserId: string;
+      pin: string;
+      minutes: number;
+      reason: string;
+    }> = {},
+  ) =>
+    service.acknowledgeHours({
+      staffUserId: manager.staffUserId,
+      pin: manager.pin,
+      minutes: 60,
+      reason: "Queue at closing time",
+      ...overrides,
+    });
+
+  it("lets a prepared manager keep the counter trading, and a shift opened then cites it", () => {
+    service.signIn(cashier.staffUserId, cashier.pin);
+    const cashierSignIn = service.state().signedIn;
+    advance(5 * 60_000);
+    expect(service.state().hours).toEqual({ status: "needs_acknowledgement" });
+    expect(
+      service.state().people.map((p) => [p.staffName, p.canAcknowledgeHours]),
+    ).toEqual([
+      ["Dilani", true],
+      ["Nimal", false],
+    ]);
+
+    const state = acknowledge();
+    const [ack] = acknowledgements();
+    expect(ack).toMatchObject({
+      reason: "Queue at closing time",
+      syncStatus: "pending",
+    });
+    expect(ack!.endsAt - ack!.startsAt).toBe(60 * 60_000);
+    expect(state.hours).toEqual({
+      status: "acknowledged",
+      until: ack!.endsAt,
+      managerName: "Dilani",
+    });
+    // The manager's PIN vouches for the acknowledgement; the cashier stays signed in.
+    expect(state.signedIn).toEqual(cashierSignIn);
+    expect(signIns().get(ack!.managerSignInId)?.session.staffUserId).toBe(
+      manager.staffUserId,
+    );
+
+    service.openShift(cashier.pin, count(1_000));
+    expect(
+      journal().map((e) => e.payload.businessHoursAcknowledgementId),
+    ).toEqual([ack!.recordId]);
+
+    // Once it runs out, opening is refused again; closing never needed it.
+    advance(61 * 60_000);
+    expect(service.state().hours).toEqual({ status: "needs_acknowledgement" });
+    service.closeShift(count(1_000));
+    expect(journal()[1]!.payload.businessHoursAcknowledgementId).toBeNull();
+    fails(
+      () => service.openShift(cashier.pin, count(1_000)),
+      "BUSINESS_HOURS_ACK_REQUIRED",
+    );
+  });
+
+  it("is only a prepared manager's, with their own PIN and a reason, and writes nothing when refused", () => {
+    service.signIn(cashier.staffUserId, cashier.pin);
+    advance(5 * 60_000);
+    const before = signIns().size;
+    fails(
+      () => acknowledge({ staffUserId: cashier.staffUserId, pin: cashier.pin }),
+      "NOT_PERMITTED",
+    );
+    fails(() => acknowledge({ pin: "0000" }), "PIN_WRONG");
+    fails(() => acknowledge({ reason: "   " }), "REASON_REQUIRED");
+    fails(() => acknowledge({ minutes: 0 }), "INVALID_AMOUNT");
+    fails(() => acknowledge({ minutes: 24 * 60 + 1 }), "INVALID_AMOUNT");
+    expect(acknowledgements()).toEqual([]);
+    expect(signIns().size).toBe(before);
+  });
+
+  it("never reaches past the grant's expiry", () => {
+    advance(5 * 60_000);
+    acknowledge({ minutes: 24 * 60 });
+    expect(acknowledgements()[0]!.endsAt).toBe(
+      installed.grant.payload.expiresAt,
+    );
+  });
+});
+
+describe("an acknowledgement inside selling hours", () => {
+  beforeEach(() => setUp());
+
+  it("is refused: there is nothing to acknowledge", () => {
+    expect(service.state().hours).toEqual({ status: "open" });
+    fails(
+      () =>
+        service.acknowledgeHours({
+          staffUserId: manager.staffUserId,
+          pin: manager.pin,
+          minutes: 60,
+          reason: "Just in case",
+        }),
+      "WITHIN_HOURS",
+    );
   });
 });

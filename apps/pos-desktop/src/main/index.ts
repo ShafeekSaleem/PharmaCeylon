@@ -1,15 +1,29 @@
-import { app, BrowserWindow, dialog, Menu, net, safeStorage, session } from "electron";
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  Menu,
+  net,
+  safeStorage,
+  session,
+} from "electron";
 import { createPublicKey } from "node:crypto";
 import { join } from "node:path";
 import type { ActionResult } from "../shared/ipc-contract";
 import { ApiSession } from "./api/api-client";
 import { checkApi } from "./api-check";
-import { classifyWindowsSession, createWindowsSessionReader } from "./attendance/windows-session";
+import {
+  classifyWindowsSession,
+  createWindowsSessionReader,
+} from "./attendance/windows-session";
 import type { SecretProtector } from "./db/key-store";
 import { migrations } from "./db/migrations";
 import { registerIpcHandlers } from "./ipc/handle";
 import type { LocalStore } from "./local-store";
-import { openStoreAtStartup, type RestorePrompt } from "./backup/startup-restore";
+import {
+  openStoreAtStartup,
+  type RestorePrompt,
+} from "./backup/startup-restore";
 import {
   startStoreBackups,
   workerCopyRunner,
@@ -19,7 +33,10 @@ import {
 import { createLogger } from "./logging/logger";
 import { printTestReceipt } from "./printing/test-receipt";
 import { printHtml } from "./printing/print-html";
-import { renderSaleReceiptHtml, renderSupplierCashPayoutReceiptHtml } from "./printing/receipt-html";
+import {
+  renderSaleReceiptHtml,
+  renderSupplierCashPayoutReceiptHtml,
+} from "./printing/receipt-html";
 import { renderXReportHtml } from "./printing/x-report-html";
 import { CheckoutService } from "./checkout/checkout-service";
 import { DispensingService } from "./checkout/dispensing";
@@ -27,11 +44,24 @@ import { CounterWorkService } from "./terminal/counter-work";
 import { ReturnsService } from "./returns/returns-service";
 import { journalSyncForRenderer } from "./journal-sync-renderer";
 import { readInstalledOfflineAuthority } from "./terminal/offline-authority";
-import { startOfflineAuthorityRefresh, type OfflineAuthorityRefresh } from "./terminal/offline-authority-refresh";
+import {
+  startOfflineAuthorityRefresh,
+  type OfflineAuthorityRefresh,
+} from "./terminal/offline-authority-refresh";
 import { OfflineJournalWriter } from "./terminal/offline-journal-writer";
-import { offlineModeForRenderer, startOfflineMode, type OfflineModeService } from "./terminal/offline-mode";
-import { OfflineCounterService, offlineStaffForRenderer } from "./terminal/offline-counter";
-import { OfflineSaleService, offlineReceiptForPrinting } from "./terminal/offline-sale";
+import {
+  offlineModeForRenderer,
+  startOfflineMode,
+  type OfflineModeService,
+} from "./terminal/offline-mode";
+import {
+  OfflineCounterService,
+  offlineStaffForRenderer,
+} from "./terminal/offline-counter";
+import {
+  OfflineSaleService,
+  offlineReceiptForPrinting,
+} from "./terminal/offline-sale";
 import { TrustedClock } from "./terminal/trusted-clock";
 import {
   readJournalSyncView,
@@ -45,13 +75,27 @@ import { StockLookupService } from "./terminal/stock-lookup";
 import type { CompletedSale } from "../shared/ipc-contract";
 import { buildReadinessReport, type ReadinessFacts } from "./readiness";
 import { isAppUrl } from "./renderer-path";
-import { hardenSession, hardenWebContents, mainFetch, registerAppScheme, serveRenderer } from "./security";
-import { normalizeServerUrl, readServerUrl, writeServerUrl } from "./server-url";
+import {
+  hardenSession,
+  hardenWebContents,
+  mainFetch,
+  registerAppScheme,
+  serveRenderer,
+} from "./security";
+import {
+  normalizeServerUrl,
+  readServerUrl,
+  writeServerUrl,
+} from "./server-url";
 import { runSmokeTest } from "./smoke";
 import { DeviceStore } from "./device/device-store";
 import { PinStore } from "./staff/pin-store";
 import { listProcessImages } from "./attendance/remote-tools";
-import { ActionFailure, explain, TerminalService } from "./terminal/terminal-service";
+import {
+  ActionFailure,
+  explain,
+  TerminalService,
+} from "./terminal/terminal-service";
 import { createMainWindow } from "./window";
 
 const smokeMode = process.argv.includes("--smoke-test");
@@ -63,7 +107,9 @@ if (smokeMode) {
 
 // The dev server only exists under `electron-vite dev`; a packaged build always
 // loads its own bundled renderer.
-const devServerUrl = app.isPackaged ? null : (process.env.ELECTRON_RENDERER_URL ?? null);
+const devServerUrl = app.isPackaged
+  ? null
+  : (process.env.ELECTRON_RENDERER_URL ?? null);
 const devServerOrigin = devServerUrl ? new URL(devServerUrl).origin : null;
 
 // Before enrollment the server address comes from setup (saved in the local database), then the
@@ -93,18 +139,34 @@ const protector: SecretProtector = {
 /** P5 #51: offered only where a restore is allowed (a broken or empty store); native dialogs, no window yet. */
 const backupLabel = ({ manifest }: StoreBackup) => {
   const at = new Date(manifest.takenAt);
-  const counter = [manifest.counterLabel, manifest.branchName].filter(Boolean).join(", ");
-  const time = at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const counter = [manifest.counterLabel, manifest.branchName]
+    .filter(Boolean)
+    .join(", ");
+  const time = at.toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
   return `${at.toLocaleDateString()} ${time}${counter ? ` (${counter})` : ""}`;
 };
-function chooseBackup(message: string, detail: string, backups: readonly StoreBackup[], cancel: string): StoreBackup | null {
+function chooseBackup(
+  message: string,
+  detail: string,
+  backups: readonly StoreBackup[],
+  cancel: string,
+): StoreBackup | null {
   const offered = backups.slice(0, 6);
   const answer = dialog.showMessageBoxSync({
     type: "warning",
     title: "PharmaCeylon POS",
     message,
     detail,
-    buttons: [...offered.map((b, i) => `${i === 0 ? "Restore the newest backup" : "Restore the backup"} from ${backupLabel(b)}`), cancel],
+    buttons: [
+      ...offered.map(
+        (b, i) =>
+          `${i === 0 ? "Restore the newest backup" : "Restore the backup"} from ${backupLabel(b)}`,
+      ),
+      cancel,
+    ],
     defaultId: 0,
     cancelId: offered.length,
     noLink: true,
@@ -119,12 +181,23 @@ const restorePrompt: RestorePrompt = {
   afterFailure: (error, backups) =>
     chooseBackup(
       "The local database could not be opened.",
-      [error instanceof Error ? error.message : "", "This computer has backups of its store.", restoreDetail].filter(Boolean).join("\n\n"),
+      [
+        error instanceof Error ? error.message : "",
+        "This computer has backups of its store.",
+        restoreDetail,
+      ]
+        .filter(Boolean)
+        .join("\n\n"),
       backups,
       "Quit and contact support",
     ),
   forEmptyStore: (backups) =>
-    chooseBackup("This computer has no counter set up, but it has backups of one.", restoreDetail, backups, "Set up as a new counter"),
+    chooseBackup(
+      "This computer has no counter set up, but it has backups of one.",
+      restoreDetail,
+      backups,
+      "Set up as a new counter",
+    ),
 };
 
 let mainWindow: BrowserWindow | null = null;
@@ -145,13 +218,21 @@ let offlineMode: OfflineModeService | null = null;
 let offlineCounter: OfflineCounterService | null = null;
 
 function requireOfflineCounter(): OfflineCounterService {
-  if (!offlineCounter) throw new ActionFailure("NOT_READY", "This counter isn't set up to work offline.");
+  if (!offlineCounter)
+    throw new ActionFailure(
+      "NOT_READY",
+      "This counter isn't set up to work offline.",
+    );
   return offlineCounter;
 }
 let offlineSale: OfflineSaleService | null = null;
 
 function requireOfflineSale(): OfflineSaleService {
-  if (!offlineSale) throw new ActionFailure("NOT_READY", "This counter isn't set up to work offline.");
+  if (!offlineSale)
+    throw new ActionFailure(
+      "NOT_READY",
+      "This counter isn't set up to work offline.",
+    );
   return offlineSale;
 }
 // Receipts can be reprinted for sales completed since the app started; nothing is kept on disk.
@@ -159,7 +240,11 @@ const recentSales = new Map<string, CompletedSale>();
 
 function currentApiBaseUrl(): string | null {
   if (!store) return defaultApiBaseUrl;
-  return new DeviceStore(store.db).read()?.apiBaseUrl ?? readServerUrl(store.db) ?? defaultApiBaseUrl;
+  return (
+    new DeviceStore(store.db).read()?.apiBaseUrl ??
+    readServerUrl(store.db) ??
+    defaultApiBaseUrl
+  );
 }
 
 /** Runs a renderer-requested action; refusals come back as explained data, details go to the log. */
@@ -167,7 +252,11 @@ function currentApiBaseUrl(): string | null {
  * Unconfirmed sales and signed actions. A sale names who started it (anyone here can confirm it);
  * an action names who has to come back to confirm it.
  */
-function unconfirmedFacts(): { unconfirmed: number; unconfirmedSalesBy: string[]; unconfirmedBy: string[] } {
+function unconfirmedFacts(): {
+  unconfirmed: number;
+  unconfirmedSalesBy: string[];
+  unconfirmedBy: string[];
+} {
   const sales = checkout?.pending() ?? [];
   const actions = commands?.pending() ?? [];
   const names = (rows: { staffName: string | null }[]) => [
@@ -181,12 +270,14 @@ function unconfirmedFacts(): { unconfirmed: number; unconfirmedSalesBy: string[]
 }
 
 function requireShifts(): ShiftService {
-  if (!shifts) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+  if (!shifts)
+    throw new ActionFailure("NOT_READY", "The counter is still starting.");
   return shifts;
 }
 
 function requireOfflineSupport(): OfflineSupportService {
-  if (!offlineSupport) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+  if (!offlineSupport)
+    throw new ActionFailure("NOT_READY", "The counter is still starting.");
   return offlineSupport;
 }
 
@@ -201,31 +292,44 @@ async function act<T>(
   name: string,
   run: (service: TerminalService) => Promise<T> | T,
 ): Promise<ActionResult<T>> {
-  if (!terminal) return { ok: false, error: { code: "NOT_READY", message: "The counter is still starting." } };
+  if (!terminal)
+    return {
+      ok: false,
+      error: { code: "NOT_READY", message: "The counter is still starting." },
+    };
   try {
     return { ok: true, value: await run(terminal) };
   } catch (error) {
     const explained = explain(error);
-    logger.warn("terminal.action_refused", { action: name, code: explained.code });
+    logger.warn("terminal.action_refused", {
+      action: name,
+      code: explained.code,
+    });
     return { ok: false, error: explained };
   }
 }
 
 /** The offline journal's upload (P5 #51), for the readiness checks and the Sell page. */
 function journalSyncFacts(): Pick<ReadinessFacts, "journalSync"> {
-  const enrollmentId = store ? new DeviceStore(store.db).read()?.identity.enrollmentId : undefined;
+  const enrollmentId = store
+    ? new DeviceStore(store.db).read()?.identity.enrollmentId
+    : undefined;
   if (!store || !enrollmentId) return {};
   return {
     journalSync: {
       configured: journalSync !== null,
-      view: journalSync ? journalSync.view(enrollmentId) : readJournalSyncView(store.db, enrollmentId),
+      view: journalSync
+        ? journalSync.view(enrollmentId)
+        : readJournalSyncView(store.db, enrollmentId),
     },
   };
 }
 
 /** The installed offline authority and how its renewal is going, for the readiness checks. */
 function offlineAuthorityFacts(): Pick<ReadinessFacts, "offlineAuthority"> {
-  const enrollmentId = store ? new DeviceStore(store.db).read()?.identity.enrollmentId : undefined;
+  const enrollmentId = store
+    ? new DeviceStore(store.db).read()?.identity.enrollmentId
+    : undefined;
   if (!store || !enrollmentId) return {};
   const installed = readInstalledOfflineAuthority(store.db, enrollmentId);
   return {
@@ -241,7 +345,10 @@ function offlineAuthorityFacts(): Pick<ReadinessFacts, "offlineAuthority"> {
   };
 }
 
-function registerIpc(schemaVersion: number, logger: ReturnType<typeof createLogger>): void {
+function registerIpc(
+  schemaVersion: number,
+  logger: ReturnType<typeof createLogger>,
+): void {
   registerIpcHandlers(
     {
       getAppInfo: () => ({
@@ -257,12 +364,19 @@ function registerIpc(schemaVersion: number, logger: ReturnType<typeof createLogg
             schemaVersion,
             latestSchemaVersion: migrations.length,
             credentialStoreAvailable: protector.isAvailable(),
-            enrollmentStatus: store ? (new DeviceStore(store.db).read()?.status ?? null) : null,
+            enrollmentStatus: store
+              ? (new DeviceStore(store.db).read()?.status ?? null)
+              : null,
             preparedStaff: store
               ? (
                   store.db
-                    .prepare("SELECT count(*) AS n FROM staff_credential WHERE enrollment_id = ?")
-                    .get(new DeviceStore(store.db).read()?.identity.enrollmentId ?? "") as { n: number }
+                    .prepare(
+                      "SELECT count(*) AS n FROM staff_credential WHERE enrollment_id = ?",
+                    )
+                    .get(
+                      new DeviceStore(store.db).read()?.identity.enrollmentId ??
+                        "",
+                    ) as { n: number }
                 ).n
               : 0,
             ...unconfirmedFacts(),
@@ -274,13 +388,15 @@ function registerIpc(schemaVersion: number, logger: ReturnType<typeof createLogg
         ),
       checkApi: () => checkApi(currentApiBaseUrl(), mainFetch),
       listPrinters: async () => {
-        const printers = (await mainWindow?.webContents.getPrintersAsync()) ?? [];
+        const printers =
+          (await mainWindow?.webContents.getPrintersAsync()) ?? [];
         return printers.map((printer) => ({
           name: printer.name,
           displayName: printer.displayName || printer.name,
         }));
       },
-      printTestReceipt: ({ printerName }) => printTestReceipt(printerName, app.getVersion()),
+      printTestReceipt: ({ printerName }) =>
+        printTestReceipt(printerName, app.getVersion()),
       getDeviceState: () => {
         if (terminal) return terminal.state();
         const windows = classifyWindowsSession(readWindowsSession());
@@ -294,22 +410,40 @@ function registerIpc(schemaVersion: number, logger: ReturnType<typeof createLogg
           locked: false,
           counterStaff: [],
           branches: [],
-          windowsSession: { protocol: windows.protocol, remoteSession: windows.remoteSession },
+          windowsSession: {
+            protocol: windows.protocol,
+            remoteSession: windows.remoteSession,
+          },
         };
       },
       setServerUrl: ({ url }) =>
         act(logger, "setServerUrl", (service) => {
-          if (!store) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          if (!store)
+            throw new ActionFailure(
+              "NOT_READY",
+              "The counter is still starting.",
+            );
           if (new DeviceStore(store.db).read())
-            throw new ActionFailure("ALREADY_ENROLLED", "An enrolled counter keeps the server it enrolled with.");
-          writeServerUrl(store.db, normalizeServerUrl(url, app.isPackaged), new Date());
+            throw new ActionFailure(
+              "ALREADY_ENROLLED",
+              "An enrolled counter keeps the server it enrolled with.",
+            );
+          writeServerUrl(
+            store.db,
+            normalizeServerUrl(url, app.isPackaged),
+            new Date(),
+          );
           return service.state();
         }),
-      signIn: ({ email, password }) => act(logger, "signIn", (service) => service.signIn(email, password)),
+      signIn: ({ email, password }) =>
+        act(logger, "signIn", (service) => service.signIn(email, password)),
       signOut: () => act(logger, "signOut", (service) => service.signOut()),
-      refreshEnrollment: () => act(logger, "refreshEnrollment", (service) => service.refreshStatus()),
+      refreshEnrollment: () =>
+        act(logger, "refreshEnrollment", (service) => service.refreshStatus()),
       listCounters: ({ branchId, includeInactive }) =>
-        act(logger, "listCounters", (service) => service.listCounters(branchId, includeInactive)),
+        act(logger, "listCounters", (service) =>
+          service.listCounters(branchId, includeInactive),
+        ),
       updateCounter: ({ branchId, registerId, label, isActive }) =>
         act(logger, "updateCounter", (service) =>
           service.updateCounter(branchId, registerId, { label, isActive }),
@@ -320,52 +454,102 @@ function registerIpc(schemaVersion: number, logger: ReturnType<typeof createLogg
           return {};
         }),
       createCounter: ({ branchId, label }) =>
-        act(logger, "createCounter", (service) => service.createCounter(branchId, label)),
-      enroll: (input) => act(logger, "enroll", (service) => service.enroll(input)),
-      enrollWithCode: (input) => act(logger, "enrollWithCode", (service) => service.enrollWithCode(input)),
+        act(logger, "createCounter", (service) =>
+          service.createCounter(branchId, label),
+        ),
+      enroll: (input) =>
+        act(logger, "enroll", (service) => service.enroll(input)),
+      enrollWithCode: (input) =>
+        act(logger, "enrollWithCode", (service) =>
+          service.enrollWithCode(input),
+        ),
       catalog: () =>
         act(logger, "catalog", () => {
-          if (!checkout) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          if (!checkout)
+            throw new ActionFailure(
+              "NOT_READY",
+              "The counter is still starting.",
+            );
           return checkout.catalog();
         }),
-      submitCheckout: ({ lines, tender, dispensing: details, coSign, discountCoSign }) =>
+      submitCheckout: ({
+        lines,
+        tender,
+        dispensing: details,
+        coSign,
+        discountCoSign,
+      }) =>
         act(logger, "submitCheckout", async () => {
-          if (!checkout) throw new ActionFailure("NOT_READY", "The counter is still starting.");
-          const sale = await checkout.submit(lines, tender, details, coSign, discountCoSign);
+          if (!checkout)
+            throw new ActionFailure(
+              "NOT_READY",
+              "The counter is still starting.",
+            );
+          const sale = await checkout.submit(
+            lines,
+            tender,
+            details,
+            coSign,
+            discountCoSign,
+          );
           recentSales.set(sale.saleId, sale);
           postSale(sale);
           return sale;
         }),
       holdCart: ({ lines, label, dispensing: details }) =>
         act(logger, "holdCart", () => {
-          if (!checkout) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          if (!checkout)
+            throw new ActionFailure(
+              "NOT_READY",
+              "The counter is still starting.",
+            );
           return checkout.hold(lines, label, details);
         }),
       listHolds: () =>
         act(logger, "listHolds", () => {
-          if (!checkout) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          if (!checkout)
+            throw new ActionFailure(
+              "NOT_READY",
+              "The counter is still starting.",
+            );
           return checkout.holds();
         }),
       recallHold: ({ holdId }) =>
         act(logger, "recallHold", async () => {
-          if (!checkout || !dispensing) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          if (!checkout || !dispensing)
+            throw new ActionFailure(
+              "NOT_READY",
+              "The counter is still starting.",
+            );
           const held = await checkout.recall(holdId);
           // The hold keeps ids only; one that no longer resolves comes back unlinked.
           const [customer, prescription] = await Promise.all([
-            held.customerId ? dispensing.customer(held.customerId).catch(() => null) : null,
-            held.prescriptionId ? dispensing.prescription(held.prescriptionId).catch(() => null) : null,
+            held.customerId
+              ? dispensing.customer(held.customerId).catch(() => null)
+              : null,
+            held.prescriptionId
+              ? dispensing.prescription(held.prescriptionId).catch(() => null)
+              : null,
           ]);
           return { lines: held.lines, customer, prescription };
         }),
       listDiscountApprovers: () =>
         act(logger, "listDiscountApprovers", () => {
-          if (!checkout) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          if (!checkout)
+            throw new ActionFailure(
+              "NOT_READY",
+              "The counter is still starting.",
+            );
           return checkout.discountApprovers();
         }),
       pendingCheckouts: () => checkout?.pending() ?? [],
       retryCheckout: ({ draftId, coSign, discountCoSign }) =>
         act(logger, "retryCheckout", async () => {
-          if (!checkout) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          if (!checkout)
+            throw new ActionFailure(
+              "NOT_READY",
+              "The counter is still starting.",
+            );
           const sale = await checkout.retry(draftId, coSign, discountCoSign);
           recentSales.set(sale.saleId, sale);
           postSale(sale);
@@ -373,65 +557,123 @@ function registerIpc(schemaVersion: number, logger: ReturnType<typeof createLogg
         }),
       searchCustomers: ({ q }) =>
         act(logger, "searchCustomers", () => {
-          if (!dispensing) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          if (!dispensing)
+            throw new ActionFailure(
+              "NOT_READY",
+              "The counter is still starting.",
+            );
           return dispensing.customers(q);
         }),
       searchPrescriptions: (filter) =>
         act(logger, "searchPrescriptions", () => {
-          if (!dispensing) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          if (!dispensing)
+            throw new ActionFailure(
+              "NOT_READY",
+              "The counter is still starting.",
+            );
           return dispensing.prescriptions(filter);
         }),
       recordPrescription: (input) =>
         act(logger, "recordPrescription", () => {
-          if (!dispensing) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          if (!dispensing)
+            throw new ActionFailure(
+              "NOT_READY",
+              "The counter is still starting.",
+            );
           return dispensing.record(input);
         }),
       listApprovers: () =>
         act(logger, "listApprovers", () => {
-          if (!dispensing) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          if (!dispensing)
+            throw new ActionFailure(
+              "NOT_READY",
+              "The counter is still starting.",
+            );
           return dispensing.approvers();
         }),
       printSaleReceipt: ({ saleId, printerName }) => {
         const sale = recentSales.get(saleId);
         const device = store ? new DeviceStore(store.db).read() : null;
-        if (!sale || !device) return { ok: false, error: "That sale is not available to print here." };
-        return printHtml(printerName, renderSaleReceiptHtml(sale, { branchName: device.branchName, counterLabel: device.counterLabel }));
+        if (!sale || !device)
+          return {
+            ok: false,
+            error: "That sale is not available to print here.",
+          };
+        return printHtml(
+          printerName,
+          renderSaleReceiptHtml(sale, {
+            branchName: device.branchName,
+            counterLabel: device.counterLabel,
+          }),
+        );
       },
       counterWork: () =>
         act(logger, "counterWork", () => {
-          if (!counterWork) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          if (!counterWork)
+            throw new ActionFailure(
+              "NOT_READY",
+              "The counter is still starting.",
+            );
           return counterWork.list();
         }),
       refundsReady: () =>
         act(logger, "refundsReady", () => {
-          if (!counterWork) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          if (!counterWork)
+            throw new ActionFailure(
+              "NOT_READY",
+              "The counter is still starting.",
+            );
           return counterWork.refundsReady();
         }),
       executeRefund: ({ refundRequestId }) =>
         act(logger, "executeRefund", async () => {
-          if (!counterWork) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          if (!counterWork)
+            throw new ActionFailure(
+              "NOT_READY",
+              "The counter is still starting.",
+            );
           const executed = await counterWork.executeRefund(refundRequestId);
           const executor = terminal?.current()?.staff.staffUserId;
-          if (!executed.alreadyApplied && executor) shifts?.recordRefund(executed.requestNumber, executed.refundedTo, executor);
+          if (!executed.alreadyApplied && executor)
+            shifts?.recordRefund(
+              executed.requestNumber,
+              executed.refundedTo,
+              executor,
+            );
           return executed;
         }),
       cashPayoutsReady: () =>
         act(logger, "cashPayoutsReady", () => {
-          if (!counterWork) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          if (!counterWork)
+            throw new ActionFailure(
+              "NOT_READY",
+              "The counter is still starting.",
+            );
           return counterWork.cashPayoutsReady();
         }),
       executeCashPayout: ({ cashPayoutId }) =>
         act(logger, "executeCashPayout", async () => {
-          if (!counterWork) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          if (!counterWork)
+            throw new ActionFailure(
+              "NOT_READY",
+              "The counter is still starting.",
+            );
           const executed = await counterWork.executeCashPayout(cashPayoutId);
           const executor = terminal?.current()?.staff.staffUserId;
           let expectedCashMinorAfter: number | null = null;
           if (!executed.alreadyApplied && executor) {
-            shifts?.recordSupplierPayout(cashPayoutId, executed.amountMinor, executor);
-            expectedCashMinorAfter = shifts?.state().current?.expectedCashMinor ?? null;
+            shifts?.recordSupplierPayout(
+              cashPayoutId,
+              executed.amountMinor,
+              executor,
+            );
+            expectedCashMinorAfter =
+              shifts?.state().current?.expectedCashMinor ?? null;
             try {
               await shifts?.refresh();
-              expectedCashMinorAfter = shifts?.state().current?.expectedCashMinor ?? expectedCashMinorAfter;
+              expectedCashMinorAfter =
+                shifts?.state().current?.expectedCashMinor ??
+                expectedCashMinorAfter;
             } catch {
               /* local expected cash is already updated */
             }
@@ -440,7 +682,8 @@ function registerIpc(schemaVersion: number, logger: ReturnType<typeof createLogg
         }),
       printSupplierCashPayoutReceipt: (input) => {
         const device = store ? new DeviceStore(store.db).read() : null;
-        if (!device) return { ok: false, error: "The counter is still starting." };
+        if (!device)
+          return { ok: false, error: "The counter is still starting." };
         return printHtml(
           input.printerName,
           renderSupplierCashPayoutReceiptHtml(input, {
@@ -451,110 +694,202 @@ function registerIpc(schemaVersion: number, logger: ReturnType<typeof createLogg
       },
       stockCasesReady: () =>
         act(logger, "stockCasesReady", () => {
-          if (!counterWork) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          if (!counterWork)
+            throw new ActionFailure(
+              "NOT_READY",
+              "The counter is still starting.",
+            );
           return counterWork.stockCasesReady();
         }),
       resolveStockCase: ({ resolutionId, counts }) =>
         act(logger, "resolveStockCase", () => {
-          if (!counterWork) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          if (!counterWork)
+            throw new ActionFailure(
+              "NOT_READY",
+              "The counter is still starting.",
+            );
           return counterWork.resolveStockCase(resolutionId, counts);
         }),
       returnFindSale: ({ invoiceNo }) =>
         act(logger, "returnFindSale", () => {
-          if (!returns) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          if (!returns)
+            throw new ActionFailure(
+              "NOT_READY",
+              "The counter is still starting.",
+            );
           return returns.findSale(invoiceNo);
         }),
       returnSearchSales: (filter) =>
         act(logger, "returnSearchSales", () => {
-          if (!returns) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          if (!returns)
+            throw new ActionFailure(
+              "NOT_READY",
+              "The counter is still starting.",
+            );
           return returns.searchSales(filter);
         }),
       returnsToday: () =>
         act(logger, "returnsToday", () => {
-          if (!returns) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          if (!returns)
+            throw new ActionFailure(
+              "NOT_READY",
+              "The counter is still starting.",
+            );
           return returns.today();
         }),
       listRefundApprovers: () =>
         act(logger, "listRefundApprovers", () => {
-          if (!returns) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          if (!returns)
+            throw new ActionFailure(
+              "NOT_READY",
+              "The counter is still starting.",
+            );
           return returns.approvers();
         }),
       approveReturn: ({ saleId, refundRequestId, coSign }) =>
         act(logger, "approveReturn", () => {
-          if (!returns) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          if (!returns)
+            throw new ActionFailure(
+              "NOT_READY",
+              "The counter is still starting.",
+            );
           return returns.approve(saleId, refundRequestId, coSign);
         }),
       submitReturn: (input) =>
         act(logger, "submitReturn", async () => {
-          if (!returns) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          if (!returns)
+            throw new ActionFailure(
+              "NOT_READY",
+              "The counter is still starting.",
+            );
           const outcome = await returns.submit(input);
           // A cash refund done here leaves the open shift's drawer: the counter's own figure too.
           const executor = terminal?.current()?.staff.staffUserId;
-          if (outcome.status === "refunded" && !outcome.refund.alreadyApplied && executor)
-            shifts?.recordRefund(outcome.refund.requestNumber, outcome.refund.refundedTo, executor);
+          if (
+            outcome.status === "refunded" &&
+            !outcome.refund.alreadyApplied &&
+            executor
+          )
+            shifts?.recordRefund(
+              outcome.refund.requestNumber,
+              outcome.refund.refundedTo,
+              executor,
+            );
           return outcome;
         }),
       pendingCommands: () => commands?.pending() ?? [],
       retryCommand: ({ commandId }) =>
         act(logger, "retryCommand", async () => {
-          if (!commands) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          if (!commands)
+            throw new ActionFailure(
+              "NOT_READY",
+              "The counter is still starting.",
+            );
           return { replayed: (await commands.retry(commandId)).replayed };
         }),
       stockSearch: (input) =>
         act(logger, "stockSearch", () => {
-          if (!stock) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          if (!stock)
+            throw new ActionFailure(
+              "NOT_READY",
+              "The counter is still starting.",
+            );
           return stock.search(input);
         }),
       stockAttention: () =>
         act(logger, "stockAttention", () => {
-          if (!stock) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          if (!stock)
+            throw new ActionFailure(
+              "NOT_READY",
+              "The counter is still starting.",
+            );
           return stock.attention();
         }),
       productStock: ({ productId }) =>
         act(logger, "productStock", () => {
-          if (!stock) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          if (!stock)
+            throw new ActionFailure(
+              "NOT_READY",
+              "The counter is still starting.",
+            );
           return stock.product(productId);
         }),
       adjustStock: (input) =>
         act(logger, "adjustStock", () => {
-          if (!stock) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          if (!stock)
+            throw new ActionFailure(
+              "NOT_READY",
+              "The counter is still starting.",
+            );
           return stock.adjust(input);
         }),
       quarantineBatch: (input) =>
         act(logger, "quarantineBatch", () => {
-          if (!stock) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          if (!stock)
+            throw new ActionFailure(
+              "NOT_READY",
+              "The counter is still starting.",
+            );
           return stock.quarantine(input);
         }),
       releaseQuarantine: (input) =>
         act(logger, "releaseQuarantine", () => {
-          if (!stock) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          if (!stock)
+            throw new ActionFailure(
+              "NOT_READY",
+              "The counter is still starting.",
+            );
           return stock.releaseQuarantine(input);
         }),
       stockPermissions: () =>
         act(logger, "stockPermissions", () => {
-          if (!stock) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          if (!stock)
+            throw new ActionFailure(
+              "NOT_READY",
+              "The counter is still starting.",
+            );
           return stock.permissions();
         }),
       heldWriteOffsAtCounter: () =>
         act(logger, "heldWriteOffsAtCounter", () => {
-          if (!counterWork) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          if (!counterWork)
+            throw new ActionFailure(
+              "NOT_READY",
+              "The counter is still starting.",
+            );
           return counterWork.heldWriteOffsAtCounter();
         }),
       postHeldWriteOff: ({ heldAdjustmentId, approvalEvidenceId }) =>
         act(logger, "postHeldWriteOff", () => {
-          if (!counterWork) throw new ActionFailure("NOT_READY", "The counter is still starting.");
-          return counterWork.postHeldWriteOff(heldAdjustmentId, approvalEvidenceId);
+          if (!counterWork)
+            throw new ActionFailure(
+              "NOT_READY",
+              "The counter is still starting.",
+            );
+          return counterWork.postHeldWriteOff(
+            heldAdjustmentId,
+            approvalEvidenceId,
+          );
         }),
       confirmTestReceipt: ({ printerName }) =>
-        act(logger, "confirmTestReceipt", (service) => service.confirmTestReceipt(printerName)),
-      offlineCounter: () => act(logger, "offlineCounter", (service) => service.offlineCounter()),
+        act(logger, "confirmTestReceipt", (service) =>
+          service.confirmTestReceipt(printerName),
+        ),
+      offlineCounter: () =>
+        act(logger, "offlineCounter", (service) => service.offlineCounter()),
       activateOffline: ({ authorizationId }) =>
-        act(logger, "activateOffline", (service) => service.activateOffline(authorizationId)),
-      setPin: ({ pin, password }) => act(logger, "setPin", (service) => service.setPin(pin, password)),
-      preparePin: ({ pin }) => act(logger, "preparePin", (service) => service.preparePin(pin)),
+        act(logger, "activateOffline", (service) =>
+          service.activateOffline(authorizationId),
+        ),
+      setPin: ({ pin, password }) =>
+        act(logger, "setPin", (service) => service.setPin(pin, password)),
+      preparePin: ({ pin }) =>
+        act(logger, "preparePin", (service) => service.preparePin(pin)),
       lock: () => act(logger, "lock", (service) => service.lock()),
-      unlock: ({ pin }) => act(logger, "unlock", (service) => service.unlock(pin)),
-      getShift: () => shifts?.state() ?? { current: null, lastClosed: null, unsynced: [] },
+      unlock: ({ pin }) =>
+        act(logger, "unlock", (service) => service.unlock(pin)),
+      getShift: () =>
+        shifts?.state() ?? { current: null, lastClosed: null, unsynced: [] },
       getJournalSync: () => {
         const enrollmentId = store
           ? new DeviceStore(store.db).read()?.identity.enrollmentId
@@ -568,37 +903,80 @@ function registerIpc(schemaVersion: number, logger: ReturnType<typeof createLogg
       },
       getOfflineMode: () => offlineModeForRenderer(offlineMode?.view() ?? null),
       offlineStaff: () =>
-        offlineStaffForRenderer(offlineCounter?.state() ?? { signedIn: null, people: [] }),
+        offlineStaffForRenderer(
+          offlineCounter?.state() ?? {
+            signedIn: null,
+            people: [],
+            hours: null,
+          },
+        ),
       offlineSignIn: ({ staffUserId, pin }) =>
         act(logger, "offlineSignIn", () =>
-          offlineStaffForRenderer(requireOfflineCounter().signIn(staffUserId, pin)),
+          offlineStaffForRenderer(
+            requireOfflineCounter().signIn(staffUserId, pin),
+          ),
         ),
       offlineOpenShift: ({ pin, count }) =>
         act(logger, "offlineOpenShift", () =>
-          offlineStaffForRenderer(requireOfflineCounter().openShift(pin, count)),
+          offlineStaffForRenderer(
+            requireOfflineCounter().openShift(pin, count),
+          ),
         ),
       offlineCloseShift: ({ count, varianceNote, assistance }) =>
         act(logger, "offlineCloseShift", () =>
-          offlineStaffForRenderer(requireOfflineCounter().closeShift(count, { varianceNote, assistance })),
+          offlineStaffForRenderer(
+            requireOfflineCounter().closeShift(count, {
+              varianceNote,
+              assistance,
+            }),
+          ),
         ),
-      offlineStock: () => act(logger, "offlineStock", () => requireOfflineSale().stock()),
-      offlineQuote: ({ items }) => act(logger, "offlineQuote", () => requireOfflineSale().quote(items)),
-      offlinePrepareCard: (input) => act(logger, "offlinePrepareCard", () => requireOfflineSale().prepareCard(input)),
+      offlineAcknowledgeHours: (input) =>
+        act(logger, "offlineAcknowledgeHours", () =>
+          offlineStaffForRenderer(
+            requireOfflineCounter().acknowledgeHours(input),
+          ),
+        ),
+      offlineStock: () =>
+        act(logger, "offlineStock", () => requireOfflineSale().stock()),
+      offlineQuote: ({ items }) =>
+        act(logger, "offlineQuote", () => requireOfflineSale().quote(items)),
+      offlinePrepareCard: (input) =>
+        act(logger, "offlinePrepareCard", () =>
+          requireOfflineSale().prepareCard(input),
+        ),
       offlineCardOutcome: ({ attemptId, outcome }) =>
         act(logger, "offlineCardOutcome", () => {
-          if (outcome.kind !== "approved") return requireOfflineSale().recordCardOutcome({ attemptId, outcome });
+          if (outcome.kind !== "approved")
+            return requireOfflineSale().recordCardOutcome({
+              attemptId,
+              outcome,
+            });
           // The time on the slip, not the time it was recorded: it may be recorded long after.
           const approvedAt = Date.parse(outcome.approvedAt);
           if (!Number.isSafeInteger(approvedAt))
-            throw new ActionFailure("INVALID_RECORD", "Check the time on the card slip.");
-          return requireOfflineSale().recordCardOutcome({ attemptId, outcome: { ...outcome, approvedAt } });
+            throw new ActionFailure(
+              "INVALID_RECORD",
+              "Check the time on the card slip.",
+            );
+          return requireOfflineSale().recordCardOutcome({
+            attemptId,
+            outcome: { ...outcome, approvedAt },
+          });
         }),
-      offlineCommitSale: (input) => act(logger, "offlineCommitSale", () => requireOfflineSale().commit(input)),
+      offlineCommitSale: (input) =>
+        act(logger, "offlineCommitSale", () =>
+          requireOfflineSale().commit(input),
+        ),
       printOfflineReceipt: ({ saleCommandId, printerName }) => {
         // Kept on disk with the sale, so it can be reprinted after a restart while still offline.
         const receipt = offlineSale?.receipt(saleCommandId);
         const device = store ? new DeviceStore(store.db).read() : null;
-        if (!receipt || !device) return { ok: false, error: "That sale is not available to print here." };
+        if (!receipt || !device)
+          return {
+            ok: false,
+            error: "That sale is not available to print here.",
+          };
         return printHtml(
           printerName,
           renderSaleReceiptHtml(offlineReceiptForPrinting(receipt), {
@@ -607,18 +985,37 @@ function registerIpc(schemaVersion: number, logger: ReturnType<typeof createLogg
           }),
         );
       },
-      offlineSales: () => act(logger, "offlineSales", () => requireOfflineSupport().sales()),
-      noteSaleProblem: (input) => act(logger, "noteSaleProblem", () => requireOfflineSupport().recordIncident(input)),
-      cardAttempts: () => act(logger, "cardAttempts", () => requireOfflineSupport().cardAttempts()),
-      prepareCardAttempt: (input) => act(logger, "prepareCardAttempt", () => requireOfflineSupport().prepareCard(input)),
-      recordCardOutcome: (input) => act(logger, "recordCardOutcome", () => requireOfflineSupport().recordCardOutcome(input)),
-      refreshShift: () => act(logger, "refreshShift", () => requireShifts().refresh()),
-      openShift: ({ pin, count }) => act(logger, "openShift", () => requireShifts().open(pin, count)),
+      offlineSales: () =>
+        act(logger, "offlineSales", () => requireOfflineSupport().sales()),
+      noteSaleProblem: (input) =>
+        act(logger, "noteSaleProblem", () =>
+          requireOfflineSupport().recordIncident(input),
+        ),
+      cardAttempts: () =>
+        act(logger, "cardAttempts", () =>
+          requireOfflineSupport().cardAttempts(),
+        ),
+      prepareCardAttempt: (input) =>
+        act(logger, "prepareCardAttempt", () =>
+          requireOfflineSupport().prepareCard(input),
+        ),
+      recordCardOutcome: (input) =>
+        act(logger, "recordCardOutcome", () =>
+          requireOfflineSupport().recordCardOutcome(input),
+        ),
+      refreshShift: () =>
+        act(logger, "refreshShift", () => requireShifts().refresh()),
+      openShift: ({ pin, count }) =>
+        act(logger, "openShift", () => requireShifts().open(pin, count)),
       closeShift: ({ count, varianceNote, assistance }) =>
-        act(logger, "closeShift", () => requireShifts().close(count, { varianceNote, assistance })),
-      retryShiftClose: ({ pin }) => act(logger, "retryShiftClose", () => requireShifts().retryClose(pin)),
+        act(logger, "closeShift", () =>
+          requireShifts().close(count, { varianceNote, assistance }),
+        ),
+      retryShiftClose: ({ pin }) =>
+        act(logger, "retryShiftClose", () => requireShifts().retryClose(pin)),
       listShifts: () => act(logger, "listShifts", () => requireShifts().list()),
-      shiftDetail: ({ workSessionId }) => act(logger, "shiftDetail", () => requireShifts().detail(workSessionId)),
+      shiftDetail: ({ workSessionId }) =>
+        act(logger, "shiftDetail", () => requireShifts().detail(workSessionId)),
       printXReport: ({ printerName }) =>
         act(logger, "printXReport", async (service) => {
           const report = await requireShifts().xReport();
@@ -640,7 +1037,9 @@ function registerIpc(schemaVersion: number, logger: ReturnType<typeof createLogg
           );
         }),
       pinSignIn: ({ staffUserId, pin }) =>
-        act(logger, "pinSignIn", (service) => service.signInWithPin(staffUserId, pin)),
+        act(logger, "pinSignIn", (service) =>
+          service.signInWithPin(staffUserId, pin),
+        ),
     },
     { isTrustedSender: (url) => isAppUrl(url, devServerOrigin), logger },
   );
@@ -676,7 +1075,11 @@ async function start(): Promise<void> {
   if (app.isPackaged) Menu.setApplicationMenu(null);
 
   if (smokeMode) {
-    const result = await runSmokeTest({ dataDir, protector, registerIpc: (version) => registerIpc(version, logger) });
+    const result = await runSmokeTest({
+      dataDir,
+      protector,
+      registerIpc: (version) => registerIpc(version, logger),
+    });
     await logger.flush();
     app.exit(result.ok ? 0 : 1);
     return;
@@ -724,7 +1127,10 @@ async function start(): Promise<void> {
   storeBackups = backups;
   app.once("before-quit", () => backups.stop());
 
-  logger.info("startup.ready", { appVersion: app.getVersion(), schemaVersion: store.schemaVersion });
+  logger.info("startup.ready", {
+    appVersion: app.getVersion(),
+    schemaVersion: store.schemaVersion,
+  });
   const deviceStore = new DeviceStore(store.db);
   const offlineJournalWriter = new OfflineJournalWriter({ db: store.db });
   // P4 #50: offline time is the last server-signed time plus Windows uptime since.
@@ -735,7 +1141,9 @@ async function start(): Promise<void> {
   setInterval(() => pins.checkpoint(), 60_000).unref();
   app.on("before-quit", () => pins.checkpoint());
   // No cookie jar: the server must see a Bearer client, never a browser session.
-  const terminalApi = new ApiSession(currentApiBaseUrl, (url, init) => net.fetch(url, { ...init, credentials: "omit" }));
+  const terminalApi = new ApiSession(currentApiBaseUrl, (url, init) =>
+    net.fetch(url, { ...init, credentials: "omit" }),
+  );
   terminal = new TerminalService({
     store: deviceStore,
     pins,
@@ -753,14 +1161,16 @@ async function start(): Promise<void> {
   if (authorityKeyId && authorityPublicKey) {
     try {
       const publicKey = createPublicKey(authorityPublicKey);
-      if (publicKey.asymmetricKeyType !== "ed25519") throw new Error("Expected Ed25519 public key");
+      if (publicKey.asymmetricKeyType !== "ed25519")
+        throw new Error("Expected Ed25519 public key");
       const { refresh, stop: stopRefresh } = startOfflineAuthorityRefresh({
         db: store.db,
         api: terminalApi,
         terminal,
         readDevice: () => deviceStore.read(),
         signer: { keyId: authorityKeyId, publicKey },
-        report: (error) => logger.warn("offline_authority.refresh_failed", { error }),
+        report: (error) =>
+          logger.warn("offline_authority.refresh_failed", { error }),
         clock: trustedClock,
       });
       authorityRefresh = refresh;
@@ -772,7 +1182,8 @@ async function start(): Promise<void> {
         terminal,
         signer: { keyId: authorityKeyId, publicKey },
         refresh,
-        report: (error) => logger.warn("offline_journal.sync_failed", { error }),
+        report: (error) =>
+          logger.warn("offline_journal.sync_failed", { error }),
         clock: trustedClock,
       });
       journalSync = sync;
@@ -783,9 +1194,15 @@ async function start(): Promise<void> {
         clock: trustedClock,
         journal: offlineJournalWriter,
         readDevice: () => deviceStore.read(),
-        probe: async () => (await checkApi(currentApiBaseUrl(), mainFetch)).reachable,
+        probe: async () =>
+          (await checkApi(currentApiBaseUrl(), mainFetch)).reachable,
         report: (view, previous) =>
-          logger.info("offline_mode.changed", { from: previous, to: view.mode, reason: view.reason, clock: view.clock }),
+          logger.info("offline_mode.changed", {
+            from: previous,
+            to: view.mode,
+            reason: view.reason,
+            clock: view.clock,
+          }),
         onError: (error) => logger.warn("offline_mode.check_failed", { error }),
       });
       offlineMode = mode;
@@ -809,12 +1226,37 @@ async function start(): Promise<void> {
       logger.error("offline_authority.invalid_public_key", { error });
     }
   }
-  checkout = new CheckoutService({ db: store.db, api: terminalApi, terminal, logger, offlineJournal: offlineJournalWriter });
-  commands = new SignedCommandService({ db: store.db, api: terminalApi, terminal, logger });
+  checkout = new CheckoutService({
+    db: store.db,
+    api: terminalApi,
+    terminal,
+    logger,
+    offlineJournal: offlineJournalWriter,
+  });
+  commands = new SignedCommandService({
+    db: store.db,
+    api: terminalApi,
+    terminal,
+    logger,
+  });
   dispensing = new DispensingService({ api: terminalApi, terminal, commands });
-  counterWork = new CounterWorkService({ api: terminalApi, terminal, commands });
-  shifts = new ShiftService({ db: store.db, api: terminalApi, terminal, device: deviceStore, logger });
-  offlineSupport = new OfflineSupportService({ db: store.db, terminal, journal: offlineJournalWriter });
+  counterWork = new CounterWorkService({
+    api: terminalApi,
+    terminal,
+    commands,
+  });
+  shifts = new ShiftService({
+    db: store.db,
+    api: terminalApi,
+    terminal,
+    device: deviceStore,
+    logger,
+  });
+  offlineSupport = new OfflineSupportService({
+    db: store.db,
+    terminal,
+    journal: offlineJournalWriter,
+  });
   stock = new StockLookupService({ api: terminalApi, terminal, commands });
   returns = new ReturnsService({ api: terminalApi, terminal, commands });
   registerIpc(store.schemaVersion, logger);

@@ -117,7 +117,8 @@ function authority(externalCardAllowed: boolean): OfflineAuthority {
       staffAuthorizationId: randomUUID(),
       credentialVersion: 1,
       signInMethod: "personal_pin" as const,
-      offlineManagerActions: [],
+      offlineManagerActions:
+        staffUserId === verifier ? ["acknowledge_business_hours" as const] : [],
     })),
     grantId: randomUUID(),
     grantVersion: 1,
@@ -798,5 +799,99 @@ describe("the reconnect drain's support-record and payment facts (D12)", () => {
       supportRecordsAccepted: false,
       paymentAttemptsResolved: true,
     });
+  });
+});
+
+describe("OfflineSupportRecordWriter: after-hours acknowledgements (D8)", () => {
+  const HOUR = 60 * 60_000;
+  const managerSignIn = () =>
+    journal.recordStaffSignInFromPin({
+      enrollmentId: identity.enrollmentId,
+      identity,
+      ...counter,
+      session: { workSessionId: randomUUID(), staffUserId: verifier },
+      key: deviceKey,
+      confirmedPinVersion: 1,
+    })!.payload.staffSignInId;
+  const input = (overrides: Record<string, unknown> = {}) => {
+    const outage = journal.ensureOfflineOutageSession(
+      identity.enrollmentId,
+      clock,
+    );
+    return {
+      key: deviceKey,
+      managerSignInId: managerSignIn(),
+      offlineSessionId: outage.offlineSessionId,
+      offlineStartedAt: outage.offlineStartedAt,
+      startsAt: clock,
+      endsAt: clock + HOUR,
+      reason: "Late queue",
+      ...overrides,
+    };
+  };
+
+  it("signs a prepared manager's acknowledgement and finds it again with the sign-in it cites", () => {
+    const ask = input();
+    const envelope = records.recordHoursAcknowledgement(ask);
+    expect(envelope.payload).toMatchObject({
+      kind: "business_hours_acknowledgement",
+      managerSignInId: ask.managerSignInId,
+      offlineSessionId: ask.offlineSessionId,
+      startsAt: clock,
+      endsAt: clock + HOUR,
+      reason: "Late queue",
+    });
+    expect(stored()).toMatchObject([
+      { kind: "business_hours_acknowledgement", sync_status: "pending" },
+    ]);
+    const grant = installed.grant.payload;
+    const scope = {
+      grantId: grant.grantId,
+      grantVersion: grant.grantVersion,
+      offlineSessionId: ask.offlineSessionId,
+    };
+    const [evidence] = records.hoursAcknowledgements(
+      identity.enrollmentId,
+      scope,
+    );
+    expect(evidence!.acknowledgement).toEqual(envelope.payload);
+    expect(evidence!.managerSignIn.session.staffUserId).toBe(verifier);
+    expect(
+      records.hoursAcknowledgements(identity.enrollmentId, {
+        ...scope,
+        offlineSessionId: randomUUID(),
+      }),
+    ).toEqual([]);
+  });
+
+  it("refuses someone the grant doesn't prepare, an empty reason and a window it can't sign", () => {
+    expect(() =>
+      records.recordHoursAcknowledgement(input({ managerSignInId: signInId })),
+    ).toThrow("STAFF_NOT_AUTHORIZED");
+    expect(() =>
+      records.recordHoursAcknowledgement(input({ reason: "  " })),
+    ).toThrow();
+    expect(() =>
+      records.recordHoursAcknowledgement(input({ startsAt: clock - 1 })),
+    ).toThrow("INVALID_RECORD");
+    expect(() =>
+      records.recordHoursAcknowledgement(input({ endsAt: clock + 25 * HOUR })),
+    ).toThrow("INVALID_RECORD");
+    expect(() =>
+      records.recordHoursAcknowledgement(
+        input({ endsAt: installed.grant.payload.expiresAt + 1 }),
+      ),
+    ).toThrow("INVALID_RECORD");
+    expect(stored()).toEqual([]);
+  });
+
+  it("refuses a manager sign-in from before the outage began", () => {
+    const early = managerSignIn();
+    clock += 60_000;
+    expect(() =>
+      records.recordHoursAcknowledgement(
+        input({ managerSignInId: early, offlineStartedAt: clock }),
+      ),
+    ).toThrow("SIGN_IN_MISMATCH");
   });
 });

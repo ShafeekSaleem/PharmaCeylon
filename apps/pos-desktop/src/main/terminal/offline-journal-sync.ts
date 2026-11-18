@@ -529,8 +529,14 @@ export function createOfflineJournalSync(deps: OfflineJournalSyncDeps) {
       const record = JSON.parse(
         row.envelope_json,
       ) as Signed<OfflineSupportRecord>;
+      // A sale note or card event cites the person at the till; an after-hours acknowledgement
+      // (D8) the manager who gave it.
       const cited =
-        "staffSignInId" in record.payload ? [record.payload.staffSignInId] : [];
+        "staffSignInId" in record.payload
+          ? [record.payload.staffSignInId]
+          : "managerSignInId" in record.payload
+            ? [record.payload.managerSignInId]
+            : [];
       if (!fit(cited)) break;
       plan.supportRows.push(row);
       plan.supportRecords.push(record);
@@ -613,26 +619,59 @@ export function createOfflineJournalSync(deps: OfflineJournalSyncDeps) {
         let supportIssue: { code: string; message: string } | null = null;
         for (const ack of response.supportAcknowledgements) {
           if (ack.status !== "held") {
-            settleSupport.run("received", JSON.stringify(ack), at, null, enrollmentId, ack.recordId);
+            settleSupport.run(
+              "received",
+              JSON.stringify(ack),
+              at,
+              null,
+              enrollmentId,
+              ack.recordId,
+            );
           } else if (ack.error.code === "RECONCILIATION_REQUIRED") {
-            settleSupport.run("received", JSON.stringify(ack), at, ack.error.code, enrollmentId, ack.recordId);
+            settleSupport.run(
+              "received",
+              JSON.stringify(ack),
+              at,
+              ack.error.code,
+              enrollmentId,
+              ack.recordId,
+            );
           } else if (ack.error.code === "REPLAY_CONFLICT") {
-            settleSupport.run("refused", JSON.stringify(ack), at, ack.error.code, enrollmentId, ack.recordId);
+            settleSupport.run(
+              "refused",
+              JSON.stringify(ack),
+              at,
+              ack.error.code,
+              enrollmentId,
+              ack.recordId,
+            );
           } else {
             retrySupport.run(ack.error.code, enrollmentId, ack.recordId);
-            supportIssue ??= { code: ack.error.code, message: explainSyncIssue(ack.error.code) };
+            supportIssue ??= {
+              code: ack.error.code,
+              message: explainSyncIssue(ack.error.code),
+            };
           }
         }
         if (
           !supportIssue &&
           sentSupport.some(
-            (row) => !response.supportAcknowledgements.some((a) => a.recordId === row.record_id),
+            (row) =>
+              !response.supportAcknowledgements.some(
+                (a) => a.recordId === row.record_id,
+              ),
           )
         )
-          supportIssue = { code: "SERVER_ERROR", message: explainSyncIssue("SERVER_ERROR") };
+          supportIssue = {
+            code: "SERVER_ERROR",
+            message: explainSyncIssue("SERVER_ERROR"),
+          };
         // A refused record never clears by itself, so it keeps showing until someone repairs it.
         if (!supportIssue && refusedSupportRecords(deps.db, enrollmentId) > 0)
-          supportIssue = { code: "REPLAY_CONFLICT", message: explainSyncIssue("REPLAY_CONFLICT") };
+          supportIssue = {
+            code: "REPLAY_CONFLICT",
+            message: explainSyncIssue("REPLAY_CONFLICT"),
+          };
         const watermark = {
           sequence: response.committedThroughSequence,
           hash: response.committedThroughHash,
@@ -665,8 +704,7 @@ export function createOfflineJournalSync(deps: OfflineJournalSyncDeps) {
             message: explainSyncIssue("SERVER_ERROR"),
             sequence: null,
           };
-        if (!issue && supportIssue)
-          issue = { ...supportIssue, sequence: null };
+        if (!issue && supportIssue) issue = { ...supportIssue, sequence: null };
         setIssue(enrollmentId, issue);
         const complete =
           !issue &&
@@ -745,8 +783,7 @@ export function createOfflineJournalSync(deps: OfflineJournalSyncDeps) {
       complete,
       more:
         !complete &&
-        (((rows.length === JOURNAL_BATCH ||
-          rows.length < waitingRows.length) &&
+        (((rows.length === JOURNAL_BATCH || rows.length < waitingRows.length) &&
           allAccepted) ||
           moreSupport),
       allAccepted,
@@ -815,7 +852,11 @@ export function createOfflineJournalSync(deps: OfflineJournalSyncDeps) {
         if (!(probe ? result.allAccepted && !result.complete : result.more))
           break;
         rows = unsynced(enrollmentId);
-        if (!rows.length ? pendingSupport(enrollmentId).length === 0 : rows[0]!.sync_status !== "pending")
+        if (
+          !rows.length
+            ? pendingSupport(enrollmentId).length === 0
+            : rows[0]!.sync_status !== "pending"
+        )
           break;
       }
       return readJournalSyncView(deps.db, enrollmentId).issue
@@ -925,7 +966,9 @@ export function readJournalSyncView(
       : null;
   // P5 #51: a restored store waiting for the back office, unless D11 recovery comes first.
   const restored =
-    row?.issue_code === "JOURNAL_MISMATCH" ? undefined : restoresAwaitingAcknowledgement(db, enrollmentId)[0];
+    row?.issue_code === "JOURNAL_MISMATCH"
+      ? undefined
+      : restoresAwaitingAcknowledgement(db, enrollmentId)[0];
   return {
     recorded: head.sequence,
     accepted: accepted.sequence,
@@ -941,14 +984,14 @@ export function readJournalSyncView(
           at: new Date(restored.restoredAt).toISOString(),
         }
       : row?.issue_code
-      ? {
-          code: row.issue_code,
-          message:
-            recovery ?? row.issue_message ?? explainSyncIssue(row.issue_code),
-          sequence: row.issue_sequence,
-          at: row.issue_at ?? "",
-        }
-      : null,
+        ? {
+            code: row.issue_code,
+            message:
+              recovery ?? row.issue_message ?? explainSyncIssue(row.issue_code),
+            sequence: row.issue_sequence,
+            at: row.issue_at ?? "",
+          }
+        : null,
     outage: outage
       ? {
           offlineSessionId: outage.offlineSessionId,
@@ -1027,7 +1070,8 @@ export function createSyncCoordinator(deps: {
     const askedAt = renewalAskedFor.at;
     const status = deps.refresh.status();
     if (
-      (status.nominated === false && (status.nominatedAt ?? -Infinity) >= askedAt) ||
+      (status.nominated === false &&
+        (status.nominatedAt ?? -Infinity) >= askedAt) ||
       (status.lastFailure &&
         status.lastFailure.at >= askedAt &&
         NO_OFFLINE_AUTHORITY.has(status.lastFailure.code))
@@ -1104,4 +1148,3 @@ export function journalSyncState(view: JournalSyncView | null): JournalSync {
     stockDownloadNominated: null,
   };
 }
-

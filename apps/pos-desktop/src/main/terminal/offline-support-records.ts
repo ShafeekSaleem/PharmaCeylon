@@ -2,7 +2,10 @@ import { randomUUID } from "node:crypto";
 import {
   CARD_NOT_USED_REASON_MAX_LENGTH,
   containsCardNumber,
+  MAX_HOURS_EXTENSION_MS,
   type ExternalCardAttemptRecord,
+  type OfflineBusinessHoursAcknowledgement,
+  type OfflineBusinessHoursEvidence,
   type OfflineGrant,
   type OfflineJournalCommand,
   type OfflineSaleCommand,
@@ -41,6 +44,8 @@ import { storeRestoreBlocksOffline } from "./store-restore-sync";
 export const MAX_INCIDENT_DESCRIPTION_LENGTH = 1000;
 const MAX_PROVIDER_REFERENCE_LENGTH = 64;
 const MAX_APPROVAL_CODE_LENGTH = 32;
+/** As the server's acknowledgement intake allows. */
+export const MAX_HOURS_REASON_LENGTH = 500;
 
 export const SALE_INCIDENT_CATEGORIES: readonly OfflineSaleIncident["category"][] =
   ["quantity_error", "payment_uncertain", "customer_dispute", "other"];
@@ -147,6 +152,111 @@ export class OfflineSupportRecordWriter {
       };
       return { payload, attemptId: null, cardState: null };
     }, input.key);
+  }
+
+  /**
+   * D8: a prepared manager's acknowledgement that this counter may keep trading outside its
+   * routine hours, from `startsAt` to `endsAt`. The manager signed in for it with their own PIN
+   * (`managerSignInId`, stored before this in the same transaction); the grant must give them
+   * `acknowledge_business_hours`. Bounded as the shared check bounds it: inside the grant, no
+   * longer than one day, starting no earlier than it is recorded. It never reaches past mandatory
+   * restrictions or the grant's expiry; the sales and shifts that rely on it cite it by ID.
+   */
+  recordHoursAcknowledgement(input: {
+    key: DeviceKey;
+    managerSignInId: string;
+    offlineSessionId: string;
+    offlineStartedAt: number;
+    startsAt: number;
+    endsAt: number;
+    reason: string;
+  }): Signed<OfflineBusinessHoursAcknowledgement> {
+    const reason = evidenceText(input.reason, MAX_HOURS_REASON_LENGTH);
+    if (!uuidPattern.test(input.offlineSessionId))
+      throw new Error("INVALID_RECORD");
+    return this.write((ctx) => {
+      const signIn = this.signInFor(
+        ctx.enrollmentId,
+        input.managerSignInId,
+        ctx,
+      );
+      const staff = ctx.grant.authorizedStaff.find(
+        (s) => s.staffUserId === signIn.session.staffUserId,
+      );
+      if (!staff?.offlineManagerActions.includes("acknowledge_business_hours"))
+        throw new Error("STAFF_NOT_AUTHORIZED");
+      if (
+        signIn.grantId !== ctx.grant.grantId ||
+        signIn.grantVersion !== ctx.grant.grantVersion ||
+        signIn.session.registerId !== ctx.grant.registerId ||
+        signIn.session.tillId !== ctx.grant.tillId ||
+        signIn.authenticatedAt < input.offlineStartedAt
+      )
+        throw new Error("SIGN_IN_MISMATCH");
+      if (
+        ![input.startsAt, input.endsAt, input.offlineStartedAt].every(
+          Number.isSafeInteger,
+        ) ||
+        input.offlineStartedAt > ctx.now ||
+        input.startsAt < ctx.now ||
+        input.startsAt >= input.endsAt ||
+        input.startsAt < ctx.grant.notBefore ||
+        input.endsAt > ctx.grant.expiresAt ||
+        input.endsAt - input.startsAt > MAX_HOURS_EXTENSION_MS
+      )
+        throw new Error("INVALID_RECORD");
+      const payload: OfflineBusinessHoursAcknowledgement = {
+        contractVersion: 1,
+        kind: "business_hours_acknowledgement",
+        recordId: randomUUID(),
+        identity: ctx.identity,
+        grantId: ctx.grant.grantId,
+        grantVersion: ctx.grant.grantVersion,
+        nominationVersion: ctx.grant.nominationVersion,
+        offlineSessionId: input.offlineSessionId,
+        managerSignInId: signIn.staffSignInId,
+        recordedAt: ctx.now,
+        startsAt: input.startsAt,
+        endsAt: input.endsAt,
+        reason,
+      };
+      return { payload, attemptId: null, cardState: null };
+    }, input.key);
+  }
+
+  /**
+   * The acknowledgements recorded on this counter in this outage under this grant, newest first,
+   * with the manager sign-in each cites: what an after-hours sale or shift opening is checked with.
+   */
+  hoursAcknowledgements(
+    enrollmentId: string,
+    scope: { grantId: string; grantVersion: number; offlineSessionId: string },
+  ): OfflineBusinessHoursEvidence[] {
+    const rows = this.deps.db
+      .prepare(
+        `SELECT r.envelope_json AS ack, s.envelope_json AS sign_in
+         FROM offline_support_record r
+         JOIN offline_journal_staff_sign_in s
+           ON s.enrollment_id = r.enrollment_id
+          AND s.staff_sign_in_id = json_extract(r.envelope_json, '$.payload.managerSignInId')
+         WHERE r.enrollment_id = ? AND r.kind = 'business_hours_acknowledgement'
+         ORDER BY r.rowid DESC`,
+      )
+      .all(enrollmentId) as { ack: string; sign_in: string }[];
+    return rows
+      .map((row) => ({
+        acknowledgement: (
+          JSON.parse(row.ack) as Signed<OfflineBusinessHoursAcknowledgement>
+        ).payload,
+        managerSignIn: (JSON.parse(row.sign_in) as Signed<OfflineStaffSignIn>)
+          .payload,
+      }))
+      .filter(
+        (e) =>
+          e.acknowledgement.grantId === scope.grantId &&
+          e.acknowledgement.grantVersion === scope.grantVersion &&
+          e.acknowledgement.offlineSessionId === scope.offlineSessionId,
+      );
   }
 
   /**
@@ -441,7 +551,12 @@ export class OfflineSupportRecordWriter {
    * Runs `build` against this counter's trusted state and, if it yields a record, signs and stores
    * it in one transaction. Nothing is stored when any check fails.
    */
-  private write<T extends OfflineSaleIncident | ExternalCardAttemptRecord>(
+  private write<
+    T extends
+      | OfflineSaleIncident
+      | ExternalCardAttemptRecord
+      | OfflineBusinessHoursAcknowledgement,
+  >(
     build: (ctx: WriteContext) => {
       payload: T;
       attemptId: string | null;

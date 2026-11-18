@@ -28,7 +28,9 @@ export function journalCommandHash(payload: unknown): string {
     .digest("hex");
 }
 
-export function readEnrolledDevice(db: PosDatabase): (TerminalIdentity & { publicKeyHex: string }) | null {
+export function readEnrolledDevice(
+  db: PosDatabase,
+): (TerminalIdentity & { publicKeyHex: string }) | null {
   const row = db
     .prepare(
       `SELECT tenant_id, branch_id, terminal_id, enrollment_id, key_id, public_key_hex
@@ -55,7 +57,10 @@ export function readEnrolledDevice(db: PosDatabase): (TerminalIdentity & { publi
   };
 }
 
-export function sameTerminalIdentity(a: TerminalIdentity, b: TerminalIdentity): boolean {
+export function sameTerminalIdentity(
+  a: TerminalIdentity,
+  b: TerminalIdentity,
+): boolean {
   return (
     a.tenantId === b.tenantId &&
     a.branchId === b.branchId &&
@@ -120,7 +125,10 @@ type JournalStatePartial = {
   active_staff_envelope_json: string | null;
 };
 
-function readState(db: PosDatabase, enrollmentId: string): JournalStateRow | null {
+function readState(
+  db: PosDatabase,
+  enrollmentId: string,
+): JournalStateRow | null {
   const row = db
     .prepare(
       `SELECT journal_last_sequence, journal_last_hash, offline_session_id, offline_started_at,
@@ -135,9 +143,16 @@ function readState(db: PosDatabase, enrollmentId: string): JournalStateRow | nul
  * Clears usage keyed to a replaced snapshot when a fresh authority pair is installed (no local usage).
  * Caller runs inside `installOfflineAuthority` transaction.
  */
-export function resetJournalUsageForEnrollment(db: PosDatabase, enrollmentId: string): void {
-  db.prepare("DELETE FROM offline_journal_batch_usage WHERE enrollment_id = ?").run(enrollmentId);
-  db.prepare("DELETE FROM offline_journal_online_sale_record WHERE enrollment_id = ?").run(enrollmentId);
+export function resetJournalUsageForEnrollment(
+  db: PosDatabase,
+  enrollmentId: string,
+): void {
+  db.prepare(
+    "DELETE FROM offline_journal_batch_usage WHERE enrollment_id = ?",
+  ).run(enrollmentId);
+  db.prepare(
+    "DELETE FROM offline_journal_online_sale_record WHERE enrollment_id = ?",
+  ).run(enrollmentId);
 }
 
 /**
@@ -184,15 +199,21 @@ export class OfflineJournalWriter {
     /** Server-confirmed PIN revision after sign-in; must match grant staff `credentialVersion`. */
     confirmedPinVersion: number;
   }): Signed<OfflineStaffSignIn> | null {
-    const installed = readInstalledOfflineAuthority(this.deps.db, options.enrollmentId);
+    const installed = readInstalledOfflineAuthority(
+      this.deps.db,
+      options.enrollmentId,
+    );
     if (!installed) return null;
     const grant = installed.grant.payload;
-    const staff = grant.authorizedStaff.find((s) => s.staffUserId === options.session.staffUserId);
+    const staff = grant.authorizedStaff.find(
+      (s) => s.staffUserId === options.session.staffUserId,
+    );
     if (!staff) return null;
     if (options.confirmedPinVersion !== staff.credentialVersion) return null;
 
     const trustedNow = this.nowMs();
-    if (trustedNow >= grant.expiresAt || trustedNow < grant.notBefore) return null;
+    if (trustedNow >= grant.expiresAt || trustedNow < grant.notBefore)
+      return null;
 
     const staffSignInId = randomUUID();
     const payload: OfflineStaffSignIn = {
@@ -234,7 +255,10 @@ export class OfflineJournalWriter {
     authenticatedAt: number;
     key: { sign: <T>(payload: T, purpose: "command") => Signed<T> };
   }): Signed<OfflineStaffSignIn> {
-    const envelope = options.key.sign(draftOfflineStaffSignIn(options), "command");
+    const envelope = options.key.sign(
+      draftOfflineStaffSignIn(options),
+      "command",
+    );
     this.storeOfflineStaffSignIn(options.enrollmentId, envelope);
     return envelope;
   }
@@ -244,24 +268,59 @@ export class OfflineJournalWriter {
    * transaction that appends the command it backs, so a step the policy refuses leaves no
    * sign-in behind.
    */
-  storeOfflineStaffSignIn(enrollmentId: string, envelope: Signed<OfflineStaffSignIn>): void {
+  storeOfflineStaffSignIn(
+    enrollmentId: string,
+    envelope: Signed<OfflineStaffSignIn>,
+  ): void {
     this.persistSignIn(enrollmentId, envelope);
+  }
+
+  /**
+   * Stores a signed offline sign-in as evidence only: a manager vouching for one step with their
+   * own PIN (D8's after-hours acknowledgement) while the person at the till stays signed in. It is
+   * uploaded like any other sign-in; it never becomes the counter's active one.
+   */
+  storeWitnessSignIn(
+    enrollmentId: string,
+    envelope: Signed<OfflineStaffSignIn>,
+  ): void {
+    this.deps.db
+      .prepare(
+        `INSERT INTO offline_journal_staff_sign_in (staff_sign_in_id, enrollment_id, envelope_json, created_at)
+         VALUES (?, ?, ?, ?)`,
+      )
+      .run(
+        envelope.payload.staffSignInId,
+        enrollmentId,
+        JSON.stringify(envelope),
+        this.atIso(),
+      );
   }
 
   /** A sign-in recorded here, by its ID. */
   readStaffSignIn(staffSignInId: string): Signed<OfflineStaffSignIn> | null {
     const row = this.deps.db
-      .prepare("SELECT envelope_json FROM offline_journal_staff_sign_in WHERE staff_sign_in_id = ?")
+      .prepare(
+        "SELECT envelope_json FROM offline_journal_staff_sign_in WHERE staff_sign_in_id = ?",
+      )
       .get(staffSignInId) as { envelope_json: string } | undefined;
-    return row ? (JSON.parse(row.envelope_json) as Signed<OfflineStaffSignIn>) : null;
+    return row
+      ? (JSON.parse(row.envelope_json) as Signed<OfflineStaffSignIn>)
+      : null;
   }
 
   /** The latest sign-in at this counter, online or offline, if any. */
   activeStaffSignIn(enrollmentId: string): Signed<OfflineStaffSignIn> | null {
-    const json = readState(this.deps.db, enrollmentId)?.active_staff_envelope_json;
+    const json = readState(
+      this.deps.db,
+      enrollmentId,
+    )?.active_staff_envelope_json;
     return json ? (JSON.parse(json) as Signed<OfflineStaffSignIn>) : null;
   }
-  private persistSignIn(enrollmentId: string, envelope: Signed<OfflineStaffSignIn>): void {
+  private persistSignIn(
+    enrollmentId: string,
+    envelope: Signed<OfflineStaffSignIn>,
+  ): void {
     const staffSignInId = envelope.payload.staffSignInId;
     const at = this.atIso();
     const tx = this.deps.db.transaction(() => {
@@ -311,13 +370,23 @@ export class OfflineJournalWriter {
         qty_sold = offline_journal_batch_usage.qty_sold + excluded.qty_sold
     `);
     for (const line of lines) {
-      if (!line.batchId || !Number.isSafeInteger(line.qty) || line.qty <= 0) continue;
-      bump.run(enrollmentId, scope.snapshotId, scope.snapshotVersion, line.batchId, line.qty);
+      if (!line.batchId || !Number.isSafeInteger(line.qty) || line.qty <= 0)
+        continue;
+      bump.run(
+        enrollmentId,
+        scope.snapshotId,
+        scope.snapshotVersion,
+        line.batchId,
+        line.qty,
+      );
     }
   }
 
   /** Journal head for P5 upload and for new commands. */
-  getHead(enrollmentId: string): { sequence: number; previousHash: string | null } {
+  getHead(enrollmentId: string): {
+    sequence: number;
+    previousHash: string | null;
+  } {
     const row = readState(this.deps.db, enrollmentId);
     return {
       sequence: row?.journal_last_sequence ?? 0,
@@ -326,7 +395,9 @@ export class OfflineJournalWriter {
   }
 
   getActiveStaffSignInId(enrollmentId: string): string | null {
-    return readState(this.deps.db, enrollmentId)?.active_staff_sign_in_id ?? null;
+    return (
+      readState(this.deps.db, enrollmentId)?.active_staff_sign_in_id ?? null
+    );
   }
 
   /**
@@ -341,7 +412,10 @@ export class OfflineJournalWriter {
         `SELECT batch_id, qty_sold FROM offline_journal_batch_usage
          WHERE enrollment_id = ? AND snapshot_id = ? AND snapshot_version = ?`,
       )
-      .all(enrollmentId, scope.snapshotId, scope.snapshotVersion) as { batch_id: string; qty_sold: number }[];
+      .all(enrollmentId, scope.snapshotId, scope.snapshotVersion) as {
+      batch_id: string;
+      qty_sold: number;
+    }[];
     const out: Record<string, number> = {};
     for (const r of rows) out[r.batch_id] = r.qty_sold;
     return out;
@@ -357,31 +431,44 @@ export class OfflineJournalWriter {
     // P5 #51: a store restored from a backup sells offline again only once the restore is
     // acknowledged and a pair issued after that is installed — not even in an outage the backup
     // was taken in: anything recorded after the backup is gone from this computer.
-    if (storeRestoreBlocksOffline(this.deps.db, enrollmentId)) throw new Error("RECONCILIATION_REQUIRED");
+    if (storeRestoreBlocksOffline(this.deps.db, enrollmentId))
+      throw new Error("RECONCILIATION_REQUIRED");
     const row = readState(this.deps.db, enrollmentId);
     if (row?.offline_session_id && row.offline_started_at != null) {
-      return { offlineSessionId: row.offline_session_id, offlineStartedAt: row.offline_started_at };
+      return {
+        offlineSessionId: row.offline_session_id,
+        offlineStartedAt: row.offline_started_at,
+      };
     }
     const installed = readInstalledOfflineAuthority(this.deps.db, enrollmentId);
     if (!installed) throw new Error("NO_OFFLINE_AUTHORITY");
     // P5 #51: a journal the server says differs from its own (a restored backup, damage) must be
     // recovered online before another outage starts on it.
-    if (journalNeedsRecovery(this.deps.db, enrollmentId)) throw new Error("RECONCILIATION_REQUIRED");
+    if (journalNeedsRecovery(this.deps.db, enrollmentId))
+      throw new Error("RECONCILIATION_REQUIRED");
     const snapshot = installed.snapshot.payload;
     const grant = installed.grant.payload;
     // #50: exactly maxSnapshotAgeAtOutageMs is accepted at outage start (strict > would reject 15:00).
-    if (trustedNowMs - snapshot.generatedAt > grant.maxSnapshotAgeAtOutageMs) throw new Error("SNAPSHOT_STALE");
-    if (trustedNowMs >= grant.expiresAt || trustedNowMs < grant.notBefore) throw new Error("GRANT_EXPIRED");
+    if (trustedNowMs - snapshot.generatedAt > grant.maxSnapshotAgeAtOutageMs)
+      throw new Error("SNAPSHOT_STALE");
+    if (trustedNowMs >= grant.expiresAt || trustedNowMs < grant.notBefore)
+      throw new Error("GRANT_EXPIRED");
     const offlineSessionId = randomUUID();
     const offlineStartedAt = trustedNowMs;
     const tx = this.deps.db.transaction(() => {
       this.upsertStateRow(enrollmentId, (prev) => ({
-        journal_last_sequence: prev?.journal_last_sequence ?? row?.journal_last_sequence ?? 0,
-        journal_last_hash: prev?.journal_last_hash ?? row?.journal_last_hash ?? null,
+        journal_last_sequence:
+          prev?.journal_last_sequence ?? row?.journal_last_sequence ?? 0,
+        journal_last_hash:
+          prev?.journal_last_hash ?? row?.journal_last_hash ?? null,
         offline_session_id: offlineSessionId,
         offline_started_at: offlineStartedAt,
-        active_staff_sign_in_id: prev?.active_staff_sign_in_id ?? row?.active_staff_sign_in_id ?? null,
-        active_staff_envelope_json: prev?.active_staff_envelope_json ?? row?.active_staff_envelope_json ?? null,
+        active_staff_sign_in_id:
+          prev?.active_staff_sign_in_id ?? row?.active_staff_sign_in_id ?? null,
+        active_staff_envelope_json:
+          prev?.active_staff_envelope_json ??
+          row?.active_staff_envelope_json ??
+          null,
       }));
     });
     tx();
@@ -399,24 +486,36 @@ export class OfflineJournalWriter {
     if (!device) throw new Error("NO_DEVICE_KEY");
 
     verifyDeviceCommandSignature(envelope, device.publicKeyHex);
-    if (envelope.keyId !== command.identity.keyId) throw new Error("INVALID_SIGNATURE");
-    if (!sameTerminalIdentity(command.identity, device)) throw new Error("IDENTITY_MISMATCH");
+    if (envelope.keyId !== command.identity.keyId)
+      throw new Error("INVALID_SIGNATURE");
+    if (!sameTerminalIdentity(command.identity, device))
+      throw new Error("IDENTITY_MISMATCH");
 
-    if (storeRestoreBlocksOffline(this.deps.db, command.identity.enrollmentId)) throw new Error("RECONCILIATION_REQUIRED");
-    const installed = readInstalledOfflineAuthority(this.deps.db, command.identity.enrollmentId);
+    if (storeRestoreBlocksOffline(this.deps.db, command.identity.enrollmentId))
+      throw new Error("RECONCILIATION_REQUIRED");
+    const installed = readInstalledOfflineAuthority(
+      this.deps.db,
+      command.identity.enrollmentId,
+    );
     if (!installed) throw new Error("NO_OFFLINE_AUTHORITY");
     const grant = installed.grant.payload;
     const snapshot = installed.snapshot.payload;
-    if (!sameTerminalIdentity(command.identity, grant.identity) || !sameTerminalIdentity(command.identity, snapshot.identity))
+    if (
+      !sameTerminalIdentity(command.identity, grant.identity) ||
+      !sameTerminalIdentity(command.identity, snapshot.identity)
+    )
       throw new Error("IDENTITY_MISMATCH");
 
     const at = this.atIso();
     const tx = this.deps.db.transaction(() => {
       const existingCmd = this.deps.db
-        .prepare("SELECT payload_hash FROM offline_journal_command WHERE command_id = ?")
+        .prepare(
+          "SELECT payload_hash FROM offline_journal_command WHERE command_id = ?",
+        )
         .get(command.commandId) as { payload_hash: string } | undefined;
       if (existingCmd) {
-        if (existingCmd.payload_hash !== hash) throw new Error("REPLAY_CONFLICT");
+        if (existingCmd.payload_hash !== hash)
+          throw new Error("REPLAY_CONFLICT");
         return;
       }
 
@@ -424,7 +523,8 @@ export class OfflineJournalWriter {
       const lastSeq = head?.journal_last_sequence ?? 0;
       const lastHash = head?.journal_last_hash ?? null;
       if (command.sequence !== lastSeq + 1) throw new Error("SEQUENCE_GAP");
-      if (command.previousCommandHash !== lastHash) throw new Error("REPLAY_CONFLICT");
+      if (command.previousCommandHash !== lastHash)
+        throw new Error("REPLAY_CONFLICT");
 
       this.deps.db
         .prepare(
@@ -451,7 +551,8 @@ export class OfflineJournalWriter {
             qty_sold = offline_journal_batch_usage.qty_sold + excluded.qty_sold
         `);
         for (const line of command.lines) {
-          if (!Number.isSafeInteger(line.quantity) || line.quantity <= 0) continue;
+          if (!Number.isSafeInteger(line.quantity) || line.quantity <= 0)
+            continue;
           bump.run(
             command.identity.enrollmentId,
             snapshot.snapshotId,
@@ -508,7 +609,10 @@ export class OfflineJournalWriter {
     );
   }
 
-  private upsertStateRow(enrollmentId: string, build: (prev: JournalStateRow | null) => JournalStatePartial): void {
+  private upsertStateRow(
+    enrollmentId: string,
+    build: (prev: JournalStateRow | null) => JournalStatePartial,
+  ): void {
     const prev = readState(this.deps.db, enrollmentId);
     const next = build(prev);
     const updated_at = this.atIso();
