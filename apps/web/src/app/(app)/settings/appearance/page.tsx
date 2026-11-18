@@ -5,10 +5,11 @@ import { ActionButton, PageHeader } from "@/components/ui";
 import { IconCheck, IconMoon, IconSparkles, IconSun } from "@/components/icons";
 import { useAuth } from "@/lib/use-auth";
 import {
-  applyAppearancePrefs,
+  APPEARANCE_CHANGED_EVENT,
   readAppearancePrefs,
-  writeAppearancePrefs,
+  saveAppearancePrefs,
   DEFAULT_APPEARANCE_PREFS,
+  type AppearancePrefs,
   type AccentColor,
   type Density,
   type FontSize,
@@ -17,7 +18,7 @@ import {
 import css from "../settings.module.css";
 
 const THEME_CHOICES: { value: Theme; label: string; icon: React.ReactNode }[] = [
-  { value: "system", label: "System", icon: <IconSparkles size={14} /> },
+  { value: "system", label: "Match device", icon: <IconSparkles size={14} /> },
   { value: "light", label: "Light", icon: <IconSun size={14} /> },
   { value: "dark", label: "Dark", icon: <IconMoon size={14} /> },
 ];
@@ -36,21 +37,18 @@ export default function AppearancePage() {
   useEffect(() => {
     setPrefs(readAppearancePrefs(user?.id));
     setReady(true);
+    // The top-bar switch changes the theme from outside this page.
+    const onChange = (e: Event) => setPrefs((e as CustomEvent<AppearancePrefs>).detail);
+    window.addEventListener(APPEARANCE_CHANGED_EVENT, onChange);
+    return () => window.removeEventListener(APPEARANCE_CHANGED_EVENT, onChange);
   }, [user?.id]);
 
   function update(next: Partial<typeof prefs>) {
-    setPrefs((p) => {
-      const merged = { ...p, ...next };
-      writeAppearancePrefs(merged, user?.id);
-      applyAppearancePrefs(merged);
-      return merged;
-    });
+    saveAppearancePrefs({ ...prefs, ...next }, user?.id);
   }
 
   function reset() {
-    setPrefs(DEFAULT_APPEARANCE_PREFS);
-    writeAppearancePrefs(DEFAULT_APPEARANCE_PREFS, user?.id);
-    applyAppearancePrefs(DEFAULT_APPEARANCE_PREFS);
+    saveAppearancePrefs(DEFAULT_APPEARANCE_PREFS, user?.id);
   }
 
   return (
@@ -87,7 +85,7 @@ export default function AppearancePage() {
           ))}
         </div>
         <p className={css.rowHint}>
-          System follows your device setting and changes with it.
+          Match device follows your computer's setting and changes with it. The sun/moon button in the top bar switches straight to the other one.
         </p>
 
         <p className={css.subLabel}>Accent color</p>

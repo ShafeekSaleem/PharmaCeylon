@@ -1,6 +1,10 @@
 import {
+  APPEARANCE_CHANGED_EVENT,
   DEFAULT_APPEARANCE_PREFS,
   applyAppearancePrefs,
+  oppositeTheme,
+  readAppearancePrefs,
+  saveAppearancePrefs,
   resolveIsDark,
   THEME_BOOTSTRAP_SCRIPT,
   type AppearancePrefs,
@@ -107,5 +111,47 @@ describe("THEME_BOOTSTRAP_SCRIPT", () => {
 
   it("applies before paint by touching documentElement directly", () => {
     expect(THEME_BOOTSTRAP_SCRIPT).toContain("document.documentElement.dataset.theme");
+  });
+});
+
+describe("saveAppearancePrefs", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+    delete document.documentElement.dataset.theme;
+    mockSystemDark(false);
+  });
+
+  it("writes, applies and announces the change", () => {
+    const seen: AppearancePrefs[] = [];
+    const listener = (e: Event) => seen.push((e as CustomEvent<AppearancePrefs>).detail);
+    window.addEventListener(APPEARANCE_CHANGED_EVENT, listener);
+    saveAppearancePrefs(prefs({ theme: "dark" }), "u1");
+    window.removeEventListener(APPEARANCE_CHANGED_EVENT, listener);
+
+    expect(document.documentElement.dataset.theme).toBe("dark");
+    expect(readAppearancePrefs("u1").theme).toBe("dark");
+    expect(seen.map((p) => p.theme)).toEqual(["dark"]);
+  });
+
+  it("remembers who saved last for the pre-paint script", () => {
+    saveAppearancePrefs(prefs({ theme: "light" }), "u1");
+    saveAppearancePrefs(prefs({ theme: "dark" }), "u2");
+    delete document.documentElement.dataset.theme;
+    new Function(THEME_BOOTSTRAP_SCRIPT)();
+    expect(document.documentElement.dataset.theme).toBe("dark");
+  });
+});
+
+describe("oppositeTheme", () => {
+  it("flips an explicit choice", () => {
+    expect(oppositeTheme("light")).toBe("dark");
+    expect(oppositeTheme("dark")).toBe("light");
+  });
+
+  it("flips what the device is showing under 'system'", () => {
+    mockSystemDark(true);
+    expect(oppositeTheme("system")).toBe("light");
+    mockSystemDark(false);
+    expect(oppositeTheme("system")).toBe("dark");
   });
 });

@@ -28,6 +28,7 @@ import {
 import { useSyncingLatch } from "./use-syncing-latch";
 import { money } from "./sell-model";
 import { Icon, type IconName } from "./Icon";
+import { ThemeSwitch } from "./ThemeSwitch";
 import { QueueChip } from "./ReconnectNotice";
 import { queueChip, queuePhase, type ReconnectNotice } from "./reconnect-model";
 import styles from "./Shell.module.css";
@@ -282,6 +283,7 @@ export function TitleBar({
       {phase && chip && (
         <QueueChip phase={phase} label={chip} journal={journal} queue={queue} />
       )}
+      <ThemeSwitch />
       <div className={styles.clock}>
         {shortDay(now)} · {time(now)}
       </div>
