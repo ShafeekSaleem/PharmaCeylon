@@ -4,6 +4,7 @@
     "contractVersion": 1,
     "kind": "ordinary_sale",
     "commandId": "command-1",
+    "receiptNumber": "C1R-000001",
     "identity": {
       "tenantId": "tenant-1",
       "branchId": "branch-1",
@@ -49,5 +50,5 @@
     ],
     "totalMinor": 2360
   },
-  "hash": "36d4b0f729738fffe982244ee2279598987abae9c8ea79bc0ce365c6a8239e18"
+  "hash": "fab314b066f7f7def47f40db68682f091f1c83c4dfaa6b91b65086ab41999c6b"
 }

@@ -52,7 +52,8 @@ export type RecordBlocker =
   | "sign_in_mismatch"
   | "till_mismatch"
   | "till_has_open_shift"
-  | "shift_id_used";
+  | "shift_id_used"
+  | "receipt_number_used";
 
 export const RECORD_BLOCKER_MESSAGES: Readonly<Record<RecordBlocker, string>> =
   {
@@ -75,6 +76,7 @@ export const RECORD_BLOCKER_MESSAGES: Readonly<Record<RecordBlocker, string>> =
       "It names another register or till than the counter's offline permission.",
     till_has_open_shift: "Another shift is already open on this till.",
     shift_id_used: "Its shift number is already used.",
+    receipt_number_used: "Its receipt number is already on another sale.",
   };
 
 /** Why no decision can be made on this refusal here at all. */

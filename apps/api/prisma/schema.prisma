@@ -709,6 +709,10 @@ model TerminalCounter {
   tillId    String   @default(uuid()) @map("till_id") @db.Uuid
   label     String   @db.VarChar(120)
   isActive  Boolean  @default(true) @map("is_active")
+  /// P4 #50, receipt numbering option A: the prefix this till's offline receipts are numbered
+  /// under (`C1R`, `C2R`, ...), given the first time it is granted offline selling and never
+  /// changed or reused at the branch, so its offline receipt numbers stay final as invoice numbers.
+  offlineReceiptPrefix String? @map("offline_receipt_prefix") @db.VarChar(8)
   branch    Branch   @relation(fields: [tenantId, branchId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   terminals OperationalTerminal[]
   sessions  TerminalStaffSession[]
@@ -717,6 +721,7 @@ model TerminalCounter {
 
   @@unique([tenantId, branchId, id, tillId])
   @@unique([tenantId, tillId])
+  @@unique([tenantId, branchId, offlineReceiptPrefix], map: "terminal_counter_offline_receipt_prefix_key")
   @@map("terminal_counter")
 }
 

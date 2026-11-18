@@ -12,6 +12,7 @@ import type { Prisma } from "@prisma/client";
 import type { AccessService } from "../security/access.service";
 import { storedPolicy } from "../tenant/counter-policy.service";
 import { readOfflineGrantStaff } from "./offline-grant-staff";
+import { offlineReceiptNumbering } from "./offline-receipt-numbering";
 import { compileOfflineHours, evaluateOperatingHours } from "./operating-hours";
 import { denied } from "./terminal-wire";
 
@@ -59,12 +60,14 @@ export async function signOfflineGrant(
   const windows = compileOfflineHours(
     { hours: branch.operatingHours, timeZone: branch.timezone, extensions }, issuedAt, expiresAt,
   );
+  const receiptNumbering = await offlineReceiptNumbering(tx, { tenantId, branchId, tillId });
   const payload: OfflineGrant = {
     contractVersion: 1, kind: "offline_grant", identity, registerId, tillId, authorizedStaff,
     grantId: randomUUID(), grantVersion, nominationVersion: nomination.version, issuedAt,
     notBefore: issuedAt, expiresAt, maxSnapshotAgeAtOutageMs: MAX_SNAPSHOT_AGE_AT_OUTAGE_MS,
     currency: "LKR", externalCardAllowed: policy.offlineExternalCardEnabled,
     policyVersion: branch.counterPolicyVersion, ...windows, operatingHoursException: null,
+    receiptNumbering,
   };
   assertOfflineGrantBounds(payload);
   return {

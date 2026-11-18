@@ -78,6 +78,7 @@ function authority(over: { version?: number; generatedAt?: number; issuedAt?: nu
     expiresAt: issuedAt + MAX_OFFLINE_GRANT_MS, maxSnapshotAgeAtOutageMs: MAX_SNAPSHOT_AGE_AT_OUTAGE_MS,
     currency: "LKR", externalCardAllowed: false, policyVersion: 1,
     operatingWindows: [], mandatoryOperatingWindows: null, operatingHoursException: null,
+    receiptNumbering: { prefix: "C1R", nextNumber: 1 },
   };
   return { grant: signed("grant", grant), snapshot: signed("snapshot", snapshot) };
 }

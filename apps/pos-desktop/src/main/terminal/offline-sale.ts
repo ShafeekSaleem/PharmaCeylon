@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
 import {
+  offlineReceiptNumber,
+  offlineReceiptSequence,
   offlineSalePolicyError,
   type BranchStockSnapshot,
   type ExternalCardAttemptRecord,
@@ -111,6 +113,8 @@ export type OfflineStockLine = {
 };
 
 export type OfflineReceipt = {
+  /** Final (option A): the server keeps it as the sale's invoice number. */
+  receiptNumber: string;
   saleCommandId: string;
   checkoutDraftId: string;
   soldAt: number;
@@ -577,9 +581,11 @@ export class OfflineSaleService {
         : []),
     ];
 
+    const receiptNumber = this.nextReceiptNumber(ready.grant.receiptNumbering);
     const command: OfflineSaleCommand = {
       ...context.command(),
       kind: "ordinary_sale",
+      receiptNumber,
       snapshotId: snapshot.snapshotId,
       snapshotVersion: snapshot.snapshotVersion,
       currency: "LKR",
@@ -619,6 +625,7 @@ export class OfflineSaleService {
 
     const envelope = ready.key.sign(command, "command");
     const receipt: OfflineReceipt = {
+      receiptNumber,
       saleCommandId: command.commandId,
       checkoutDraftId: input.checkoutDraftId,
       soldAt: command.occurredAt,
@@ -667,13 +674,14 @@ export class OfflineSaleService {
         });
       this.deps.db
         .prepare(
-          `INSERT INTO offline_sale_receipt (checkout_draft_id, enrollment_id, command_id, receipt_json, created_at)
-           VALUES (?, ?, ?, ?, ?)`,
+          `INSERT INTO offline_sale_receipt (checkout_draft_id, enrollment_id, command_id, receipt_number, receipt_json, created_at)
+           VALUES (?, ?, ?, ?, ?, ?)`,
         )
         .run(
           input.checkoutDraftId,
           enrollmentId,
           command.commandId,
+          receiptNumber,
           JSON.stringify(receipt),
           at,
         );
@@ -684,6 +692,30 @@ export class OfflineSaleService {
       cards: cards.length,
     });
     return receipt;
+  }
+
+  /**
+   * The next receipt number under this till's prefix: after the highest this store ever gave, and
+   * never below the grant's floor (what the server has already seen from this till, which is what
+   * a replaced or restored counter starts from). Read and used in one synchronous commit, so no
+   * other sale can take it in between; the unique index is the backstop.
+   */
+  private nextReceiptNumber(numbering: {
+    prefix: string;
+    nextNumber: number;
+  }): string {
+    const rows = this.deps.db
+      .prepare(
+        "SELECT receipt_number FROM offline_sale_receipt WHERE receipt_number LIKE ? ORDER BY length(receipt_number) DESC, receipt_number DESC LIMIT 1",
+      )
+      .all(`${numbering.prefix}-%`) as { receipt_number: string }[];
+    const highest = rows.length
+      ? (offlineReceiptSequence(numbering.prefix, rows[0]!.receipt_number) ?? 0)
+      : 0;
+    return offlineReceiptNumber(
+      numbering.prefix,
+      Math.max(numbering.nextNumber, highest + 1),
+    );
   }
 
   /** A receipt of a sale committed here, for reprinting. */
@@ -736,8 +768,8 @@ export function offlineLineLabel(
 }
 
 /**
- * An offline receipt in the printed receipt's shape. Its number is the journal entry's, shortened
- * and marked offline: the server gives the sale its invoice number only once it is uploaded.
+ * An offline receipt in the printed receipt's shape: a normal receipt, numbered with the counter's
+ * own final number (option A), with no offline wording.
  */
 export function offlineReceiptForPrinting(
   receipt: OfflineReceipt,
@@ -747,7 +779,7 @@ export function offlineReceiptForPrinting(
     0,
   );
   return {
-    invoiceNo: `OFFLINE-${receipt.saleCommandId.slice(0, 8).toUpperCase()}`,
+    invoiceNo: receipt.receiptNumber,
     soldAt: new Date(receipt.soldAt).toISOString(),
     subtotal: fromMinor(receipt.subtotalMinor),
     discountTotal: fromMinor(0),

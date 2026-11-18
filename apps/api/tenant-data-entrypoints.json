@@ -189,6 +189,11 @@
       "reason": "Holds the authenticated counter's own nomination, enrollment and terminal rows (FOR SHARE, by tenant, branch and identity) while offline authority is issued, and share-locks the branch's offline_terminal_nomination row (by tenant_id and branch_id) for replays and challenges, pairing with the D11 clearance lock; a replaced, revoked or retired counter is never issued to. No data is written by raw SQL."
     },
     {
+      "path": "src/terminals/offline-receipt-numbering.ts",
+      "mode": "scoped-domain-lock",
+      "reason": "Locks the branch's terminal_counter rows (FOR UPDATE, by tenant_id and branch_id) while a till's offline receipt prefix is chosen, and reads the highest receipt number under that prefix from sale.invoice_no and offline_journal_review envelopes filtered by tenant_id and branch_id; no data is written by raw SQL."
+    },
+    {
       "path": "src/terminals/grant-cutoff.ts",
       "mode": "tenant-filtered-aggregate",
       "reason": "Read-only max(grant expiresAt) over offline_authority_issuance filtered by bound tenant_id, branch_id and enrollment_id, for D11 clearance."

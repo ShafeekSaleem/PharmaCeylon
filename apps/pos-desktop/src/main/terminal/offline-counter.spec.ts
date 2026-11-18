@@ -119,6 +119,7 @@ function pair(hoursEnd: number): OfflineAuthority {
     operatingWindows: [{ startsAt: issuedAt, endsAt: hoursEnd }],
     mandatoryOperatingWindows: null,
     operatingHoursException: null,
+    receiptNumbering: { prefix: "C1R", nextNumber: 1 },
   };
   return {
     grant: signed("grant", grant),

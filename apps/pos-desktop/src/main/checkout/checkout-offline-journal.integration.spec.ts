@@ -117,6 +117,7 @@ function installAuthority(): void {
     operatingWindows: [{ startsAt: issuedAt, endsAt: issuedAt + MAX_OFFLINE_GRANT_MS }],
     mandatoryOperatingWindows: null,
     operatingHoursException: null,
+    receiptNumbering: { prefix: "C1R", nextNumber: 1 },
   };
   installOfflineAuthority(
     local.db,

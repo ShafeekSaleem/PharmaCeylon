@@ -98,6 +98,7 @@ function authority(version: number, snapshotGeneratedAt: number): OfflineAuthori
     operatingWindows: [],
     mandatoryOperatingWindows: null,
     operatingHoursException: null,
+    receiptNumbering: { prefix: "C1R", nextNumber: 1 },
   };
   return { grant: signed("grant", grant), snapshot: signed("snapshot", snapshot) };
 }

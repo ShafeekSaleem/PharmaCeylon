@@ -93,6 +93,7 @@ function authority(generatedAt: number) {
     operatingWindows: [],
     mandatoryOperatingWindows: null,
     operatingHoursException: null,
+    receiptNumbering: { prefix: "C1R", nextNumber: 1 },
   };
   return { grant: signed("grant", grant), snapshot: signed("snapshot", snapshot) };
 }
