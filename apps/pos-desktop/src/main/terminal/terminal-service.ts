@@ -110,10 +110,23 @@ export function explain(error: unknown): ActionError {
   }
   if (error instanceof ActionFailure)
     return { code: error.code, message: error.message };
+  // The store's writes are transactions, so a full disk leaves nothing half-saved: say so plainly.
+  if (isDiskFull(error))
+    return {
+      code: "DISK_FULL",
+      message:
+        "This computer's disk is full, so nothing was saved. Free some space (or call support), then try again.",
+    };
   return {
     code: "UNEXPECTED",
     message: "Something went wrong. Please try again.",
   };
+}
+
+/** SQLite's "database or disk is full", or Windows' "no space left on device". */
+export function isDiskFull(error: unknown): boolean {
+  const code = (error as { code?: unknown } | null)?.code;
+  return code === "SQLITE_FULL" || code === "ENOSPC";
 }
 
 export class ActionFailure extends Error {

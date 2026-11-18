@@ -164,6 +164,24 @@ Document/test supported remote-session detection and known third-party remote-co
 Device enrollment and session evidence are useful controls, not proof a human inspected goods or
 protection against a hostile local administrator. Retain named physical-action confirmation and audit.
 
+### v1 launch limitation: no offline selling across a Windows restart (decided 2026-11-17)
+
+As required above, this was reported to Shafeek, who accepted it on 2026-11-17. The counter does
+not establish cross-boot trust. Trusted time is the last server-signed time plus Windows uptime
+since then (`trusted-clock.ts`). Uptime starts again at every boot.
+
+- **App restart, same Windows session:** the outage resumes with its original start, stock
+  baseline and grant expiry (`offline-mode.ts`). An open card payment comes back on Sell.
+- **Windows restart, power cut, or a sleep that uptime did not count:** time is untrusted
+  (`NEW_BOOT`). New offline sales, shift openings and card payments stop until the counter is
+  online again. Saved sales, shifts and card evidence stay on the computer, and they upload on
+  reconnect.
+- **What this means for launch:** after a power cut during an outage, this counter can't sell until the internet is back. Power-cut resilience must not be claimed.
+- **Meanwhile: a paper log, rung up later (decided by Shafeek, 2026-11-19).** Staff write each sale on a printed sheet: items, quantities, prices and cash taken. They sell ordinary items only, as offline. Once the internet is back, they enter those sales as normal online sales. The entered sales carry the time they were entered, not the time they were sold, and the sheet is kept as the record. This needs no code. Train staff on it before offline selling is turned on.
+
+Still to test on real Windows hardware: app crash, OS reboot, power cut, suspend/resume and
+clock rollback, each separately.
+
 ## Required scenario evidence and epic mapping
 
 | Scenario / acceptance | Implementation epics |

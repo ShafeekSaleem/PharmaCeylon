@@ -37,6 +37,7 @@ import {
   offlineReceiptForPrinting,
 } from "./offline-sale";
 import { TrustedClock } from "./trusted-clock";
+import { drainHolds } from "./reconnect-drain";
 
 const protector: SecretProtector = {
   isAvailable: () => true,
@@ -640,6 +641,59 @@ describe("offline sales (P4 #50)", () => {
     expect(latestCardState(second.attemptId)).toBe("linked_to_sale");
   });
 
+  it("keeps an unsettled card with its cart, so Sell can show it again, and holds everything else until it's settled", () => {
+    expect(sale.openCard()).toBeNull();
+    const draft = randomUUID();
+    const { attemptId } = sale.prepareCard({
+      checkoutDraftId: draft,
+      items: cart,
+      amountMinor: CART_TOTAL,
+    });
+    expect(sale.openCard()).toEqual({
+      checkoutDraftId: draft,
+      items: cart,
+      totalMinor: CART_TOTAL,
+      attempt: {
+        attemptId,
+        amountMinor: CART_TOTAL,
+        state: "prepared",
+        reference: null,
+        approvalCode: null,
+      },
+    });
+    sale.recordCardOutcome({
+      attemptId,
+      outcome: {
+        kind: "approved",
+        reference: "RRN-9",
+        approvalCode: "OK9",
+        approvedAt: trusted(),
+      },
+    });
+    expect(sale.openCard()?.attempt).toMatchObject({
+      state: "approved",
+      reference: "RRN-9",
+      approvalCode: "OK9",
+    });
+    // Another sale can't start a card, and the shift can't close, while this one is open.
+    fails(
+      () =>
+        sale.prepareCard({
+          checkoutDraftId: randomUUID(),
+          items: cart,
+          amountMinor: 100,
+        }),
+      "CARD_UNRESOLVED",
+    );
+    fails(
+      () => staff.closeShift({ totalMinor: 10_000, lines: [] }),
+      "CARD_UNRESOLVED",
+    );
+    advance(1_000);
+    sale.commit({ checkoutDraftId: draft, items: cart, cashTenderedMinor: 0 });
+    expect(sale.openCard()).toBeNull();
+  });
+
   it("settles an approved card as not used after the counter has come back online", () => {
     const { attemptId } = sale.prepareCard({
       checkoutDraftId: randomUUID(),
@@ -885,6 +939,97 @@ describe("offline sales (P4 #50)", () => {
       });
       expect(receipt.receiptNumber).toBe("C1R-000186");
     });
+  });
+
+  it("keeps a card left on the machine across a restart, still holding the reconnect drain", () => {
+    const draft = randomUUID();
+    const { attemptId } = sale.prepareCard({
+      checkoutDraftId: draft,
+      items: cart,
+      amountMinor: CART_TOTAL,
+    });
+    // A fresh service over the same store, as after the app restarts: nothing is lost or settled.
+    const again = new OfflineSaleService({
+      db: local.db,
+      counter: staff,
+      journal: {
+        appendSignedCommand: () => undefined,
+        getBatchUsageQuantities: () => ({}),
+      } as never,
+    });
+    expect(again.openCard()).toMatchObject({
+      checkoutDraftId: draft,
+      items: cart,
+      attempt: { attemptId, state: "prepared" },
+    });
+    expect(drainHolds(local.db, identity.enrollmentId).cards).toBe(1);
+  });
+
+  it("saves the whole sale or none of it when the disk fills up", () => {
+    const before = {
+      sales: sales().length,
+      cash: expectedCash(),
+      receipts: (
+        local.db
+          .prepare("SELECT COUNT(*) AS n FROM offline_sale_receipt")
+          .get() as { n: number }
+      ).n,
+    };
+    // No room for one more page: the sale's first write fails, as on a full disk.
+    const pages =
+      (local.db.pragma("page_count", { simple: true }) as number) ?? 0;
+    local.db.pragma(`max_page_count = ${pages}`);
+    let thrown: unknown;
+    try {
+      for (let i = 0; i < 50; i++)
+        sale.commit({
+          checkoutDraftId: randomUUID(),
+          items: [{ snapshotLineId: A, quantity: 1 }],
+          cashTenderedMinor: 100_000,
+        });
+    } catch (error) {
+      thrown = error;
+    } finally {
+      local.db.pragma("max_page_count = 1073741823");
+    }
+    expect((thrown as { code?: string }).code).toBe("SQLITE_FULL");
+    const receipts = (
+      local.db
+        .prepare("SELECT COUNT(*) AS n FROM offline_sale_receipt")
+        .get() as { n: number }
+    ).n;
+    // Every sale that was saved is whole: one journal entry, one receipt, its cash, each.
+    const saved = receipts - before.receipts;
+    expect(sales().length - before.sales).toBe(saved);
+    expect(expectedCash() - before.cash).toBe(saved * 11_800);
+  });
+
+  it("remembers that a receipt printed, so every later print is a reprint, even after a restart", () => {
+    const receipt = sale.commit({
+      checkoutDraftId: randomUUID(),
+      items: cart,
+      cashTenderedMinor: CART_TOTAL,
+    });
+    expect(sale.printedBefore(receipt.saleCommandId)).toBe(false);
+    sale.markPrinted(receipt.saleCommandId, new Date(1_000));
+    sale.markPrinted(receipt.saleCommandId, new Date(2_000));
+    // Read back by a fresh service over the same store, as after an app restart.
+    const again = new OfflineSaleService({
+      db: local.db,
+      counter: staff,
+      journal: {
+        appendSignedCommand: () => undefined,
+        getBatchUsageQuantities: () => ({}),
+      } as never,
+    });
+    expect(again.printedBefore(receipt.saleCommandId)).toBe(true);
+    expect(
+      local.db
+        .prepare(
+          "SELECT printed_at FROM offline_sale_receipt WHERE command_id = ?",
+        )
+        .get(receipt.saleCommandId),
+    ).toEqual({ printed_at: new Date(1_000).toISOString() });
   });
 
   it("prints an offline receipt as a normal one, under its final receipt number", () => {

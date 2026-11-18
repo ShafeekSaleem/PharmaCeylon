@@ -23,10 +23,18 @@ import { time, useNow } from "./format";
 import full from "./Fullscreen.module.css";
 import { Icon, type IconName } from "./Icon";
 import { moneyInput } from "./invoke";
+import {
+  cardFinished,
+  OfflineCard,
+  type OfflineCardAttempt,
+} from "./OfflineCard";
+import { OfflineClose } from "./OfflineClose";
+import { HoursBanner, HoursSheet } from "./OfflineHours";
 import { KeyHint } from "./KeyHint";
 import { clickSubmit, inField, useKeyBinding } from "./keymap";
 import {
   blockedText,
+  cardAmount,
   expiryText,
   findOfflineLines,
   hoursBlock,
@@ -34,6 +42,7 @@ import {
   remainingText,
   sellingBanner,
   type OfflineStockLine,
+  type PayMethod,
 } from "./offline-sell-model";
 import styles from "./OfflineCounter.module.css";
 import cash from "./CashShift.module.css";
@@ -54,6 +63,8 @@ import { cx, ErrorLine, useAction } from "./useAction";
  */
 
 const STAFF_MS = 3_000;
+const CARD_OPEN =
+  "Settle the card payment first: complete the sale, or record what the card machine did.";
 type Quote = z.infer<typeof offlineQuoteSchema>;
 
 export function OfflineCounter({
@@ -73,6 +84,9 @@ export function OfflineCounter({
 }) {
   const [staff, setStaff] = useState<OfflineStaff | null>(null);
   const [page, setPage] = useState<Page>("sell");
+  const [switching, setSwitching] = useState(false);
+  // A card on the machine keeps the counter on Sell: leaving would leave the card behind.
+  const [cardOpen, setCardOpen] = useState(false);
   const loadStaff = useCallback(() => {
     window.pos
       .offlineStaff()
@@ -86,15 +100,32 @@ export function OfflineCounter({
   }, [loadStaff]);
 
   const me = staff?.signedIn ?? null;
-  useEffect(() => setPage("sell"), [me?.workSessionId]);
+  useEffect(() => {
+    setPage("sell");
+    setSwitching(false);
+  }, [me?.workSessionId]);
   if (!staff) return null;
-  if (!me)
-    return <OfflineSignIn device={device} staff={staff} onStaff={setStaff} />;
+  if (!me || switching)
+    return (
+      <OfflineSignIn
+        device={device}
+        staff={staff}
+        onStaff={(next) => {
+          setStaff(next);
+          setSwitching(false);
+        }}
+        onCancel={me ? () => setSwitching(false) : null}
+      />
+    );
 
   const current = shift?.current ?? null;
   const mine =
     current?.status === "open" && current.staffUserId === me.staffUserId;
   const enrollment = device.enrollment;
+  const canAssist = staff.people.some(
+    (p) => p.staffUserId === me.staffUserId && p.canAssistClose,
+  );
+  const openShift = current && current.status !== "closed" ? current : null;
   return (
     <div className={shell.work}>
       <div className={shell.frame}>
@@ -114,8 +145,19 @@ export function OfflineCounter({
               label={label}
               active={page === id}
               onClick={() => setPage(id)}
+              disabled={cardOpen && id !== page}
+              title={cardOpen && id !== page ? CARD_OPEN : undefined}
             />
           ))}
+          <span className={ui.grow} />
+          <RailItem
+            icon="users"
+            label="Switch person"
+            active={false}
+            onClick={() => setSwitching(true)}
+            disabled={cardOpen}
+            title={cardOpen ? CARD_OPEN : undefined}
+          />
         </nav>
         <main className={shell.content}>
           {page === "sell" ? (
@@ -123,26 +165,63 @@ export function OfflineCounter({
               <OfflineSell
                 mode={mode}
                 staff={staff}
+                branchName={enrollment?.branchName ?? null}
                 printer={printer}
                 onSold={onShift}
+                onStaff={setStaff}
+                onCardOpen={setCardOpen}
               />
-            ) : current && current.status !== "closed" ? (
+            ) : openShift ? (
               <div className={shell.block} role="alert">
                 <div className={cx(ui.panel, shell.blockCard)}>
                   <span className={cx(ui.kind, shell.blockIcon)}>
                     <Icon name="wallet" />
                   </span>
-                  <h2>{current.staffName}&apos;s shift is open on this till</h2>
+                  <h2>
+                    {openShift.staffName}&apos;s shift is open on this till
+                  </h2>
                   <p>
-                    {current.staffName.split(" ")[0]} continues it. To sell,
+                    {openShift.staffName.split(" ")[0]} continues it. To sell,
                     they sign in here and keep selling, or count the drawer and
                     close it first.
                   </p>
+                  <div className={styles.blockBtns}>
+                    <button
+                      type="button"
+                      className={cx(ui.btn, ui.outline)}
+                      onClick={() => setSwitching(true)}
+                    >
+                      <Icon name="users" />
+                      Switch person
+                    </button>
+                    {canAssist && (
+                      <button
+                        type="button"
+                        className={cx(ui.btn, ui.primary)}
+                        onClick={() => setPage("cash")}
+                      >
+                        <Icon name="wallet" />
+                        Close it for them
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             ) : (
               <OfflineOpenShift onOpened={onShift} />
             )
+          ) : page === "cash" && openShift?.status === "open" ? (
+            <OfflineClose
+              shift={openShift}
+              me={me}
+              canAssist={canAssist}
+              onClosed={() => {
+                onShift();
+                setPage("sell");
+              }}
+            />
+          ) : page === "cash" && !openShift ? (
+            <OfflineOpenShift onOpened={onShift} />
           ) : (
             <OfflineBlocked page={page} />
           )}
@@ -179,10 +258,13 @@ function OfflineSignIn({
   device,
   staff,
   onStaff,
+  onCancel,
 }: {
   device: DeviceState;
   staff: OfflineStaff;
   onStaff: (staff: OfflineStaff) => void;
+  /** Someone is already signed in and stays so unless another person signs in. */
+  onCancel: (() => void) | null;
 }) {
   const now = useNow();
   const [chosen, setChosen] = useState<string | null>(null);
@@ -298,6 +380,15 @@ function OfflineSignIn({
             </div>
           )}
         </div>
+        {onCancel && (
+          <button
+            type="button"
+            className={cx(ui.btn, ui.ghost, styles.cancelSwitch)}
+            onClick={onCancel}
+          >
+            Back to the counter
+          </button>
+        )}
       </div>
     </section>
   );
@@ -391,45 +482,105 @@ type CartLine = { snapshotLineId: string; quantity: number };
 export function OfflineSell({
   mode,
   staff,
+  branchName,
   printer,
   onSold,
+  onStaff,
+  onCardOpen,
 }: {
   mode: OfflineModeState;
   staff: OfflineStaff;
+  /** Printed at the top of the on-screen receipt, as online. */
+  branchName: string | null;
   printer: Printer | null | undefined;
   onSold: () => void;
+  onStaff: (staff: OfflineStaff) => void;
+  /** Whether a card is on the machine, so the counter keeps the person on Sell. */
+  onCardOpen?: (open: boolean) => void;
 }) {
   const now = useNow();
   const [stock, setStock] = useState<OfflineStockLine[] | null>(null);
+  const [stockError, setStockError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [cart, setCart] = useState<CartLine[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [quote, setQuote] = useState<Quote | null>(null);
+  const [quoteError, setQuoteError] = useState<string | null>(null);
+  const [method, setMethod] = useState<PayMethod>("cash");
+  const [cardIn, setCardIn] = useState("");
+  const [attempt, setAttempt] = useState<OfflineCardAttempt | null>(null);
   const [cashIn, setCashIn] = useState("");
-  const [draftId, setDraftId] = useState(() => crypto.randomUUID());
+  const [draftId, setDraftId] = useState<string>(() => crypto.randomUUID());
   const [receipt, setReceipt] = useState<OfflineReceiptView | null>(null);
   const [lastSale, setLastSale] = useState<OfflineReceiptView | null>(null);
   const [printMessage, setPrintMessage] = useState<string | null>(null);
+  const [hoursSheet, setHoursSheet] = useState(false);
   const { busy, error, run, clear } = useAction();
   const searchRef = useRef<HTMLInputElement>(null);
 
   const loadStock = useCallback(() => {
-    void window.pos.offlineStock().then((result) => {
-      if (result.ok) setStock(result.value);
-    });
+    setStockError(null);
+    window.pos
+      .offlineStock()
+      .then((result) => {
+        if (result.ok) setStock(result.value);
+        else setStockError(result.error.message);
+      })
+      .catch(() => setStockError("The saved stock could not be read."));
   }, []);
   useEffect(loadStock, [loadStock]);
 
-  // The cart is priced by main from the signed snapshot, never here.
+  // A card left on the machine when Sell last closed (a person switched, the window reloaded,
+  // the app restarted) comes back with its cart, so it can still be finished or recorded.
+  const [restoring, setRestoring] = useState(true);
+  const [openCardError, setOpenCardError] = useState<string | null>(null);
   useEffect(() => {
-    if (!cart.length) {
-      setQuote(null);
-      return;
-    }
     let live = true;
-    void window.pos.offlineQuote({ items: cart }).then((result) => {
-      if (live && result.ok) setQuote(result.value);
-    });
+    window.pos
+      .offlineOpenCard()
+      .then((result) => {
+        if (!live) return;
+        if (!result.ok) {
+          setOpenCardError(result.error.message);
+          return;
+        }
+        const open = result.value;
+        if (!open) return;
+        const split =
+          open.totalMinor !== null &&
+          open.attempt.amountMinor < open.totalMinor;
+        setDraftId(open.checkoutDraftId);
+        setCart(open.items ?? []);
+        setAttempt(open.attempt);
+        setMethod(split ? "split" : "card");
+        if (split) setCardIn(plainMoney(open.attempt.amountMinor));
+      })
+      .catch(
+        () =>
+          live &&
+          setOpenCardError("This counter's card payments could not be read."),
+      )
+      .finally(() => live && setRestoring(false));
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  // The cart is priced by main from the signed snapshot, never here. A changed cart drops the
+  // old price at once, so nothing is ever sold at a total that was for a different cart.
+  useEffect(() => {
+    setQuote(null);
+    setQuoteError(null);
+    if (!cart.length) return;
+    let live = true;
+    window.pos
+      .offlineQuote({ items: cart })
+      .then((result) => {
+        if (!live) return;
+        if (result.ok) setQuote(result.value);
+        else setQuoteError(result.error.message);
+      })
+      .catch(() => live && setQuoteError("The sale could not be priced."));
     return () => {
       live = false;
     };
@@ -447,17 +598,29 @@ export function OfflineSell({
   const tenderedMinor = cashIn ? minor(cashIn) : 0;
   const blocked = quote?.blocked ?? [];
   const hours = hoursBlock(staff.hours);
-  const short = tenderedMinor < totalMinor;
+  // A card on the machine fixes the sale: no other card, no cart change, until it's settled.
+  const locked = !cardFinished(attempt);
+  useEffect(() => {
+    onCardOpen?.(locked);
+    return () => onCardOpen?.(false);
+  }, [locked, onCardOpen]);
+  const cardMinor =
+    attempt && locked
+      ? attempt.amountMinor
+      : cardAmount(method, totalMinor, cardIn);
+  const cashDue =
+    method === "cash" ? totalMinor : Math.max(0, totalMinor - cardMinor);
+  const short = cashDue > 0 && tenderedMinor < cashDue;
+  const priced =
+    cart.length > 0 && quote !== null && blocked.length === 0 && !hours;
   const canComplete =
     !busy &&
-    cart.length > 0 &&
-    quote !== null &&
-    blocked.length === 0 &&
+    priced &&
     !short &&
-    !hours;
+    (method === "cash" ? !locked : attempt?.state === "approved");
 
   function add(line: OfflineStockLine) {
-    if (line.blocked) return;
+    if (line.blocked || locked || restoring) return;
     clear();
     setCart((items) => {
       const found = items.find((i) => i.snapshotLineId === line.snapshotLineId);
@@ -473,6 +636,7 @@ export function OfflineSell({
   }
 
   function setQty(id: string, quantity: number) {
+    if (locked) return;
     setCart((items) =>
       quantity <= 0
         ? items.filter((i) => i.snapshotLineId !== id)
@@ -487,7 +651,8 @@ export function OfflineSell({
         window.pos.offlineCommitSale({
           checkoutDraftId: draftId,
           items: cart,
-          cashTenderedMinor: tenderedMinor,
+          // Main refuses cash on a sale the card already covers.
+          cashTenderedMinor: cashDue > 0 ? tenderedMinor : 0,
         }),
       (sold) => {
         setReceipt(sold);
@@ -495,6 +660,9 @@ export function OfflineSell({
         setPrintMessage(null);
         setCart([]);
         setCashIn("");
+        setCardIn("");
+        setAttempt(null);
+        setMethod("cash");
         setSelected(null);
         setDraftId(crypto.randomUUID());
         loadStock();
@@ -551,11 +719,13 @@ export function OfflineSell({
           <div>{sellingBanner(mode, now)}</div>
         </div>
       </div>
-      {hours && (
-        <div className={cx(ui.note, ui.noteWarn, styles.banner)} role="alert">
-          <Icon name="clock" />
-          <div>{hours}</div>
-        </div>
+      <HoursBanner staff={staff} onAcknowledge={() => setHoursSheet(true)} />
+      {hoursSheet && (
+        <HoursSheet
+          staff={staff}
+          onStaff={onStaff}
+          onClose={() => setHoursSheet(false)}
+        />
       )}
       {lastSale && receipt === null && (
         <div className={cx(ui.note, styles.banner)} role="status">
@@ -594,7 +764,19 @@ export function OfflineSell({
               <KeyHint keys="F6" small />
             </form>
           </div>
-          {stock === null ? (
+          {stockError ? (
+            <div className={s.findEmpty} role="alert">
+              <p className={ui.badText}>{stockError}</p>
+              <button
+                type="button"
+                className={cx(ui.btn, ui.outline, ui.sm)}
+                onClick={loadStock}
+              >
+                <Icon name="rotate-ccw" />
+                Try again
+              </button>
+            </div>
+          ) : stock === null ? (
             <p className={s.findEmpty}>Loading the saved stock…</p>
           ) : !query.trim() ? (
             <p className={s.findEmpty}>
@@ -658,7 +840,7 @@ export function OfflineSell({
                 setSelected(null);
                 setCashIn("");
               }}
-              disabled={busy || !cart.length}
+              disabled={busy || locked || !cart.length}
             >
               <Icon name="trash" />
               Clear
@@ -720,7 +902,7 @@ export function OfflineSell({
                     </div>
                   </div>
                   <div className={s.qty}>
-                    {sel ? (
+                    {sel && !locked ? (
                       <span className={s.stepper}>
                         <button
                           type="button"
@@ -789,72 +971,118 @@ export function OfflineSell({
             )}
           </div>
           <div className={s.methods} role="group" aria-label="Payment method">
-            <button type="button" className={s.m} aria-pressed>
-              <Icon name="banknote" />
-              Cash
-            </button>
-            <button
-              type="button"
-              className={s.m}
-              disabled
-              title="Not available offline yet"
-            >
-              <Icon name="credit-card" />
-              Card
-            </button>
-            <button
-              type="button"
-              className={s.m}
-              disabled
-              title="Not available offline yet"
-            >
-              <Icon name="split" />
-              Split
-            </button>
+            {(
+              [
+                ["cash", "banknote", "Cash"],
+                ["card", "credit-card", "Card"],
+                ["split", "split", "Split"],
+              ] as [PayMethod, IconName, string][]
+            ).map(([id, icon, label]) => (
+              <button
+                key={id}
+                type="button"
+                className={s.m}
+                aria-pressed={method === id}
+                disabled={locked && method !== id}
+                onClick={() => {
+                  clear();
+                  setMethod(id);
+                }}
+              >
+                <Icon name={icon} />
+                {label}
+              </button>
+            ))}
           </div>
-          <div>
-            <label className={s.fldL} htmlFor="offline-cash">
-              Cash received
-            </label>
-            <div className={s.moneyIn}>
-              <small>Rs</small>
-              <input
-                id="offline-cash"
-                inputMode="decimal"
-                autoComplete="off"
-                value={cashIn}
-                onChange={(event) => setCashIn(moneyInput(event.target.value))}
-                placeholder="0.00"
-              />
-            </div>
-            {quick.length > 0 && (
-              <div className={s.tender}>
-                {[totalMinor, ...quick].map((amount, i) => (
-                  <button
-                    key={amount}
-                    type="button"
-                    aria-pressed={cashIn !== "" && minor(cashIn) === amount}
-                    onClick={() => setCashIn(plainMoney(amount))}
-                  >
-                    {i === 0 ? "Exact" : money(amount).replace(/\.00$/, "")}
-                  </button>
-                ))}
+          {method === "split" && (
+            <div>
+              <label className={s.fldL} htmlFor="offline-card-part">
+                On the card
+              </label>
+              <div className={s.moneyIn}>
+                <small>Rs</small>
+                <input
+                  id="offline-card-part"
+                  inputMode="decimal"
+                  autoComplete="off"
+                  value={
+                    locked && attempt ? plainMoney(attempt.amountMinor) : cardIn
+                  }
+                  disabled={locked}
+                  onChange={(event) =>
+                    setCardIn(moneyInput(event.target.value))
+                  }
+                  placeholder="0.00"
+                />
               </div>
-            )}
-          </div>
-          <div className={cx(s.change, cart.length > 0 && short && s.short)}>
-            {cart.length > 0 && short ? (
-              <>
-                <span>Still to pay</span>
-                <b>Rs {money(totalMinor - tenderedMinor)}</b>
-              </>
-            ) : (
-              <>
-                <span>Change to give</span>
-                <b>Rs {money(Math.max(0, tenderedMinor - totalMinor))}</b>
-              </>
-            )}
-          </div>
+            </div>
+          )}
+          {method !== "cash" && (
+            <OfflineCard
+              amountMinor={cardMinor}
+              attempt={attempt}
+              canStart={priced && !busy}
+              onPrepare={() =>
+                window.pos.offlinePrepareCard({
+                  checkoutDraftId: draftId,
+                  items: cart,
+                  amountMinor: cardMinor,
+                })
+              }
+              onAttempt={setAttempt}
+            />
+          )}
+          {(method === "cash" || (method === "split" && cashDue > 0)) && (
+            <div>
+              <label className={s.fldL} htmlFor="offline-cash">
+                {method === "split"
+                  ? `Cash for the rest · Rs ${money(cashDue)}`
+                  : "Cash received"}
+              </label>
+              <div className={s.moneyIn}>
+                <small>Rs</small>
+                <input
+                  id="offline-cash"
+                  inputMode="decimal"
+                  autoComplete="off"
+                  value={cashIn}
+                  onChange={(event) =>
+                    setCashIn(moneyInput(event.target.value))
+                  }
+                  placeholder="0.00"
+                />
+              </div>
+              {method === "cash" && quick.length > 0 && (
+                <div className={s.tender}>
+                  {[totalMinor, ...quick].map((amount, i) => (
+                    <button
+                      key={amount}
+                      type="button"
+                      aria-pressed={cashIn !== "" && minor(cashIn) === amount}
+                      onClick={() => setCashIn(plainMoney(amount))}
+                    >
+                      {i === 0 ? "Exact" : money(amount).replace(/\.00$/, "")}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+          {cashDue > 0 && method !== "card" && (
+            <div className={cx(s.change, cart.length > 0 && short && s.short)}>
+              {cart.length > 0 && short ? (
+                <>
+                  <span>Still to pay</span>
+                  <b>Rs {money(cashDue - tenderedMinor)}</b>
+                </>
+              ) : (
+                <>
+                  <span>Change to give</span>
+                  <b>Rs {money(Math.max(0, tenderedMinor - cashDue))}</b>
+                </>
+              )}
+            </div>
+          )}
           <div className={styles.offRows}>
             {(
               [
@@ -895,7 +1123,7 @@ export function OfflineSell({
           )}
           <div className={s.payActions}>
             <div className={s.payMsg}>
-              <ErrorLine error={error} />
+              <ErrorLine error={error ?? quoteError ?? openCardError} />
               {printMessage && <p role="status">{printMessage}</p>}
             </div>
             <button
@@ -915,7 +1143,7 @@ export function OfflineSell({
         <div className={styles.scrim} onClick={() => setReceipt(null)}>
           <OfflineReceipt
             receipt={receipt}
-            branch={null}
+            branch={branchName}
             onPrint={printer ? () => void print(receipt) : null}
             onClose={() => setReceipt(null)}
           />
@@ -938,6 +1166,9 @@ function OfflineReceipt({
   onClose: () => void;
 }) {
   const cashPay = receipt.payments.find((p) => p.method === "cash");
+  const cards = receipt.payments.flatMap((p) =>
+    p.method === "external_card" ? [p] : [],
+  );
   return (
     <div
       className={cx(ui.panel, styles.receipt)}
@@ -981,6 +1212,12 @@ function OfflineReceipt({
         <b>Total</b>
         <b>Rs {money(receipt.totalMinor)}</b>
       </div>
+      {cards.map((card) => (
+        <div key={card.providerReference} className={styles.rRow}>
+          <span>Card · ref {card.providerReference}</span>
+          <span>{money(card.amountMinor)}</span>
+        </div>
+      ))}
       {cashPay && cashPay.method === "cash" && (
         <>
           <div className={styles.rRow}>
@@ -1048,7 +1285,7 @@ const BLOCKED: [string, string][] = [
 
 const PAGE_TITLES: Partial<Record<Page, string>> = {
   returns: "Refunds need an online connection",
-  cash: "Cash & shift needs an online connection",
+  cash: "This shift step needs an online connection",
   stock: "Stock changes need an online connection",
   counter: "This counter's settings need an online connection",
 };
@@ -1079,8 +1316,9 @@ function OfflineBlocked({ page }: { page: Page }) {
           <Icon name="check" />
           <b>Still allowed</b>
           <span>
-            Ordinary cash sales from the saved stock, opening your shift, and
-            signing in with your own PIN.
+            Ordinary sales from the saved stock, paid in cash or on the
+            branch&apos;s card machine; opening and closing a shift; and signing
+            in with your own PIN.
           </span>
         </li>
       </ul>

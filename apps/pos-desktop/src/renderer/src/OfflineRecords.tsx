@@ -6,6 +6,7 @@ import { invoke } from "./invoke";
 import { KeyScope, useKeyBinding } from "./keymap";
 import {
   approvedOutcome,
+  canMarkNotUsed,
   cardStage,
   checkNote,
   declinedOutcome,
@@ -172,12 +173,20 @@ function CardRow({
   const [code, setCode] = useState("");
   const [slipTime, setSlipTime] = useState("");
   const [confirmNever, setConfirmNever] = useState(false);
+  // An approved payment no sale will use (the counter came back online mid-sale, the customer left).
+  const [notUsed, setNotUsed] = useState(false);
+  const [settlement, setSettlement] = useState<"reversed_on_machine" | "refund_owed">("reversed_on_machine");
+  const [reversal, setReversal] = useState("");
+  const [reason, setReason] = useState("");
   const { busy, error, run, clear } = useAction();
 
   function record(outcome: CardOutcomeInput) {
     void run(
       () => invoke(() => window.pos.recordCardOutcome({ attemptId: attempt.attemptId, outcome })),
       () => {
+        setNotUsed(false);
+        setReversal("");
+        setReason("");
         setAsking(null);
         setReference("");
         setCode("");
@@ -369,6 +378,93 @@ function CardRow({
               </button>
             </div>
           ))
+        ))}
+      {canMarkNotUsed(attempt) &&
+        (notUsed ? (
+          <form
+            className={styles.form}
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (busy) return;
+              record({
+                kind: "not_used",
+                settlement,
+                reversalReference: settlement === "reversed_on_machine" ? reversal.trim() || null : null,
+                reason: reason.trim(),
+              });
+            }}
+          >
+            <p className={styles.muted}>
+              No sale will use this payment. Reverse it on the card machine, or record that the customer is owed a
+              refund. A manager checks the money went back.
+            </p>
+            <label className={ui.label}>
+              <span>
+                <input
+                  type="radio"
+                  checked={settlement === "reversed_on_machine"}
+                  onChange={() => setSettlement("reversed_on_machine")}
+                />{" "}
+                Reversed on the card machine
+              </span>
+            </label>
+            {settlement === "reversed_on_machine" && (
+              <label className={ui.label}>
+                <span>Reversal reference</span>
+                <input
+                  className={ui.in}
+                  value={reversal}
+                  maxLength={64}
+                  autoComplete="off"
+                  onChange={(e) => setReversal(e.target.value)}
+                />
+              </label>
+            )}
+            <label className={ui.label}>
+              <span>
+                <input
+                  type="radio"
+                  checked={settlement === "refund_owed"}
+                  onChange={() => setSettlement("refund_owed")}
+                />{" "}
+                The customer is owed a refund
+              </span>
+            </label>
+            <label className={ui.label}>
+              <span>Why it wasn&apos;t used</span>
+              <input
+                className={ui.in}
+                value={reason}
+                maxLength={500}
+                onChange={(e) => setReason(e.target.value)}
+              />
+            </label>
+            <div className={styles.actions}>
+              <button type="button" className={cx(ui.btn, ui.outline, ui.sm)} onClick={() => setNotUsed(false)}>
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className={cx(ui.btn, ui.primary, ui.sm)}
+                disabled={busy || !reason.trim() || (settlement === "reversed_on_machine" && !reversal.trim())}
+              >
+                Record as not used
+              </button>
+            </div>
+          </form>
+        ) : (
+          <div className={styles.actions}>
+            <button
+              type="button"
+              className={cx(ui.btn, ui.outline, ui.sm)}
+              onClick={() => {
+                clear();
+                setNotUsed(true);
+              }}
+            >
+              Not used for a sale…
+            </button>
+          </div>
         ))}
       <ErrorLine error={error} />
     </div>

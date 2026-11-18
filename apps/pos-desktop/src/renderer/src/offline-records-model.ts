@@ -77,7 +77,7 @@ export function cardStage(attempt: CardAttemptView): CardStage {
       return {
         title: "Approved, not matched to a sale yet",
         detail:
-          "The money was taken. Pick the sale it paid for so the payment is closed.",
+          "The money was taken. Pick the sale it paid for so the payment is closed, or, if no sale will use it, record it as not used.",
         tone: "warn",
         canSay: { approved: false, declined: false, notSure: false, neverCharged: false },
         needsSale: true,
