@@ -85,7 +85,7 @@ export default function AppearancePage() {
           ))}
         </div>
         <p className={css.rowHint}>
-          Match device follows your computer's setting and changes with it. The sun/moon button in the top bar switches straight to the other one.
+          Match device follows your computer&apos;s setting and changes with it. The sun/moon button in the top bar switches straight to the other one.
         </p>
 
         <p className={css.subLabel}>Accent color</p>
