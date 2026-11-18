@@ -23,6 +23,21 @@ export type RowMenuAction = {
   separated?: boolean;
 };
 
+/**
+ * Destructive actions go last, behind a divider (#205 list pattern: "destructive actions never
+ * adjacent to edit"). Routine actions keep the caller's order; so do the destructive ones among
+ * themselves. Callers that already end with a separated Delete see no change.
+ */
+export function orderRowMenuActions(actions: RowMenuAction[]): RowMenuAction[] {
+  const routine = actions.filter((a) => !a.danger);
+  const destructive = actions.filter((a) => a.danger);
+  if (routine.length === 0) return destructive;
+  return [
+    ...routine,
+    ...destructive.map((a, i) => (i === 0 ? { ...a, separated: true } : a)),
+  ];
+}
+
 /** Where the open menu sits, in viewport coordinates. */
 type MenuPosition = { top?: number; bottom: number | undefined; right: number };
 
@@ -117,6 +132,8 @@ export function RowMenu({
 
   if (actions.length === 0) return null;
 
+  const items = orderRowMenuActions(actions);
+
   const menu = open && position && (
     <div
       ref={menuRef}
@@ -128,7 +145,7 @@ export function RowMenu({
         right: position.right,
       }}
     >
-      {actions.map((action) => (
+      {items.map((action) => (
         <div key={action.label}>
           {action.separated && (
             <div className={styles.separator} role="separator" />

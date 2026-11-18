@@ -86,12 +86,45 @@ One appearance for everyone at the pharmacy, set by an owner on Settings › App
 - **Desktop soft fills** (`--pos-primary-soft`, `-soft-2`) now mix from the accent instead of a fixed teal. The other literal teals in the desktop CSS wait for the colour sweep below.
 - Screenshots: `screenshots/pr3-brand-settings/` (web) and `screenshots/pr4-desktop-brand/` (counter and receipt). The counter shots stand in a fake bridge for main. The appearance endpoint was stubbed in the browser for these, because the shared dev database is behind on migrations.
 
+## List pattern
+
+One way to show a list of records, built with Products first and adopted later by Inventory, Purchasing and the other stock and buying pages. The pieces live in `apps/web/src/components/ui/`:
+
+| Piece                                    | What it does                                                                                                                                    |
+| ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DataTable` with `variant="list"`        | 44px rows, about 36px when the person picks compact density (`data-density="compact"` on `<html>`). `--ui-*` colours only.                       |
+| `minTableWidth` on the list variant      | The narrowest the table gets. Below it the table scrolls sideways inside its own box; the page never scrolls sideways, and rows don't turn into cards. |
+| `FilterChips`                            | Quick filters above the list. Every chip is neutral and carries its count; only the applied filter is filled (accent and accent ink). None is filled when the list is filtered some other way. |
+| `rowMenuColumn(getActions, rowLabel)`    | The one row-actions column: a single menu per row, flush right, named "Actions for {row}". A row with nothing to do has an empty cell.           |
+| `RowMenu` / `orderRowMenuActions`        | Destructive actions always go last, behind a divider, so Delete is never next to Edit, whatever order the caller passes.                        |
+
+Rules for a page moving onto it:
+
+- Use `variant="list"` and give every column but one a `width` (with `fixedLayout`) so pages of results don't reflow.
+- Put one action in each row's menu per thing a person can do to that row. A row's single next step (Add, on the Reference catalog) can stay a button.
+- Show a cell only when it says something: leave it blank rather than repeating another column, and show only exceptional states (rule 1).
+- The `variant="default"` table is unchanged for pages not moved yet, including its phone card layout.
+
+### Products
+
+- About 15 rows show at 1440 × 900 (25 per page; the rest scroll).
+- The product name has the generic name under it on a muted line. When the Brand column is hidden, a brand that differs from the name joins that line.
+- One schedule badge: **OTC** (plain muted text), **Rx · II B** (outlined), **Controlled · III** (outlined on the sunken fill). It replaces the Rx tag, the "Prescription required" chip and the plain Schedule column. None of the three is coloured, because a prescription medicine isn't an exception in a pharmacy.
+- Brand is blank when it only repeats the name; SKU is blank when it only repeats the registration number (register imports).
+- No thumbnail column until products have real images. The category chip under the name is gone too; categories stay in the filters and on the product page.
+- Stock is a number with a short note ("Reorder at 20"). Only zero ("Out of stock", danger ink) and low ("Low · reorder at 20", warning ink) are coloured, and both say so in words.
+- Status shows only **Inactive**.
+- Actions: one menu with Edit product, then Delete product behind a divider.
+- Not yet in the stock note: batches, nearest expiry and last sold. The list endpoint doesn't return them, and this PR changes no data.
+- Screenshots: `screenshots/pr-list-pattern/`.
+
 ## Not done yet
 
 These items in #205's Phase 1 come in later PRs:
 
 - **Chart palette:** an owner control once the dashboard charts read it.
-- **Web shell and the shared list pattern.**
+- **Web shell.**
+- **Inventory, Purchasing and the other list pages** moving onto the list pattern (Phase 4).
 - **Sweep of the remaining hard-coded colours.** About 70 literal `#fff` values in web CSS modules, many of them white text on an accent fill that fails in dark. Eight `--pc-*` names that are referenced but never defined (`--pc-surface-2`, `--pc-rule`, `--pc-border-subtle`, `--pc-radius`, `--pc-radius-lg`, `--pc-shadow-sm`, `--pc-font-mono`, `--pc-alert-danger-bg`), which always fall back to their literal. About 115 literals in the desktop renderer, left until the P4 desktop work settles.
 
 ## Screenshots

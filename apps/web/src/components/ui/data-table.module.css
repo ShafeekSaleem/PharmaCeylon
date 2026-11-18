@@ -351,27 +351,27 @@
    every column is readable without swiping. The first column — the row's identity, a product
    or a document number — leads the card as its title. */
 @media (max-width: 640px) {
-  .scrollArea,
-  .noHorizontalScroll {
+  .phoneScroll,
+  .phoneScroll.noHorizontalScroll {
     overflow-x: visible;
   }
 
-  .table,
-  .table tbody,
-  .table tr,
-  .table td {
+  .phoneCards,
+  .phoneCards tbody,
+  .phoneCards tr,
+  .phoneCards td {
     display: block;
     width: 100% !important;
     min-width: 0 !important;
   }
 
-  .table {
+  .phoneCards {
     table-layout: auto;
     border-collapse: separate;
   }
 
   /* The header row's job is done by each cell's label; kept for screen readers. */
-  .table thead {
+  .phoneCards thead {
     position: absolute;
     width: 1px;
     height: 1px;
@@ -380,7 +380,7 @@
     white-space: nowrap;
   }
 
-  .table tbody tr {
+  .phoneCards tbody tr {
     margin-bottom: 0.6rem;
     padding: 0.35rem 0.8rem;
     border: 1px solid var(--pc-border);
@@ -388,12 +388,12 @@
     background: var(--pc-card-bg);
   }
 
-  .table tbody tr:last-child {
+  .phoneCards tbody tr:last-child {
     margin-bottom: 0;
   }
 
-  .table tbody td,
-  .table tbody tr:last-child td {
+  .phoneCards tbody td,
+  .phoneCards tbody tr:last-child td {
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
@@ -404,11 +404,11 @@
     overflow-wrap: anywhere;
   }
 
-  .table tbody td:last-child {
+  .phoneCards tbody td:last-child {
     border-bottom: none;
   }
 
-  .table tbody td[data-label]::before {
+  .phoneCards tbody td[data-label]::before {
     content: attr(data-label);
     flex-shrink: 0;
     max-width: 45%;
@@ -422,27 +422,140 @@
   }
 
   /* An unlabelled cell (actions, a menu) sits at the card's right. */
-  .table tbody td:not([data-label]) {
+  .phoneCards tbody td:not([data-label]) {
     justify-content: flex-end;
   }
 
   /* The row's identity leads the card as its title. */
-  .table tbody td:first-child:not(.selectCell),
-  .table tbody td.selectCell + td {
+  .phoneCards tbody td:first-child:not(.selectCell),
+  .phoneCards tbody td.selectCell + td {
     display: block;
     padding-bottom: 0.55rem;
     text-align: left !important;
     font-weight: 600;
   }
 
-  .table tbody td:first-child:not(.selectCell)::before,
-  .table tbody td.selectCell + td::before {
+  .phoneCards tbody td:first-child:not(.selectCell)::before,
+  .phoneCards tbody td.selectCell + td::before {
     display: none;
   }
 
-  .table tbody td.selectCell {
+  .phoneCards tbody td.selectCell {
     justify-content: flex-start;
     border-bottom: none;
     padding-bottom: 0;
   }
+}
+
+/* ── Shared list pattern (#205, `variant="list"`) ─────────────────────────────
+   The list every catalogue and stock page is moving to: 44px rows (about 36px when the person
+   picks compact density), semantic `--ui-*` colours, and on a narrow screen the table scrolls
+   sideways inside its own box instead of turning into cards or widening the page. */
+
+.listWrap {
+  --dt-row-h: 44px;
+  --dt-cell-x: 0.75rem;
+  border-color: var(--ui-line);
+  background: var(--ui-surface);
+}
+
+:global(html[data-density="compact"]) .listWrap {
+  --dt-row-h: 36px;
+  --dt-cell-x: 0.625rem;
+}
+
+/* The box scrolls; the page never does. `min-width: 0` lets it shrink inside a flex or grid
+   parent, which would otherwise grow to the table's width and push the page sideways. */
+.listWrap {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.listWrap .scrollArea {
+  overflow-x: auto;
+  scrollbar-color: color-mix(in srgb, var(--ui-text-muted) 45%, var(--ui-line))
+    transparent;
+}
+
+.list thead th {
+  height: 2.25rem;
+  padding: 0 var(--dt-cell-x);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  color: var(--ui-text-muted);
+  background: var(--ui-surface-raised);
+  border-bottom: 1px solid var(--ui-line);
+}
+
+:global(html[data-density="compact"]) .list thead th {
+  height: 2rem;
+}
+
+/* `height` on a cell is a minimum: a two-line cell (name over generic name) still fits 44px,
+   and anything taller grows the row rather than clipping. */
+.list tbody td {
+  height: var(--dt-row-h);
+  padding: 0.25rem var(--dt-cell-x);
+  font-size: 0.85rem;
+  line-height: 1.3;
+  color: var(--ui-text);
+  border-bottom: 1px solid var(--ui-line);
+}
+
+:global(html[data-density="compact"]) .list tbody td {
+  padding-top: 0.125rem;
+  padding-bottom: 0.125rem;
+  font-size: 0.8rem;
+}
+
+.list tbody tr:hover td {
+  background: var(--ui-surface-sunken);
+}
+
+.list.clickable tbody tr:focus-visible {
+  outline-color: var(--ui-accent);
+}
+
+.list .selectedRow td,
+.list tbody tr.selectedRow:hover td {
+  background: var(--ui-selected);
+}
+
+.list .sortable:hover,
+.list .sortActive {
+  color: var(--ui-accent);
+}
+
+.list .selectCell {
+  width: 40px;
+}
+
+.list .selectBox {
+  accent-color: var(--ui-accent);
+}
+
+/* The row-actions column: one menu trigger, flush right. */
+.list .actionsCell {
+  width: 48px;
+  padding-left: 0;
+  padding-right: 0.5rem;
+  text-align: right;
+}
+
+.listWrap .pagination {
+  border-top-color: var(--ui-line);
+}
+
+.listWrap .pageInfo {
+  color: var(--ui-text-muted);
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
 }

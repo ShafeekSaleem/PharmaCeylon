@@ -276,7 +276,6 @@ export type ProductForm = {
 };
 
 export type ColumnKey =
-  | "image"
   | "sku"
   | "name"
   | "brandName"

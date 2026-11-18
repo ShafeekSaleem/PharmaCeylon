@@ -1,5 +1,6 @@
 export {
   DataTable,
+  rowMenuColumn,
   type Column,
   type DataTableProps,
   type SortDir,
@@ -54,7 +55,16 @@ export { PageSubnav, type PageSubnavTab } from "./page-subnav";
 export { TablePager } from "./table-pager";
 export { FilterPopover, FilterRow } from "./filter-popover";
 export { ActiveFilterBanner, type FilterPill } from "./active-filter-banner";
-export { RowMenu, type RowMenuAction } from "./row-menu";
+export {
+  RowMenu,
+  orderRowMenuActions,
+  type RowMenuAction,
+} from "./row-menu";
+export {
+  FilterChips,
+  type FilterChip,
+  type FilterChipsProps,
+} from "./filter-chips";
 export {
   SegmentedTabs,
   SegmentedTabPanel,
