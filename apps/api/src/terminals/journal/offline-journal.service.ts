@@ -49,7 +49,7 @@ import {
 } from "./journal-chain";
 import { authenticateJournalUploader } from "./journal-uploader";
 import { SupportEvidenceReconciler } from "./support-evidence";
-import { commitOfflineSale, resolveSaleLines } from "./offline-sale-commit";
+import { commitOfflineSale, receiptNumberTaken, resolveSaleLines } from "./offline-sale-commit";
 import { localOpenShift, readTillShiftState, replayShiftClose, replayShiftOpen } from "./offline-shift-replay";
 
 type Tx = Prisma.TransactionClient;
@@ -488,6 +488,8 @@ export class OfflineJournalService {
     });
     if (lines.some((l) => !batches.some((b) => b.id === l.batchId && b.productId === l.productId)))
       return rejected("SNAPSHOT_MISMATCH", "A snapshot line no longer names a batch at this branch.");
+    if (await receiptNumberTaken(tx, identity, command.receiptNumber))
+      return rejected("REPLAY_CONFLICT", "Another sale already holds this receipt number.");
 
     const sale = await commitOfflineSale(tx, { stock: this.stock, audit: this.audit }, {
       identity, command, commandHash: item.hash, snapshot, lines, uploadedByUserId: user.userId,

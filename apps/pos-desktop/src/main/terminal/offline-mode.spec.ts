@@ -104,6 +104,7 @@ function pair(generatedAt: number, version = 1): OfflineAuthority {
     ],
     mandatoryOperatingWindows: null,
     operatingHoursException: null,
+    receiptNumbering: { prefix: "C1R", nextNumber: 1 },
   };
   return {
     grant: signed("grant", grant),

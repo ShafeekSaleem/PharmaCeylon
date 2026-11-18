@@ -134,6 +134,7 @@ export function authority(
     ],
     mandatoryOperatingWindows: null,
     operatingHoursException: null,
+    receiptNumbering: { prefix: "C1R", nextNumber: 1 },
   };
   return {
     grant: signed("grant", grant),
@@ -242,6 +243,7 @@ export function sellOffline(
       offlineStartedAt: outage.offlineStartedAt,
       businessHoursAcknowledgementId: null,
       kind: "ordinary_sale",
+      receiptNumber: "C1R-000001",
       snapshotId: installed.snapshot.payload.snapshotId,
       snapshotVersion: installed.snapshot.payload.snapshotVersion,
       currency: "LKR",

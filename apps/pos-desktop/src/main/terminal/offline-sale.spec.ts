@@ -156,6 +156,7 @@ function pair(): OfflineAuthority {
     operatingWindows: [{ startsAt: ISSUED, endsAt: NOW + 12 * 3_600_000 }],
     mandatoryOperatingWindows: null,
     operatingHoursException: null,
+    receiptNumbering: { prefix: "C1R", nextNumber: receiptFloor },
   };
   return {
     grant: signed("grant", grant),
@@ -194,6 +195,8 @@ let staff: OfflineCounterService;
 let sale: OfflineSaleService;
 let shiftId: string;
 let counterMode: "offline" | "online" = "offline";
+/** The grant's receipt floor: what the server has already seen from this till. */
+let receiptFloor = 1;
 
 const advance = (ms: number) => {
   up += ms;
@@ -822,7 +825,69 @@ describe("offline sales (P4 #50)", () => {
     ).toBe("Panadol 500 mg");
   });
 
-  it("prints an offline receipt with names, batches, payments and an offline number", () => {
+  it("numbers each sale under the till's prefix, in order, and signs the number into the sale", () => {
+    const numbers = [1, 2, 3].map(() => {
+      const draft = randomUUID();
+      const receipt = sale.commit({
+        checkoutDraftId: draft,
+        items: [{ snapshotLineId: A, quantity: 1 }],
+        cashTenderedMinor: 20_000,
+      });
+      advance(1_000);
+      // A second tap on Pay gives the same sale, not a new number.
+      expect(
+        sale.commit({
+          checkoutDraftId: draft,
+          items: [{ snapshotLineId: A, quantity: 1 }],
+          cashTenderedMinor: 20_000,
+        }).receiptNumber,
+      ).toBe(receipt.receiptNumber);
+      return receipt.receiptNumber;
+    });
+    expect(numbers).toEqual(["C1R-000001", "C1R-000002", "C1R-000003"]);
+    expect(sales().map((s) => s.receiptNumber)).toEqual(numbers);
+  });
+
+  it("never reuses a number this store gave, even once its journal entry is set aside", () => {
+    // A recovery may set journal entries aside; the receipts the customers hold stay on record.
+    local.db
+      .prepare(
+        "INSERT INTO offline_sale_receipt (checkout_draft_id, enrollment_id, command_id, receipt_number, receipt_json, created_at) VALUES (?, ?, ?, ?, '{}', ?)",
+      )
+      .run(
+        randomUUID(),
+        identity.enrollmentId,
+        randomUUID(),
+        "C1R-000041",
+        new Date(NOW).toISOString(),
+      );
+    const receipt = sale.commit({
+      checkoutDraftId: randomUUID(),
+      items: [{ snapshotLineId: A, quantity: 1 }],
+      cashTenderedMinor: 20_000,
+    });
+    expect(receipt.receiptNumber).toBe("C1R-000042");
+  });
+
+  describe("on a counter the server has seen sales from before", () => {
+    beforeAll(() => {
+      receiptFloor = 186;
+    });
+    afterAll(() => {
+      receiptFloor = 1;
+    });
+
+    it("starts from the grant's floor, so a replaced counter never repeats a number", () => {
+      const receipt = sale.commit({
+        checkoutDraftId: randomUUID(),
+        items: [{ snapshotLineId: A, quantity: 1 }],
+        cashTenderedMinor: 20_000,
+      });
+      expect(receipt.receiptNumber).toBe("C1R-000186");
+    });
+  });
+
+  it("prints an offline receipt as a normal one, under its final receipt number", () => {
     const draft = randomUUID();
     const { attemptId } = sale.prepareCard({
       checkoutDraftId: draft,
@@ -846,7 +911,7 @@ describe("offline sales (P4 #50)", () => {
     });
     const printed = offlineReceiptForPrinting(receipt);
     expect(printed).toMatchObject({
-      invoiceNo: `OFFLINE-${receipt.saleCommandId.slice(0, 8).toUpperCase()}`,
+      invoiceNo: "C1R-000001",
       sellerName: "Nimal",
       subtotal: "203.33",
       taxTotal: "36.50",

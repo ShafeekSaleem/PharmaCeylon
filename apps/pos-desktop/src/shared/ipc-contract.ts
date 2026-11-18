@@ -196,6 +196,7 @@ export const offlineQuoteSchema = z.object({
   digest: z.string(),
 });
 export const offlineReceiptSchema = z.object({
+  receiptNumber: z.string(),
   saleCommandId: z.string(),
   checkoutDraftId: z.string(),
   soldAt: z.number().int(),

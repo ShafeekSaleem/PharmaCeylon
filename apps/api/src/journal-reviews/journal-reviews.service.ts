@@ -51,6 +51,7 @@ import {
 } from "../terminals/journal/journal-chain";
 import {
   commitOfflineSale,
+  receiptNumberTaken,
   resolveSaleLines,
 } from "../terminals/journal/offline-sale-commit";
 import {
@@ -921,6 +922,9 @@ export class JournalReviewsService {
         )
       )
         return no("batch_missing");
+      // Its receipt number becomes its invoice number, so it must still be free (option A).
+      if (await receiptNumberTaken(db, identity, command.receiptNumber))
+        return no("receipt_number_used");
       // The sale joins the shift it was made on, as at intake; it must be open on the server.
       const shift = await db.tillShift.findFirst({
         where: {

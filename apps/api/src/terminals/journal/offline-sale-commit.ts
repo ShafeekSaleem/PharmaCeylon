@@ -13,12 +13,27 @@ import type {
   TerminalIdentity,
 } from "@pharmaceylon/shared";
 import type { AuditService } from "../../audit/audit.service";
-import { nextDocumentNumber } from "../../common/document-sequence.util";
 import { countsAfterSale } from "../../inventory/stock/counts-after-sale";
 import { blockedBatchIds } from "../../inventory/stock/sale-blocks";
 import type { StockService } from "../../inventory/stock/stock.service";
 
 type Tx = Prisma.TransactionClient;
+
+/**
+ * Option A: whether another sale at the branch already holds this receipt number. Only a sale from
+ * the same till could (its prefix is the till's alone), so this means the counter reused a number.
+ */
+export async function receiptNumberTaken(
+  db: Pick<Tx, "sale">,
+  identity: Pick<TerminalIdentity, "tenantId" | "branchId">,
+  receiptNumber: string,
+): Promise<boolean> {
+  const found = await db.sale.findFirst({
+    where: { tenantId: identity.tenantId, branchId: identity.branchId, invoiceNo: receiptNumber },
+    select: { id: true },
+  });
+  return found !== null;
+}
 
 /** LKR minor units to the Decimal(12,2) rupees the sale tables store, exactly. */
 export const fromMinor = (minor: number) => new Prisma.Decimal(minor).div(100);
@@ -195,8 +210,9 @@ export async function commitOfflineSale(
   }
 
   const saleId = randomUUID();
-  const period = `${String(soldAt.getUTCFullYear()).slice(2)}${String(soldAt.getUTCMonth() + 1).padStart(2, "0")}`;
-  const invoiceNo = await nextDocumentNumber(tx, tenantId, branchId, "sale", `INV-${period}-`, 6);
+  // Option A: the number the customer was given is final. Its till prefix is never an online
+  // invoice's, so only another sale from this till could hold it, and the callers refuse that first.
+  const invoiceNo = command.receiptNumber;
   const shiftId = command.session.workSessionId;
   await tx.sale.create({
     data: {

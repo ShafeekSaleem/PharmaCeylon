@@ -2,6 +2,7 @@ import { generateKeyPairSync, randomBytes, randomUUID, verify } from "node:crypt
 import { Prisma, RoleName, StockMovementType } from "@prisma/client";
 import {
   defaultCounterPolicy,
+  offlineReceiptNumber,
   terminalSigningText,
   type BranchStockSnapshot,
   type LocalAttendanceAttestation,
@@ -207,13 +208,15 @@ export async function counter(
  * The counter's side: a durable offline journal. Each entry takes the next sequence and names
  * the previous entry's hash, exactly as P4 will write it.
  */
-type JournalState = { sequence: number; previous: string | null; clock: number; offlineStartedAt: number; offlineSessionId: string };
+type JournalState = { sequence: number; previous: string | null; clock: number; offlineStartedAt: number; offlineSessionId: string; receipts: number };
 export function offlineJournal(c: Counter, from?: JournalState) {
   let sequence = from?.sequence ?? 0;
   let previous: string | null = from?.previous ?? null;
   const offlineStartedAt = from?.offlineStartedAt ?? Math.max(c.snapshot.generatedAt, c.grant.notBefore) + 1;
   const offlineSessionId = from?.offlineSessionId ?? randomUUID();
   let clock = from?.clock ?? offlineStartedAt;
+  // Receipt numbers under the till's prefix, from the grant's floor, as the counter numbers them.
+  let receipts = from?.receipts ?? c.grant.receiptNumbering.nextNumber - 1;
   const till = { registerId: c.grant.registerId, tillId: c.grant.tillId };
   const signIn = (staffUserId: string, workSessionId: string): Signed<OfflineStaffSignIn> => {
     const staff = c.grant.authorizedStaff.find((s) => s.staffUserId === staffUserId)!;
@@ -259,7 +262,7 @@ export function offlineJournal(c: Counter, from?: JournalState) {
      * Another journal continuing from this one's current entry: what a computer restored from a
      * backup taken now writes next, while this one carries on elsewhere.
      */
-    fork: () => offlineJournal(c, { sequence, previous, clock, offlineStartedAt, offlineSessionId }),
+    fork: () => offlineJournal(c, { sequence, previous, clock, offlineStartedAt, offlineSessionId, receipts }),
     open: (staff: Signed<OfflineStaffSignIn>, openingCashMinor: number, previousClosedWorkSessionId: string | null = null,
       overrides: Partial<OfflineShiftOpenCommand> = {}) =>
       entry<OfflineShiftOpenCommand>(staff, { kind: "shift_open", currency: "LKR", openingCashMinor, previousClosedWorkSessionId }, overrides),
@@ -267,8 +270,9 @@ export function offlineJournal(c: Counter, from?: JournalState) {
       const priced = items.map(([batchId, qty]) => line(batchId, qty));
       const totalMinor = priced.reduce((sum, p) => sum + p.total, 0);
       const payments: OfflinePayment[] = [{ method: "cash", amountMinor: totalMinor, tenderedMinor: totalMinor + 500, changeMinor: 500 }];
+      receipts += 1;
       return entry<OfflineSaleCommand>(staff, {
-        kind: "ordinary_sale", snapshotId: c.snapshot.snapshotId, snapshotVersion: c.snapshot.snapshotVersion,
+        kind: "ordinary_sale", receiptNumber: offlineReceiptNumber(c.grant.receiptNumbering.prefix, receipts), snapshotId: c.snapshot.snapshotId, snapshotVersion: c.snapshot.snapshotVersion,
         currency: "LKR", lines: priced.map((p) => p.line), payments, totalMinor,
       }, overrides);
     },

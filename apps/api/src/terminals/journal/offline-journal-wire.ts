@@ -152,6 +152,7 @@ export function parseJournalCommand(raw: unknown): OfflineJournalCommand {
     const p = object(raw, [
       ...CONTEXT_KEYS,
       "kind",
+      "receiptNumber",
       "snapshotId",
       "snapshotVersion",
       "currency",
@@ -160,6 +161,8 @@ export function parseJournalCommand(raw: unknown): OfflineJournalCommand {
       "totalMinor",
     ]);
     parseContext(p);
+    // Its prefix and floor are checked against the grant by offlineSalePolicyError.
+    if (typeof p.receiptNumber !== "string" || !/^C[1-9][0-9]{0,3}R-[0-9]{6,9}$/.test(p.receiptNumber)) invalid();
     uuid(p.snapshotId);
     safe(p.snapshotVersion, 1);
     if (p.currency !== "LKR") invalid();

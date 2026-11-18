@@ -509,3 +509,37 @@ test('an offline journal entry hashes to the golden vector the desktop and the A
   assert.deepEqual(vector.payload, JSON.parse(JSON.stringify(fixtures.sale)));
   assert.equal(createHash('sha256').update(c.terminalSigningText('command', vector.payload), 'utf8').digest('hex'), vector.hash);
 });
+
+test('an offline receipt number is the till prefix and a six-digit number, one spelling each (P4 #50)', () => {
+  assert.equal(c.offlineReceiptNumber('C1R', 186), 'C1R-000186');
+  assert.equal(c.offlineReceiptNumber('C12R', 1234567), 'C12R-1234567');
+  assert.equal(c.offlineReceiptSequence('C1R', 'C1R-000186'), 186);
+  assert.equal(c.offlineReceiptSequence('C12R', 'C12R-1234567'), 1234567);
+  for (const bad of ['C2R-000186', 'C1R-186', 'C1R-0000186', 'C1R-000000', 'INV-2611-000186', 'c1r-000186', 'C1R-000186 ', 186, null])
+    assert.equal(c.offlineReceiptSequence('C1R', bad), null, String(bad));
+  assert.equal(c.offlineReceiptSequence('INV', 'INV-000001'), null);
+});
+
+test('an offline sale carries a receipt number under its grant prefix, never below the grant floor', () => {
+  const f = fresh();
+  assert.equal(check(f), null);
+  for (const receiptNumber of ['C2R-000001', 'C1R-1', 'INV-2611-000001', undefined]) {
+    const g = fresh();
+    g.sale.receiptNumber = receiptNumber;
+    assert.equal(check(g), 'INVALID_COMMAND', String(receiptNumber));
+  }
+  const floor = fresh();
+  floor.grant.receiptNumbering = { prefix: 'C1R', nextNumber: 5 };
+  floor.sale.receiptNumber = 'C1R-000004';
+  assert.equal(check(floor), 'INVALID_COMMAND');
+  floor.sale.receiptNumber = 'C1R-000005';
+  assert.equal(check(floor), null);
+});
+
+test('a grant without a valid receipt prefix or floor is invalid', () => {
+  for (const receiptNumbering of [undefined, { prefix: 'INV', nextNumber: 1 }, { prefix: 'C0R', nextNumber: 1 }, { prefix: 'C1R', nextNumber: 0 }, { prefix: 'C1R', nextNumber: 1.5 }]) {
+    const f = fresh();
+    f.grant.receiptNumbering = receiptNumbering;
+    assert.throws(() => c.assertOfflineGrantBounds(f.grant), String(JSON.stringify(receiptNumbering)));
+  }
+});

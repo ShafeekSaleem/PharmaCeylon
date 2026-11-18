@@ -115,6 +115,7 @@ function authorityPair(
     operatingWindows: [{ startsAt: issuedAt, endsAt: issuedAt + MAX_OFFLINE_GRANT_MS }],
     mandatoryOperatingWindows: null,
     operatingHoursException: null,
+    receiptNumbering: { prefix: "C1R", nextNumber: 1 },
   };
   return { grant: signedServer("grant", grant), snapshot: signedServer("snapshot", snapshot) };
 }
@@ -155,6 +156,7 @@ function buildOrdinarySale(
     offlineStartedAt: input.offlineStartedAt,
     businessHoursAcknowledgementId: null,
     kind: "ordinary_sale",
+    receiptNumber: "C1R-000001",
     snapshotId: snapshot.snapshotId,
     snapshotVersion: snapshot.snapshotVersion,
     currency: "LKR",

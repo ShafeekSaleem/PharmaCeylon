@@ -178,7 +178,39 @@ export type OfflineGrant = Readonly<{
     startsAt: number;
     endsAt: number;
   }>;
+  receiptNumbering: OfflineReceiptNumbering;
 }>;
+
+/**
+ * P4 #50, receipt numbering option A: an offline sale's receipt number is final. The server gives
+ * each till its own prefix (`C1R`, `C2R`, ...) that no other till at the branch and no online
+ * invoice (`INV-`) uses, so the counter numbers its sales on its own and the server keeps that
+ * number as the sale's invoice number. `nextNumber` is the lowest number the server has not seen
+ * from this till; the counter never goes below it, nor below its own last number.
+ */
+export type OfflineReceiptNumbering = Readonly<{
+  prefix: string;
+  nextNumber: number;
+}>;
+
+/** `C` + the till's number at its branch + `R`: short enough to read out at the counter. */
+export const OFFLINE_RECEIPT_PREFIX_PATTERN = /^C[1-9][0-9]{0,3}R$/;
+export const OFFLINE_RECEIPT_NUMBER_DIGITS = 6;
+
+/** `C1R-000186`. Numbers past 999999 keep every digit. */
+export function offlineReceiptNumber(prefix: string, n: number): string {
+  return `${prefix}-${String(n).padStart(OFFLINE_RECEIPT_NUMBER_DIGITS, "0")}`;
+}
+
+/** The number in a receipt number under this prefix, or null when it isn't one. */
+export function offlineReceiptSequence(prefix: string, receiptNumber: unknown): number | null {
+  if (typeof receiptNumber !== "string" || !OFFLINE_RECEIPT_PREFIX_PATTERN.test(prefix)) return null;
+  const match = /^(C[1-9][0-9]{0,3}R)-([0-9]{6,9})$/.exec(receiptNumber);
+  if (!match || match[1] !== prefix) return null;
+  const n = Number(match[2]);
+  // One spelling per number: padded to six digits, never more than that.
+  return n >= 1 && offlineReceiptNumber(prefix, n) === receiptNumber ? n : null;
+}
 
 export type OrdinarySaleLine = Readonly<{
   snapshotLineId: string;
@@ -221,6 +253,8 @@ export type OfflineCommandContext = Readonly<{
 
 export type OfflineSaleCommand = OfflineCommandContext & Readonly<{
   kind: "ordinary_sale"; // approved D2: completed-sale voids/refunds/stock operations require online checks
+  /** The number on the customer's receipt, final (option A): `offlineReceiptNumber(grant prefix, n)`. */
+  receiptNumber: string;
   snapshotId: string;
   snapshotVersion: number;
   currency: "LKR";
@@ -712,6 +746,10 @@ export function assertOfflineGrantBounds(grant: OfflineGrant): void {
   if (exception && (!exception.approvalId || !exception.approverUserId || !exception.reason.trim())) {
     throw new Error("Missing operating-hours evidence");
   }
+  const numbering = grant.receiptNumbering;
+  if (!numbering || typeof numbering.prefix !== "string" || !OFFLINE_RECEIPT_PREFIX_PATTERN.test(numbering.prefix))
+    throw new Error("Invalid receipt numbering");
+  assertSafeInteger(numbering.nextNumber, 1);
 }
 
 /** Structural bounds for a typed, already parsed snapshot; empty/zero balances are valid. */
@@ -1015,6 +1053,9 @@ export function offlineSalePolicyError(
   if (timeError) return timeError;
   if (sale.occurredAt !== trustedNow) return "CLOCK_UNTRUSTED";
   if (sale.currency !== "LKR" || grant.currency !== "LKR") return "INVALID_COMMAND";
+  const receiptSequence = offlineReceiptSequence(grant.receiptNumbering.prefix, sale.receiptNumber);
+  // Below the grant's floor, the server has already seen the number from this till.
+  if (receiptSequence === null || receiptSequence < grant.receiptNumbering.nextNumber) return "INVALID_COMMAND";
   try {
     assertSafeInteger(sale.sequence, 1);
     if (sale.sequence <= snapshot.includedThroughSequence) return "INVALID_COMMAND";

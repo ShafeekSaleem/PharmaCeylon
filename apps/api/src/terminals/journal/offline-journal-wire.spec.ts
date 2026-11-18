@@ -24,6 +24,7 @@ const context = (sequence = 1) => ({
 const sale = (overrides: Record<string, unknown> = {}) => ({
   ...context(),
   kind: "ordinary_sale",
+  receiptNumber: "C1R-000001",
   snapshotId: randomUUID(),
   snapshotVersion: 1,
   currency: "LKR",
@@ -59,6 +60,8 @@ describe("offline journal wire (P5 #51)", () => {
     expect(() => parseJournalCommand(sale({ currency: "USD" }))).toThrow();
     expect(() => parseJournalCommand(sale({ totalMinor: 36.58 }))).toThrow();
     expect(() => parseJournalCommand(sale({ lines: [] }))).toThrow();
+    for (const receiptNumber of ["INV-2611-000001", "C1R-1", "C0R-000001", 186, null])
+      expect(() => parseJournalCommand(sale({ receiptNumber }))).toThrow();
     expect(() => parseJournalCommand(sale({ payments: [{ method: "mobile_wallet", amountMinor: 3658 }] }))).toThrow();
     expect(() => parseJournalCommand(sale({ payments: [{ method: "cash", amountMinor: 3658, tenderedMinor: 4000, changeMinor: 342, pan: "4111" }] }))).toThrow();
   });

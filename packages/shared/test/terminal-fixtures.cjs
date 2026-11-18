@@ -12,6 +12,7 @@ const grant = {
   externalCardAllowed: false, policyVersion: 1,
   operatingWindows: [{ startsAt: issuedAt, endsAt: issuedAt + 8 * 60 * 60 * 1000 }],
   operatingHoursException: null, mandatoryOperatingWindows: null,
+  receiptNumbering: { prefix: 'C1R', nextNumber: 1 },
 };
 const snapshot = {
   contractVersion: 1, kind: 'branch_stock_snapshot', identity,
@@ -21,7 +22,7 @@ const snapshot = {
     unitPriceMinor: 1000, taxBasisPoints: 1800, sellBefore: issuedAt + 96 * 60 * 60 * 1000 }],
 };
 const sale = {
-  contractVersion: 1, kind: 'ordinary_sale', commandId: 'command-1', identity, session,
+  contractVersion: 1, kind: 'ordinary_sale', commandId: 'command-1', receiptNumber: 'C1R-000001', identity, session,
   staffSignInId: 'sign-in-1', businessHoursAcknowledgementId: null,
   sequence: 1, previousCommandHash: null, occurredAt: issuedAt + 1000,
   grantId: 'grant-1', grantVersion: 1, nominationVersion: 1,
