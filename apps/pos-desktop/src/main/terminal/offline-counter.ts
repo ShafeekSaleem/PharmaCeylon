@@ -1,7 +1,10 @@
 import { randomUUID } from "node:crypto";
 import {
+  MAX_HOURS_EXTENSION_MS,
+  offlineGrantTimeError,
   offlineShiftTransition,
   type LocalOpenTillShift,
+  type OfflineBusinessHoursEvidence,
   type OfflineGrant,
   type OfflineCommandContext,
   type OfflineStaffAuthorization,
@@ -27,6 +30,7 @@ import {
   type OfflineJournalWriter,
 } from "./offline-journal-writer";
 import type { OfflineModeService, OfflineStopReason } from "./offline-mode";
+import { OfflineSupportRecordWriter } from "./offline-support-records";
 import { ActionFailure } from "./terminal-service";
 import type { TrustedClock } from "./trusted-clock";
 
@@ -67,9 +71,29 @@ export type OfflineStaffState = {
     staffUserId: string;
     staffName: string;
     canAssistClose: boolean;
+    /** May acknowledge trading on outside routine hours (D8, a prepared manager). */
+    canAcknowledgeHours: boolean;
     lockRemainingMs: number;
   }[];
+  /** D8: where the counter stands against its selling hours. Null when it can't be told. */
+  hours: OfflineHoursState | null;
 };
+
+/**
+ * `open`: inside the routine hours the grant carries. `acknowledged`: outside them, under a
+ * manager's acknowledgement until `until`. `needs_acknowledgement`: outside them, and only a
+ * prepared manager can let selling and shift opening go on. `closed`: a mandatory restriction
+ * (or the grant's end) stops selling, and no acknowledgement reaches past it.
+ */
+export type OfflineHoursState =
+  | { status: "open" }
+  | { status: "acknowledged"; until: number; managerName: string }
+  | { status: "needs_acknowledgement" }
+  | { status: "closed" };
+
+/** Longest after-hours acknowledgement a manager can give in one go: what the server accepts. */
+export const MAX_HOURS_ACKNOWLEDGEMENT_MINUTES =
+  MAX_HOURS_EXTENSION_MS / 60_000;
 
 /** The renderer's view: ISO times. */
 export function offlineStaffForRenderer(
@@ -84,6 +108,10 @@ export function offlineStaffForRenderer(
       ...p,
       lockRemainingMs: Math.max(0, Math.ceil(p.lockRemainingMs)),
     })),
+    hours:
+      state.hours?.status === "acknowledged"
+        ? { ...state.hours, until: new Date(state.hours.until).toISOString() }
+        : state.hours,
   };
 }
 
@@ -117,8 +145,9 @@ const MODE_MESSAGES: Record<OfflineStopReason, string> = {
 
 const POLICY_MESSAGES: Partial<Record<TerminalErrorCode, string>> = {
   BUSINESS_HOURS_ACK_REQUIRED:
-    "It's outside selling hours, so a shift can't be opened offline.",
-  OUTSIDE_OPERATING_HOURS: "Shifts can't be opened at this time.",
+    "It's outside selling hours. A manager can acknowledge trading on with their PIN.",
+  OUTSIDE_OPERATING_HOURS:
+    "The branch can't trade at this time, and no manager can change that offline.",
   GRANT_EXPIRED: MODE_MESSAGES.GRANT_EXPIRED,
   GRANT_INVALID:
     "This counter's offline permission isn't valid. Reconnect to continue.",
@@ -142,6 +171,7 @@ export type OfflineCounterDeps = {
   journal: Pick<
     OfflineJournalWriter,
     | "storeOfflineStaffSignIn"
+    | "storeWitnessSignIn"
     | "activeStaffSignIn"
     | "appendSignedCommand"
     | "getHead"
@@ -374,6 +404,7 @@ export class OfflineCounterService {
     ready: Ready,
     session: WorkSessionIdentity,
     signIn: OfflineStaffSignIn,
+    hours?: OfflineBusinessHoursEvidence,
   ): OfflineCommandContext {
     const head = this.deps.journal.getHead(ready.enrollmentId);
     return {
@@ -390,8 +421,59 @@ export class OfflineCounterService {
       nominationVersion: ready.grant.nominationVersion,
       offlineSessionId: ready.outage.offlineSessionId,
       offlineStartedAt: ready.outage.offlineStartedAt,
-      businessHoursAcknowledgementId: null,
+      businessHoursAcknowledgementId: hours?.acknowledgement.recordId ?? null,
     };
+  }
+
+  private supportWriter(ready: Pick<Ready, "trustedNow">) {
+    return new OfflineSupportRecordWriter({
+      db: this.deps.db,
+      now: () => new Date(ready.trustedNow),
+    });
+  }
+
+  /**
+   * D8: the acknowledgement a sale or shift opening made now relies on: only outside routine
+   * hours, and only one recorded on this counter in this outage under this grant that covers now.
+   */
+  private hoursEvidence(
+    ready: Pick<Ready, "enrollmentId" | "grant" | "outage" | "trustedNow">,
+  ): OfflineBusinessHoursEvidence | undefined {
+    if (
+      offlineGrantTimeError(ready.grant, ready.trustedNow) !==
+      "BUSINESS_HOURS_ACK_REQUIRED"
+    )
+      return undefined;
+    return this.supportWriter(ready)
+      .hoursAcknowledgements(ready.enrollmentId, {
+        grantId: ready.grant.grantId,
+        grantVersion: ready.grant.grantVersion,
+        offlineSessionId: ready.outage.offlineSessionId,
+      })
+      .find(
+        (e) =>
+          e.acknowledgement.startsAt <= ready.trustedNow &&
+          ready.trustedNow < e.acknowledgement.endsAt,
+      );
+  }
+
+  private hoursState(
+    ready: Pick<Ready, "enrollmentId" | "grant" | "outage" | "trustedNow">,
+  ): OfflineHoursState {
+    const error = offlineGrantTimeError(ready.grant, ready.trustedNow);
+    if (error === null) return { status: "open" };
+    if (error !== "BUSINESS_HOURS_ACK_REQUIRED") return { status: "closed" };
+    const evidence = this.hoursEvidence(ready);
+    return evidence
+      ? {
+          status: "acknowledged",
+          until: evidence.acknowledgement.endsAt,
+          managerName: this.staffName(
+            ready.enrollmentId,
+            evidence.managerSignIn.session.staffUserId,
+          ),
+        }
+      : { status: "needs_acknowledgement" };
   }
 
   private checkTransition(
@@ -399,6 +481,7 @@ export class OfflineCounterService {
     command: OfflineShiftOpenCommand | OfflineShiftCloseCommand,
     current: OfflineTillShiftState,
     signIn: OfflineStaffSignIn,
+    hours?: OfflineBusinessHoursEvidence,
   ): void {
     const result = offlineShiftTransition(
       ready.grant,
@@ -407,6 +490,7 @@ export class OfflineCounterService {
       signIn,
       ready.trustedNow,
       "offline",
+      hours,
     );
     if (result.error)
       throw new ActionFailure(
@@ -421,11 +505,12 @@ export class OfflineCounterService {
   state(): OfflineStaffState {
     const device = this.deps.device.read();
     if (!device || this.deps.mode.view().mode !== "offline")
-      return { signedIn: null, people: [] };
+      return { signedIn: null, people: [], hours: null };
     const enrollmentId = device.identity.enrollmentId;
     const installed = readInstalledOfflineAuthority(this.deps.db, enrollmentId);
     const outage = activeOutage(this.deps.db, enrollmentId);
-    if (!installed || !outage) return { signedIn: null, people: [] };
+    if (!installed || !outage)
+      return { signedIn: null, people: [], hours: null };
     const grant = installed.grant.payload;
     const signIn = this.signer({ enrollmentId, grant, outage });
     const authorized = new Map(
@@ -454,9 +539,30 @@ export class OfflineCounterService {
           canAssistClose: authorized
             .get(p.staffUserId)!
             .offlineManagerActions.includes("assist_shift_handover"),
+          canAcknowledgeHours: authorized
+            .get(p.staffUserId)!
+            .offlineManagerActions.includes("acknowledge_business_hours"),
           lockRemainingMs: p.lockRemainingMs,
         })),
+      hours: this.hoursNow(enrollmentId, grant, outage),
     };
+  }
+
+  /** `hoursState` for the screens, which may read it while the clock is not trusted. */
+  private hoursNow(
+    enrollmentId: string,
+    grant: OfflineGrant,
+    outage: Ready["outage"],
+  ): OfflineHoursState | null {
+    const stamp = this.deps.clock.stamp();
+    return stamp.trusted
+      ? this.hoursState({
+          enrollmentId,
+          grant,
+          outage,
+          trustedNow: stamp.nowMs,
+        })
+      : null;
   }
 
   // ── what people do ────────────────────────────────────────────────────────────────────────
@@ -498,14 +604,15 @@ export class OfflineCounterService {
     // A new shift, a new work session: a sign-in bound to it, checked against the policy before
     // the PIN is, and written only with the entry it backs.
     const signIn = this.draftSignIn(ready, person, randomUUID());
+    const hours = this.hoursEvidence(ready);
     const command: OfflineShiftOpenCommand = {
-      ...this.context(ready, signIn.session, signIn),
+      ...this.context(ready, signIn.session, signIn, hours),
       kind: "shift_open",
       currency: "LKR",
       openingCashMinor: count.totalMinor,
       previousClosedWorkSessionId: current.lastClosedWorkSessionId,
     };
-    this.checkTransition(ready, command, current, signIn);
+    this.checkTransition(ready, command, current, signIn, hours);
     const signedIn = this.authenticate(ready, signIn, pin);
     const envelope = ready.key.sign(command, "command");
     const at = new Date(ready.trustedNow).toISOString();
@@ -537,6 +644,83 @@ export class OfflineCounterService {
     })();
     this.deps.logger?.info("offline.shift_opened", {
       workSessionId: signIn.session.workSessionId,
+    });
+    return this.state();
+  }
+
+  /**
+   * D8: a prepared manager lets this counter keep selling and opening shifts outside its routine
+   * hours, with their own PIN, a reason and a time limit. Their sign-in is kept as evidence only:
+   * whoever is at the till stays signed in. The acknowledgement starts now and ends at the
+   * earliest of the time asked for, one day, the grant's expiry and the end of any mandatory
+   * window, which no manager can reach past. It is written before anything that relies on it.
+   */
+  acknowledgeHours(input: {
+    staffUserId: string;
+    pin: string;
+    minutes: number;
+    reason: string;
+  }): OfflineStaffState {
+    const ready = this.ready();
+    const reason = input.reason.trim();
+    if (!reason)
+      throw new ActionFailure(
+        "REASON_REQUIRED",
+        "Say why the counter keeps trading.",
+      );
+    if (
+      !Number.isSafeInteger(input.minutes) ||
+      input.minutes < 1 ||
+      input.minutes > MAX_HOURS_ACKNOWLEDGEMENT_MINUTES
+    )
+      throw new ActionFailure(
+        "INVALID_AMOUNT",
+        "Choose how long, up to a day.",
+      );
+    const error = offlineGrantTimeError(ready.grant, ready.trustedNow);
+    if (error === null)
+      throw new ActionFailure(
+        "WITHIN_HOURS",
+        "It's within selling hours: nothing to acknowledge.",
+      );
+    if (error !== "BUSINESS_HOURS_ACK_REQUIRED")
+      throw new ActionFailure(
+        error,
+        POLICY_MESSAGES[error] ?? "This counter can't trade at this time.",
+      );
+    const staff = this.authorizedStaff(ready, input.staffUserId);
+    if (!staff.offlineManagerActions.includes("acknowledge_business_hours"))
+      throw new ActionFailure(
+        "NOT_PERMITTED",
+        "Only a manager prepared for it can acknowledge trading outside selling hours.",
+      );
+    const startsAt = ready.trustedNow;
+    let endsAt = Math.min(
+      startsAt + input.minutes * 60_000,
+      startsAt + MAX_HOURS_EXTENSION_MS,
+      ready.grant.expiresAt,
+    );
+    const mandatory = ready.grant.mandatoryOperatingWindows?.find(
+      (w) => w.startsAt <= startsAt && startsAt < w.endsAt,
+    );
+    if (mandatory) endsAt = Math.min(endsAt, mandatory.endsAt);
+    const draft = this.draftSignIn(ready, input.staffUserId, randomUUID());
+    const signedIn = this.authenticate(ready, draft, input.pin);
+    this.deps.db.transaction(() => {
+      this.deps.journal.storeWitnessSignIn(ready.enrollmentId, signedIn);
+      this.supportWriter(ready).recordHoursAcknowledgement({
+        key: ready.key,
+        managerSignInId: signedIn.payload.staffSignInId,
+        offlineSessionId: ready.outage.offlineSessionId,
+        offlineStartedAt: ready.outage.offlineStartedAt,
+        startsAt,
+        endsAt,
+        reason,
+      });
+    })();
+    this.deps.logger?.info("offline.hours_acknowledged", {
+      managerSignInId: signedIn.payload.staffSignInId,
+      minutes: Math.round((endsAt - startsAt) / 60_000),
     });
     return this.state();
   }
@@ -698,6 +882,8 @@ export class OfflineCounterService {
     signIn: OfflineStaffSignIn;
     sellerName: string;
     openShift: LocalOpenTillShift;
+    /** D8: the acknowledgement this sale relies on, outside routine hours. */
+    hours: OfflineBusinessHoursEvidence | undefined;
     command: () => OfflineCommandContext;
   } {
     const ready = this.ready();
@@ -713,9 +899,11 @@ export class OfflineCounterService {
           : "Open your shift before selling.",
       );
     const session = this.shiftSession(ready, open);
+    const hours = this.hoursEvidence(ready);
     return {
       ready,
       signIn,
+      hours,
       sellerName: this.staffName(
         ready.enrollmentId,
         signIn.session.staffUserId,
@@ -726,7 +914,7 @@ export class OfflineCounterService {
         openedAt: Date.parse(open.opened_at),
         openingCashMinor: open.opening_cash_minor,
       },
-      command: () => this.context(ready, session, signIn),
+      command: () => this.context(ready, session, signIn, hours),
     };
   }
 }

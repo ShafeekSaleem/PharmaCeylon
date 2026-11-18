@@ -616,6 +616,7 @@ export class OfflineSaleService {
       "offline",
       signIn,
       context.openShift,
+      context.hours,
     );
     if (error)
       throw new ActionFailure(

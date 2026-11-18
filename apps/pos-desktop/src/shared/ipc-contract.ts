@@ -7,7 +7,12 @@ import { z } from "zod";
  * channel the renderer can reach that is not listed and validated.
  */
 
-export const checkStatusSchema = z.enum(["ok", "warning", "failed", "not_ready"]);
+export const checkStatusSchema = z.enum([
+  "ok",
+  "warning",
+  "failed",
+  "not_ready",
+]);
 export type CheckStatus = z.infer<typeof checkStatusSchema>;
 
 export const readinessCheckSchema = z.object({
@@ -27,7 +32,9 @@ export const enrollmentOfflineBackupSchema = z.object({
   activatedByUserId: z.string().uuid().nullable(),
   activatedByFullName: z.string().nullable(),
 });
-export type EnrollmentOfflineBackup = z.infer<typeof enrollmentOfflineBackupSchema>;
+export type EnrollmentOfflineBackup = z.infer<
+  typeof enrollmentOfflineBackupSchema
+>;
 
 export const emptyEnrollmentOfflineBackup: EnrollmentOfflineBackup = {
   authorizedAt: null,
@@ -138,7 +145,12 @@ export type OfflineModeState = z.infer<typeof offlineModeSchema>;
 /** P4 #50: who is signed in offline, and who may sign in. Times are ISO. */
 export const offlineStaffSchema = z.object({
   signedIn: z
-    .object({ staffUserId: z.string(), staffName: z.string(), signedInAt: z.string(), workSessionId: z.string() })
+    .object({
+      staffUserId: z.string(),
+      staffName: z.string(),
+      signedInAt: z.string(),
+      workSessionId: z.string(),
+    })
     .nullable(),
   people: z.array(
     z.object({
@@ -146,14 +158,34 @@ export const offlineStaffSchema = z.object({
       staffName: z.string(),
       /** May close someone else's shift for them (a prepared manager). */
       canAssistClose: z.boolean(),
+      /** May acknowledge trading outside routine hours (D8, a prepared manager). */
+      canAcknowledgeHours: z.boolean(),
       lockRemainingMs: z.number().int().min(0),
     }),
   ),
+  /** D8: the counter against its selling hours; null when it can't be told (no trusted time). */
+  hours: z
+    .discriminatedUnion("status", [
+      z.object({ status: z.literal("open") }),
+      z.object({
+        status: z.literal("acknowledged"),
+        until: z.string(),
+        managerName: z.string(),
+      }),
+      z.object({ status: z.literal("needs_acknowledgement") }),
+      z.object({ status: z.literal("closed") }),
+    ])
+    .nullable(),
 });
 export type OfflineStaff = z.infer<typeof offlineStaffSchema>;
 
 /** P4 #50: offline selling. Money is in minor units (cents), as signed in the journal. */
-const offlineBlockReason = z.enum(["NOT_SOLD_OFFLINE", "STOCK_REVIEW", "EXPIRED", "NOT_ENOUGH_STOCK"]);
+const offlineBlockReason = z.enum([
+  "NOT_SOLD_OFFLINE",
+  "STOCK_REVIEW",
+  "EXPIRED",
+  "NOT_ENOUGH_STOCK",
+]);
 const offlineSaleItemSchema = z.object({
   snapshotLineId: z.string().min(1),
   quantity: z.number().int().min(1).max(100_000),
@@ -167,7 +199,12 @@ const offlineQuoteLineSchema = z.object({
   taxMinor: z.number().int(),
   lineTotalMinor: z.number().int(),
   display: z
-    .object({ name: z.string(), strength: z.string().nullable(), barcode: z.string().nullable(), batchNo: z.string() })
+    .object({
+      name: z.string(),
+      strength: z.string().nullable(),
+      barcode: z.string().nullable(),
+      batchNo: z.string(),
+    })
     .nullable(),
 });
 export const offlineStockLineSchema = z.object({
@@ -235,13 +272,20 @@ export const offlineSaleSchema = z.object({
   itemCount: z.number().int().min(0),
   paidByCard: z.boolean(),
   /** The card machine's reference and approval code on each card payment of this sale. */
-  cardPayments: z.array(z.object({ reference: z.string(), approvalCode: z.string() })),
+  cardPayments: z.array(
+    z.object({ reference: z.string(), approvalCode: z.string() }),
+  ),
   /** Notes already saved against this sale. */
   noteCount: z.number().int().min(0),
 });
 export type OfflineSaleView = z.infer<typeof offlineSaleSchema>;
 
-export const saleIncidentCategorySchema = z.enum(["quantity_error", "payment_uncertain", "customer_dispute", "other"]);
+export const saleIncidentCategorySchema = z.enum([
+  "quantity_error",
+  "payment_uncertain",
+  "customer_dispute",
+  "other",
+]);
 
 /** Longest note the counter will save; the main process enforces the same limit. */
 export const MAX_SALE_NOTE_LENGTH = 1000;
@@ -252,7 +296,14 @@ export const cardAttemptSchema = z.object({
   checkoutDraftId: z.string().uuid(),
   amount: z.string(),
   startedAt: z.string(),
-  state: z.enum(["prepared", "uncertain", "approved", "declined", "linked_to_sale", "not_used"]),
+  state: z.enum([
+    "prepared",
+    "uncertain",
+    "approved",
+    "declined",
+    "linked_to_sale",
+    "not_used",
+  ]),
   /** True once it was declined or tied to the sale it paid for. */
   settled: z.boolean(),
   /** From the card machine's slip, once someone has recorded it. */
@@ -289,7 +340,11 @@ export const cardOutcomeSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("declined"), reference: cardReference }),
   /** Checked the card machine: this payment never reached it, so there is no reference to copy. */
   z.object({ kind: z.literal("never_charged") }),
-  z.object({ kind: z.literal("paid_sale"), reference: cardReference, saleCommandId: z.string().uuid() }),
+  z.object({
+    kind: z.literal("paid_sale"),
+    reference: cardReference,
+    saleCommandId: z.string().uuid(),
+  }),
 ]);
 export type CardOutcomeInput = z.infer<typeof cardOutcomeSchema>;
 
@@ -334,7 +389,11 @@ export type PrintResult = z.infer<typeof printResultSchema>;
 
 const uuid = z.string().uuid();
 
-export const branchSchema = z.object({ id: uuid, code: z.string(), name: z.string() });
+export const branchSchema = z.object({
+  id: uuid,
+  code: z.string(),
+  name: z.string(),
+});
 export type Branch = z.infer<typeof branchSchema>;
 
 export const counterSchema = z.object({
@@ -394,10 +453,21 @@ export const deviceStateSchema = z.object({
     })
     .nullable(),
   staffSession: z
-    .object({ workSessionId: uuid, staffUserId: uuid, staffName: z.string(), openedAt: z.string() })
+    .object({
+      workSessionId: uuid,
+      staffUserId: uuid,
+      staffName: z.string(),
+      openedAt: z.string(),
+    })
     .nullable(),
   /** The signed-in person's PIN on this counter; null when nobody is signed in. */
-  pin: z.object({ set: z.boolean(), prepared: z.boolean(), lockedUntil: z.string().nullable() }).nullable(),
+  pin: z
+    .object({
+      set: z.boolean(),
+      prepared: z.boolean(),
+      lockedUntil: z.string().nullable(),
+    })
+    .nullable(),
   locked: z.boolean(),
   /**
    * The people this counter can sign in with a PIN (D-W5): everyone prepared here, the signed-in
@@ -416,7 +486,10 @@ export const deviceStateSchema = z.object({
     }),
   ),
   branches: z.array(branchSchema),
-  windowsSession: z.object({ protocol: z.enum(["console", "rdp", "unknown"]), remoteSession: z.boolean() }),
+  windowsSession: z.object({
+    protocol: z.enum(["console", "rdp", "unknown"]),
+    remoteSession: z.boolean(),
+  }),
 });
 export type DeviceState = z.infer<typeof deviceStateSchema>;
 
@@ -507,10 +580,13 @@ export type CoSign = z.infer<typeof coSignSchema>;
 
 /** Recording a prescription: by the person signed in, if they hold an SLMC registration, or with a
  * registered pharmacist's co-sign (their PIN, sent once to the server and never stored here). */
-export const recordPrescriptionWithCoSignSchema = recordPrescriptionSchema.extend({
-  coSign: coSignSchema.optional(),
-});
-export type RecordPrescription = z.infer<typeof recordPrescriptionWithCoSignSchema>;
+export const recordPrescriptionWithCoSignSchema =
+  recordPrescriptionSchema.extend({
+    coSign: coSignSchema.optional(),
+  });
+export type RecordPrescription = z.infer<
+  typeof recordPrescriptionWithCoSignSchema
+>;
 
 export const dispensingSchema = z.object({
   customerId: uuid.optional(),
@@ -559,7 +635,13 @@ export const completedSaleSchema = z.object({
       batchId: uuid.optional(),
     }),
   ),
-  payments: z.array(z.object({ method: z.string(), amount: z.string(), reference: z.string().nullable() })),
+  payments: z.array(
+    z.object({
+      method: z.string(),
+      amount: z.string(),
+      reference: z.string().nullable(),
+    }),
+  ),
 });
 export type CompletedSale = z.infer<typeof completedSaleSchema>;
 
@@ -643,7 +725,10 @@ export const counterWorkKinds = [
 ] as const;
 export type CounterWorkKind = (typeof counterWorkKinds)[number];
 
-const counterWorkPersonSchema = z.object({ name: z.string().nullable(), at: z.string().nullable() });
+const counterWorkPersonSchema = z.object({
+  name: z.string().nullable(),
+  at: z.string().nullable(),
+});
 
 /**
  * The #172 task projection, as far as the counter reads it: stage, next action, blocker and
@@ -707,13 +792,14 @@ export const heldWriteOffAtCounterSchema = z.object({
   requestReason: z.string().nullable(),
   fromQuarantine: z.boolean(),
   product: z.object({ id: uuid, name: z.string(), sku: z.string().optional() }),
-  batch: z.object({ id: uuid, batchNo: z.string(), expiryDate: z.string().optional() }),
+  batch: z.object({
+    id: uuid,
+    batchNo: z.string(),
+    expiryDate: z.string().optional(),
+  }),
   requester: z.object({ id: uuid, fullName: z.string() }),
   requestedAt: z.string(),
-  decider: z
-    .object({ id: uuid, fullName: z.string() })
-    .nullable()
-    .optional(),
+  decider: z.object({ id: uuid, fullName: z.string() }).nullable().optional(),
   decidedAt: z.string().nullable().optional(),
   decisionNote: z.string().nullable().optional(),
   approvalReview: z.object({
@@ -782,7 +868,9 @@ export type StockCaseResolved = z.infer<typeof stockCaseResolvedSchema>;
 export const refundExecutedSchema = z.object({
   requestNumber: z.string(),
   amountMinor: z.number().int(),
-  refundedTo: z.array(z.object({ method: z.string(), amountMinor: z.number().int() })),
+  refundedTo: z.array(
+    z.object({ method: z.string(), amountMinor: z.number().int() }),
+  ),
   alreadyApplied: z.boolean(),
   requestedBy: z.string().nullable(),
   approvedBy: z.string().nullable(),
@@ -800,7 +888,12 @@ export const refundReasonSchema = z.enum([
 ]);
 export type RefundReason = z.infer<typeof refundReasonSchema>;
 
-export const paymentMethodSchema = z.enum(["cash", "card", "mobile_wallet", "credit"]);
+export const paymentMethodSchema = z.enum([
+  "cash",
+  "card",
+  "mobile_wallet",
+  "credit",
+]);
 export type PaymentMethod = z.infer<typeof paymentMethodSchema>;
 
 /** One line of a sale on the Returns page, with what earlier refunds have left of it. */
@@ -828,14 +921,28 @@ export const returnSaleSchema = z.object({
   soldAt: z.string(),
   grandTotal: z.string(),
   sellerName: z.string().nullable(),
-  customer: z.object({ fullName: z.string(), phone: z.string().nullable() }).nullable(),
+  customer: z
+    .object({ fullName: z.string(), phone: z.string().nullable() })
+    .nullable(),
   /** How the customer paid: refund rows (negative) don't count. */
-  payments: z.array(z.object({ method: z.string(), amount: z.string(), reference: z.string().nullable() })),
+  payments: z.array(
+    z.object({
+      method: z.string(),
+      amount: z.string(),
+      reference: z.string().nullable(),
+    }),
+  ),
   /** A prescription or controlled item: refunding needs someone who can approve controlled sales. */
   needsPharmacist: z.boolean(),
   /** The tenant's refund limit; at or over it, the refund needs approval. Null: no limit. */
   refundLimit: z.string().nullable(),
-  earlierRefunds: z.array(z.object({ returnNumber: z.string(), amount: z.string(), createdAt: z.string() })),
+  earlierRefunds: z.array(
+    z.object({
+      returnNumber: z.string(),
+      amount: z.string(),
+      createdAt: z.string(),
+    }),
+  ),
   lines: z.array(returnLineSchema),
 });
 export type ReturnSale = z.infer<typeof returnSaleSchema>;
@@ -882,7 +989,9 @@ export const returnOutcomeSchema = z.discriminatedUnion("status", [
      * A manager's co-sign was sent and refused (wrong PIN, no authority, locked out). The request
      * stays prepared: the PIN can be tried again, or the approval left to the web.
      */
-    coSignRefusal: z.object({ code: z.string(), message: z.string() }).optional(),
+    coSignRefusal: z
+      .object({ code: z.string(), message: z.string() })
+      .optional(),
   }),
 ]);
 export type ReturnOutcome = z.infer<typeof returnOutcomeSchema>;
@@ -927,10 +1036,19 @@ export const stockRowSchema = z.object({
 });
 export type StockRow = z.infer<typeof stockRowSchema>;
 
-export const stockFilterSchema = z.enum(["all", "low", "prescription", "controlled"]);
+export const stockFilterSchema = z.enum([
+  "all",
+  "low",
+  "prescription",
+  "controlled",
+]);
 export type StockFilter = z.infer<typeof stockFilterSchema>;
 /** The Needs attention lists, as `stock-by-product`'s `attention` filter names them. */
-export const stockAttentionKindSchema = z.enum(["near_expiry", "expired", "quarantined"]);
+export const stockAttentionKindSchema = z.enum([
+  "near_expiry",
+  "expired",
+  "quarantined",
+]);
 export type StockAttentionKind = z.infer<typeof stockAttentionKindSchema>;
 
 export const stockSearchSchema = z.object({
@@ -1042,7 +1160,10 @@ export const stockAdjustmentSchema = z.object({
 });
 export type StockAdjustment = z.infer<typeof stockAdjustmentSchema>;
 
-export const actionErrorSchema = z.object({ code: z.string(), message: z.string() });
+export const actionErrorSchema = z.object({
+  code: z.string(),
+  message: z.string(),
+});
 export type ActionError = z.infer<typeof actionErrorSchema>;
 
 /** A drawer count in minor units (cents): the total and the note-and-coin lines it came from. */
@@ -1076,9 +1197,20 @@ export const shiftSummarySchema = z.object({
   firstSaleAt: z.string().nullable(),
   lastSaleAt: z.string().nullable(),
   takingsByMethod: z.array(
-    z.object({ method: z.string(), saleCount: z.number().int(), takenMinor: minor, refundedMinor: minor }),
+    z.object({
+      method: z.string(),
+      saleCount: z.number().int(),
+      takenMinor: minor,
+      refundedMinor: minor,
+    }),
   ),
-  takingsByHour: z.array(z.object({ hour: z.string(), saleCount: z.number().int(), totalMinor: minor })),
+  takingsByHour: z.array(
+    z.object({
+      hour: z.string(),
+      saleCount: z.number().int(),
+      totalMinor: minor,
+    }),
+  ),
   refunds: z.array(
     z.object({
       goodsReturnId: uuid,
@@ -1086,7 +1218,13 @@ export const shiftSummarySchema = z.object({
       invoiceNo: z.string().nullable(),
       amountMinor: minor,
       paidBack: z.array(z.object({ method: z.string(), amountMinor: minor })),
-      items: z.array(z.object({ name: z.string(), qty: z.number().int(), disposition: z.string() })),
+      items: z.array(
+        z.object({
+          name: z.string(),
+          qty: z.number().int(),
+          disposition: z.string(),
+        }),
+      ),
       processedBy: personSchema,
       at: z.string(),
     }),
@@ -1174,36 +1312,76 @@ function result<T extends z.ZodTypeAny>(value: T) {
     z.object({ ok: z.literal(false), error: actionErrorSchema }),
   ]);
 }
-export type ActionResult<T> = { ok: true; value: T } | { ok: false; error: ActionError };
+export type ActionResult<T> =
+  | { ok: true; value: T }
+  | { ok: false; error: ActionError };
 
-const credentials = z.object({ email: z.string().trim().min(3).max(254), password: z.string().min(1).max(256) });
+const credentials = z.object({
+  email: z.string().trim().min(3).max(254),
+  password: z.string().min(1).max(256),
+});
 const label = z.string().trim().min(1).max(120);
 const pin = z.string().regex(/^\d{4,8}$/);
 
 const noInput = z.undefined();
 
 export const ipcContract = {
-  getAppInfo: { channel: "pos:app:info", input: noInput, output: appInfoSchema },
-  getReadiness: { channel: "pos:readiness:get", input: noInput, output: readinessReportSchema },
-  checkApi: { channel: "pos:api:check", input: noInput, output: apiReachabilitySchema },
-  listPrinters: { channel: "pos:printers:list", input: noInput, output: z.array(printerSchema) },
+  getAppInfo: {
+    channel: "pos:app:info",
+    input: noInput,
+    output: appInfoSchema,
+  },
+  getReadiness: {
+    channel: "pos:readiness:get",
+    input: noInput,
+    output: readinessReportSchema,
+  },
+  checkApi: {
+    channel: "pos:api:check",
+    input: noInput,
+    output: apiReachabilitySchema,
+  },
+  listPrinters: {
+    channel: "pos:printers:list",
+    input: noInput,
+    output: z.array(printerSchema),
+  },
   printTestReceipt: {
     channel: "pos:printers:test-receipt",
     input: z.object({ printerName: z.string().min(1).max(260) }),
     output: printResultSchema,
   },
-  getDeviceState: { channel: "pos:device:state", input: noInput, output: deviceStateSchema },
+  getDeviceState: {
+    channel: "pos:device:state",
+    input: noInput,
+    output: deviceStateSchema,
+  },
   setServerUrl: {
     channel: "pos:device:server-url",
     input: z.object({ url: z.string().trim().min(1).max(2048) }),
     output: result(deviceStateSchema),
   },
-  signIn: { channel: "pos:auth:sign-in", input: credentials, output: result(deviceStateSchema) },
-  signOut: { channel: "pos:auth:sign-out", input: noInput, output: result(deviceStateSchema) },
-  refreshEnrollment: { channel: "pos:device:refresh", input: noInput, output: result(deviceStateSchema) },
+  signIn: {
+    channel: "pos:auth:sign-in",
+    input: credentials,
+    output: result(deviceStateSchema),
+  },
+  signOut: {
+    channel: "pos:auth:sign-out",
+    input: noInput,
+    output: result(deviceStateSchema),
+  },
+  refreshEnrollment: {
+    channel: "pos:device:refresh",
+    input: noInput,
+    output: result(deviceStateSchema),
+  },
   listCounters: {
     channel: "pos:enrollment:counters",
-    input: z.object({ branchId: uuid, includeInactive: z.boolean().optional() }),
+    input: z.object({
+      branchId: uuid,
+      includeInactive: z.boolean().optional(),
+    }),
     output: result(z.array(counterSchema)),
   },
   /** Rename a counter, or stop using it / start using it again. */
@@ -1230,10 +1408,18 @@ export const ipcContract = {
   },
   enrollWithCode: {
     channel: "pos:enrollment:enroll-with-code",
-    input: z.object({ branchId: uuid, code: z.string().trim().min(4).max(32), label }),
+    input: z.object({
+      branchId: uuid,
+      code: z.string().trim().min(4).max(32),
+      label,
+    }),
     output: result(deviceStateSchema),
   },
-  catalog: { channel: "pos:checkout:catalog", input: noInput, output: result(catalogSchema) },
+  catalog: {
+    channel: "pos:checkout:catalog",
+    input: noInput,
+    output: result(catalogSchema),
+  },
   submitCheckout: {
     channel: "pos:checkout:submit",
     input: z.object({
@@ -1255,22 +1441,40 @@ export const ipcContract = {
     }),
     output: result(z.object({ holdRef: z.string() })),
   },
-  listHolds: { channel: "pos:checkout:holds", input: noInput, output: result(z.array(heldCartSchema)) },
+  listHolds: {
+    channel: "pos:checkout:holds",
+    input: noInput,
+    output: result(z.array(heldCartSchema)),
+  },
   recallHold: {
     channel: "pos:checkout:recall",
     input: z.object({ holdId: uuid }),
     output: result(
       z.object({
-        lines: z.array(z.object({ productId: z.string(), qty: z.number().int(), discountMinor: z.number().int().min(0) })),
+        lines: z.array(
+          z.object({
+            productId: z.string(),
+            qty: z.number().int(),
+            discountMinor: z.number().int().min(0),
+          }),
+        ),
         customer: customerSchema.nullable(),
         prescription: prescriptionSchema.nullable(),
       }),
     ),
   },
-  pendingCheckouts: { channel: "pos:checkout:pending", input: noInput, output: z.array(checkoutDraftSchema) },
+  pendingCheckouts: {
+    channel: "pos:checkout:pending",
+    input: noInput,
+    output: z.array(checkoutDraftSchema),
+  },
   retryCheckout: {
     channel: "pos:checkout:retry",
-    input: z.object({ draftId: uuid, coSign: coSignSchema.optional(), discountCoSign: coSignSchema.optional() }),
+    input: z.object({
+      draftId: uuid,
+      coSign: coSignSchema.optional(),
+      discountCoSign: coSignSchema.optional(),
+    }),
     output: result(completedSaleSchema),
   },
   searchCustomers: {
@@ -1280,7 +1484,10 @@ export const ipcContract = {
   },
   searchPrescriptions: {
     channel: "pos:dispensing:prescriptions",
-    input: z.object({ q: z.string().trim().max(120).optional(), customerId: uuid.optional() }),
+    input: z.object({
+      q: z.string().trim().max(120).optional(),
+      customerId: uuid.optional(),
+    }),
     output: result(z.array(prescriptionSchema)),
   },
   recordPrescription: {
@@ -1288,7 +1495,11 @@ export const ipcContract = {
     input: recordPrescriptionWithCoSignSchema,
     output: result(prescriptionSchema),
   },
-  listApprovers: { channel: "pos:dispensing:approvers", input: noInput, output: result(z.array(approverSchema)) },
+  listApprovers: {
+    channel: "pos:dispensing:approvers",
+    input: noInput,
+    output: result(z.array(approverSchema)),
+  },
   /** People who can approve a discount over the limit at this branch, for the co-sign picker. */
   listDiscountApprovers: {
     channel: "pos:checkout:discount-approvers",
@@ -1300,8 +1511,16 @@ export const ipcContract = {
     input: z.object({ saleId: uuid, printerName: z.string().min(1).max(260) }),
     output: printResultSchema,
   },
-  counterWork: { channel: "pos:counter:work", input: noInput, output: result(z.array(counterWorkItemSchema)) },
-  refundsReady: { channel: "pos:counter:refunds", input: noInput, output: result(z.array(refundAtCounterSchema)) },
+  counterWork: {
+    channel: "pos:counter:work",
+    input: noInput,
+    output: result(z.array(counterWorkItemSchema)),
+  },
+  refundsReady: {
+    channel: "pos:counter:refunds",
+    input: noInput,
+    output: result(z.array(refundAtCounterSchema)),
+  },
   executeRefund: {
     channel: "pos:counter:execute-refund",
     input: z.object({ refundRequestId: uuid }),
@@ -1330,12 +1549,23 @@ export const ipcContract = {
     }),
     output: printResultSchema,
   },
-  stockCasesReady: { channel: "pos:counter:stock-cases", input: noInput, output: result(z.array(stockCaseAtCounterSchema)) },
+  stockCasesReady: {
+    channel: "pos:counter:stock-cases",
+    input: noInput,
+    output: result(z.array(stockCaseAtCounterSchema)),
+  },
   resolveStockCase: {
     channel: "pos:counter:resolve-stock-case",
     input: z.object({
       resolutionId: uuid,
-      counts: z.array(z.object({ batchId: uuid, countedQty: z.number().int().min(0).max(10_000_000) })).max(200),
+      counts: z
+        .array(
+          z.object({
+            batchId: uuid,
+            countedQty: z.number().int().min(0).max(10_000_000),
+          }),
+        )
+        .max(200),
     }),
     output: result(stockCaseResolvedSchema),
   },
@@ -1343,7 +1573,12 @@ export const ipcContract = {
     channel: "pos:counter:pending-commands",
     input: noInput,
     output: z.array(
-      z.object({ commandId: uuid, operation: z.string(), createdAt: z.string(), staffName: z.string().nullable() }),
+      z.object({
+        commandId: uuid,
+        operation: z.string(),
+        createdAt: z.string(),
+        staffName: z.string().nullable(),
+      }),
     ),
   },
   retryCommand: {
@@ -1371,7 +1606,11 @@ export const ipcContract = {
     }),
     output: result(z.array(saleFoundSchema)),
   },
-  returnsToday: { channel: "pos:returns:today", input: noInput, output: result(z.array(refundTodaySchema)) },
+  returnsToday: {
+    channel: "pos:returns:today",
+    input: noInput,
+    output: result(z.array(refundTodaySchema)),
+  },
   /** Refund at the counter: prepared, then executed here unless it needs approval on the web. */
   submitReturn: {
     channel: "pos:returns:submit",
@@ -1406,7 +1645,11 @@ export const ipcContract = {
   /** A refund already waiting for approval: a manager co-signs it here, and it is refunded at once. */
   approveReturn: {
     channel: "pos:returns:approve",
-    input: z.object({ saleId: uuid, refundRequestId: uuid, coSign: coSignSchema }),
+    input: z.object({
+      saleId: uuid,
+      refundRequestId: uuid,
+      coSign: coSignSchema,
+    }),
     output: result(returnOutcomeSchema),
   },
   confirmTestReceipt: {
@@ -1421,7 +1664,11 @@ export const ipcContract = {
       }),
     ),
   },
-  offlineCounter: { channel: "pos:offline:status", input: noInput, output: result(offlineCounterSchema) },
+  offlineCounter: {
+    channel: "pos:offline:status",
+    input: noInput,
+    output: result(offlineCounterSchema),
+  },
   activateOffline: {
     channel: "pos:offline:activate",
     input: z.object({ authorizationId: uuid }),
@@ -1432,9 +1679,21 @@ export const ipcContract = {
     input: z.object({ pin, password: z.string().min(1).max(256) }),
     output: result(deviceStateSchema),
   },
-  preparePin: { channel: "pos:staff:prepare-pin", input: z.object({ pin }), output: result(deviceStateSchema) },
-  lock: { channel: "pos:staff:lock", input: noInput, output: result(deviceStateSchema) },
-  unlock: { channel: "pos:staff:unlock", input: z.object({ pin }), output: result(deviceStateSchema) },
+  preparePin: {
+    channel: "pos:staff:prepare-pin",
+    input: z.object({ pin }),
+    output: result(deviceStateSchema),
+  },
+  lock: {
+    channel: "pos:staff:lock",
+    input: noInput,
+    output: result(deviceStateSchema),
+  },
+  unlock: {
+    channel: "pos:staff:unlock",
+    input: z.object({ pin }),
+    output: result(deviceStateSchema),
+  },
   /** Signs a prepared person in with their PIN, checked by the server; it ends the current session. */
   pinSignIn: {
     channel: "pos:staff:pin-sign-in",
@@ -1442,13 +1701,29 @@ export const ipcContract = {
     output: result(deviceStateSchema),
   },
   /** This counter's copy of its till shifts. Local only: it answers while locked or offline. */
-  getShift: { channel: "pos:shift:get", input: noInput, output: shiftStateSchema },
+  getShift: {
+    channel: "pos:shift:get",
+    input: noInput,
+    output: shiftStateSchema,
+  },
   /** The offline journal's upload and the reconnect pause (P5 #51). Local only. */
-  getJournalSync: { channel: "pos:journal-sync:get", input: noInput, output: journalSyncSchema },
+  getJournalSync: {
+    channel: "pos:journal-sync:get",
+    input: noInput,
+    output: journalSyncSchema,
+  },
   /** Online, draining an outage, selling offline, or stopped, and why (P4 #50). Local only. */
-  getOfflineMode: { channel: "pos:offline-mode:get", input: noInput, output: offlineModeSchema },
+  getOfflineMode: {
+    channel: "pos:offline-mode:get",
+    input: noInput,
+    output: offlineModeSchema,
+  },
   /** Offline sales recorded on this counter, for noting a problem with one (P4 #50). Local only. */
-  offlineSales: { channel: "pos:offline-support:sales", input: noInput, output: result(z.array(offlineSaleSchema)) },
+  offlineSales: {
+    channel: "pos:offline-support:sales",
+    input: noInput,
+    output: result(z.array(offlineSaleSchema)),
+  },
   /** A note on an offline sale. It changes nothing about the sale, stock or cash. */
   noteSaleProblem: {
     channel: "pos:offline-support:note",
@@ -1460,7 +1735,11 @@ export const ipcContract = {
     output: result(z.object({ recordedAt: z.string() })),
   },
   /** External-card payments started here while offline, newest first. Local only. */
-  cardAttempts: { channel: "pos:offline-support:card-attempts", input: noInput, output: result(z.array(cardAttemptSchema)) },
+  cardAttempts: {
+    channel: "pos:offline-support:card-attempts",
+    input: noInput,
+    output: result(z.array(cardAttemptSchema)),
+  },
   /** Saves a card payment before the card machine is asked to charge. Refused while one is unsettled. */
   prepareCardAttempt: {
     channel: "pos:offline-support:card-prepare",
@@ -1478,14 +1757,22 @@ export const ipcContract = {
     output: result(z.object({ state: cardAttemptSchema.shape.state })),
   },
   /** Asks the server, adopts what it says, and resends a saved close that wasn't confirmed. */
-  refreshShift: { channel: "pos:shift:refresh", input: noInput, output: result(shiftStateSchema) },
+  refreshShift: {
+    channel: "pos:shift:refresh",
+    input: noInput,
+    output: result(shiftStateSchema),
+  },
   openShift: {
     channel: "pos:shift:open",
     input: z.object({ pin, count: cashCountSchema }),
     output: result(shiftStateSchema),
   },
   /** Who is signed in offline, and who may sign in (P4 #50). Local only; empty unless offline. */
-  offlineStaff: { channel: "pos:offline-staff:get", input: noInput, output: offlineStaffSchema },
+  offlineStaff: {
+    channel: "pos:offline-staff:get",
+    input: noInput,
+    output: offlineStaffSchema,
+  },
   /** Signs a prepared person in offline with their PIN, checked on this counter (P4 #50). */
   offlineSignIn: {
     channel: "pos:offline-staff:sign-in",
@@ -1504,12 +1791,36 @@ export const ipcContract = {
     input: z.object({
       count: cashCountSchema,
       varianceNote: z.string().trim().max(500).optional(),
-      assistance: z.object({ pin, reason: z.string().trim().min(1).max(500) }).optional(),
+      assistance: z
+        .object({ pin, reason: z.string().trim().min(1).max(500) })
+        .optional(),
+    }),
+    output: result(offlineStaffSchema),
+  },
+  /**
+   * D8: a prepared manager lets the counter keep selling outside routine hours, with their own PIN,
+   * a reason and how long (P4 #50). Never past a mandatory restriction or the grant's expiry.
+   */
+  offlineAcknowledgeHours: {
+    channel: "pos:offline-hours:acknowledge",
+    input: z.object({
+      staffUserId: uuid,
+      pin,
+      minutes: z
+        .number()
+        .int()
+        .min(1)
+        .max(24 * 60),
+      reason: z.string().trim().min(1).max(500),
     }),
     output: result(offlineStaffSchema),
   },
   /** What the saved stock still lets this counter sell offline (P4 #50). */
-  offlineStock: { channel: "pos:offline-sale:stock", input: noInput, output: result(z.array(offlineStockLineSchema)) },
+  offlineStock: {
+    channel: "pos:offline-sale:stock",
+    input: noInput,
+    output: result(z.array(offlineStockLineSchema)),
+  },
   /** Prices a cart from the saved stock; items that can't be sold offline come back blocked. */
   offlineQuote: {
     channel: "pos:offline-sale:quote",
@@ -1559,7 +1870,10 @@ export const ipcContract = {
   /** Prints (or reprints) the receipt of a sale committed offline on this counter. */
   printOfflineReceipt: {
     channel: "pos:offline-sale:print",
-    input: z.object({ saleCommandId: uuid, printerName: z.string().min(1).max(260) }),
+    input: z.object({
+      saleCommandId: uuid,
+      printerName: z.string().min(1).max(260),
+    }),
     output: printResultSchema,
   },
   /** Closes the open shift; someone else's needs `assistance` (their own PIN and why). */
@@ -1568,7 +1882,9 @@ export const ipcContract = {
     input: z.object({
       count: cashCountSchema,
       varianceNote: z.string().trim().max(500).optional(),
-      assistance: z.object({ pin, reason: z.string().trim().min(1).max(500) }).optional(),
+      assistance: z
+        .object({ pin, reason: z.string().trim().min(1).max(500) })
+        .optional(),
     }),
     output: result(shiftStateSchema),
   },
@@ -1579,11 +1895,17 @@ export const ipcContract = {
     output: result(shiftStateSchema),
   },
   /** Shifts on this till, newest first, from the server. */
-  listShifts: { channel: "pos:shift:list", input: noInput, output: result(z.array(pastShiftSchema)) },
+  listShifts: {
+    channel: "pos:shift:list",
+    input: noInput,
+    output: result(z.array(pastShiftSchema)),
+  },
   shiftDetail: {
     channel: "pos:shift:detail",
     input: z.object({ workSessionId: uuid }),
-    output: result(z.object({ shift: pastShiftSchema, summary: shiftSummarySchema })),
+    output: result(
+      z.object({ shift: pastShiftSchema, summary: shiftSummarySchema }),
+    ),
   },
   /** Prints a mid-shift summary on the receipt printer; the shift stays open. */
   printXReport: {
@@ -1600,7 +1922,11 @@ export const ipcContract = {
     }),
     output: result(stockSearchSchema),
   },
-  stockAttention: { channel: "pos:stock:attention", input: noInput, output: result(stockAttentionSchema) },
+  stockAttention: {
+    channel: "pos:stock:attention",
+    input: noInput,
+    output: result(stockAttentionSchema),
+  },
   productStock: {
     channel: "pos:stock:product",
     input: z.object({ productId: uuid }),
@@ -1610,17 +1936,32 @@ export const ipcContract = {
   adjustStock: {
     channel: "pos:stock:adjust",
     input: stockAdjustmentSchema,
-    output: result(z.object({ qty: z.number().int(), movementType: z.enum(["adjustment_in", "adjustment_out"]) })),
+    output: result(
+      z.object({
+        qty: z.number().int(),
+        movementType: z.enum(["adjustment_in", "adjustment_out"]),
+      }),
+    ),
   },
   quarantineBatch: {
     channel: "pos:stock:quarantine",
     input: quarantineBatchSchema,
-    output: result(z.object({ qty: z.number().int(), stockReferenceId: z.string().optional() })),
+    output: result(
+      z.object({
+        qty: z.number().int(),
+        stockReferenceId: z.string().optional(),
+      }),
+    ),
   },
   releaseQuarantine: {
     channel: "pos:stock:release-quarantine",
     input: releaseQuarantineSchema,
-    output: result(z.object({ qty: z.number().int(), stockReferenceId: z.string().optional() })),
+    output: result(
+      z.object({
+        qty: z.number().int(),
+        stockReferenceId: z.string().optional(),
+      }),
+    ),
   },
   stockPermissions: {
     channel: "pos:stock:permissions",
@@ -1634,10 +1975,17 @@ export const ipcContract = {
     ),
   },
   /** Held write-offs for the counter frame (approved + read-only when the API supplies them). */
-  heldWriteOffsAtCounter: { channel: "pos:work:held-write-offs", input: noInput, output: result(z.array(heldWriteOffAtCounterSchema)) },
+  heldWriteOffsAtCounter: {
+    channel: "pos:work:held-write-offs",
+    input: noInput,
+    output: result(z.array(heldWriteOffAtCounterSchema)),
+  },
   postHeldWriteOff: {
     channel: "pos:work:post-held-write-off",
-    input: z.object({ heldAdjustmentId: uuid, approvalEvidenceId: uuid.nullable() }),
+    input: z.object({
+      heldAdjustmentId: uuid,
+      approvalEvidenceId: uuid.nullable(),
+    }),
     output: result(
       z.object({
         heldAdjustmentId: uuid,
