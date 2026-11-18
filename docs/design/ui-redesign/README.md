@@ -30,7 +30,7 @@ The older names still work and now follow this set. On the web, `--pc-page-bg`, 
 ### Themes and status sets
 
 - **Theme:** an explicit choice stamps `data-theme="light|dark"` on `<html>`; "match device" stamps nothing and `prefers-color-scheme` decides. The dark values are declared twice, under the media query and under `[data-theme="dark"]`, and the test keeps the two copies identical.
-- **Status set:** `data-status-set="colour-blind"` on `<html>` switches danger, warning and ok to orange, yellow and blue, which differ in lightness as well as hue. With no attribute you get the Standard set. The owner's choice (Settings › Appearance) will set it in the pharmacy brand PR.
+- **Status set:** `data-status-set="colour-blind"` on `<html>` switches danger, warning and ok to orange, yellow and blue, which differ in lightness as well as hue. With no attribute you get the Standard set. The owner chooses it in the pharmacy brand (below).
 
 ### Contrast
 
@@ -68,11 +68,24 @@ What changed on 18 Nov 2026 to pass:
 - **Desktop:** a sun/moon button in the title bar. Main sets Electron's `nativeTheme.themeSource`, so the page's `prefers-color-scheme` and the Windows minimise, maximise and close buttons change together, and saves the choice to `counter-theme.json` in the app's data folder on this computer. With nothing saved, the counter follows Windows. The back-office default ("light/dark/follow Windows") and the lock that hides the button come with the pharmacy brand settings.
 - Screenshots: `screenshots/pr2-theme-switch/`.
 
+## Pharmacy brand
+
+One appearance for everyone at the pharmacy, set by an owner on Settings › Appearance › Pharmacy brand. Light or dark, density and text size stay each person's own; the personal accent swatches are gone.
+
+- **Stored on the server:** `tenant_appearance`, one row per tenant: `accent`, `sidebarStyle` (light, tinted, dark), `chartPalette`, `statusSet` (standard, colour-blind), `counterTheme` (system, light, dark), `counterThemeLocked`, and a `version`. No row means the PharmaCeylon defaults at version 0.
+- **API:** `GET /tenant/appearance` for anyone signed in (every page needs it to draw). `PUT /tenant/appearance` with `{ expectedVersion, appearance }`: owners only, even though the guard key is `tenant.management`; a stale `expectedVersion` is a 409; every save is audited as `tenant.appearance_updated` with the before and after.
+- **One contrast rule, two places:** [`packages/shared/src/pharmacy-appearance.ts`](../../../packages/shared/src/pharmacy-appearance.ts). `accentProblem` refuses an accent below 4.5:1 on any light surface, and the API and the form show the same sentence. `deriveAccentTokens` builds hover, ink and soft for light, and a lifted accent for dark that reaches 6:1 on every dark surface. The surface lists there are checked against `tokens.css` by `tokens.spec.ts`.
+- **On the web:** a custom accent becomes a `<style id="pc-brand">` with the same three selectors as `tokens.css`, one `:root` more specific, so it follows light and dark without script. The status set and sidebar style are `data-status-set` and `data-sidebar` on `<html>`. The last brand is cached in this browser and redrawn before first paint (`BRAND_BOOTSTRAP_SCRIPT`), then replaced by the server copy. The default teal adds no stylesheet. An owner's choices preview live and are put back if they leave without saving.
+- **Sidebar styles:** Tinted sits on the accent's soft fill; Dark uses the dark surface in either theme.
+- **Not wired yet:** chart palette and the counter theme default and lock are stored and validated but have no control on the page until their consumers land. The desktop reads the brand (accent at sign-in with an offline copy, counter theme default and lock, receipt header) in a later PR, so P4's desktop files stay untouched for now.
+- **Logo:** the PharmaCeylon mark keeps its own teal gradient whatever the accent.
+- Screenshots: `screenshots/pr3-brand-settings/`. The appearance endpoint was stubbed in the browser for these, because the shared dev database is behind on migrations.
+
 ## Not done yet
 
 These items in #205's Phase 1 come in later PRs:
 
-- **Pharmacy brand settings on the server:** accent, sidebar style, chart palette, status set, and the counter theme default and lock.
+- **Desktop and receipt read the pharmacy brand:** accent, counter theme default and lock, receipt header.
 - **Web shell and the shared list pattern.**
 - **Sweep of the remaining hard-coded colours.** About 70 literal `#fff` values in web CSS modules, many of them white text on an accent fill that fails in dark. Eight `--pc-*` names that are referenced but never defined (`--pc-surface-2`, `--pc-rule`, `--pc-border-subtle`, `--pc-radius`, `--pc-radius-lg`, `--pc-shadow-sm`, `--pc-font-mono`, `--pc-alert-danger-bg`), which always fall back to their literal. About 115 literals in the desktop renderer, left until the P4 desktop work settles.
 

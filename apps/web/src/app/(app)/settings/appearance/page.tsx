@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { ActionButton, PageHeader } from "@/components/ui";
-import { IconCheck, IconMoon, IconSparkles, IconSun } from "@/components/icons";
+import { IconMoon, IconSparkles, IconSun } from "@/components/icons";
 import { useAuth } from "@/lib/use-auth";
 import {
   APPEARANCE_CHANGED_EVENT,
@@ -10,23 +10,17 @@ import {
   saveAppearancePrefs,
   DEFAULT_APPEARANCE_PREFS,
   type AppearancePrefs,
-  type AccentColor,
   type Density,
   type FontSize,
   type Theme,
 } from "@/lib/appearance";
 import css from "../settings.module.css";
+import { PharmacyBrandCard } from "./pharmacy-brand-card";
 
 const THEME_CHOICES: { value: Theme; label: string; icon: React.ReactNode }[] = [
   { value: "system", label: "Match device", icon: <IconSparkles size={14} /> },
   { value: "light", label: "Light", icon: <IconSun size={14} /> },
   { value: "dark", label: "Dark", icon: <IconMoon size={14} /> },
-];
-
-const ACCENT_SWATCHES: { value: AccentColor; color: string }[] = [
-  { value: "teal", color: "var(--pc-primary)" },
-  { value: "cyan", color: "var(--pc-secondary-cyan)" },
-  { value: "navy", color: "var(--pc-accent-navy)" },
 ];
 
 export default function AppearancePage() {
@@ -55,7 +49,7 @@ export default function AppearancePage() {
     <div>
       <PageHeader
         title="Appearance"
-        description="Personal display preferences for your account on this device."
+        description="Your own display preferences on this device, and the pharmacy's brand colours."
         actions={<ActionButton variant="secondary" onClick={reset} disabled={!ready}>Reset defaults</ActionButton>}
       />
 
@@ -88,23 +82,6 @@ export default function AppearancePage() {
           Match device follows your computer's setting and changes with it. The sun/moon button in the top bar switches straight to the other one.
         </p>
 
-        <p className={css.subLabel}>Accent color</p>
-        <div className={css.swatchRow}>
-          {ACCENT_SWATCHES.map((s) => (
-            <button
-              key={s.value}
-              type="button"
-              aria-label={`${s.value} accent`}
-              aria-pressed={prefs.accent === s.value}
-              className={`${css.swatch}${prefs.accent === s.value ? ` ${css.swatchSelected}` : ""}`}
-              style={{ background: s.color, "--swatch-ring": s.color } as React.CSSProperties}
-              onClick={() => update({ accent: s.value })}
-              disabled={!ready}
-            >
-              {prefs.accent === s.value ? <IconCheck size={15} /> : null}
-            </button>
-          ))}
-        </div>
 
         <p className={css.subLabel}>Density</p>
         <div className={css.pillRow}>
@@ -145,6 +122,8 @@ export default function AppearancePage() {
           <span className={`${css.chip} ${css.chipOn}`}>Active</span>
         </div>
       </div>
+
+      <PharmacyBrandCard user={user} />
     </div>
   );
 }

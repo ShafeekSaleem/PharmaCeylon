@@ -576,3 +576,8 @@
   font-weight: 600;
   color: var(--pc-success);
 }
+
+.brandHex {
+  max-width: 280px;
+  margin-top: 0.75rem;
+}
