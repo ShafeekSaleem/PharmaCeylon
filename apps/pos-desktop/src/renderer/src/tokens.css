@@ -27,8 +27,8 @@
 
   --pos-primary: var(--pc-primary);
   --pos-primary-ink: var(--ui-accent);
-  --pos-primary-soft: rgba(13, 148, 136, 0.07);
-  --pos-primary-soft-2: rgba(13, 148, 136, 0.13);
+  --pos-primary-soft: color-mix(in srgb, var(--ui-accent) 7%, transparent);
+  --pos-primary-soft-2: color-mix(in srgb, var(--ui-accent) 13%, transparent);
   --pos-on-primary: var(--ui-accent-ink);
   --pos-grad: linear-gradient(135deg, #0d9488 0%, #0891b2 100%);
   --pos-cyan: var(--pc-secondary-cyan);
@@ -79,8 +79,8 @@
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --pos-primary-soft: rgba(45, 212, 191, 0.08);
-    --pos-primary-soft-2: rgba(45, 212, 191, 0.15);
+    --pos-primary-soft: color-mix(in srgb, var(--ui-accent) 8%, transparent);
+    --pos-primary-soft-2: color-mix(in srgb, var(--ui-accent) 15%, transparent);
     --pos-grad: linear-gradient(135deg, #2dd4bf 0%, #22d3ee 100%);
     --pos-rx: #a78bfa;
     --pos-rx-ink: #c4b5fd;
@@ -102,8 +102,8 @@
 }
 
 :root[data-theme="dark"] {
-  --pos-primary-soft: rgba(45, 212, 191, 0.08);
-  --pos-primary-soft-2: rgba(45, 212, 191, 0.15);
+  --pos-primary-soft: color-mix(in srgb, var(--ui-accent) 8%, transparent);
+  --pos-primary-soft-2: color-mix(in srgb, var(--ui-accent) 15%, transparent);
   --pos-grad: linear-gradient(135deg, #2dd4bf 0%, #22d3ee 100%);
   --pos-rx: #a78bfa;
   --pos-rx-ink: #c4b5fd;

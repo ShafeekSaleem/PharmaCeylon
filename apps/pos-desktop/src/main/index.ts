@@ -102,6 +102,7 @@ import {
   TerminalService,
 } from "./terminal/terminal-service";
 import { createMainWindow } from "./window";
+import { createCounterBrand } from "./brand";
 import { createCounterTheme } from "./theme";
 
 const smokeMode = process.argv.includes("--smoke-test");
@@ -207,8 +208,33 @@ const restorePrompt: RestorePrompt = {
 };
 
 let mainWindow: BrowserWindow | null = null;
-/** Light/dark on this computer (UI1 #205); nativeTheme carries it to the page and the window buttons. */
-const counterTheme = createCounterTheme(join(app.getPath("userData"), "counter-theme.json"), nativeTheme);
+/** The API session staff sign in with; set once the services start. The brand reads through it. */
+let brandApi: ApiSession | null = null;
+/** The pharmacy brand (UI1 #205), cached on this computer so it holds offline and before sign-in. */
+const counterBrand = createCounterBrand({
+  path: join(app.getPath("userData"), "counter-brand.json"),
+  api: {
+    request: <T>(method: string, path: string) => {
+      if (!brandApi) return Promise.reject(new Error("The counter is still starting."));
+      return brandApi.request<T>(method, path);
+    },
+  },
+  signedIn: () => brandApi?.user != null,
+  // A new default or lock takes effect at once; the renderer picks up the accent on its next read.
+  onChange: () => counterTheme.apply(),
+});
+/** Light/dark on this computer (UI1 #205); nativeTheme carries it to the page and the window
+ *  buttons. The owner's default and lock come from the brand. */
+const counterTheme = createCounterTheme(
+  join(app.getPath("userData"), "counter-theme.json"),
+  nativeTheme,
+  () => counterBrand.themePolicy(),
+);
+/** After someone signs in, so there is a session to read the brand with. Never blocks sign-in. */
+function refreshBrandAfter<T extends { ok: boolean }>(result: T): T {
+  if (result.ok) void counterBrand.refresh();
+  return result;
+}
 let store: LocalStore | null = null;
 let storeBackups: StoreBackupSchedule | null = null;
 let terminal: TerminalService | null = null;
@@ -362,6 +388,7 @@ function registerIpc(
   registerIpcHandlers(
     {
       getCounterTheme: () => counterTheme.get(),
+      getCounterBrand: () => counterBrand.view(),
       setCounterTheme: ({ theme }) => counterTheme.set(theme),
       getAppInfo: () => ({
         appVersion: app.getVersion(),
@@ -448,7 +475,9 @@ function registerIpc(
           return service.state();
         }),
       signIn: ({ email, password }) =>
-        act(logger, "signIn", (service) => service.signIn(email, password)),
+        act(logger, "signIn", (service) => service.signIn(email, password)).then(
+          refreshBrandAfter,
+        ),
       signOut: () => act(logger, "signOut", (service) => service.signOut()),
       refreshEnrollment: () =>
         act(logger, "refreshEnrollment", (service) => service.refreshStatus()),
@@ -618,6 +647,7 @@ function registerIpc(
             {
               branchName: device.branchName,
               counterLabel: device.counterLabel,
+              accent: counterBrand.receiptAccent(),
             },
             { reprint: printedSales.has(saleId) },
           ),
@@ -708,6 +738,7 @@ function registerIpc(
           renderSupplierCashPayoutReceiptHtml(input, {
             branchName: device.branchName,
             counterLabel: device.counterLabel,
+            accent: counterBrand.receiptAccent(),
           }),
         );
       },
@@ -1022,6 +1053,7 @@ function registerIpc(
             {
               branchName: device.branchName,
               counterLabel: device.counterLabel,
+              accent: counterBrand.receiptAccent(),
             },
             { reprint: sales.printedBefore(saleCommandId) },
           ),
@@ -1084,7 +1116,7 @@ function registerIpc(
       pinSignIn: ({ staffUserId, pin }) =>
         act(logger, "pinSignIn", (service) =>
           service.signInWithPin(staffUserId, pin),
-        ),
+        ).then(refreshBrandAfter),
     },
     { isTrustedSender: (url) => isAppUrl(url, devServerOrigin), logger },
   );
@@ -1189,6 +1221,9 @@ async function start(): Promise<void> {
   const terminalApi = new ApiSession(currentApiBaseUrl, (url, init) =>
     net.fetch(url, { ...init, credentials: "omit" }),
   );
+  brandApi = terminalApi;
+  // While someone is signed in, pick up the owner's changes within a few minutes.
+  setInterval(() => void counterBrand.refresh(), 5 * 60_000).unref();
   terminal = new TerminalService({
     store: deviceStore,
     pins,

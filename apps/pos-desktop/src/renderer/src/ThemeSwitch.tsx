@@ -20,8 +20,8 @@ function showingDark(): boolean {
  * the choice on this computer; the page and the Windows window buttons follow together because
  * both read nativeTheme. The icon shows where a click takes you: a moon on light, a sun on dark.
  *
- * The back-office default and lock arrive with the pharmacy brand settings; until then the
- * counter starts by following Windows and the switch is always shown.
+ * The counter starts from the owner's default in the pharmacy brand. When the owner locks it, the
+ * title bar leaves this switch out and main refuses a change anyway.
  */
 export function ThemeSwitch() {
   const [dark, setDark] = useState(showingDark);
@@ -48,6 +48,10 @@ export function ThemeSwitch() {
         setDark(!dark);
         void window.pos
           ?.setCounterTheme?.({ theme: next })
+          // Locked since this was drawn: main kept the owner's theme, so show what is really there.
+          .then((view) => {
+            if (view.locked) setDark(showingDark());
+          })
           .catch(() => setDark(showingDark()));
       }}
     >

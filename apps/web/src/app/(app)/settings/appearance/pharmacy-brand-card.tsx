@@ -5,12 +5,13 @@ import {
   ACCENT_PRESETS,
   accentProblem,
   normalizeHex,
+  type CounterThemeDefault,
   type PharmacyAppearance,
   type PharmacyAppearanceSettings,
   type SidebarStyle,
   type StatusColourSet,
 } from "@pharmaceylon/shared";
-import { ActionButton, FormField } from "@/components/ui";
+import { ActionButton, FormField, ToggleSwitch } from "@/components/ui";
 import { IconCheck, IconLock, IconShield } from "@/components/icons";
 import { ApiError } from "@/lib/api-error";
 import type { AuthUser } from "@/lib/auth-types";
@@ -33,6 +34,12 @@ const SIDEBAR_CHOICES: { value: SidebarStyle; label: string }[] = [
 const STATUS_CHOICES: { value: StatusColourSet; label: string }[] = [
   { value: "standard", label: "Standard" },
   { value: "colour-blind", label: "Colour-blind safe" },
+];
+
+const COUNTER_THEME_CHOICES: { value: CounterThemeDefault; label: string }[] = [
+  { value: "system", label: "Match Windows" },
+  { value: "light", label: "Light" },
+  { value: "dark", label: "Dark" },
 ];
 
 export function isOwner(
@@ -262,6 +269,37 @@ export function PharmacyBrandCard({ user }: { user: AuthUser | null }) {
       <p className={css.rowHint}>
         Colour-blind safe uses status colours that stay distinct for people with
         red-green colour blindness.
+      </p>
+
+      <p className={css.subLabel}>Counter app theme</p>
+      <div className={css.pillRow} role="group" aria-label="Counter app theme">
+        {COUNTER_THEME_CHOICES.map((c) => (
+          <button
+            key={c.value}
+            type="button"
+            aria-pressed={draft?.counterTheme === c.value}
+            className={`${css.pill}${draft?.counterTheme === c.value ? ` ${css.pillSelected}` : ""}`}
+            onClick={() => change({ counterTheme: c.value })}
+            disabled={disabled}
+          >
+            {c.label}
+          </button>
+        ))}
+      </div>
+      <div className={css.brandLock}>
+        <ToggleSwitch
+          label="Lock it on every counter"
+          checked={draft?.counterThemeLocked ?? false}
+          onChange={(locked) => change({ counterThemeLocked: locked })}
+          disabled={disabled}
+        />
+        <span>Lock it on every counter</span>
+      </div>
+      <p className={css.rowHint}>
+        Where the desktop counter app starts. Cashiers can switch with the
+        sun/moon button on their own computer unless you lock it; locked, every
+        counter shows this theme and the button is hidden. Counters pick up a
+        change when someone next signs in, or within five minutes.
       </p>
 
       {canEdit && (

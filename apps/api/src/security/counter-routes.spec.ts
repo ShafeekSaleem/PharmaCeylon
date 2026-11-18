@@ -8,6 +8,7 @@ import { StockCasesController } from "../stock-cases/stock-cases.controller";
 import { DashboardController } from "../dashboard/dashboard.controller";
 import { CounterWorkController } from "../terminal-commands/counter-work.controller";
 import { TenantController } from "../tenant/tenant.controller";
+import { TenantAppearanceController } from "../tenant/tenant-appearance.controller";
 import { TerminalCommandsController } from "../terminal-commands/terminal-commands.controller";
 import { OfflineActivationController } from "../terminals/offline-activation.controller";
 import { OfflineAssignmentController } from "../terminals/offline-assignment.controller";
@@ -62,6 +63,8 @@ describe("routes a PIN-opened counter login may call", () => {
     [CounterWorkController, ["list"]],
     [DashboardController, ["getCounterAttention"]],
     [TenantController, ["myPermissions"]],
+    // UI1 #205: the pharmacy brand (accent, counter theme default and lock). Reading only.
+    [TenantAppearanceController, ["get"]],
     // The Stock page reads; every stock change goes through the signed command above.
     [
       InventoryController,

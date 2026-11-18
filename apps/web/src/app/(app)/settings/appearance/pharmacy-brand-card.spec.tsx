@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import {
   DEFAULT_PHARMACY_APPEARANCE,
   type PharmacyAppearance,
@@ -57,7 +57,11 @@ it("previews a choice, then saves it on the version the owner loaded", async () 
   );
   await renderCard("owner");
   fireEvent.click(screen.getByRole("button", { name: "Ocean accent" }));
-  fireEvent.click(screen.getByRole("button", { name: "Dark" }));
+  fireEvent.click(
+    within(screen.getByRole("group", { name: "Sidebar" })).getByRole("button", {
+      name: "Dark",
+    }),
+  );
   expect(document.getElementById("pc-brand")?.textContent).toContain("#1d5fa8");
   expect(document.documentElement.dataset.sidebar).toBe("dark");
   await act(async () => {
@@ -110,5 +114,28 @@ it("shows the other owner's version after a conflicting save", async () => {
   expect(screen.getByRole("button", { name: "Indigo accent" })).toHaveAttribute(
     "aria-pressed",
     "true",
+  );
+});
+
+it("sets the counter app's starting theme and locks it", async () => {
+  saveBrand.mockImplementation(async (_v, a) =>
+    stored({ ...(a as object), version: 4 }),
+  );
+  await renderCard("owner");
+  const counter = within(
+    screen.getByRole("group", { name: "Counter app theme" }),
+  );
+  fireEvent.click(counter.getByRole("button", { name: "Dark" }));
+  fireEvent.click(
+    screen.getByRole("switch", { name: "Lock it on every counter" }),
+  );
+  await act(async () => {
+    fireEvent.click(
+      screen.getByRole("button", { name: "Save for the pharmacy" }),
+    );
+  });
+  expect(saveBrand).toHaveBeenCalledWith(
+    3,
+    expect.objectContaining({ counterTheme: "dark", counterThemeLocked: true }),
   );
 });

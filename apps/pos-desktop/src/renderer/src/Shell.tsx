@@ -10,6 +10,7 @@ import type {
   Printer,
 } from "../../shared/ipc-contract";
 import type { ReactNode } from "react";
+import { useCounterBrand } from "./counter-brand";
 import { drainHoldSentences } from "../../shared/drain-holds";
 import {
   deriveSyncState,
@@ -240,6 +241,8 @@ export function TitleBar({
   queue?: OfflineJournalQueue | null;
 }) {
   const now = useNow();
+  // The pharmacy brand (UI1 #205): accent and status colours, and a locked theme hides the switch.
+  const brand = useCounterBrand();
   const enrollment = state?.enrollment;
   const placed =
     enrollment?.status === "active" || enrollment?.status === "revoked";
@@ -283,7 +286,7 @@ export function TitleBar({
       {phase && chip && (
         <QueueChip phase={phase} label={chip} journal={journal} queue={queue} />
       )}
-      <ThemeSwitch />
+      {!brand.themeLocked && <ThemeSwitch />}
       <div className={styles.clock}>
         {shortDay(now)} · {time(now)}
       </div>

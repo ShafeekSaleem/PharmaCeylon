@@ -1365,16 +1365,39 @@ const noInput = z.undefined();
 export const counterThemeSchema = z.enum(["system", "light", "dark"]);
 export type CounterTheme = z.infer<typeof counterThemeSchema>;
 
+/** What the counter is showing, and whether the owner has locked it (the switch is then hidden). */
+export const counterThemeViewSchema = z.object({
+  theme: counterThemeSchema,
+  locked: z.boolean(),
+});
+export type CounterThemeView = z.infer<typeof counterThemeViewSchema>;
+
+/**
+ * The pharmacy brand as the counter draws it (UI1 #205): the accent stylesheet main built from the
+ * owner's colour (null for the default teal, which tokens.css already is) and the status colour
+ * set. Cached on this computer, so it is drawn offline and before anyone signs in.
+ */
+export const counterBrandSchema = z.object({
+  css: z.string().max(4000).nullable(),
+  statusSet: z.enum(["standard", "colour-blind"]),
+});
+export type CounterBrand = z.infer<typeof counterBrandSchema>;
+
 export const ipcContract = {
   getCounterTheme: {
     channel: "pos:theme:get",
     input: noInput,
-    output: counterThemeSchema,
+    output: counterThemeViewSchema,
   },
   setCounterTheme: {
     channel: "pos:theme:set",
     input: z.object({ theme: counterThemeSchema }),
-    output: counterThemeSchema,
+    output: counterThemeViewSchema,
+  },
+  getCounterBrand: {
+    channel: "pos:brand:get",
+    input: noInput,
+    output: counterBrandSchema,
   },
   getAppInfo: {
     channel: "pos:app:info",

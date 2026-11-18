@@ -33,4 +33,21 @@ describe("sale receipt", () => {
     expect(html).toContain("REPRINT");
     expect(html).toContain("C1R-000186");
   });
+
+  it("draws the header in the pharmacy's accent", () => {
+    const html = renderSaleReceiptHtml(sale, { ...place, accent: "#1D5FA8" });
+    expect(html).toContain(
+      '<header class="brand" style="color: #1d5fa8; border-bottom: 2px solid #1d5fa8;">',
+    );
+    expect(html).toContain("<h1>Kollupitiya</h1>");
+  });
+
+  it("leaves anything but a plain colour out of the header style", () => {
+    const html = renderSaleReceiptHtml(sale, {
+      ...place,
+      accent: 'red;" onload="x',
+    });
+    expect(html).toContain('<header class="brand">');
+    expect(html).not.toContain("onload");
+  });
 });

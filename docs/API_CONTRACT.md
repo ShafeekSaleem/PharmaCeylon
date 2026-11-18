@@ -1531,7 +1531,8 @@ of a recipient role at the alert's branch.
 
 ## Pharmacy brand (UI1 #205)
 
-`GET /tenant/appearance` — any signed-in user, no permission key. Returns the tenant's brand:
+`GET /tenant/appearance` — any signed-in user, no permission key, and a counter route (a
+PIN-opened counter login reads it for its accent, theme default and lock, and receipt header). Returns the tenant's brand:
 `accent` (`#rrggbb`), `sidebarStyle` (`light|tinted|dark`), `chartPalette` (`accent|distinct`),
 `statusSet` (`standard|colour-blind`), `counterTheme` (`system|light|dark`),
 `counterThemeLocked`, `version` and `updatedAt`. Before anyone saves it returns the defaults with
