@@ -138,6 +138,12 @@ preferences only, with no stock/cash/grant/nomination effects. Tenant and exact 
 authority are enforced separately from the selected header branch; update and audit commit
 together. It does not activate the terminal boundary or offline trading.
 
+## UI1 pharmacy brand
+
+`PUT /tenant/appearance` is `management`: the owner-only pharmacy brand (accent, sidebar and
+status colours, counter theme default and lock), versioned and audited together. It has no
+stock/cash/grant/nomination effects and changes only how pages and receipts are drawn.
+
 ## P1 offline-counter assignment (revised D13)
 
 Four routes, all `management`: `POST /terminals/offline-assignment/delegations`,
