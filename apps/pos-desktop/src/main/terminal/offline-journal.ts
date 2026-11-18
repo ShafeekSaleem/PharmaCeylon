@@ -127,34 +127,28 @@ export function refusedSupportRecords(db: PosDatabase, enrollmentId: string): nu
  * online checkout only when there are none.
  */
 export function unresolvedCardAttempts(db: PosDatabase, enrollmentId: string): number {
-  return (
-    db
-      .prepare(
-        `SELECT COUNT(*) AS n FROM offline_support_record r
-         WHERE r.enrollment_id = ? AND r.kind = 'external_card_attempt'
-           AND r.card_state IN ('prepared', 'uncertain', 'approved')
-           AND r.rowid = (
-             SELECT MAX(rowid) FROM offline_support_record
-             WHERE enrollment_id = r.enrollment_id AND attempt_id = r.attempt_id
-           )`,
-      )
-      .get(enrollmentId) as { n: number }
-  ).n;
+  return cardAttemptCounts(db, enrollmentId).unresolved;
 }
 
-/** Of the unsettled card attempts, those the card machine approved that have no sale linked yet. */
-export function approvedUnlinkedCardAttempts(db: PosDatabase, enrollmentId: string): number {
-  return (
-    db
-      .prepare(
-        `SELECT COUNT(*) AS n FROM offline_support_record r
-         WHERE r.enrollment_id = ? AND r.kind = 'external_card_attempt'
-           AND r.card_state = 'approved'
-           AND r.rowid = (
-             SELECT MAX(rowid) FROM offline_support_record
-             WHERE enrollment_id = r.enrollment_id AND attempt_id = r.attempt_id
-           )`,
-      )
-      .get(enrollmentId) as { n: number }
-  ).n;
+/**
+ * The unsettled card attempts (as `unresolvedCardAttempts`) and, of those, the ones the card
+ * machine approved with no sale linked yet. One pass, so the second is always part of the first.
+ */
+export function cardAttemptCounts(
+  db: PosDatabase,
+  enrollmentId: string,
+): { unresolved: number; approvedUnlinked: number } {
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS unresolved, COALESCE(SUM(r.card_state = 'approved'), 0) AS approvedUnlinked
+       FROM offline_support_record r
+       WHERE r.enrollment_id = ? AND r.kind = 'external_card_attempt'
+         AND r.card_state IN ('prepared', 'uncertain', 'approved')
+         AND r.rowid = (
+           SELECT MAX(rowid) FROM offline_support_record
+           WHERE enrollment_id = r.enrollment_id AND attempt_id = r.attempt_id
+         )`,
+    )
+    .get(enrollmentId) as { unresolved: number; approvedUnlinked: number };
+  return { unresolved: row.unresolved, approvedUnlinked: row.approvedUnlinked };
 }

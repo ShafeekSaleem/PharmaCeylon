@@ -26,6 +26,7 @@ import { openLocalStore, type LocalStore } from "../local-store";
 import { PinStore } from "../staff/pin-store";
 import {
   installOfflineAuthority,
+  readInstalledOfflineAuthority,
   type OfflineAuthority,
 } from "./offline-authority";
 import { OfflineCounterService } from "./offline-counter";
@@ -33,6 +34,7 @@ import { OfflineJournalWriter } from "./offline-journal-writer";
 import { renderSaleReceiptHtml } from "../printing/receipt-html";
 import {
   OfflineSaleService,
+  nextOfflineReceiptNumber,
   offlineLineLabel,
   offlineReceiptForPrinting,
 } from "./offline-sale";
@@ -921,6 +923,27 @@ describe("offline sales (P4 #50)", () => {
       cashTenderedMinor: 20_000,
     });
     expect(receipt.receiptNumber).toBe("C1R-000042");
+  });
+
+  it("shows readiness the number the next offline sale actually gets", () => {
+    // As the readiness check reads it: the installed grant's numbering over this store.
+    const shown = () =>
+      nextOfflineReceiptNumber(
+        local.db,
+        readInstalledOfflineAuthority(local.db, identity.enrollmentId)!.grant
+          .payload.receiptNumbering,
+      );
+    for (let i = 0; i < 2; i++) {
+      const before = shown();
+      const receipt = sale.commit({
+        checkoutDraftId: randomUUID(),
+        items: [{ snapshotLineId: A, quantity: 1 }],
+        cashTenderedMinor: 20_000,
+      });
+      advance(1_000);
+      expect(receipt.receiptNumber).toBe(before);
+    }
+    expect(shown()).toBe("C1R-000003");
   });
 
   describe("on a counter the server has seen sales from before", () => {

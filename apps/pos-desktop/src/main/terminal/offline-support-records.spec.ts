@@ -22,7 +22,7 @@ import {
   type OfflineAuthority,
 } from "./offline-authority";
 import {
-  approvedUnlinkedCardAttempts,
+  cardAttemptCounts,
   refusedSupportRecords,
   undeliveredSupportRecords,
   unresolvedCardAttempts,
@@ -502,15 +502,11 @@ describe("OfflineSupportRecordWriter: external-card attempts", () => {
       amountMinor: 1000,
     });
     expect(unresolvedCardAttempts(local.db, identity.enrollmentId)).toBe(1);
-    expect(approvedUnlinkedCardAttempts(local.db, identity.enrollmentId)).toBe(
-      0,
-    );
+    expect(cardAttemptCounts(local.db, identity.enrollmentId).approvedUnlinked).toBe(0);
     event(attempt, approved);
     // Approved is not settled until a sale holds the payment.
     expect(unresolvedCardAttempts(local.db, identity.enrollmentId)).toBe(1);
-    expect(approvedUnlinkedCardAttempts(local.db, identity.enrollmentId)).toBe(
-      1,
-    );
+    expect(cardAttemptCounts(local.db, identity.enrollmentId).approvedUnlinked).toBe(1);
     const sale = sell({ providerReference: "REF-1", approvalCode: "A1B2" });
     const linked = event(attempt, {
       state: "linked_to_sale",
@@ -522,9 +518,7 @@ describe("OfflineSupportRecordWriter: external-card attempts", () => {
       saleCommandId: sale.payload.commandId,
     });
     expect(unresolvedCardAttempts(local.db, identity.enrollmentId)).toBe(0);
-    expect(approvedUnlinkedCardAttempts(local.db, identity.enrollmentId)).toBe(
-      0,
-    );
+    expect(cardAttemptCounts(local.db, identity.enrollmentId).approvedUnlinked).toBe(0);
     expect(stored().map((r) => r.card_state)).toEqual([
       "prepared",
       "uncertain",

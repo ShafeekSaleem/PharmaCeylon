@@ -36,6 +36,8 @@ export type ReadinessFacts = {
   };
   /** Display names of the printers installed in Windows. Absent: not looked at (no window yet). */
   printers?: string[];
+  /** Windows could not list its printers (the print spooler stopped, for example). */
+  printerLookupFailed?: boolean;
   /** Trusted time for offline decisions (P4 #50). Absent: not looked at (no store open). */
   trustedClock?: TrustedNow;
   /** Offline card payments and support records (P4 #50). Absent: not looked at (not enrolled). */
@@ -206,31 +208,47 @@ function syncRow(facts: ReadinessFacts, now: Date): Row {
   };
 }
 
-/** The offline receipt series, from the installed offline permission. */
-function receiptRow(facts: ReadinessFacts, now: Date): Row {
-  const authority = facts.offlineAuthority;
-  if (facts.enrollmentStatus !== "active" || !authority) return { status: "not_ready", detail: NEEDS_ACTIVATION };
-  if (!authority.refresh)
-    return { status: "not_ready", detail: "This computer has no offline permission key set up. Contact support." };
-  const installed = authority.installed;
-  if (!installed)
-    return { status: "not_ready", detail: "Comes with the offline permission, which has not been received yet." };
+/**
+ * The offline receipt series. It comes with the offline permission, so whenever that row is not
+ * usable this one says the same (not activated, no key, not received, not this branch's backup,
+ * expired); otherwise it names the series and the next number.
+ */
+function receiptRow(facts: ReadinessFacts, grant: Row): Row {
+  const installed = facts.offlineAuthority?.installed;
+  if (!installed || (grant.status !== "ok" && grant.status !== "warning")) {
+    if (grant.detail === NEEDS_ACTIVATION) return grant;
+    return { status: grant.status, detail: `The receipt series comes with the offline permission. ${grant.detail}` };
+  }
   const { prefix, nextReceipt } = installed.receiptNumbering;
-  if (now.getTime() >= installed.grantExpiresAt)
-    return {
-      status: "failed",
-      detail: `The offline permission that holds the receipt series ${prefix} has expired. A renewed one brings it back.`,
-    };
   return { status: "ok", detail: `Offline receipts use the series ${prefix}. The next one is ${nextReceipt}.` };
+}
+
+/**
+ * Printers Windows installs on every computer, which print to a file or another program rather than
+ * paper: they say nothing about whether a receipt can print.
+ */
+export function isVirtualPrinter(name: string): boolean {
+  return /\b(pdf|xps|onenote|fax)\b/i.test(name) || /^(microsoft print to|send to )/i.test(name);
 }
 
 /** The receipt printer: what Windows has installed. The printer itself is chosen at each sale. */
 function printerRow(facts: ReadinessFacts): Row {
+  if (facts.printerLookupFailed)
+    return {
+      status: "not_ready",
+      detail: "Windows could not list its printers. Restart the computer; contact support if this stays.",
+    };
   const printers = facts.printers;
   if (!printers) return { status: "not_ready", detail: "Not checked yet: the counter is still starting." };
-  if (printers.length === 0)
-    return { status: "not_ready", detail: "No printer is installed in Windows on this computer, so receipts can't print." };
-  const installed = printers.length === 1 ? `${printers[0]} is` : `${printers.length} printers are (${printers.join(", ")})`;
+  const paper = printers.filter((name) => !isVirtualPrinter(name));
+  if (paper.length === 0)
+    return {
+      status: "not_ready",
+      detail: printers.length
+        ? `No receipt printer is installed in Windows on this computer: only ${printers.join(", ")}, which can't print receipts.`
+        : "No printer is installed in Windows on this computer, so receipts can't print.",
+    };
+  const installed = paper.length === 1 ? `${paper[0]} is` : `${paper.length} printers are (${paper.join(", ")})`;
   return { status: "ok", detail: `${installed} installed in Windows. Print a test receipt below to check it.` };
 }
 
@@ -248,10 +266,18 @@ function clockRow(facts: ReadinessFacts, now: Date): Row {
       status: "not_ready",
       detail: "The server's time has not been received yet. It arrives by itself while someone is signed in here and online.",
     };
+  // NEW_BOOT: Windows restarted, or its clock was changed, since the server's time last arrived.
+  // Routine after every restart and fixed by the next sign-in online; only an outage running
+  // without it is a failure.
+  const restarted = "Windows restarted, or its clock was changed, since the server's time was last received.";
+  if (facts.journalSync?.view.outage)
+    return {
+      status: "failed",
+      detail: `${restarted} Offline selling is stopped until this counter is online again; it sets itself then.`,
+    };
   return {
-    status: "failed",
-    detail:
-      "Windows restarted since the server's time was last received, so offline selling is stopped until this counter is online again. It sets itself once online.",
+    status: "not_ready",
+    detail: `${restarted} It arrives by itself once someone is signed in here and online.`,
   };
 }
 
@@ -385,7 +411,7 @@ export function buildReadinessReport(facts: ReadinessFacts, now: Date): Readines
     },
     { id: "grant", label: "Offline permission", ...offline.grant },
     { id: "catalogue", label: "Product catalogue", ...offline.catalogue },
-    { id: "receipt-numbers", label: "Receipt numbering", ...receiptRow(facts, now) },
+    { id: "receipt-numbers", label: "Receipt numbering", ...receiptRow(facts, offline.grant) },
     { id: "clock", label: "Trusted time", ...clockRow(facts, now) },
     { id: "printer", label: "Receipt printer", ...printerRow(facts) },
     { id: "sync", label: "Synchronisation", ...syncRow(facts, now) },
