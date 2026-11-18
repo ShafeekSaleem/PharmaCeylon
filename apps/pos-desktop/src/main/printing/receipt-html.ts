@@ -10,7 +10,8 @@ const RECEIPT_STYLE = `
   td { padding: 0.5mm 0; vertical-align: top; }
   td:last-child { text-align: right; }
   hr { border: 0; border-top: 1px dashed #000; margin: 2mm 0; }
-  .total td { font-weight: bold; }`;
+  .total td { font-weight: bold; }
+  .reprint { font-weight: bold; border: 1px solid #000; padding: 1mm 0; }`;
 
 export type ReceiptSale = {
   invoiceNo: string;
@@ -29,7 +30,12 @@ export type ReceiptSale = {
 };
 
 /** A customer receipt for a completed sale, from the server's own totals. */
-export function renderSaleReceiptHtml(sale: ReceiptSale, place: { branchName: string; counterLabel: string }): string {
+export function renderSaleReceiptHtml(
+  sale: ReceiptSale,
+  place: { branchName: string; counterLabel: string },
+  /** A copy of a receipt already printed: marked, so it can't pass for a second sale. */
+  options: { reprint?: boolean } = {},
+): string {
   const row = (label: string, value: string, cls = "") =>
     `<tr${cls ? ` class="${cls}"` : ""}><td>${escapeHtml(label)}</td><td>${escapeHtml(value)}</td></tr>`;
   const lines = sale.lines
@@ -53,6 +59,7 @@ export function renderSaleReceiptHtml(sale: ReceiptSale, place: { branchName: st
 <body>
 <h1>${escapeHtml(place.branchName)}</h1>
 <p>${escapeHtml(place.counterLabel)}</p>
+${options.reprint ? `<p class="reprint">REPRINT</p>` : ""}
 <table>
 ${row("Invoice", sale.invoiceNo)}
 ${row("Date", new Date(sale.soldAt).toLocaleString())}

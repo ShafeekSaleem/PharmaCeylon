@@ -241,6 +241,8 @@ function requireOfflineSale(): OfflineSaleService {
 }
 // Receipts can be reprinted for sales completed since the app started; nothing is kept on disk.
 const recentSales = new Map<string, CompletedSale>();
+// Sales whose receipt has printed once since the app started: later prints are marked REPRINT.
+const printedSales = new Set<string>();
 
 function currentApiBaseUrl(): string | null {
   if (!store) return defaultApiBaseUrl;
@@ -605,11 +607,18 @@ function registerIpc(
           };
         return printHtml(
           printerName,
-          renderSaleReceiptHtml(sale, {
-            branchName: device.branchName,
-            counterLabel: device.counterLabel,
-          }),
-        );
+          renderSaleReceiptHtml(
+            sale,
+            {
+              branchName: device.branchName,
+              counterLabel: device.counterLabel,
+            },
+            { reprint: printedSales.has(saleId) },
+          ),
+        ).then((result) => {
+          if (result.ok) printedSales.add(saleId);
+          return result;
+        });
       },
       counterWork: () =>
         act(logger, "counterWork", () => {
@@ -991,20 +1000,29 @@ function registerIpc(
         ),
       printOfflineReceipt: ({ saleCommandId, printerName }) => {
         // Kept on disk with the sale, so it can be reprinted after a restart while still offline.
-        const receipt = offlineSale?.receipt(saleCommandId);
+        const sales = offlineSale;
+        const receipt = sales?.receipt(saleCommandId);
         const device = store ? new DeviceStore(store.db).read() : null;
-        if (!receipt || !device)
+        if (!sales || !receipt || !device)
           return {
             ok: false,
             error: "That sale is not available to print here.",
           };
+        // The first print is kept on disk with the sale, so a reprint after a restart says so.
         return printHtml(
           printerName,
-          renderSaleReceiptHtml(offlineReceiptForPrinting(receipt), {
-            branchName: device.branchName,
-            counterLabel: device.counterLabel,
-          }),
-        );
+          renderSaleReceiptHtml(
+            offlineReceiptForPrinting(receipt),
+            {
+              branchName: device.branchName,
+              counterLabel: device.counterLabel,
+            },
+            { reprint: sales.printedBefore(saleCommandId) },
+          ),
+        ).then((result) => {
+          if (result.ok) sales.markPrinted(saleCommandId);
+          return result;
+        });
       },
       offlineSales: () =>
         act(logger, "offlineSales", () => requireOfflineSupport().sales()),

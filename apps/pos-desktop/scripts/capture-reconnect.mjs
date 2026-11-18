@@ -1,6 +1,6 @@
 /**
  * P4 #50, slice 4c: captures the real App on fixture answers after reconnecting (d-queue, d-drain,
- * d-review, d-stock, d-clean), light and dark, at the mockups' 1600×1000.
+ * d-review, d-stock, d-clean), and a counter that can't sell offline (d-other), light and dark, at the mockups' 1600×1000.
  * Usage (bash, not cmd): npm run build:screenshot -w pos-desktop && node apps/pos-desktop/scripts/capture-reconnect.mjs
  */
 import { createServer } from "node:http";
@@ -58,6 +58,7 @@ const shots = [
   { id: "review", chip: /need review/ },
   { id: "stock", text: /Stock under review/ },
   { id: "clean", text: /is unchanged/ },
+  { id: "other", text: /can't sell while the server is unreachable/ },
 ];
 
 const server = serve(dist);
@@ -65,7 +66,9 @@ await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
 const port = server.address().port;
 const browser = await chromium.launch();
 
-for (const shot of shots) {
+// Optional ids on the command line capture only those shots: `node capture-reconnect.mjs other`.
+const only = process.argv.slice(2);
+for (const shot of shots.filter((s) => !only.length || only.includes(s.id))) {
   for (const theme of ["light", "dark"]) {
     const context = await browser.newContext({
       viewport: { width: 1600, height: 1000 },

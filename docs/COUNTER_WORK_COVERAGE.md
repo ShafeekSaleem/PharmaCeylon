@@ -66,3 +66,40 @@ at the branch (`terminal.execute` gates the route).
 Counter work list and all signed executions require `terminalConnectivity: online`. With
 `partial_outage`, clients show the last list as read-only using `task.freshness.asOf` and must not
 treat cached rows as centrally completed.
+
+### The nominated counter during an outage (P4 #50, W11 #145)
+
+**Task identity: there is no local task.** Every row in Counter work and web Daily work is a
+central task with a server ID. The counter never creates, edits or completes a task while
+offline. That is why reconnecting cannot duplicate a task or complete one early: there is no local
+copy to merge.
+
+**What the counter keeps locally instead.** This is evidence, keyed by its own IDs, and it is never
+shown as a task:
+
+| Kept locally | Its ID | Shown on the counter | What it becomes centrally |
+| --- | --- | --- | --- |
+| Offline sales and shift open/close | Journal sequence and hash, `commandId` | Upload queue, reconnect notice | Sales and shifts, replayed once. Refused entries become an Offline sync row in Daily work. |
+| External-card attempts | `attemptId` | Sell (an open card is restored; see below), This counter → offline records | Card evidence; `card_not_used` for a manager |
+| Notes on a sale | `recordId` | This counter → offline records | Incident evidence |
+
+**Freshness.**
+- While selling offline, the nominated counter shows no Counter work page at all.
+- A counter that is disconnected but not selling offline keeps its last list read-only with its
+  check time, as described above.
+- After an outage, checkout stays paused (D12) until the journal has been accepted, open card
+  attempts are settled and fresh stock is installed. Counter work is then read from the server
+  again. It replaces the old list; it is not merged into it.
+- Any stock case or review the outage caused arrives from the server as an ordinary task, such as
+  `stock_case` or an Offline sync row.
+
+**Restart, outage and reconnect.**
+
+| Case | Behaviour | Covered by |
+| --- | --- | --- |
+| Upload replayed or retried | Each entry is applied once, and a retry returns the original receipts. | `offline-journal.int-spec.ts`: "replays … once", "concurrent identical retries" |
+| Stock case run again | Executes once; a retry returns the original receipt. | `offline-stock-cases.int-spec.ts`: "executes once under concurrent retries" |
+| App restart with a card still on the machine | The card and its cart come back on Sell. The drain stays held until the card is settled. | `offline-sale.spec.ts`: "keeps a card left on the machine across a restart" |
+| Counter offline, or a check failed | The last list stays read-only, and nothing on it can be acted on. | `CounterWork.spec.tsx`: "offline, keeps the last list read-only" |
+
+Still to verify on a real counter: the same cases after an OS reboot and a power cut.
