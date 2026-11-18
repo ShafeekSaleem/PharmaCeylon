@@ -72,6 +72,7 @@ async function approve(page, reference, code) {
   await page.getByRole("button", { name: "Approved" }).click();
   await page.getByLabel("Slip reference").fill(reference);
   await page.getByLabel("Approval code").fill(code);
+  await page.getByLabel("Time on the slip").fill("15:52");
   await page.getByRole("button", { name: "Record approval" }).click();
   await page.getByText(/Card approved/).waitFor();
 }

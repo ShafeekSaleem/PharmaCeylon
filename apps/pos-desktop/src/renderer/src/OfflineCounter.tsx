@@ -63,6 +63,8 @@ import { cx, ErrorLine, useAction } from "./useAction";
  */
 
 const STAFF_MS = 3_000;
+const CARD_OPEN =
+  "Settle the card payment first: complete the sale, or record what the card machine did.";
 type Quote = z.infer<typeof offlineQuoteSchema>;
 
 export function OfflineCounter({
@@ -83,6 +85,8 @@ export function OfflineCounter({
   const [staff, setStaff] = useState<OfflineStaff | null>(null);
   const [page, setPage] = useState<Page>("sell");
   const [switching, setSwitching] = useState(false);
+  // A card on the machine keeps the counter on Sell: leaving would leave the card behind.
+  const [cardOpen, setCardOpen] = useState(false);
   const loadStaff = useCallback(() => {
     window.pos
       .offlineStaff()
@@ -141,6 +145,8 @@ export function OfflineCounter({
               label={label}
               active={page === id}
               onClick={() => setPage(id)}
+              disabled={cardOpen && id !== page}
+              title={cardOpen && id !== page ? CARD_OPEN : undefined}
             />
           ))}
           <span className={ui.grow} />
@@ -149,6 +155,8 @@ export function OfflineCounter({
             label="Switch person"
             active={false}
             onClick={() => setSwitching(true)}
+            disabled={cardOpen}
+            title={cardOpen ? CARD_OPEN : undefined}
           />
         </nav>
         <main className={shell.content}>
@@ -161,6 +169,7 @@ export function OfflineCounter({
                 printer={printer}
                 onSold={onShift}
                 onStaff={setStaff}
+                onCardOpen={setCardOpen}
               />
             ) : openShift ? (
               <div className={shell.block} role="alert">
@@ -477,6 +486,7 @@ export function OfflineSell({
   printer,
   onSold,
   onStaff,
+  onCardOpen,
 }: {
   mode: OfflineModeState;
   staff: OfflineStaff;
@@ -485,6 +495,8 @@ export function OfflineSell({
   printer: Printer | null | undefined;
   onSold: () => void;
   onStaff: (staff: OfflineStaff) => void;
+  /** Whether a card is on the machine, so the counter keeps the person on Sell. */
+  onCardOpen?: (open: boolean) => void;
 }) {
   const now = useNow();
   const [stock, setStock] = useState<OfflineStockLine[] | null>(null);
@@ -498,7 +510,7 @@ export function OfflineSell({
   const [cardIn, setCardIn] = useState("");
   const [attempt, setAttempt] = useState<OfflineCardAttempt | null>(null);
   const [cashIn, setCashIn] = useState("");
-  const [draftId, setDraftId] = useState(() => crypto.randomUUID());
+  const [draftId, setDraftId] = useState<string>(() => crypto.randomUUID());
   const [receipt, setReceipt] = useState<OfflineReceiptView | null>(null);
   const [lastSale, setLastSale] = useState<OfflineReceiptView | null>(null);
   const [printMessage, setPrintMessage] = useState<string | null>(null);
@@ -517,6 +529,42 @@ export function OfflineSell({
       .catch(() => setStockError("The saved stock could not be read."));
   }, []);
   useEffect(loadStock, [loadStock]);
+
+  // A card left on the machine when Sell last closed (a person switched, the window reloaded,
+  // the app restarted) comes back with its cart, so it can still be finished or recorded.
+  const [restoring, setRestoring] = useState(true);
+  const [openCardError, setOpenCardError] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    window.pos
+      .offlineOpenCard()
+      .then((result) => {
+        if (!live) return;
+        if (!result.ok) {
+          setOpenCardError(result.error.message);
+          return;
+        }
+        const open = result.value;
+        if (!open) return;
+        const split =
+          open.totalMinor !== null &&
+          open.attempt.amountMinor < open.totalMinor;
+        setDraftId(open.checkoutDraftId);
+        setCart(open.items ?? []);
+        setAttempt(open.attempt);
+        setMethod(split ? "split" : "card");
+        if (split) setCardIn(plainMoney(open.attempt.amountMinor));
+      })
+      .catch(
+        () =>
+          live &&
+          setOpenCardError("This counter's card payments could not be read."),
+      )
+      .finally(() => live && setRestoring(false));
+    return () => {
+      live = false;
+    };
+  }, []);
 
   // The cart is priced by main from the signed snapshot, never here. A changed cart drops the
   // old price at once, so nothing is ever sold at a total that was for a different cart.
@@ -552,6 +600,10 @@ export function OfflineSell({
   const hours = hoursBlock(staff.hours);
   // A card on the machine fixes the sale: no other card, no cart change, until it's settled.
   const locked = !cardFinished(attempt);
+  useEffect(() => {
+    onCardOpen?.(locked);
+    return () => onCardOpen?.(false);
+  }, [locked, onCardOpen]);
   const cardMinor =
     attempt && locked
       ? attempt.amountMinor
@@ -568,7 +620,7 @@ export function OfflineSell({
     (method === "cash" ? !locked : attempt?.state === "approved");
 
   function add(line: OfflineStockLine) {
-    if (line.blocked || locked) return;
+    if (line.blocked || locked || restoring) return;
     clear();
     setCart((items) => {
       const found = items.find((i) => i.snapshotLineId === line.snapshotLineId);
@@ -1071,7 +1123,7 @@ export function OfflineSell({
           )}
           <div className={s.payActions}>
             <div className={s.payMsg}>
-              <ErrorLine error={error ?? quoteError} />
+              <ErrorLine error={error ?? quoteError ?? openCardError} />
               {printMessage && <p role="status">{printMessage}</p>}
             </div>
             <button

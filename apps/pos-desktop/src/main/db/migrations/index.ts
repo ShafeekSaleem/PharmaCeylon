@@ -26,6 +26,7 @@ import { offlineSaleReceipts } from "./0024-offline-sale-receipts";
 import { cardNotUsed } from "./0025-card-not-used";
 import { offlineReceiptNumbers } from "./0026-offline-receipt-numbers";
 import { hoursAcknowledgements } from "./0027-hours-acknowledgements";
+import { offlineCardCarts } from "./0028-offline-card-carts";
 
 /** Append only. A released migration is never edited or reordered. */
 export const migrations: readonly Migration[] = [
@@ -56,4 +57,5 @@ export const migrations: readonly Migration[] = [
   cardNotUsed,
   offlineReceiptNumbers,
   hoursAcknowledgements,
+  offlineCardCarts,
 ];

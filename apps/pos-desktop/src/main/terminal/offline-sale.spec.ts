@@ -640,6 +640,59 @@ describe("offline sales (P4 #50)", () => {
     expect(latestCardState(second.attemptId)).toBe("linked_to_sale");
   });
 
+  it("keeps an unsettled card with its cart, so Sell can show it again, and holds everything else until it's settled", () => {
+    expect(sale.openCard()).toBeNull();
+    const draft = randomUUID();
+    const { attemptId } = sale.prepareCard({
+      checkoutDraftId: draft,
+      items: cart,
+      amountMinor: CART_TOTAL,
+    });
+    expect(sale.openCard()).toEqual({
+      checkoutDraftId: draft,
+      items: cart,
+      totalMinor: CART_TOTAL,
+      attempt: {
+        attemptId,
+        amountMinor: CART_TOTAL,
+        state: "prepared",
+        reference: null,
+        approvalCode: null,
+      },
+    });
+    sale.recordCardOutcome({
+      attemptId,
+      outcome: {
+        kind: "approved",
+        reference: "RRN-9",
+        approvalCode: "OK9",
+        approvedAt: trusted(),
+      },
+    });
+    expect(sale.openCard()?.attempt).toMatchObject({
+      state: "approved",
+      reference: "RRN-9",
+      approvalCode: "OK9",
+    });
+    // Another sale can't start a card, and the shift can't close, while this one is open.
+    fails(
+      () =>
+        sale.prepareCard({
+          checkoutDraftId: randomUUID(),
+          items: cart,
+          amountMinor: 100,
+        }),
+      "CARD_UNRESOLVED",
+    );
+    fails(
+      () => staff.closeShift({ totalMinor: 10_000, lines: [] }),
+      "CARD_UNRESOLVED",
+    );
+    advance(1_000);
+    sale.commit({ checkoutDraftId: draft, items: cart, cashTenderedMinor: 0 });
+    expect(sale.openCard()).toBeNull();
+  });
+
   it("settles an approved card as not used after the counter has come back online", () => {
     const { attemptId } = sale.prepareCard({
       checkoutDraftId: randomUUID(),

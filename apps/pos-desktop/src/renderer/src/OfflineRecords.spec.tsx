@@ -175,6 +175,29 @@ describe("OfflineRecords: card payments", () => {
     expect(screen.queryByRole("button", { name: "This is the sale" })).toBeNull();
   });
 
+  it("records an approved payment no sale will use as reversed, or a refund owed", async () => {
+    // The counter came back online with a card approved on the machine and the sale not finished.
+    const pos = show([], [attempt({ state: "approved", providerReference: "REF-9", approvalCode: "A1" })], {
+      recordCardOutcome: async () => ({ ok: true, value: { state: "not_used" } }),
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "Not used for a sale…" }));
+    const save = screen.getByRole("button", { name: "Record as not used" }) as HTMLButtonElement;
+    fireEvent.change(screen.getByLabelText(/Why it wasn/), { target: { value: " Customer left " } });
+    // Reversed on the machine needs the reversal slip's reference.
+    expect(save.disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText("Reversal reference"), { target: { value: "VOID-3" } });
+    expect(save.disabled).toBe(false);
+    fireEvent.click(screen.getByLabelText("The customer is owed a refund"));
+    expect(screen.queryByLabelText("Reversal reference")).toBeNull();
+    fireEvent.click(save);
+    await waitFor(() =>
+      expect(pos.recordCardOutcome).toHaveBeenCalledWith({
+        attemptId: ATTEMPT,
+        outcome: { kind: "not_used", settlement: "refund_owed", reversalReference: null, reason: "Customer left" },
+      }),
+    );
+  });
+
   it("lists settled payments quietly and no longer counts them", async () => {
     show([], [attempt({ state: "declined", settled: true })]);
     await screen.findByText("Settled");

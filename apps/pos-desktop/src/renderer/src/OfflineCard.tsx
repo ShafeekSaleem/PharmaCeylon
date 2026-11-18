@@ -40,9 +40,6 @@ export function slipTime(hhmm: string, now = new Date()): string | null {
   return at.toISOString();
 }
 
-const hhmm = (d: Date) =>
-  `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-
 export function OfflineCard({
   amountMinor,
   attempt,
@@ -61,7 +58,8 @@ export function OfflineCard({
   const [form, setForm] = useState<Form>(null);
   const [reference, setReference] = useState("");
   const [code, setCode] = useState("");
-  const [at, setAt] = useState(() => hhmm(new Date()));
+  // Empty until typed: a default would record when the button was pressed, not the slip's time.
+  const [at, setAt] = useState("");
   const [settlement, setSettlement] = useState<
     "reversed_on_machine" | "refund_owed"
   >("reversed_on_machine");
@@ -305,6 +303,8 @@ export function OfflineCard({
           <input
             className={ui.in}
             aria-label="Time on the slip"
+            placeholder="Time on the slip (HH:MM)"
+            inputMode="numeric"
             value={at}
             maxLength={5}
             onChange={(e) => setAt(e.target.value)}
@@ -373,7 +373,7 @@ export function OfflineCard({
             onClick={() => {
               setReference("");
               setCode("");
-              setAt(hhmm(new Date()));
+              setAt("");
               setForm("approved");
             }}
             disabled={busy}

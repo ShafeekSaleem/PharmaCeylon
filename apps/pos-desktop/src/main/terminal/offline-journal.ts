@@ -13,6 +13,7 @@ export const OFFLINE_USAGE_TABLES: readonly string[] = [
   "offline_journal_online_sale_record",
   "offline_support_record",
   "offline_sale_receipt",
+  "offline_card_cart",
 ];
 
 /**

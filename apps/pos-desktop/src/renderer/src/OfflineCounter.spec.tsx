@@ -188,6 +188,7 @@ async function show(
   pos = stubPos({
     offlineStaff: async () => staff,
     offlineStock: async () => ({ ok: true, value: [panadol, amoxil] }),
+    offlineOpenCard: async () => ({ ok: true, value: null }),
     offlineQuote: async () => quote(),
     offlineCommitSale: async () => ({ ok: true, value: receipt }),
     ...calls,
@@ -405,6 +406,19 @@ describe("the offline counter (P4 #50)", () => {
     fireEvent.change(screen.getByLabelText("Approval code"), {
       target: { value: "A12" },
     });
+    // The slip time starts empty: a default would record when the button was pressed.
+    const slipAt = screen.getByLabelText(
+      "Time on the slip",
+    ) as HTMLInputElement;
+    expect(slipAt.value).toBe("");
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Record approval",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+    fireEvent.change(slipAt, { target: { value: "09:41" } });
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Record approval" }));
     });
@@ -465,6 +479,9 @@ describe("the offline counter (P4 #50)", () => {
     });
     fireEvent.change(screen.getByLabelText("Approval code"), {
       target: { value: "C1" },
+    });
+    fireEvent.change(screen.getByLabelText("Time on the slip"), {
+      target: { value: "09:41" },
     });
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Record approval" }));
@@ -578,6 +595,57 @@ describe("the offline counter (P4 #50)", () => {
     ).toBeNull();
     await addPanadol();
     expect(pos.offlineQuote).toHaveBeenCalled();
+  });
+
+  it("brings back a card left on the machine, with its cart, and keeps the counter on Sell until it is settled", async () => {
+    // Sell closed with an approved card on the machine (a reload, a restart): main still has it.
+    await show(signedIn(), shift(), {
+      offlineOpenCard: async () => ({
+        ok: true,
+        value: {
+          checkoutDraftId: "00000000-0000-4000-8000-0000000000e1",
+          items: [{ snapshotLineId: "line-panadol", quantity: 1 }],
+          totalMinor: 9600,
+          attempt: {
+            attemptId,
+            amountMinor: 9600,
+            state: "approved",
+            reference: "RRN 4471",
+            approvalCode: "A12",
+          },
+        },
+      }),
+    });
+    await act(async () => undefined);
+    expect(screen.getByText("Card approved · Rs 96.00")).toBeTruthy();
+    expect(screen.getByText("Panadol 500mg Tablets")).toBeTruthy();
+    // Nothing leaves Sell while the card is open.
+    for (const name of [
+      "Cash & shift",
+      "Returns",
+      "Stock",
+      "This counter",
+      "Switch person",
+    ])
+      expect(
+        (screen.getByRole("button", { name }) as HTMLButtonElement).disabled,
+      ).toBe(true);
+    await act(async () => {
+      fireEvent.click(completeButton());
+    });
+    expect(pos.offlineCommitSale).toHaveBeenCalledWith({
+      checkoutDraftId: "00000000-0000-4000-8000-0000000000e1",
+      items: [{ snapshotLineId: "line-panadol", quantity: 1 }],
+      cashTenderedMinor: 0,
+    });
+    // Settled: the counter can move again.
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Switch person",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(false);
   });
 
   it("lets a prepared manager acknowledge selling after hours with their own PIN (D8)", async () => {

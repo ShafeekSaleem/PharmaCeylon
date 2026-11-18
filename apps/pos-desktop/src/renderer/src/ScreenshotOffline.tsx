@@ -174,6 +174,7 @@ export function installOfflineFixture(shot: {
   const pos = {
     offlineStaff: () => Promise.resolve(staff),
     offlineStock: () => ok(stock),
+    offlineOpenCard: () => ok(null),
     offlineQuote: ({
       items,
     }: {
