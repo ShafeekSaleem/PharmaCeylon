@@ -820,18 +820,7 @@ export class OfflineSaleService {
     prefix: string;
     nextNumber: number;
   }): string {
-    const rows = this.deps.db
-      .prepare(
-        "SELECT receipt_number FROM offline_sale_receipt WHERE receipt_number LIKE ? ORDER BY length(receipt_number) DESC, receipt_number DESC LIMIT 1",
-      )
-      .all(`${numbering.prefix}-%`) as { receipt_number: string }[];
-    const highest = rows.length
-      ? (offlineReceiptSequence(numbering.prefix, rows[0]!.receipt_number) ?? 0)
-      : 0;
-    return offlineReceiptNumber(
-      numbering.prefix,
-      Math.max(numbering.nextNumber, highest + 1),
-    );
+    return nextOfflineReceiptNumber(this.deps.db, numbering);
   }
 
   /** A receipt of a sale committed here, for reprinting. */
@@ -884,6 +873,28 @@ const CARD_REFUSALS: Readonly<Record<string, string>> = {
   RECONCILIATION_REQUIRED:
     "This counter's records have to be checked online first.",
 };
+
+/**
+ * The receipt number the next offline sale on this computer gets: the grant's next number, or one
+ * past the highest receipt already issued here under the same prefix, whichever is higher.
+ */
+export function nextOfflineReceiptNumber(
+  db: PosDatabase,
+  numbering: { prefix: string; nextNumber: number },
+): string {
+  const rows = db
+    .prepare(
+      "SELECT receipt_number FROM offline_sale_receipt WHERE receipt_number LIKE ? ORDER BY length(receipt_number) DESC, receipt_number DESC LIMIT 1",
+    )
+    .all(`${numbering.prefix}-%`) as { receipt_number: string }[];
+  const highest = rows.length
+    ? (offlineReceiptSequence(numbering.prefix, rows[0]!.receipt_number) ?? 0)
+    : 0;
+  return offlineReceiptNumber(
+    numbering.prefix,
+    Math.max(numbering.nextNumber, highest + 1),
+  );
+}
 
 function cardRefused(error: unknown): never {
   if (error instanceof ActionFailure) throw error;

@@ -64,7 +64,13 @@ import {
   offlineStaffForRenderer,
 } from "./terminal/offline-counter";
 import {
+  cardAttemptCounts,
+  refusedSupportRecords,
+  undeliveredSupportRecords,
+} from "./terminal/offline-journal";
+import {
   OfflineSaleService,
+  nextOfflineReceiptNumber,
   offlineReceiptForPrinting,
 } from "./terminal/offline-sale";
 import { TrustedClock } from "./terminal/trusted-clock";
@@ -250,6 +256,8 @@ let authorityRefresh: OfflineAuthorityRefresh | null = null;
 let journalSync: OfflineJournalSync | null = null;
 let offlineMode: OfflineModeService | null = null;
 let offlineCounter: OfflineCounterService | null = null;
+/** The trusted clock the offline services decide with (P4 #50); readiness reads the same one. */
+let offlineClock: TrustedClock | null = null;
 
 function requireOfflineCounter(): OfflineCounterService {
   if (!offlineCounter)
@@ -345,11 +353,17 @@ async function act<T>(
   }
 }
 
-/** The offline journal's upload (P5 #51), for the readiness checks and the Sell page. */
-function journalSyncFacts(): Pick<ReadinessFacts, "journalSync"> {
-  const enrollmentId = store
+/** This computer's enrollment ID, when it is enrolled. */
+function currentEnrollmentId(): string | undefined {
+  return store
     ? new DeviceStore(store.db).read()?.identity.enrollmentId
     : undefined;
+}
+
+/** The offline journal's upload (P5 #51), for the readiness checks and the Sell page. */
+function journalSyncFacts(
+  enrollmentId: string | undefined,
+): Pick<ReadinessFacts, "journalSync"> {
   if (!store || !enrollmentId) return {};
   return {
     journalSync: {
@@ -362,10 +376,9 @@ function journalSyncFacts(): Pick<ReadinessFacts, "journalSync"> {
 }
 
 /** The installed offline authority and how its renewal is going, for the readiness checks. */
-function offlineAuthorityFacts(): Pick<ReadinessFacts, "offlineAuthority"> {
-  const enrollmentId = store
-    ? new DeviceStore(store.db).read()?.identity.enrollmentId
-    : undefined;
+function offlineAuthorityFacts(
+  enrollmentId: string | undefined,
+): Pick<ReadinessFacts, "offlineAuthority"> {
   if (!store || !enrollmentId) return {};
   const installed = readInstalledOfflineAuthority(store.db, enrollmentId);
   return {
@@ -376,9 +389,59 @@ function offlineAuthorityFacts(): Pick<ReadinessFacts, "offlineAuthority"> {
         snapshotGeneratedAt: installed.snapshot.payload.generatedAt,
         authorizedStaff: installed.grant.payload.authorizedStaff.length,
         lines: installed.snapshot.payload.lines.length,
+        receiptNumbering: {
+          prefix: installed.grant.payload.receiptNumbering.prefix,
+          nextReceipt: nextOfflineReceiptNumber(
+            store.db,
+            installed.grant.payload.receiptNumbering,
+          ),
+        },
       },
     },
   };
+}
+
+/** Trusted time and the offline card payments and records still open, for the readiness checks. */
+function offlineCounterFacts(
+  enrollmentId: string | undefined,
+): Pick<ReadinessFacts, "trustedClock" | "offlineRecords"> {
+  if (!store || !offlineClock) return {};
+  const trustedClock = offlineClock.now();
+  if (!enrollmentId) return { trustedClock };
+  const cards = cardAttemptCounts(store.db, enrollmentId);
+  return {
+    trustedClock,
+    offlineRecords: {
+      unresolvedCards: cards.unresolved,
+      approvedUnlinkedCards: cards.approvedUnlinked,
+      undelivered: undeliveredSupportRecords(store.db, enrollmentId),
+      refused: refusedSupportRecords(store.db, enrollmentId),
+    },
+  };
+}
+
+/** The printers Windows has installed, as the window sees them; null while there is no window. */
+async function installedPrinters(): Promise<
+  { name: string; displayName: string }[] | null
+> {
+  if (!mainWindow) return null;
+  const printers = await mainWindow.webContents.getPrintersAsync();
+  return printers.map((printer) => ({
+    name: printer.name,
+    displayName: printer.displayName || printer.name,
+  }));
+}
+
+/** The installed printers' names for the readiness checks, or why they could not be read. */
+async function printerFacts(): Promise<
+  Pick<ReadinessFacts, "printers" | "printerLookupFailed">
+> {
+  try {
+    const printers = await installedPrinters();
+    return printers ? { printers: printers.map((p) => p.displayName) } : {};
+  } catch {
+    return { printerLookupFailed: true };
+  }
 }
 
 function registerIpc(
@@ -396,44 +459,39 @@ function registerIpc(
         schemaVersion,
         packaged: app.isPackaged,
       }),
-      getReadiness: () =>
-        buildReadinessReport(
+      getReadiness: async () => {
+        const printers = await printerFacts();
+        // Read once, after the wait: every fact below is about this one enrollment.
+        const device = store ? new DeviceStore(store.db).read() : null;
+        const enrollmentId = device?.identity.enrollmentId;
+        return buildReadinessReport(
           {
             databaseOpen: store?.db.open ?? false,
             schemaVersion,
             latestSchemaVersion: migrations.length,
             credentialStoreAvailable: protector.isAvailable(),
-            enrollmentStatus: store
-              ? (new DeviceStore(store.db).read()?.status ?? null)
-              : null,
+            enrollmentStatus: device?.status ?? null,
             preparedStaff: store
               ? (
                   store.db
                     .prepare(
                       "SELECT count(*) AS n FROM staff_credential WHERE enrollment_id = ?",
                     )
-                    .get(
-                      new DeviceStore(store.db).read()?.identity.enrollmentId ??
-                        "",
-                    ) as { n: number }
+                    .get(enrollmentId ?? "") as { n: number }
                 ).n
               : 0,
             ...unconfirmedFacts(),
-            ...offlineAuthorityFacts(),
-            ...journalSyncFacts(),
+            ...offlineAuthorityFacts(enrollmentId),
+            ...journalSyncFacts(enrollmentId),
+            ...offlineCounterFacts(enrollmentId),
+            ...printers,
             ...(storeBackups ? { storeBackups: storeBackups.status() } : {}),
           },
           new Date(),
-        ),
-      checkApi: () => checkApi(currentApiBaseUrl(), mainFetch),
-      listPrinters: async () => {
-        const printers =
-          (await mainWindow?.webContents.getPrintersAsync()) ?? [];
-        return printers.map((printer) => ({
-          name: printer.name,
-          displayName: printer.displayName || printer.name,
-        }));
+        );
       },
+      checkApi: () => checkApi(currentApiBaseUrl(), mainFetch),
+      listPrinters: async () => (await installedPrinters()) ?? [],
       printTestReceipt: ({ printerName }) =>
         printTestReceipt(printerName, app.getVersion()),
       getDeviceState: () => {
@@ -941,11 +999,9 @@ function registerIpc(
       getShift: () =>
         shifts?.state() ?? { current: null, lastClosed: null, unsynced: [] },
       getJournalSync: () => {
-        const enrollmentId = store
-          ? new DeviceStore(store.db).read()?.identity.enrollmentId
-          : undefined;
+        const enrollmentId = currentEnrollmentId();
         return journalSyncForRenderer(
-          journalSyncFacts().journalSync?.view ?? null,
+          journalSyncFacts(enrollmentId).journalSync?.view ?? null,
           store?.db ?? null,
           enrollmentId,
           authorityRefresh?.status() ?? null,
@@ -1212,6 +1268,7 @@ async function start(): Promise<void> {
   const offlineJournalWriter = new OfflineJournalWriter({ db: store.db });
   // P4 #50: offline time is the last server-signed time plus Windows uptime since.
   const trustedClock = new TrustedClock({ db: store.db });
+  offlineClock = trustedClock;
   // Offline PIN lockouts count down in uptime; save their progress so a restart resumes it.
   const pins = new PinStore(store.db);
   pins.checkpoint();
