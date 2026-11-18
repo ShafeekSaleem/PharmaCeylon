@@ -550,7 +550,7 @@ function IssuedCodeModal({
           <p
             aria-label="Enrollment code"
             style={{
-              fontFamily: "var(--pc-font-mono, monospace)",
+              fontFamily: "var(--pc-font-mono)",
               fontSize: "1.6rem",
               letterSpacing: "0.12em",
               textAlign: "center",

@@ -71,8 +71,8 @@
   position: absolute;
   inset: auto 0 0;
   padding: 0.38rem;
-  background: rgba(15, 23, 42, 0.74);
-  color: #fff;
+  background: var(--pc-image-scrim);
+  color: var(--pc-brand-text);
   font-size: 0.72rem;
   font-weight: 600;
   opacity: 0;

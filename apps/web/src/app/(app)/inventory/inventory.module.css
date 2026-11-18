@@ -1490,7 +1490,7 @@
   cursor: pointer;
 }
 
-.confirmExpiryButton { margin-top: 16px; padding: 10px 16px; border: 0; border-radius: 8px; background: var(--primary, var(--pc-primary)); color: white; cursor: pointer; }
+.confirmExpiryButton { margin-top: 16px; padding: 10px 16px; border: 0; border-radius: 8px; background: var(--pc-primary); color: var(--pc-btn-primary-text); cursor: pointer; }
 .confirmExpiryButton:disabled { opacity: .5; cursor: not-allowed; }
 
 /* ── Stock foundation: on hand / available / held ─────────────────────────── */

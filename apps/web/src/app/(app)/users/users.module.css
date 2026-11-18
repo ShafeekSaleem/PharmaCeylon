@@ -27,7 +27,7 @@
   justify-content: center;
   font-weight: 700;
   font-size: 0.72rem;
-  color: #fff;
+  color: var(--pc-on-tone);
 }
 
 .personText {
@@ -51,7 +51,7 @@
   text-transform: uppercase;
   letter-spacing: 0.03em;
   color: var(--pc-primary);
-  background: var(--pc-primary-soft, rgba(13, 148, 136, 0.12));
+  background: var(--pc-primary-soft);
   border-radius: 999px;
   padding: 0.1rem 0.4rem;
   margin-left: 0.4rem;
@@ -270,7 +270,7 @@
 .genBtn:hover {
   color: var(--pc-primary);
   border-color: color-mix(in srgb, var(--pc-primary) 45%, var(--pc-border));
-  background: var(--pc-primary-soft, rgba(13, 148, 136, 0.12));
+  background: var(--pc-primary-soft);
 }
 
 .stepPills {

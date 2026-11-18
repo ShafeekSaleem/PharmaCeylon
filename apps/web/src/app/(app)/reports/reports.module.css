@@ -3208,7 +3208,7 @@ table.rt tbody tr:hover td {
   width: 1.6rem;
   height: 1.6rem;
   border-radius: 50%;
-  color: #fff;
+  color: var(--pc-on-tone);
   font-size: 0.72rem;
   font-weight: 700;
 }

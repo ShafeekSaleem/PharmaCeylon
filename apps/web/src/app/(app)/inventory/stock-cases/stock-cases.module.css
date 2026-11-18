@@ -36,7 +36,7 @@
 }
 
 .filter[aria-pressed="true"] {
-  border-color: var(--pc-primary, #0f766e);
+  border-color: var(--pc-primary);
   font-weight: 600;
 }
 
@@ -55,8 +55,8 @@
 }
 
 .item[aria-current="true"] {
-  border-color: var(--pc-primary, #0f766e);
-  box-shadow: 0 0 0 1px var(--pc-primary, #0f766e);
+  border-color: var(--pc-primary);
+  box-shadow: 0 0 0 1px var(--pc-primary);
 }
 
 .sub {

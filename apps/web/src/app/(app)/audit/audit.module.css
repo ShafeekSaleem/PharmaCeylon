@@ -102,7 +102,7 @@
 }
 
 .capsuleActive:hover {
-  color: #fff;
+  color: var(--pc-btn-primary-text);
 }
 
 /* ── Event cell ── */
@@ -186,5 +186,5 @@
 /* ── Critical row ── */
 
 .rowCritical td {
-  background: color-mix(in srgb, var(--pc-alert-error-bg) 65%, white);
+  background: color-mix(in srgb, var(--pc-alert-error-bg) 65%, var(--pc-card-bg));
 }

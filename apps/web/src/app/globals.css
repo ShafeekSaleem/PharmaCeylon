@@ -28,12 +28,27 @@
   --pc-primary-soft: var(--ui-accent-soft);
   --pc-font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial,
     sans-serif;
+  --pc-font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
   --pc-radius-sm: 8px;
   --pc-radius-md: 12px;
+  --pc-radius-lg: 20px;
+  /* The default corner, for components that don't pick a size. */
+  --pc-radius: var(--pc-radius-sm);
   --pc-shadow-card: 0 25px 50px -12px rgba(15, 23, 42, 0.12);
+  --pc-shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.08);
 
-  /* Brand panel (login card right side) */
+  /* Names some components reach for; each aliases the semantic set so none falls back to a
+     literal (Epic UI1 #205). */
+  --pc-surface-2: var(--ui-surface-sunken);
+  --pc-rule: var(--ui-line);
+  --pc-border-subtle: var(--ui-line);
+  --pc-alert-danger-bg: var(--ui-danger-soft);
+
+  /* Text on a fill that keeps its colour in both themes: the brand gradient
+     (--pc-gradient-main, deep teal in light and dark), the fixed accent preset swatches,
+     and the photo scrim below. Text on an accent fill uses --pc-btn-primary-text instead. */
   --pc-brand-text: #ffffff;
+  --pc-image-scrim: rgba(15, 23, 42, 0.74);
   --pc-brand-text-muted: rgba(255, 255, 255, 0.92);
   --pc-brand-bubble-bg: rgba(255, 255, 255, 0.2);
 
@@ -147,6 +162,7 @@
     --pc-gradient-hover: linear-gradient(135deg, #115e59 0%, #155e75 100%);
 
     --pc-shadow-card: 0 25px 50px -12px rgba(0, 0, 0, 0.55);
+    --pc-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
     --pc-hover-overlay: rgba(255, 255, 255, 0.06);
 
     --pc-overlay-scrim: rgba(0, 0, 0, 0.6);
@@ -187,6 +203,7 @@
   --pc-gradient-hover: linear-gradient(135deg, #115e59 0%, #155e75 100%);
 
   --pc-shadow-card: 0 25px 50px -12px rgba(0, 0, 0, 0.55);
+  --pc-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
   --pc-hover-overlay: rgba(255, 255, 255, 0.06);
 
   --pc-overlay-scrim: rgba(0, 0, 0, 0.6);

@@ -407,12 +407,12 @@
 .actionBtnPrimary {
   background: var(--pc-primary);
   border-color: var(--pc-primary);
-  color: var(--pc-btn-primary-text, #fff);
+  color: var(--pc-btn-primary-text);
 }
 
 .actionBtnPrimary:hover:not(:disabled) {
   background: var(--pc-primary-hover, var(--pc-primary));
-  color: var(--pc-btn-primary-text, #fff);
+  color: var(--pc-btn-primary-text);
 }
 
 .actionBtnDanger:hover:not(:disabled) {
@@ -1137,7 +1137,7 @@
 
 .selectClear:hover {
   color: var(--pc-foreground);
-  background: var(--pc-muted-bg, rgba(0, 0, 0, 0.05));
+  background: var(--pc-muted-bg);
 }
 
 .selectChevron {
@@ -1210,7 +1210,7 @@
 }
 
 .selectOption:hover {
-  background: var(--pc-muted-bg, rgba(0, 0, 0, 0.04));
+  background: var(--pc-muted-bg);
 }
 
 .selectOptionActive {
@@ -1413,7 +1413,7 @@
 
 .countModeBtnActive {
   background: var(--pc-primary);
-  color: var(--pc-btn-primary-text, #fff);
+  color: var(--pc-btn-primary-text);
 }
 
 .packHint {
