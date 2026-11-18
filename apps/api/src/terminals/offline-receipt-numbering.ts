@@ -65,6 +65,9 @@ async function tillPrefix(tx: Tx, tenantId: string, branchId: string, tillId: st
   while (used.has(`C${n}R`)) n += 1;
   const prefix = `C${n}R`;
   if (!OFFLINE_RECEIPT_PREFIX_PATTERN.test(prefix)) denied("GRANT_INVALID");
-  await tx.terminalCounter.update({ where: { id: till.id }, data: { offlineReceiptPrefix: prefix } });
+  await tx.terminalCounter.updateMany({
+    where: { tenantId, branchId, id: till.id, offlineReceiptPrefix: null },
+    data: { offlineReceiptPrefix: prefix },
+  });
   return prefix;
 }
