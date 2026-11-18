@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import {
+  CARD_NOT_USED_REASON_MAX_LENGTH,
   containsCardNumber,
   type ExternalCardAttemptRecord,
   type OfflineGrant,
@@ -50,9 +51,10 @@ type CardState = ExternalCardAttemptRecord["state"];
 const NEXT_CARD_STATES: Readonly<Record<CardState, readonly CardState[]>> = {
   prepared: ["uncertain", "approved", "declined"],
   uncertain: ["approved", "declined"],
-  approved: ["linked_to_sale"],
+  approved: ["linked_to_sale", "not_used"],
   declined: [],
   linked_to_sale: [],
+  not_used: [],
 };
 
 export type CardAttemptEvent =
@@ -68,6 +70,14 @@ export type CardAttemptEvent =
       state: "linked_to_sale";
       providerReference: string;
       saleCommandId: string;
+    }
+  | {
+      /** The card reference is copied from the attempt's own approval, never retyped. */
+      state: "not_used";
+      settlement: "reversed_on_machine" | "refund_owed";
+      reversalReference: string | null;
+      reason: string;
+      verifiedByUserId: string;
     };
 
 type DeviceKey = { sign: <T>(payload: T, purpose: "command") => Signed<T> };
@@ -217,98 +227,150 @@ export class OfflineSupportRecordWriter {
       evidenceText(event.providerReference, MAX_PROVIDER_REFERENCE_LENGTH);
       if (!uuidPattern.test(event.saleCommandId))
         throw new Error("INVALID_RECORD");
-    } else if (event.state !== "uncertain") throw new Error("INVALID_RECORD");
-    return this.write((ctx) => {
-      const attempt = this.attempts(ctx.enrollmentId).find(
-        (a) => a.attemptId === input.attemptId,
-      );
-      if (!attempt) throw new Error("UNKNOWN_ATTEMPT");
-      if (!NEXT_CARD_STATES[attempt.latest.state].includes(event.state))
-        throw new Error("INVALID_TRANSITION");
-      const signIn = this.signInFor(ctx.enrollmentId, input.staffSignInId, ctx);
-      const first = attempt.events[0]!;
-      const bound = {
-        contractVersion: 1 as const,
-        kind: "external_card_attempt" as const,
-        recordId: randomUUID(),
-        identity: ctx.identity,
-        attemptId: attempt.attemptId,
-        checkoutDraftId: first.checkoutDraftId,
-        reviewedSaleDigest: first.reviewedSaleDigest,
-        amountMinor: first.amountMinor,
-        staffSignInId: signIn.staffSignInId,
-        workSessionId: signIn.session.workSessionId,
-        recordedAt: ctx.now,
-      };
-      const reference = attempt.events
-        .map((e) => ("providerReference" in e ? e.providerReference : null))
-        .find((r): r is string => r !== null);
-      if (
-        "providerReference" in event &&
-        reference !== undefined &&
-        event.providerReference !== reference
+    } else if (event.state === "not_used") {
+      evidenceText(event.reason, CARD_NOT_USED_REASON_MAX_LENGTH);
+      if (!uuidPattern.test(event.verifiedByUserId))
+        throw new Error("INVALID_RECORD");
+      // A reversal names the card machine's own slip; a refund still owed has none yet.
+      if (event.settlement === "reversed_on_machine")
+        evidenceText(
+          event.reversalReference ?? "",
+          MAX_PROVIDER_REFERENCE_LENGTH,
+        );
+      else if (
+        event.settlement !== "refund_owed" ||
+        event.reversalReference !== null
       )
-        throw new Error("ATTEMPT_MISMATCH");
-      let payload: ExternalCardAttemptRecord;
-      switch (event.state) {
-        case "uncertain":
-          payload = { ...bound, state: "uncertain" };
-          break;
-        case "approved":
-          // The card machine approved before this event was recorded.
-          if (event.approvedAt > ctx.now) throw new Error("INVALID_RECORD");
-          payload = {
-            ...bound,
-            state: "approved",
-            providerReference: event.providerReference,
-            approvalCode: event.approvalCode,
-            approvedAt: event.approvedAt,
-          };
-          break;
-        case "declined":
-          // The person who checked the original card-machine result must be prepared on this counter.
-          if (
-            !ctx.grant.authorizedStaff.some(
-              (s) => s.staffUserId === event.verifiedByUserId,
+        throw new Error("INVALID_RECORD");
+    } else if (event.state !== "uncertain") throw new Error("INVALID_RECORD");
+    return this.write(
+      (ctx) => {
+        const attempt = this.attempts(ctx.enrollmentId).find(
+          (a) => a.attemptId === input.attemptId,
+        );
+        if (!attempt) throw new Error("UNKNOWN_ATTEMPT");
+        if (!NEXT_CARD_STATES[attempt.latest.state].includes(event.state))
+          throw new Error("INVALID_TRANSITION");
+        const signIn = this.signInFor(
+          ctx.enrollmentId,
+          input.staffSignInId,
+          ctx,
+        );
+        const first = attempt.events[0]!;
+        const bound = {
+          contractVersion: 1 as const,
+          kind: "external_card_attempt" as const,
+          recordId: randomUUID(),
+          identity: ctx.identity,
+          attemptId: attempt.attemptId,
+          checkoutDraftId: first.checkoutDraftId,
+          reviewedSaleDigest: first.reviewedSaleDigest,
+          amountMinor: first.amountMinor,
+          staffSignInId: signIn.staffSignInId,
+          workSessionId: signIn.session.workSessionId,
+          recordedAt: ctx.now,
+        };
+        const reference = attempt.events
+          .map((e) => ("providerReference" in e ? e.providerReference : null))
+          .find((r): r is string => r !== null);
+        if (
+          "providerReference" in event &&
+          reference !== undefined &&
+          event.providerReference !== reference
+        )
+          throw new Error("ATTEMPT_MISMATCH");
+        let payload: ExternalCardAttemptRecord;
+        switch (event.state) {
+          case "uncertain":
+            payload = { ...bound, state: "uncertain" };
+            break;
+          case "approved":
+            // The card machine approved before this event was recorded.
+            if (event.approvedAt > ctx.now) throw new Error("INVALID_RECORD");
+            payload = {
+              ...bound,
+              state: "approved",
+              providerReference: event.providerReference,
+              approvalCode: event.approvalCode,
+              approvedAt: event.approvedAt,
+            };
+            break;
+          case "declined":
+            // The person who checked the original card-machine result must be prepared on this counter.
+            if (
+              !ctx.grant.authorizedStaff.some(
+                (s) => s.staffUserId === event.verifiedByUserId,
+              )
             )
-          )
-            throw new Error("STAFF_NOT_AUTHORIZED");
-          payload = {
-            ...bound,
-            state: "declined",
-            providerReference: event.providerReference,
-            verifiedByUserId: event.verifiedByUserId,
-          };
-          break;
-        case "linked_to_sale": {
-          const approval = attempt.events.find((e) => e.state === "approved");
-          const sale = this.readSale(ctx.enrollmentId, event.saleCommandId);
-          // The sale must hold the very card payment this attempt approved.
-          const paid =
-            approval?.state === "approved" &&
-            sale?.payments.some(
-              (p) =>
-                p.method === "external_card" &&
-                p.providerReference === event.providerReference &&
-                p.approvalCode === approval.approvalCode,
-            );
-          if (!sale) throw new Error("UNKNOWN_SALE");
-          if (!paid) throw new Error("SALE_PAYMENT_MISMATCH");
-          payload = {
-            ...bound,
-            state: "linked_to_sale",
-            providerReference: event.providerReference,
-            saleCommandId: event.saleCommandId,
-          };
-          break;
+              throw new Error("STAFF_NOT_AUTHORIZED");
+            payload = {
+              ...bound,
+              state: "declined",
+              providerReference: event.providerReference,
+              verifiedByUserId: event.verifiedByUserId,
+            };
+            break;
+          case "linked_to_sale": {
+            const approval = attempt.events.find((e) => e.state === "approved");
+            const sale = this.readSale(ctx.enrollmentId, event.saleCommandId);
+            // The sale must hold the very card payment this attempt approved.
+            const paid =
+              approval?.state === "approved" &&
+              sale?.payments.some(
+                (p) =>
+                  p.method === "external_card" &&
+                  p.providerReference === event.providerReference &&
+                  p.approvalCode === approval.approvalCode,
+              );
+            if (!sale) throw new Error("UNKNOWN_SALE");
+            if (!paid) throw new Error("SALE_PAYMENT_MISMATCH");
+            payload = {
+              ...bound,
+              state: "linked_to_sale",
+              providerReference: event.providerReference,
+              saleCommandId: event.saleCommandId,
+            };
+            break;
+          }
+          case "not_used": {
+            // As with a decline: whoever says the money went back (or is owed) is prepared here.
+            if (
+              !ctx.grant.authorizedStaff.some(
+                (s) => s.staffUserId === event.verifiedByUserId,
+              )
+            )
+              throw new Error("STAFF_NOT_AUTHORIZED");
+            const approval = attempt.events.find((e) => e.state === "approved");
+            if (approval?.state !== "approved")
+              throw new Error("INVALID_TRANSITION");
+            payload = {
+              ...bound,
+              state: "not_used",
+              providerReference: approval.providerReference,
+              settlement: event.settlement,
+              reversalReference: event.reversalReference,
+              reason: event.reason,
+              verifiedByUserId: event.verifiedByUserId,
+            };
+            // It may be written after the grant ended (that is one way a cart stops being
+            // sellable), but the sign-in it cites must have been made while the grant held.
+            if (
+              signIn.authenticatedAt < ctx.grant.notBefore ||
+              signIn.authenticatedAt >= ctx.grant.expiresAt
+            )
+              throw new Error("GRANT_EXPIRED");
+            break;
+          }
         }
-      }
-      return {
-        payload,
-        attemptId: attempt.attemptId,
-        cardState: payload.state,
-      };
-    }, input.key);
+        return {
+          payload,
+          attemptId: attempt.attemptId,
+          cardState: payload.state,
+        };
+      },
+      input.key,
+      { afterGrantExpiry: event.state === "not_used" },
+    );
   }
 
   /** Every attempt written here, each with its events in order; the latest is where it stands. */
@@ -386,6 +448,7 @@ export class OfflineSupportRecordWriter {
       cardState: CardState | null;
     },
     key: DeviceKey,
+    options: { afterGrantExpiry?: boolean } = {},
   ): Signed<T> {
     const db = this.deps.db;
     return db
@@ -399,7 +462,10 @@ export class OfflineSupportRecordWriter {
         if (!installed) throw new Error("NO_OFFLINE_AUTHORITY");
         const grant = installed.grant.payload;
         const now = this.nowMs();
-        if (now >= grant.expiresAt || now < grant.notBefore)
+        if (
+          now < grant.notBefore ||
+          (now >= grant.expiresAt && !options.afterGrantExpiry)
+        )
           throw new Error("GRANT_EXPIRED");
         const { publicKeyHex, ...identity } = device;
         const built = build({ enrollmentId, identity, grant, now });
@@ -439,3 +505,27 @@ type WriteContext = {
   grant: OfflineGrant;
   now: number;
 };
+
+/**
+ * What the person said about an approved card payment no sale will use, as the event recorded.
+ * A reversal names its slip; a refund still owed names none.
+ */
+export function notUsedEvent(
+  outcome: {
+    settlement: "reversed_on_machine" | "refund_owed";
+    reversalReference: string | null;
+    reason: string;
+  },
+  verifiedByUserId: string,
+): CardAttemptEvent {
+  return {
+    state: "not_used",
+    settlement: outcome.settlement,
+    reversalReference:
+      outcome.settlement === "reversed_on_machine"
+        ? (outcome.reversalReference?.trim() ?? "")
+        : null,
+    reason: outcome.reason.trim(),
+    verifiedByUserId,
+  };
+}

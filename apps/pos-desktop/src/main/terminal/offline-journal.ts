@@ -12,6 +12,7 @@ export const OFFLINE_USAGE_TABLES: readonly string[] = [
   "offline_journal_batch_usage",
   "offline_journal_online_sale_record",
   "offline_support_record",
+  "offline_sale_receipt",
 ];
 
 /**

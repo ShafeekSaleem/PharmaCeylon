@@ -1,6 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
 import {
+  CARD_NOT_USED_REASON_MAX_LENGTH,
   containsCardNumber,
   type ExternalCardAttemptRecord,
   type OfflineSaleIncident,
@@ -97,6 +98,7 @@ export function parseCardAttempt(raw: unknown): ExternalCardAttemptRecord {
     approved: ["providerReference", "approvalCode", "approvedAt"],
     declined: ["providerReference", "verifiedByUserId"],
     linked_to_sale: ["providerReference", "saleCommandId"],
+    not_used: ["providerReference", "settlement", "reversalReference", "reason", "verifiedByUserId"],
   };
   if (typeof state !== "string" || !Object.hasOwn(extra, state)) invalid();
   const p = object(raw, [...common, ...extra[state]!]);
@@ -122,6 +124,14 @@ export function parseCardAttempt(raw: unknown): ExternalCardAttemptRecord {
   }
   if (state === "declined") uuid(p.verifiedByUserId);
   if (state === "linked_to_sale") uuid(p.saleCommandId);
+  if (state === "not_used") {
+    uuid(p.verifiedByUserId);
+    evidenceText(p.reason, CARD_NOT_USED_REASON_MAX_LENGTH);
+    // A reversal names the card machine's slip; a refund still owed names none yet.
+    if (p.settlement === "reversed_on_machine")
+      evidenceText(p.reversalReference, MAX_PROVIDER_REFERENCE_LENGTH);
+    else if (p.settlement !== "refund_owed" || p.reversalReference !== null) invalid();
+  }
   return p as ExternalCardAttemptRecord;
 }
 
@@ -243,11 +253,15 @@ export class OfflineSupportRecords {
         (approval !== null && e.approvalCode !== null &&
           (e.approvalCode !== approval.code || e.approvedAt?.getTime() !== approval.at)),
     );
+    // An approval no sale used ends the attempt on the counter, but the money question is a
+    // manager's: promotion never accepts it on its own (`card_not_used` is in MANAGER_DECIDES).
     const heldReason = upload.revoked
       ? "enrollment_revoked"
       : mismatch
         ? "attempt_mismatch"
-        : "payment_unverified";
+        : event.state === "not_used"
+          ? "card_not_used"
+          : "payment_unverified";
     return this.save(tx, user, branchId, upload, heldReason, {
       attemptId: event.attemptId,
       checkoutDraftId: event.checkoutDraftId,
@@ -257,7 +271,8 @@ export class OfflineSupportRecords {
       providerReference: reference,
       approvalCode: event.state === "approved" ? event.approvalCode : null,
       approvedAt: event.state === "approved" ? new Date(event.approvedAt) : null,
-      verifiedByUserId: event.state === "declined" ? event.verifiedByUserId : null,
+      verifiedByUserId:
+        event.state === "declined" || event.state === "not_used" ? event.verifiedByUserId : null,
       saleCommandId,
     });
   }

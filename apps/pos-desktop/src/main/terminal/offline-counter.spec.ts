@@ -550,4 +550,27 @@ describe("offline shifts after selling hours (P4 #50)", () => {
       "BUSINESS_HOURS_ACK_REQUIRED",
     );
   });
+
+  it("leaves no sign-in behind when the policy refuses the step, and spends no PIN attempt on it", () => {
+    service.signIn(cashier.staffUserId, cashier.pin);
+    const before = signIns().size;
+    const active = service.state().signedIn;
+    advance(5 * 60_000);
+    // Refused by the policy before the PIN is even looked at: a wrong one isn't counted either.
+    fails(
+      () => service.openShift("0000", count(1_000)),
+      "BUSINESS_HOURS_ACK_REQUIRED",
+    );
+    fails(
+      () => service.openShift(cashier.pin, count(1_000)),
+      "BUSINESS_HOURS_ACK_REQUIRED",
+    );
+    expect(signIns().size).toBe(before);
+    expect(service.state().signedIn).toEqual(active);
+    expect(
+      service.state().people.find((p) => p.staffUserId === cashier.staffUserId)
+        ?.lockRemainingMs,
+    ).toBe(0);
+    expect(journal()).toHaveLength(0);
+  });
 });

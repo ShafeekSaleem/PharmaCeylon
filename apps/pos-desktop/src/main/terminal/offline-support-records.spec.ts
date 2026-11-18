@@ -538,6 +538,84 @@ describe("OfflineSupportRecordWriter: external-card attempts", () => {
     expect(unresolvedCardAttempts(local.db, identity.enrollmentId)).toBe(0);
   });
 
+  describe("an approved payment no sale will use", () => {
+    const notUsed = (
+      verifiedByUserId = verifier,
+    ): Parameters<
+      OfflineSupportRecordWriter["recordCardAttemptEvent"]
+    >[0]["event"] => ({
+      state: "not_used",
+      settlement: "reversed_on_machine",
+      reversalReference: "VOID-7",
+      reason: "Customer changed their mind",
+      verifiedByUserId,
+    });
+
+    it("settles it with the approval's own reference, so the drain is no longer held", () => {
+      const attempt = prepare();
+      event(attempt, approved);
+      const settled = event(attempt, notUsed());
+      expect(settled.payload).toMatchObject({
+        state: "not_used",
+        providerReference: "REF-1",
+        settlement: "reversed_on_machine",
+        reversalReference: "VOID-7",
+        verifiedByUserId: verifier,
+      });
+      expect(unresolvedCardAttempts(local.db, identity.enrollmentId)).toBe(0);
+      expect(stored().map((r) => r.card_state)).toEqual([
+        "prepared",
+        "approved",
+        "not_used",
+      ]);
+      // Nothing follows a settled payment.
+      expect(() => event(attempt, { ...approved })).toThrow(
+        "INVALID_TRANSITION",
+      );
+    });
+
+    it("is only for an approved payment, checked by someone the grant names", () => {
+      const attempt = prepare();
+      expect(() => event(attempt, notUsed())).toThrow("INVALID_TRANSITION");
+      event(attempt, approved);
+      expect(() => event(attempt, notUsed(randomUUID()))).toThrow(
+        "STAFF_NOT_AUTHORIZED",
+      );
+      expect(() =>
+        event(attempt, { ...notUsed(), settlement: "refund_owed" } as never),
+      ).toThrow();
+    });
+
+    it("can still be recorded after the grant ran out, when a declined result can't", () => {
+      const approvedAttempt = prepare();
+      event(approvedAttempt, approved);
+      const openAttempt = prepare();
+      clock = installed.grant.payload.expiresAt + 60_000;
+      expect(() =>
+        event(openAttempt, {
+          state: "declined",
+          providerReference: "REF-2",
+          verifiedByUserId: verifier,
+        }),
+      ).toThrow("GRANT_EXPIRED");
+      event(approvedAttempt, {
+        state: "not_used",
+        settlement: "refund_owed",
+        reversalReference: null,
+        reason: "Sale could not be finished",
+        verifiedByUserId: verifier,
+      });
+      clock = NOW;
+      expect(
+        stored()
+          .filter((r) => r.attempt_id === approvedAttempt.payload.attemptId)
+          .map((r) => r.card_state),
+      ).toEqual(["prepared", "approved", "not_used"]);
+      // The other attempt is still open, so only it holds the drain.
+      expect(unresolvedCardAttempts(local.db, identity.enrollmentId)).toBe(1);
+    });
+  });
+
   it("allows only the transitions the lifecycle has", () => {
     const attempt = prepare();
     expect(() =>

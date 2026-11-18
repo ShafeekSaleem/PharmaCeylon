@@ -57,6 +57,8 @@ export const SUPPORT_HELD_REASONS = {
     "The linked sale holds no card payment matching this approval and amount.",
   sale_not_honoured:
     "The card was charged for a sale a manager did not honour: settle it with the customer.",
+  card_not_used:
+    "The card was approved but no sale used it. The counter says it was reversed on the card machine, or that a refund is owed: check the money went back.",
 } as const;
 
 /** Held reasons promotion leaves alone: only a person settles them. */
@@ -65,6 +67,7 @@ const MANAGER_DECIDES: readonly string[] = [
   "attempt_mismatch",
   "card_payment_mismatch",
   "sale_not_honoured",
+  "card_not_used",
 ];
 
 /** One held record, as a manager reviewing support evidence sees it. */

@@ -152,6 +152,75 @@ export const offlineStaffSchema = z.object({
 });
 export type OfflineStaff = z.infer<typeof offlineStaffSchema>;
 
+/** P4 #50: offline selling. Money is in minor units (cents), as signed in the journal. */
+const offlineBlockReason = z.enum(["NOT_SOLD_OFFLINE", "STOCK_REVIEW", "EXPIRED", "NOT_ENOUGH_STOCK"]);
+const offlineSaleItemSchema = z.object({
+  snapshotLineId: z.string().min(1),
+  quantity: z.number().int().min(1).max(100_000),
+});
+const offlineQuoteLineSchema = z.object({
+  snapshotLineId: z.string(),
+  productId: z.string(),
+  batchId: z.string(),
+  quantity: z.number().int(),
+  unitPriceMinor: z.number().int(),
+  taxMinor: z.number().int(),
+  lineTotalMinor: z.number().int(),
+});
+export const offlineStockLineSchema = z.object({
+  snapshotLineId: z.string(),
+  productId: z.string(),
+  batchId: z.string(),
+  remaining: z.number().int(),
+  unitPriceMinor: z.number().int(),
+  sellBefore: z.number().int(),
+  blocked: offlineBlockReason.nullable(),
+});
+export const offlineQuoteSchema = z.object({
+  lines: z.array(offlineQuoteLineSchema),
+  blocked: z.array(
+    z.object({
+      snapshotLineId: z.string(),
+      quantity: z.number().int(),
+      reason: offlineBlockReason,
+      remaining: z.number().int().nullable(),
+    }),
+  ),
+  subtotalMinor: z.number().int(),
+  taxMinor: z.number().int(),
+  totalMinor: z.number().int(),
+  digest: z.string(),
+});
+export const offlineReceiptSchema = z.object({
+  saleCommandId: z.string(),
+  checkoutDraftId: z.string(),
+  soldAt: z.number().int(),
+  sellerName: z.string(),
+  lines: z.array(offlineQuoteLineSchema),
+  subtotalMinor: z.number().int(),
+  taxMinor: z.number().int(),
+  totalMinor: z.number().int(),
+  payments: z.array(
+    z.discriminatedUnion("method", [
+      z.object({
+        method: z.literal("cash"),
+        amountMinor: z.number().int(),
+        tenderedMinor: z.number().int(),
+        changeMinor: z.number().int(),
+      }),
+      z.object({
+        method: z.literal("external_card"),
+        amountMinor: z.number().int(),
+        providerReference: z.string(),
+        approvalCode: z.string(),
+        approvedAt: z.number().int(),
+      }),
+    ]),
+  ),
+  changeMinor: z.number().int(),
+});
+export type OfflineReceiptView = z.infer<typeof offlineReceiptSchema>;
+
 /** An offline sale recorded on this counter, as the "note a problem" sheet lists it. */
 export const offlineSaleSchema = z.object({
   saleCommandId: z.string().uuid(),
@@ -178,7 +247,7 @@ export const cardAttemptSchema = z.object({
   checkoutDraftId: z.string().uuid(),
   amount: z.string(),
   startedAt: z.string(),
-  state: z.enum(["prepared", "uncertain", "approved", "declined", "linked_to_sale"]),
+  state: z.enum(["prepared", "uncertain", "approved", "declined", "linked_to_sale", "not_used"]),
   /** True once it was declined or tied to the sale it paid for. */
   settled: z.boolean(),
   /** From the card machine's slip, once someone has recorded it. */
@@ -189,8 +258,21 @@ export type CardAttemptView = z.infer<typeof cardAttemptSchema>;
 
 const cardReference = z.string().min(1).max(64);
 
+/**
+ * An approved card payment no sale will use (review of #208): reversed on the card machine (with
+ * that slip's reference) or owed back to the customer. Ends the payment here; a manager reviews it.
+ */
+export const cardNotUsedOutcomeSchema = z.object({
+  kind: z.literal("not_used"),
+  settlement: z.enum(["reversed_on_machine", "refund_owed"]),
+  reversalReference: z.string().trim().min(1).max(64).nullable(),
+  reason: z.string().trim().min(1).max(500),
+});
+export type CardNotUsedOutcome = z.infer<typeof cardNotUsedOutcomeSchema>;
+
 /** What the person at the counter saw or knows about a card payment. */
 export const cardOutcomeSchema = z.discriminatedUnion("kind", [
+  cardNotUsedOutcomeSchema,
   z.object({ kind: z.literal("not_sure") }),
   z.object({
     kind: z.literal("approved"),
@@ -1420,6 +1502,54 @@ export const ipcContract = {
       assistance: z.object({ pin, reason: z.string().trim().min(1).max(500) }).optional(),
     }),
     output: result(offlineStaffSchema),
+  },
+  /** What the saved stock still lets this counter sell offline (P4 #50). */
+  offlineStock: { channel: "pos:offline-sale:stock", input: noInput, output: result(z.array(offlineStockLineSchema)) },
+  /** Prices a cart from the saved stock; items that can't be sold offline come back blocked. */
+  offlineQuote: {
+    channel: "pos:offline-sale:quote",
+    input: z.object({ items: z.array(offlineSaleItemSchema).max(200) }),
+    output: result(offlineQuoteSchema),
+  },
+  /** Saves a card payment for this cart before the card machine is asked to charge it. */
+  offlinePrepareCard: {
+    channel: "pos:offline-sale:card-prepare",
+    input: z.object({
+      checkoutDraftId: uuid,
+      items: z.array(offlineSaleItemSchema).max(200),
+      amountMinor: z.number().int().min(1),
+    }),
+    output: result(z.object({ attemptId: z.string(), digest: z.string() })),
+  },
+  /** What the card machine did with a prepared offline card payment. */
+  offlineCardOutcome: {
+    channel: "pos:offline-sale:card-outcome",
+    input: z.object({
+      attemptId: uuid,
+      outcome: z.discriminatedUnion("kind", [
+        z.object({ kind: z.literal("not_sure") }),
+        z.object({
+          kind: z.literal("approved"),
+          reference: cardReference,
+          approvalCode: z.string().min(1).max(32),
+          approvedAt: z.string().datetime(),
+        }),
+        z.object({ kind: z.literal("declined"), reference: cardReference }),
+        z.object({ kind: z.literal("never_charged") }),
+        cardNotUsedOutcomeSchema,
+      ]),
+    }),
+    output: result(z.object({ state: cardAttemptSchema.shape.state })),
+  },
+  /** Completes an offline sale: settled card payments plus cash for the rest. Idempotent per draft. */
+  offlineCommitSale: {
+    channel: "pos:offline-sale:commit",
+    input: z.object({
+      checkoutDraftId: uuid,
+      items: z.array(offlineSaleItemSchema).min(1).max(200),
+      cashTenderedMinor: z.number().int().min(0).optional(),
+    }),
+    output: result(offlineReceiptSchema),
   },
   /** Closes the open shift; someone else's needs `assistance` (their own PIN and why). */
   closeShift: {
