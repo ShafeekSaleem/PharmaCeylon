@@ -5,15 +5,31 @@ import type {
   JournalSync,
   LocalShift,
   OfflineBackup,
+  OfflineJournalQueue,
+  OfflineModeState,
   Printer,
 } from "../../shared/ipc-contract";
 import type { ReactNode } from "react";
 import { drainHoldSentences } from "../../shared/drain-holds";
-import { deriveSyncState, offlineBackupReadyUntil, type DerivedSync } from "./connection-sync";
-import { initials, shortDay, shortName, time, timeWithSeconds, useNow, useSecondNow } from "./format";
+import {
+  deriveSyncState,
+  offlineBackupReadyUntil,
+  type DerivedSync,
+} from "./connection-sync";
+import {
+  initials,
+  shortDay,
+  shortName,
+  time,
+  timeWithSeconds,
+  useNow,
+  useSecondNow,
+} from "./format";
 import { useSyncingLatch } from "./use-syncing-latch";
 import { money } from "./sell-model";
 import { Icon, type IconName } from "./Icon";
+import { QueueChip } from "./ReconnectNotice";
+import { queueChip, queuePhase, type ReconnectNotice } from "./reconnect-model";
 import styles from "./Shell.module.css";
 import ui from "./ui.module.css";
 import { cx } from "./useAction";
@@ -143,9 +159,17 @@ function useDerivedSync(
   api: ApiReachability | null,
   journal: JournalSync | null,
 ) {
-  const tickNow = useSecondNow(enrollmentStatus === "active" && journal !== null);
+  const tickNow = useSecondNow(
+    enrollmentStatus === "active" && journal !== null,
+  );
   const showJournalSyncing = useSyncingLatch(journal?.syncing ?? false);
-  return deriveSyncState(enrollmentStatus, api, journal, tickNow, showJournalSyncing);
+  return deriveSyncState(
+    enrollmentStatus,
+    api,
+    journal,
+    tickNow,
+    showJournalSyncing,
+  );
 }
 
 function ReachabilityPill({ api }: { api: ApiReachability | null }) {
@@ -188,21 +212,44 @@ function ReachabilityStatus({ api }: { api: ApiReachability | null }) {
   );
 }
 
+const OFFLINE_FALLBACK: OfflineModeState = {
+  mode: "stopped",
+  reason: null,
+  clock: null,
+  connected: false,
+  outageStartedAt: null,
+  grantExpiresAt: null,
+  snapshotGeneratedAt: null,
+};
+
 /** The app's own title bar. Windows draws the minimise, maximise and close buttons over its right end. */
 export function TitleBar({
   state,
   api,
   journal = null,
+  mode = null,
+  queue = null,
 }: {
   state: DeviceState | null;
   api: ApiReachability | null;
   journal?: JournalSync | null;
+  /** Online, draining, offline or stopped (P4 #50): whether the queue is sending or waiting. */
+  mode?: OfflineModeState | null;
+  /** This counter's offline journal, listed behind the "N to send" count (P4 #50). */
+  queue?: OfflineJournalQueue | null;
 }) {
   const now = useNow();
   const enrollment = state?.enrollment;
   const placed =
     enrollment?.status === "active" || enrollment?.status === "revoked";
   const derived = useDerivedSync(enrollment?.status, api, journal);
+  // Without the offline mode, a counter that can't reach the server is waiting to upload.
+  const phase = queuePhase(
+    mode ?? (api && !api.reachable ? { ...OFFLINE_FALLBACK } : null),
+    journal,
+    queue,
+  );
+  const chip = queueChip(phase, journal, queue);
   return (
     <header className={styles.titlebar}>
       <div className={styles.brand}>
@@ -227,12 +274,13 @@ export function TitleBar({
         )}
       </div>
       <span className={ui.grow} />
-      {derived?.active ? <SyncTitlePill sync={derived} /> : <ReachabilityPill api={api} />}
-      {api && !api.reachable && journal && journal.waiting > 0 && (
-        <span className={cx(ui.pill, ui.neutral)} role="status">
-          <Icon name="upload" />
-          {journal.waiting} to send
-        </span>
+      {derived?.active ? (
+        <SyncTitlePill sync={derived} />
+      ) : (
+        <ReachabilityPill api={api} />
+      )}
+      {phase && chip && (
+        <QueueChip phase={phase} label={chip} journal={journal} queue={queue} />
       )}
       <div className={styles.clock}>
         {shortDay(now)} · {time(now)}
@@ -375,11 +423,17 @@ export function StatusBar({
   const session = state.staffSession;
   const local = atTheComputer(state);
   const derived = useDerivedSync(state.enrollment?.status, api, journal);
-  const now = useSecondNow(Boolean(offlineBackup?.grantExpiresAt && offlineBackup?.usable));
+  const now = useSecondNow(
+    Boolean(offlineBackup?.grantExpiresAt && offlineBackup?.usable),
+  );
   const backupUntil = offlineBackupReadyUntil(offlineBackup, now);
   return (
     <footer className={styles.statusbar}>
-      {derived?.active ? <SyncStatusLead sync={derived} /> : <ReachabilityStatus api={api} />}
+      {derived?.active ? (
+        <SyncStatusLead sync={derived} />
+      ) : (
+        <ReachabilityStatus api={api} />
+      )}
       {shift ? (
         <>
           <span className={cx(styles.sb, styles.sbShift)}>
@@ -428,7 +482,9 @@ export function StatusBar({
       {backupUntil && (
         <span className={cx(styles.sb, styles.sbBackup)} title={backupUntil}>
           <Icon name="shield-check" />
-          <span className={styles.sbBackupText}>Offline backup · {backupUntil}</span>
+          <span className={styles.sbBackupText}>
+            Offline backup · {backupUntil}
+          </span>
         </span>
       )}
       <span className={ui.grow} />
@@ -448,7 +504,20 @@ export function StatusBar({
  * page puts its unconfirmed sales inside the block (`children`), where they can still be confirmed;
  * actions are confirmed in Counter work, which the block doesn't cover.
  */
-export function SyncBlock({ sync, children }: { sync: JournalSync; children?: ReactNode }) {
+export function SyncBlock({
+  sync,
+  notice = null,
+  children,
+}: {
+  sync: JournalSync;
+  /**
+   * What the counter says about its offline sales (P4 #50, `d-drain` / `d-review`). Replaces the
+   * heading and first line; after a refused entry the counter stays paused until a manager settles
+   * it on the web (Q4, corrected), so it never says new sales start again by themselves.
+   */
+  notice?: ReconnectNotice | null;
+  children?: ReactNode;
+}) {
   const waiting = sync.pause?.waiting ?? sync.waiting;
   const sales = sync.pause?.unconfirmed.sales ?? 0;
   const actions = sync.pause?.unconfirmed.actions ?? 0;
@@ -457,20 +526,40 @@ export function SyncBlock({ sync, children }: { sync: JournalSync; children?: Re
   return (
     <div className={styles.block} role="status" aria-live="polite">
       <div className={cx(ui.panel, styles.blockCard)}>
-        <span className={cx(ui.kind, styles.blockIcon, stuck ? null : styles.syncIcon)}>
+        <span
+          className={cx(
+            ui.kind,
+            styles.blockIcon,
+            stuck ? null : styles.syncIcon,
+          )}
+        >
           <Icon name={stuck ? "alert-triangle" : "refresh"} />
         </span>
-        <h2>{stuck ? "Synchronisation needs attention" : "Synchronising offline sales"}</h2>
-        <p>
-          {waiting > 0
-            ? `${waiting} offline ${waiting === 1 ? "record is" : "records are"} on the way to the server. `
-            : sales + actions > 0
-              ? "The offline sales are on the server. "
-              : holds.length > 0
-                ? "The offline sales are on the server. "
-                : "The offline sales are on the server; fresh stock is on its way. "}
-          New sales start again as soon as it finishes. The sale on screen is kept.
-        </p>
+        {notice ? (
+          <>
+            <h2>{notice.title}</h2>
+            <p>{notice.text}</p>
+          </>
+        ) : (
+          <>
+            <h2>
+              {stuck
+                ? "Synchronisation needs attention"
+                : "Synchronising offline sales"}
+            </h2>
+            <p>
+              {waiting > 0
+                ? `${waiting} offline ${waiting === 1 ? "record is" : "records are"} on the way to the server. `
+                : sales + actions > 0
+                  ? "The offline sales are on the server. "
+                  : holds.length > 0
+                    ? "The offline sales are on the server. "
+                    : "The offline sales are on the server; fresh stock is on its way. "}
+              New sales start again as soon as it finishes. The sale on screen
+              is kept.
+            </p>
+          </>
+        )}
         {sales > 0 && (
           <p>
             {sales === 1

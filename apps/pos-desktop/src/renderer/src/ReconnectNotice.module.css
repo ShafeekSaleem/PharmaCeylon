@@ -1,0 +1,213 @@
+/* P4 #50, slice 4c: the upload queue and the counter's offline sales after reconnecting.
+   docs/design/desktop-app/p4-offline-sale-v2 (d-queue, d-drain, d-review, d-stock, d-clean). */
+
+/* ---------- title bar count and its popover ---------- */
+.chipWrap {
+  position: relative;
+  -webkit-app-region: no-drag;
+}
+
+.chip {
+  cursor: pointer;
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.chip:focus-visible {
+  outline: none;
+  box-shadow: var(--pos-focus);
+}
+
+.popover {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: -60px;
+  z-index: 50;
+  width: 420px;
+  max-height: min(560px, calc(100vh - 80px));
+  overflow: auto;
+  background: var(--pos-surface);
+  border: 1px solid var(--pos-line);
+  border-radius: 12px;
+  box-shadow: var(--pos-shadow-lg);
+  color: var(--pos-text);
+  font-weight: 400;
+  white-space: normal;
+}
+
+.popHead {
+  padding: 14px 16px 12px;
+  border-bottom: 1px solid var(--pos-line);
+}
+
+.popHead h2 {
+  margin: 0 0 4px;
+  font: 650 14.5px/1.25 var(--pos-font-display);
+}
+
+.popHead p,
+.popFoot,
+.popEmpty,
+.popMore {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--pos-text-2);
+}
+
+.popEmpty,
+.popMore {
+  padding: 12px 16px;
+}
+
+.popFoot {
+  padding: 12px 16px 14px;
+  border-top: 1px solid var(--pos-line);
+}
+
+.list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 16px;
+  font-size: 12.5px;
+}
+
+.row + .row {
+  border-top: 1px solid var(--pos-line);
+}
+
+.when {
+  color: var(--pos-text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.what {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.what b {
+  font-weight: 600;
+}
+
+.what span {
+  font-size: 11.5px;
+  color: var(--pos-text-2);
+}
+
+.amount {
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* ---------- last offline sale ---------- */
+.last {
+  display: grid;
+  grid-template-columns: auto;
+  gap: 2px;
+  min-width: 210px;
+  padding: 10px 12px;
+  border: 1px solid var(--pos-line);
+  border-radius: 10px;
+  background: var(--pos-surface);
+  font-size: 12.5px;
+  text-align: left;
+  color: var(--pos-text-2);
+}
+
+.lastLabel {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--pos-text);
+}
+
+.lastNumber {
+  color: var(--pos-text);
+}
+
+.lastMeta {
+  font-variant-numeric: tabular-nums;
+}
+
+.lastActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.lastMessage {
+  margin-top: 4px;
+  font-size: 12px;
+}
+
+/* ---------- banner over Sell ---------- */
+.banner {
+  flex: none;
+  align-items: flex-start;
+}
+
+.bannerOk {
+  background: var(--pos-ok-soft);
+  border-color: var(--pos-ok-line);
+}
+
+.bannerOk > :global(.pos-ic) {
+  color: var(--pos-ok);
+}
+
+.bannerText {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  line-height: 1.45;
+}
+
+.dismiss {
+  flex: none;
+  padding: 0 6px;
+}
+
+/* On the sign-in screen while the counter finishes an outage: the sale saved just before the
+   connection came back stays reprintable (#212 note 1). */
+.floating {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 40;
+  box-shadow: var(--pos-shadow-lg);
+}
+
+/* One row inside the banner over Sell. */
+.inline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: 10px;
+  row-gap: 4px;
+  min-width: 0;
+  padding: 6px 8px 6px 12px;
+}
+
+.inline .lastActions {
+  margin-top: 0;
+}
+
+.inline .lastMessage {
+  flex-basis: 100%;
+  margin-top: 0;
+}
