@@ -5,11 +5,12 @@ import { APP_ORIGIN } from "./renderer-path";
 /** The renderer draws the title bar (40px, the mockups' height); Windows draws its buttons over it. */
 export const TITLE_BAR_HEIGHT = 40;
 
-/** Chrome and canvas colours from docs/design/desktop-app, matching the renderer's tokens.css. */
+/** Chrome and canvas colours: the shared semantic tokens (apps/web/src/app/tokens.css, --ui-surface,
+ *  --ui-text-muted and --ui-surface-page). Keep in step with that file. */
 function themeColours() {
   return nativeTheme.shouldUseDarkColors
-    ? { chrome: "#0d1524", symbols: "#a3b1c6", canvas: "#0a101b" }
-    : { chrome: "#ffffff", symbols: "#475569", canvas: "#f2f5f9" };
+    ? { chrome: "#131c2e", symbols: "#9aa8bd", canvas: "#0b1220" }
+    : { chrome: "#ffffff", symbols: "#56617a", canvas: "#f5f7f9" };
 }
 
 export function createMainWindow(opts: {

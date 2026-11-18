@@ -1,0 +1,193 @@
+/*
+ * PharmaCeylon semantic tokens — one set for the web back office and the desktop counter app
+ * (Epic UI1 #205, Phase 1). Spec: docs/design/ui-redesign/README.md.
+ *
+ * Components should not read these directly yet: the web's `--pc-*` tokens (globals.css) and the
+ * desktop's `--pos-*` tokens (apps/pos-desktop/.../tokens.css) are defined in terms of them, so
+ * every existing component follows this file without being touched. New and redesigned
+ * components use `--ui-*`.
+ *
+ * Rules (checked by src/app/tokens.spec.ts):
+ * - Every value is a 6-digit hex, so the contrast check can read it without a browser.
+ * - Text, muted text and accent text reach 4.5:1 on every surface, in both themes.
+ * - Status ink reaches 4.5:1 on its soft fill and on the surface, in both status sets.
+ * - The prefers-color-scheme block and the [data-theme="dark"] block hold the same values.
+ *
+ * Three theme states, as before: an explicit choice stamps `data-theme` on <html>; "follow the
+ * device" stamps nothing and the media query decides. Status sets: `data-status-set` on <html>,
+ * absent = Standard, "colour-blind" = the colour-blind-safe set (orange / yellow / blue).
+ */
+:root {
+  /* Surfaces, back to front. */
+  --ui-surface-page: #f5f7f9;
+  --ui-surface: #ffffff;
+  --ui-surface-raised: #fafbfc;
+  --ui-surface-sunken: #eef2f6;
+  --ui-field: #ffffff;
+  --ui-line: #e3e8ee;
+  --ui-line-strong: #cbd5e1;
+
+  /* Text. */
+  --ui-text: #0f172a;
+  --ui-text-2: #334155;
+  --ui-text-muted: #56617a;
+
+  /* Accent: the pharmacy brand colour (default PharmaCeylon teal). Also used as link and
+     selected-item text, so it must read on white. */
+  --ui-accent: #0f766e;
+  --ui-accent-hover: #115e59;
+  --ui-accent-ink: #ffffff;
+  --ui-accent-soft: #e6f4f2;
+  --ui-selected: #e6f4f2;
+
+  /* Status: solid (icons, bars, dots), ink (text), soft (chip fill), line (chip border).
+     Colour only the exception; a status chip always carries a word. */
+  --ui-ok: #16a34a;
+  --ui-ok-ink: #166534;
+  --ui-ok-soft: #e8f6ec;
+  --ui-ok-line: #bbf7d0;
+  --ui-warn: #d97706;
+  --ui-warn-ink: #8a4b08;
+  --ui-warn-soft: #fdf1dc;
+  --ui-warn-line: #fde68a;
+  --ui-danger: #b91c1c;
+  --ui-danger-ink: #9f1c1c;
+  --ui-danger-soft: #fdecec;
+  --ui-danger-line: #fecaca;
+  --ui-info: #0e7490;
+  --ui-info-ink: #155e75;
+  --ui-info-soft: #e6f4f8;
+  --ui-info-line: #a5f3fc;
+  /* Text on a solid status fill (count badges). */
+  --ui-on-status: #ffffff;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ui-surface-page: #0b1220;
+    --ui-surface: #131c2e;
+    --ui-surface-raised: #172235;
+    --ui-surface-sunken: #1b2639;
+    --ui-field: #0f1829;
+    --ui-line: #26324a;
+    --ui-line-strong: #34425c;
+
+    --ui-text: #e6edf7;
+    --ui-text-2: #c3cede;
+    --ui-text-muted: #9aa8bd;
+
+    --ui-accent: #2dd4bf;
+    --ui-accent-hover: #5eead4;
+    --ui-accent-ink: #04201c;
+    --ui-accent-soft: #123a3a;
+    --ui-selected: #123a3a;
+
+    --ui-ok: #34d399;
+    --ui-ok-ink: #6ee7b7;
+    --ui-ok-soft: #0d2620;
+    --ui-ok-line: #14532d;
+    --ui-warn: #fbbf24;
+    --ui-warn-ink: #fcd34d;
+    --ui-warn-soft: #2a1f0e;
+    --ui-warn-line: #78350f;
+    --ui-danger: #f87171;
+    --ui-danger-ink: #fca5a5;
+    --ui-danger-soft: #2a1416;
+    --ui-danger-line: #7f1d1d;
+    --ui-info: #22d3ee;
+    --ui-info-ink: #7dd3fc;
+    --ui-info-soft: #0d2630;
+    --ui-info-line: #155e75;
+    --ui-on-status: #0b1220;
+  }
+}
+
+:root[data-theme="dark"] {
+  --ui-surface-page: #0b1220;
+  --ui-surface: #131c2e;
+  --ui-surface-raised: #172235;
+  --ui-surface-sunken: #1b2639;
+  --ui-field: #0f1829;
+  --ui-line: #26324a;
+  --ui-line-strong: #34425c;
+
+  --ui-text: #e6edf7;
+  --ui-text-2: #c3cede;
+  --ui-text-muted: #9aa8bd;
+
+  --ui-accent: #2dd4bf;
+  --ui-accent-hover: #5eead4;
+  --ui-accent-ink: #04201c;
+  --ui-accent-soft: #123a3a;
+  --ui-selected: #123a3a;
+
+  --ui-ok: #34d399;
+  --ui-ok-ink: #6ee7b7;
+  --ui-ok-soft: #0d2620;
+  --ui-ok-line: #14532d;
+  --ui-warn: #fbbf24;
+  --ui-warn-ink: #fcd34d;
+  --ui-warn-soft: #2a1f0e;
+  --ui-warn-line: #78350f;
+  --ui-danger: #f87171;
+  --ui-danger-ink: #fca5a5;
+  --ui-danger-soft: #2a1416;
+  --ui-danger-line: #7f1d1d;
+  --ui-info: #22d3ee;
+  --ui-info-ink: #7dd3fc;
+  --ui-info-soft: #0d2630;
+  --ui-info-line: #155e75;
+  --ui-on-status: #0b1220;
+}
+
+/*
+ * Colour-blind-safe status set: danger leans orange, warning yellow, ok blue, so the three
+ * differ in lightness as well as hue. Info keeps its cyan. Declared after the dark blocks so
+ * that, at equal specificity, the light set wins in light; the dark set below outranks both.
+ */
+:root[data-status-set="colour-blind"] {
+  --ui-ok: #1d5fa8;
+  --ui-ok-ink: #1d4f8a;
+  --ui-ok-soft: #e7f0fa;
+  --ui-ok-line: #bfd6f0;
+  --ui-warn: #a16207;
+  --ui-warn-ink: #854d0e;
+  --ui-warn-soft: #fdf6d8;
+  --ui-warn-line: #fde68a;
+  --ui-danger: #c2410c;
+  --ui-danger-ink: #9a3412;
+  --ui-danger-soft: #fdeee4;
+  --ui-danger-line: #fed7aa;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"])[data-status-set="colour-blind"] {
+    --ui-ok: #60a5fa;
+    --ui-ok-ink: #93c5fd;
+    --ui-ok-soft: #0f2238;
+    --ui-ok-line: #1e3a5f;
+    --ui-warn: #facc15;
+    --ui-warn-ink: #fde047;
+    --ui-warn-soft: #2a240a;
+    --ui-warn-line: #713f12;
+    --ui-danger: #fb923c;
+    --ui-danger-ink: #fdba74;
+    --ui-danger-soft: #2c1a0e;
+    --ui-danger-line: #7c2d12;
+  }
+}
+
+:root[data-theme="dark"][data-status-set="colour-blind"] {
+  --ui-ok: #60a5fa;
+  --ui-ok-ink: #93c5fd;
+  --ui-ok-soft: #0f2238;
+  --ui-ok-line: #1e3a5f;
+  --ui-warn: #facc15;
+  --ui-warn-ink: #fde047;
+  --ui-warn-soft: #2a240a;
+  --ui-warn-line: #713f12;
+  --ui-danger: #fb923c;
+  --ui-danger-ink: #fdba74;
+  --ui-danger-soft: #2c1a0e;
+  --ui-danger-line: #7c2d12;
+}

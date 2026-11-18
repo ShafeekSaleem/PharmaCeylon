@@ -1,3 +1,5 @@
+@import "./tokens.css";
+
 /* Tooltip content is rendered by FloatingTooltipHost (fixed portal). */
 [data-tooltip] {
   cursor: default;
@@ -5,25 +7,25 @@
 
 /* PharmaCeylon design tokens — keep in sync across the web app */
 :root {
-  --pc-primary: #0d9488;
-  --pc-primary-hover: #0f766e;
+  --pc-primary: var(--ui-accent);
+  --pc-primary-hover: var(--ui-accent-hover);
   --pc-secondary-cyan: #0891b2;
   --pc-secondary-cyan-hover: #0e7490;
   --pc-accent-navy: #1e40af;
-  --pc-background: #ffffff;
-  --pc-page-bg: #f8fafc;
-  --pc-card-bg: #ffffff;
-  --pc-foreground: #0f172a;
-  --pc-muted-bg: #f1f5f9;
-  --pc-muted-fg: #64748b;
-  --pc-border: rgba(0, 0, 0, 0.1);
-  --pc-input-bg: #f8fafc;
-  --pc-destructive: #dc2626;
+  --pc-background: var(--ui-surface);
+  --pc-page-bg: var(--ui-surface-page);
+  --pc-card-bg: var(--ui-surface);
+  --pc-foreground: var(--ui-text);
+  --pc-muted-bg: var(--ui-surface-sunken);
+  --pc-muted-fg: var(--ui-text-muted);
+  --pc-border: var(--ui-line);
+  --pc-input-bg: var(--ui-field);
+  --pc-destructive: var(--ui-danger);
   --pc-destructive-soft: rgba(220, 38, 38, 0.08);
-  --pc-ring: #0d9488;
+  --pc-ring: var(--ui-accent);
   --pc-gradient-main: linear-gradient(135deg, #0d9488 0%, #0891b2 100%);
   --pc-gradient-hover: linear-gradient(135deg, #0f766e 0%, #0e7490 100%);
-  --pc-primary-soft: rgba(13, 148, 136, 0.12);
+  --pc-primary-soft: var(--ui-accent-soft);
   --pc-font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial,
     sans-serif;
   --pc-radius-sm: 8px;
@@ -36,34 +38,34 @@
   --pc-brand-bubble-bg: rgba(255, 255, 255, 0.2);
 
   /* Button colors */
-  --pc-btn-primary-text: #ffffff;
-  --pc-btn-destructive-text: #ffffff;
+  --pc-btn-primary-text: var(--ui-accent-ink);
+  --pc-btn-destructive-text: var(--ui-on-status);
   /* Text on a solid tone fill (count badges, step dots) — the tones lighten on dark. */
-  --pc-on-tone: #ffffff;
+  --pc-on-tone: var(--ui-on-status);
 
   /* Toggle / icon hover overlays */
   --pc-hover-overlay: rgba(0, 0, 0, 0.04);
 
   /* Alert colors */
-  --pc-alert-error-bg: #fef2f2;
-  --pc-alert-error-border: #fecaca;
-  --pc-alert-error-text: #991b1b;
-  --pc-alert-error-icon: #dc2626;
-  --pc-alert-warning-bg: #fffbeb;
-  --pc-alert-warning-border: #fde68a;
-  --pc-alert-warning-text: #92400e;
-  --pc-alert-warning-icon: #d97706;
+  --pc-alert-error-bg: var(--ui-danger-soft);
+  --pc-alert-error-border: var(--ui-danger-line);
+  --pc-alert-error-text: var(--ui-danger-ink);
+  --pc-alert-error-icon: var(--ui-danger);
+  --pc-alert-warning-bg: var(--ui-warn-soft);
+  --pc-alert-warning-border: var(--ui-warn-line);
+  --pc-alert-warning-text: var(--ui-warn-ink);
+  --pc-alert-warning-icon: var(--ui-warn);
   /* Info sits in the brand family (cyan, already a token above) rather than a generic
      blue that belongs to no part of this palette. Distinct enough from the teal primary
      that an informational note never reads as a call to action. */
-  --pc-alert-info-bg: #ecfeff;
-  --pc-alert-info-border: #a5f3fc;
-  --pc-alert-info-text: #155e75;
-  --pc-alert-info-icon: var(--pc-secondary-cyan);
-  --pc-alert-success-bg: #f0fdf4;
-  --pc-alert-success-border: #bbf7d0;
-  --pc-alert-success-text: #166534;
-  --pc-alert-success-icon: #16a34a;
+  --pc-alert-info-bg: var(--ui-info-soft);
+  --pc-alert-info-border: var(--ui-info-line);
+  --pc-alert-info-text: var(--ui-info-ink);
+  --pc-alert-info-icon: var(--ui-info);
+  --pc-alert-success-bg: var(--ui-ok-soft);
+  --pc-alert-success-border: var(--ui-ok-line);
+  --pc-alert-success-text: var(--ui-ok-ink);
+  --pc-alert-success-icon: var(--ui-ok);
 
   /* Shared semantic status colors */
   --pc-success: var(--pc-alert-success-text);
@@ -85,25 +87,25 @@
      rules. Every one has a dark counterpart below; a component that reaches for
      a raw hex instead stays light-on-dark and is the bug this scale exists to
      prevent. */
-  --pc-tone-danger: #dc2626;
-  --pc-tone-danger-strong: #b91c1c;
+  --pc-tone-danger: var(--ui-danger);
+  --pc-tone-danger-strong: var(--ui-danger-ink);
   --pc-tone-rose: #e11d48;
   --pc-tone-rose-strong: #be123c;
   --pc-tone-orange: #ea580c;
   --pc-tone-orange-strong: #c2410c;
   --pc-tone-orange-soft: #f97316;
-  --pc-tone-warning: #d97706;
-  --pc-tone-warning-strong: #b45309;
+  --pc-tone-warning: var(--ui-warn);
+  --pc-tone-warning-strong: var(--ui-warn-ink);
   --pc-tone-amber: #f59e0b;
   --pc-tone-gold: #ca8a04;
   --pc-tone-gold-strong: #854d0e;
-  --pc-tone-success: #16a34a;
-  --pc-tone-success-strong: #15803d;
+  --pc-tone-success: var(--ui-ok);
+  --pc-tone-success-strong: var(--ui-ok-ink);
   --pc-tone-emerald: #059669;
   --pc-tone-emerald-strong: #047857;
   --pc-tone-mint: #22c55e;
-  --pc-tone-info: #0284c7;
-  --pc-tone-info-strong: #0369a1;
+  --pc-tone-info: var(--ui-info);
+  --pc-tone-info-strong: var(--ui-info-ink);
   --pc-tone-blue: #2563eb;
   --pc-tone-blue-soft: #3b82f6;
   --pc-tone-blue-strong: #1d4ed8;
@@ -126,33 +128,18 @@
  * Light choice still beats a dark OS, and once behind `[data-theme="dark"]` so
  * the toggle wins in the other direction.
  *
- * Only tokens are redefined here. Any component colour that bypasses the token
+ * Surfaces, text, accent and status follow the semantic set in tokens.css (Epic UI1 #205), so
+ * the blocks below hold only the web-specific extras. Only tokens are redefined here. Any component colour that bypasses the token
  * layer and hardcodes a hex stays light-on-dark — that is the whole reason the
  * raw literals across the CSS modules had to be migrated alongside this.
  */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --pc-background: #0b1220;
-    --pc-page-bg: #0b1220;
-    --pc-card-bg: #131c2e;
-    --pc-foreground: #e6edf7;
-    --pc-muted-bg: #1b2639;
-    --pc-muted-fg: #94a3b8;
-    --pc-border: rgba(255, 255, 255, 0.12);
-    --pc-input-bg: #0f1829;
-
-    /* Lifted so the accent keeps its contrast on a dark ground — the light
-       teal is too dark against #0b1220 to read as an action. */
-    --pc-primary: #2dd4bf;
-    --pc-primary-hover: #5eead4;
-    --pc-primary-soft: rgba(45, 212, 191, 0.16);
+    /* Surfaces, text, accent and status come from tokens.css; only the web's own extras are here. */
     --pc-secondary-cyan: #22d3ee;
     --pc-secondary-cyan-hover: #67e8f9;
     --pc-accent-navy: #60a5fa;
-    --pc-ring: #2dd4bf;
     --pc-focus-ring: rgba(45, 212, 191, 0.35);
-
-    --pc-destructive: #f87171;
     --pc-destructive-soft: rgba(248, 113, 113, 0.14);
     --pc-focus-ring-destructive: rgba(248, 113, 113, 0.25);
 
@@ -162,50 +149,19 @@
     --pc-shadow-card: 0 25px 50px -12px rgba(0, 0, 0, 0.55);
     --pc-hover-overlay: rgba(255, 255, 255, 0.06);
 
-    /* Teal is bright enough on dark that black text reads better than white. */
-    --pc-btn-primary-text: #04201c;
-    --pc-btn-destructive-text: #2a0a0a;
-    --pc-on-tone: #0b1220;
-
-    --pc-alert-error-bg: #2a1416;
-    --pc-alert-error-border: #7f1d1d;
-    --pc-alert-error-text: #fca5a5;
-    --pc-alert-error-icon: #f87171;
-    --pc-alert-warning-bg: #2a1f0e;
-    --pc-alert-warning-border: #78350f;
-    --pc-alert-warning-text: #fcd34d;
-    --pc-alert-warning-icon: #fbbf24;
-    --pc-alert-info-bg: #0d2630;
-    --pc-alert-info-border: #155e75;
-    --pc-alert-info-text: #7dd3fc;
-    --pc-alert-info-icon: var(--pc-secondary-cyan);
-    --pc-alert-success-bg: #0d2620;
-    --pc-alert-success-border: #14532d;
-    --pc-alert-success-text: #6ee7b7;
-    --pc-alert-success-icon: #34d399;
-
     --pc-overlay-scrim: rgba(0, 0, 0, 0.6);
     --pc-overlay-gutter: color-mix(in srgb, #000000 60%, var(--pc-page-bg));
-
-    --pc-tone-danger: #f87171;
-    --pc-tone-danger-strong: #fca5a5;
     --pc-tone-rose: #fb7185;
     --pc-tone-rose-strong: #fda4af;
     --pc-tone-orange: #fb923c;
     --pc-tone-orange-strong: #fdba74;
     --pc-tone-orange-soft: #fdba74;
-    --pc-tone-warning: #fbbf24;
-    --pc-tone-warning-strong: #fcd34d;
     --pc-tone-amber: #fbbf24;
     --pc-tone-gold: #facc15;
     --pc-tone-gold-strong: #fde047;
-    --pc-tone-success: #34d399;
-    --pc-tone-success-strong: #6ee7b7;
     --pc-tone-emerald: #34d399;
     --pc-tone-emerald-strong: #6ee7b7;
     --pc-tone-mint: #4ade80;
-    --pc-tone-info: #38bdf8;
-    --pc-tone-info-strong: #7dd3fc;
     --pc-tone-blue: #60a5fa;
     --pc-tone-blue-soft: #93c5fd;
     --pc-tone-blue-strong: #93c5fd;
@@ -220,25 +176,10 @@
 }
 
 :root[data-theme="dark"] {
-  --pc-background: #0b1220;
-  --pc-page-bg: #0b1220;
-  --pc-card-bg: #131c2e;
-  --pc-foreground: #e6edf7;
-  --pc-muted-bg: #1b2639;
-  --pc-muted-fg: #94a3b8;
-  --pc-border: rgba(255, 255, 255, 0.12);
-  --pc-input-bg: #0f1829;
-
-  --pc-primary: #2dd4bf;
-  --pc-primary-hover: #5eead4;
-  --pc-primary-soft: rgba(45, 212, 191, 0.16);
   --pc-secondary-cyan: #22d3ee;
   --pc-secondary-cyan-hover: #67e8f9;
   --pc-accent-navy: #60a5fa;
-  --pc-ring: #2dd4bf;
   --pc-focus-ring: rgba(45, 212, 191, 0.35);
-
-  --pc-destructive: #f87171;
   --pc-destructive-soft: rgba(248, 113, 113, 0.14);
   --pc-focus-ring-destructive: rgba(248, 113, 113, 0.25);
 
@@ -247,49 +188,20 @@
 
   --pc-shadow-card: 0 25px 50px -12px rgba(0, 0, 0, 0.55);
   --pc-hover-overlay: rgba(255, 255, 255, 0.06);
-  --pc-btn-primary-text: #04201c;
-  --pc-btn-destructive-text: #2a0a0a;
-  --pc-on-tone: #0b1220;
-
-  --pc-alert-error-bg: #2a1416;
-  --pc-alert-error-border: #7f1d1d;
-  --pc-alert-error-text: #fca5a5;
-  --pc-alert-error-icon: #f87171;
-  --pc-alert-warning-bg: #2a1f0e;
-  --pc-alert-warning-border: #78350f;
-  --pc-alert-warning-text: #fcd34d;
-  --pc-alert-warning-icon: #fbbf24;
-  --pc-alert-info-bg: #0d2630;
-  --pc-alert-info-border: #155e75;
-  --pc-alert-info-text: #7dd3fc;
-  --pc-alert-info-icon: var(--pc-secondary-cyan);
-  --pc-alert-success-bg: #0d2620;
-  --pc-alert-success-border: #14532d;
-  --pc-alert-success-text: #6ee7b7;
-  --pc-alert-success-icon: #34d399;
 
   --pc-overlay-scrim: rgba(0, 0, 0, 0.6);
   --pc-overlay-gutter: color-mix(in srgb, #000000 60%, var(--pc-page-bg));
-
-  --pc-tone-danger: #f87171;
-  --pc-tone-danger-strong: #fca5a5;
   --pc-tone-rose: #fb7185;
   --pc-tone-rose-strong: #fda4af;
   --pc-tone-orange: #fb923c;
   --pc-tone-orange-strong: #fdba74;
   --pc-tone-orange-soft: #fdba74;
-  --pc-tone-warning: #fbbf24;
-  --pc-tone-warning-strong: #fcd34d;
   --pc-tone-amber: #fbbf24;
   --pc-tone-gold: #facc15;
   --pc-tone-gold-strong: #fde047;
-  --pc-tone-success: #34d399;
-  --pc-tone-success-strong: #6ee7b7;
   --pc-tone-emerald: #34d399;
   --pc-tone-emerald-strong: #6ee7b7;
   --pc-tone-mint: #4ade80;
-  --pc-tone-info: #38bdf8;
-  --pc-tone-info-strong: #7dd3fc;
   --pc-tone-blue: #60a5fa;
   --pc-tone-blue-soft: #93c5fd;
   --pc-tone-blue-strong: #93c5fd;

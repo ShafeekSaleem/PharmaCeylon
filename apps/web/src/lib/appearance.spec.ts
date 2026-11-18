@@ -62,7 +62,7 @@ describe("applyAppearancePrefs", () => {
 
   it("uses the lifted accent on a dark ground", () => {
     applyAppearancePrefs(prefs({ theme: "dark", accent: "teal" }));
-    // The light teal (#0d9488) is too dark on #0b1220 to read as an action.
+    // The light teal (#0f766e) is too dark on #0b1220 to read as an action.
     expect(
       document.documentElement.style.getPropertyValue("--pc-primary"),
     ).toBe("#2dd4bf");
@@ -72,7 +72,7 @@ describe("applyAppearancePrefs", () => {
     applyAppearancePrefs(prefs({ theme: "light", accent: "teal" }));
     expect(
       document.documentElement.style.getPropertyValue("--pc-primary"),
-    ).toBe("#0d9488");
+    ).toBe("#0f766e");
   });
 
   it("resolves the accent through the OS under 'system'", () => {

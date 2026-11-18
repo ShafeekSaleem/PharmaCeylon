@@ -1,8 +1,8 @@
 /*
- * The counter app's design tokens, taken from the mockups (docs/design/desktop-app). Epic P2b
- * #103: the pages must match the mockups, so every value here is the mockup's. The brand colours
- * equal the web tokens in both themes and point at them; the rest (window chrome, surfaces, status
- * colours) differ from the web's and are defined once, here. Components never hard-code colours.
+ * The counter app's design tokens. Surfaces, text, accent and status point at the semantic set
+ * shared with the web (apps/web/src/app/tokens.css, Epic UI1 #205), so the counter and the back
+ * office use one palette in light and dark. What is left here is the counter's own: fonts,
+ * prescription purple, tile colours, shadows and sheets. Components never hard-code colours.
  *
  * The theme follows Windows (prefers-color-scheme) and an explicit data-theme wins, the same three
  * states as apps/web/src/app/globals.css.
@@ -13,48 +13,48 @@
     "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
   --pos-mono: "Cascadia Mono", Consolas, ui-monospace, monospace;
 
-  --pos-chrome: #ffffff;
-  --pos-chrome-line: #e4e9f0;
-  --pos-canvas: #f2f5f9;
-  --pos-surface: #ffffff;
-  --pos-surface-2: #f8fafc;
-  --pos-surface-3: #f1f5f9;
-  --pos-line: #e2e8f0;
-  --pos-line-strong: #cbd5e1;
-  --pos-text: #0f172a;
-  --pos-text-2: #475569;
-  --pos-text-3: #8391a7;
+  --pos-chrome: var(--ui-surface);
+  --pos-chrome-line: var(--ui-line);
+  --pos-canvas: var(--ui-surface-page);
+  --pos-surface: var(--ui-surface);
+  --pos-surface-2: var(--ui-surface-raised);
+  --pos-surface-3: var(--ui-surface-sunken);
+  --pos-line: var(--ui-line);
+  --pos-line-strong: var(--ui-line-strong);
+  --pos-text: var(--ui-text);
+  --pos-text-2: var(--ui-text-2);
+  --pos-text-3: var(--ui-text-muted);
 
   --pos-primary: var(--pc-primary);
-  --pos-primary-ink: #0f766e;
+  --pos-primary-ink: var(--ui-accent);
   --pos-primary-soft: rgba(13, 148, 136, 0.07);
   --pos-primary-soft-2: rgba(13, 148, 136, 0.13);
-  --pos-on-primary: #ffffff;
+  --pos-on-primary: var(--ui-accent-ink);
   --pos-grad: linear-gradient(135deg, #0d9488 0%, #0891b2 100%);
   --pos-cyan: var(--pc-secondary-cyan);
 
-  --pos-ok: #16a34a;
-  --pos-ok-ink: #166534;
-  --pos-ok-soft: #effcf3;
-  --pos-ok-line: #bbf7d0;
-  --pos-warn: #d97706;
-  --pos-warn-ink: #92400e;
-  --pos-warn-soft: #fffaeb;
-  --pos-warn-line: #fde68a;
-  --pos-bad: #dc2626;
-  --pos-bad-ink: #991b1b;
-  --pos-bad-soft: #fef2f2;
-  --pos-bad-line: #fecaca;
-  --pos-info: #0891b2;
-  --pos-info-ink: #155e75;
-  --pos-info-soft: #ecfeff;
-  --pos-info-line: #a5f3fc;
+  --pos-ok: var(--ui-ok);
+  --pos-ok-ink: var(--ui-ok-ink);
+  --pos-ok-soft: var(--ui-ok-soft);
+  --pos-ok-line: var(--ui-ok-line);
+  --pos-warn: var(--ui-warn);
+  --pos-warn-ink: var(--ui-warn-ink);
+  --pos-warn-soft: var(--ui-warn-soft);
+  --pos-warn-line: var(--ui-warn-line);
+  --pos-bad: var(--ui-danger);
+  --pos-bad-ink: var(--ui-danger-ink);
+  --pos-bad-soft: var(--ui-danger-soft);
+  --pos-bad-line: var(--ui-danger-line);
+  --pos-info: var(--ui-info);
+  --pos-info-ink: var(--ui-info-ink);
+  --pos-info-soft: var(--ui-info-soft);
+  --pos-info-line: var(--ui-info-line);
   --pos-rx: #7c3aed;
   --pos-rx-ink: #6d28d9;
   --pos-rx-soft: #f5f3ff;
   --pos-rx-line: #ddd6fe;
-  --pos-badge: #dc2626;
-  --pos-on-badge: #ffffff;
+  --pos-badge: var(--ui-danger);
+  --pos-on-badge: var(--ui-on-status);
 
   --pos-t-teal: #0d9488;
   --pos-t-cyan: #0891b2;
@@ -79,44 +79,13 @@
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --pos-chrome: #0d1524;
-    --pos-chrome-line: rgba(255, 255, 255, 0.07);
-    --pos-canvas: #0a101b;
-    --pos-surface: #121b2c;
-    --pos-surface-2: #162133;
-    --pos-surface-3: #1b2639;
-    --pos-line: rgba(255, 255, 255, 0.08);
-    --pos-line-strong: rgba(255, 255, 255, 0.15);
-    --pos-text: #e6edf7;
-    --pos-text-2: #a3b1c6;
-    --pos-text-3: #6b7a93;
-    --pos-primary-ink: #5eead4;
     --pos-primary-soft: rgba(45, 212, 191, 0.08);
     --pos-primary-soft-2: rgba(45, 212, 191, 0.15);
-    --pos-on-primary: #04201c;
     --pos-grad: linear-gradient(135deg, #2dd4bf 0%, #22d3ee 100%);
-    --pos-ok: #34d399;
-    --pos-ok-ink: #6ee7b7;
-    --pos-ok-soft: rgba(52, 211, 153, 0.09);
-    --pos-ok-line: rgba(52, 211, 153, 0.26);
-    --pos-warn: #fbbf24;
-    --pos-warn-ink: #fcd34d;
-    --pos-warn-soft: rgba(251, 191, 36, 0.09);
-    --pos-warn-line: rgba(251, 191, 36, 0.28);
-    --pos-bad: #f87171;
-    --pos-bad-ink: #fca5a5;
-    --pos-bad-soft: rgba(248, 113, 113, 0.09);
-    --pos-bad-line: rgba(248, 113, 113, 0.28);
-    --pos-info: #22d3ee;
-    --pos-info-ink: #7dd3fc;
-    --pos-info-soft: rgba(34, 211, 238, 0.08);
-    --pos-info-line: rgba(34, 211, 238, 0.24);
     --pos-rx: #a78bfa;
     --pos-rx-ink: #c4b5fd;
     --pos-rx-soft: rgba(167, 139, 250, 0.11);
     --pos-rx-line: rgba(167, 139, 250, 0.3);
-    --pos-badge: #f87171;
-    --pos-on-badge: #2a0a0a;
     --pos-t-teal: #2dd4bf;
     --pos-t-cyan: #22d3ee;
     --pos-t-indigo: #818cf8;
@@ -133,44 +102,13 @@
 }
 
 :root[data-theme="dark"] {
-  --pos-chrome: #0d1524;
-  --pos-chrome-line: rgba(255, 255, 255, 0.07);
-  --pos-canvas: #0a101b;
-  --pos-surface: #121b2c;
-  --pos-surface-2: #162133;
-  --pos-surface-3: #1b2639;
-  --pos-line: rgba(255, 255, 255, 0.08);
-  --pos-line-strong: rgba(255, 255, 255, 0.15);
-  --pos-text: #e6edf7;
-  --pos-text-2: #a3b1c6;
-  --pos-text-3: #6b7a93;
-  --pos-primary-ink: #5eead4;
   --pos-primary-soft: rgba(45, 212, 191, 0.08);
   --pos-primary-soft-2: rgba(45, 212, 191, 0.15);
-  --pos-on-primary: #04201c;
   --pos-grad: linear-gradient(135deg, #2dd4bf 0%, #22d3ee 100%);
-  --pos-ok: #34d399;
-  --pos-ok-ink: #6ee7b7;
-  --pos-ok-soft: rgba(52, 211, 153, 0.09);
-  --pos-ok-line: rgba(52, 211, 153, 0.26);
-  --pos-warn: #fbbf24;
-  --pos-warn-ink: #fcd34d;
-  --pos-warn-soft: rgba(251, 191, 36, 0.09);
-  --pos-warn-line: rgba(251, 191, 36, 0.28);
-  --pos-bad: #f87171;
-  --pos-bad-ink: #fca5a5;
-  --pos-bad-soft: rgba(248, 113, 113, 0.09);
-  --pos-bad-line: rgba(248, 113, 113, 0.28);
-  --pos-info: #22d3ee;
-  --pos-info-ink: #7dd3fc;
-  --pos-info-soft: rgba(34, 211, 238, 0.08);
-  --pos-info-line: rgba(34, 211, 238, 0.24);
   --pos-rx: #a78bfa;
   --pos-rx-ink: #c4b5fd;
   --pos-rx-soft: rgba(167, 139, 250, 0.11);
   --pos-rx-line: rgba(167, 139, 250, 0.3);
-  --pos-badge: #f87171;
-  --pos-on-badge: #2a0a0a;
   --pos-t-teal: #2dd4bf;
   --pos-t-cyan: #22d3ee;
   --pos-t-indigo: #818cf8;
