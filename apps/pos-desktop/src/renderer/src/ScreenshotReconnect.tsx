@@ -23,6 +23,8 @@ export const RECONNECT_SHOTS = [
   "review",
   "stock",
   "clean",
+  // A counter that isn't the branch's offline counter, with the server out of reach (d-other).
+  "other",
 ] as const;
 export type ReconnectShot = (typeof RECONNECT_SHOTS)[number];
 
@@ -192,6 +194,7 @@ function queueFor(shot: ReconnectShot): OfflineJournalQueue {
       entry(14, 16, 2, 42_000),
       entry(13, 8, 14, null),
     ],
+    other: [],
   };
   return { entries: rows[shot], more: false };
 }
@@ -246,10 +249,12 @@ function modeFor(shot: ReconnectShot): OfflineModeState {
         ? "offline"
         : shot === "drain" || shot === "review"
           ? "draining"
-          : "online",
-    reason: null,
+          : shot === "other"
+            ? "stopped"
+            : "online",
+    reason: shot === "other" ? "NO_OFFLINE_AUTHORITY" : null,
     clock: null,
-    connected: shot !== "queue",
+    connected: shot !== "queue" && shot !== "other",
     outageStartedAt:
       shot === "queue" || shot === "drain" || shot === "review"
         ? today(15, 48)
@@ -323,7 +328,7 @@ const offlineStock = catalog.products.map((p, i) => ({
 export function installReconnectFixture(shot: ReconnectShot) {
   const ok = <T,>(value: T) => Promise.resolve({ ok: true as const, value });
   const api: ApiReachability = {
-    reachable: shot !== "queue",
+    reachable: shot !== "queue" && shot !== "other",
     checkedAt: new Date().toISOString(),
     latencyMs: shot === "queue" ? null : 14,
   };

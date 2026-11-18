@@ -843,6 +843,25 @@ export class OfflineSaleService {
       .get(saleCommandId) as { receipt_json: string } | undefined;
     return row ? (JSON.parse(row.receipt_json) as OfflineReceipt) : null;
   }
+
+  /** Whether this sale's receipt has printed before: any print after the first is a reprint. */
+  printedBefore(saleCommandId: string): boolean {
+    const row = this.deps.db
+      .prepare(
+        "SELECT printed_at FROM offline_sale_receipt WHERE command_id = ?",
+      )
+      .get(saleCommandId) as { printed_at: string | null } | undefined;
+    return Boolean(row?.printed_at);
+  }
+
+  /** Records the first successful print; later ones leave the time as it was. */
+  markPrinted(saleCommandId: string, at: Date = new Date()): void {
+    this.deps.db
+      .prepare(
+        "UPDATE offline_sale_receipt SET printed_at = ? WHERE command_id = ? AND printed_at IS NULL",
+      )
+      .run(at.toISOString(), saleCommandId);
+  }
 }
 
 const CARD_REFUSALS: Readonly<Record<string, string>> = {
