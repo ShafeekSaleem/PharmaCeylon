@@ -176,7 +176,8 @@ since then (`trusted-clock.ts`). Uptime starts again at every boot.
   (`NEW_BOOT`). New offline sales, shift openings and card payments stop until the counter is
   online again. Saved sales, shifts and card evidence stay on the computer, and they upload on
   reconnect.
-- **What this means for launch:** after a power cut during an outage, this counter can't sell until the internet is back. What staff do in the meantime is a launch-plan decision that hasn't been made yet. Power-cut resilience must not be claimed.
+- **What this means for launch:** after a power cut during an outage, this counter can't sell until the internet is back. Power-cut resilience must not be claimed.
+- **Meanwhile: a paper log, rung up later (decided by Shafeek, 2026-11-19).** Staff write each sale on a printed sheet: items, quantities, prices and cash taken. They sell ordinary items only, as offline. Once the internet is back, they enter those sales as normal online sales. The entered sales carry the time they were entered, not the time they were sold, and the sheet is kept as the record. This needs no code. Train staff on it before offline selling is turned on.
 
 Still to test on real Windows hardware: app crash, OS reboot, power cut, suspend/resume and
 clock rollback, each separately.
