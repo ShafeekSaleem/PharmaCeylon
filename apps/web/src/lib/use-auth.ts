@@ -8,6 +8,7 @@ import {
   persistUser,
   setBranchId as persistBranchId,
 } from "./auth-session";
+import { clearAppliedBrand } from "./pharmacy-brand";
 
 function subscribe(onChange: () => void) {
   if (typeof window === "undefined") {
@@ -51,10 +52,12 @@ export function useAuth() {
 
   const logout = useCallback(async () => {
     await logoutRequest();
+    clearAppliedBrand();
   }, []);
 
   const logoutAll = useCallback(async () => {
     await logoutAllRequest();
+    clearAppliedBrand();
   }, []);
 
   const setBranchId = useCallback((id: string | null) => {

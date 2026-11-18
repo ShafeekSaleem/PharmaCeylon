@@ -15,7 +15,9 @@ import type { AuthUser } from "./auth-types";
  * Nest); the cookie uses Path=/ so routes like `/login` can read it.
  */
 
-const USER = "pharmaceylon_user_json";
+/** Also read by the pharmacy-brand pre-paint script, to draw only the signed-in tenant's brand. */
+export const STORED_USER_KEY = "pharmaceylon_user_json";
+const USER = STORED_USER_KEY;
 const BRANCH = "pharmaceylon_branch_id";
 
 const CSRF_COOKIE_NAME = "pc_csrf";

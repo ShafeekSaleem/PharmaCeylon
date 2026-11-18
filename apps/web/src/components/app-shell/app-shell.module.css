@@ -48,6 +48,30 @@
   width: 60px;
 }
 
+/*
+ * Pharmacy brand sidebar styles (UI1 #205), set by the owner as data-sidebar on <html>.
+ * Tinted sits on the accent's soft fill, which the brand derivation keeps at 4.5:1 for accent
+ * text in both themes. Dark is the dark-theme surface in either theme, so the person's own
+ * light/dark choice still drives the page.
+ */
+:global(html[data-sidebar="tinted"]) .sidebar {
+  --pc-card-bg: var(--ui-accent-soft);
+  --pc-muted-bg: color-mix(in srgb, var(--ui-accent) 10%, var(--ui-accent-soft));
+  --pc-border: color-mix(in srgb, var(--ui-accent) 22%, var(--ui-accent-soft));
+  --pc-tone-neutral-line: color-mix(in srgb, var(--ui-accent) 35%, var(--ui-accent-soft));
+}
+
+:global(html[data-sidebar="dark"]) .sidebar {
+  --pc-card-bg: #131c2e;
+  --pc-foreground: #e6edf7;
+  --pc-muted-fg: #9aa8bd;
+  --pc-muted-bg: #1b2639;
+  --pc-border: #26324a;
+  --pc-tone-neutral-line: #34425c;
+  --pc-primary: #e6edf7;
+  color-scheme: dark;
+}
+
 .sidebarHeader {
   display: flex;
   align-items: center;

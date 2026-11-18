@@ -64,27 +64,23 @@ describe("applyAppearancePrefs", () => {
     expect(document.documentElement.dataset.theme).toBeUndefined();
   });
 
-  it("uses the lifted accent on a dark ground", () => {
-    applyAppearancePrefs(prefs({ theme: "dark", accent: "teal" }));
-    // The light teal (#0f766e) is too dark on #0b1220 to read as an action.
-    expect(
-      document.documentElement.style.getPropertyValue("--pc-primary"),
-    ).toBe("#2dd4bf");
+  it("clears an accent an older build set inline, so the pharmacy brand shows", () => {
+    // Before UI1 the accent was personal and written as inline vars on <html>,
+    // which would beat the brand stylesheet forever.
+    const root = document.documentElement;
+    root.style.setProperty("--pc-primary", "#22d3ee");
+    root.style.setProperty("--pc-focus-ring", "rgba(0,0,0,0.3)");
+    applyAppearancePrefs(prefs());
+    expect(root.style.getPropertyValue("--pc-primary")).toBe("");
+    expect(root.style.getPropertyValue("--pc-focus-ring")).toBe("");
   });
 
-  it("uses the light accent on a light ground", () => {
-    applyAppearancePrefs(prefs({ theme: "light", accent: "teal" }));
-    expect(
-      document.documentElement.style.getPropertyValue("--pc-primary"),
-    ).toBe("#0f766e");
-  });
-
-  it("resolves the accent through the OS under 'system'", () => {
-    mockSystemDark(true);
-    applyAppearancePrefs(prefs({ theme: "system", accent: "cyan" }));
-    expect(
-      document.documentElement.style.getPropertyValue("--pc-primary"),
-    ).toBe("#22d3ee");
+  it("ignores a stored personal accent", () => {
+    window.localStorage.setItem(
+      "pc_appearance:u9",
+      JSON.stringify({ theme: "dark", accent: "cyan" }),
+    );
+    expect(readAppearancePrefs("u9")).not.toHaveProperty("accent");
   });
 
   it("still applies density and font size", () => {

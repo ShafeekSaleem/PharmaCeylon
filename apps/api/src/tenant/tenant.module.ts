@@ -19,6 +19,8 @@ import { TenantController } from "./tenant.controller";
 import { TenantService } from "./tenant.service";
 import { TenantSettingsController } from "./tenant-settings.controller";
 import { TenantSettingsService } from "./tenant-settings.service";
+import { TenantAppearanceController } from "./tenant-appearance.controller";
+import { TenantAppearanceService } from "./tenant-appearance.service";
 
 @Module({
   imports: [AuthModule, UploadsModule, NotificationsModule],
@@ -30,6 +32,7 @@ import { TenantSettingsService } from "./tenant-settings.service";
     CounterPolicyController,
     CounterAlertsController,
     CounterGrantSettingsController,
+    TenantAppearanceController,
   ],
   providers: [
     TenantService,
@@ -40,6 +43,7 @@ import { TenantSettingsService } from "./tenant-settings.service";
     CounterPolicyService,
     CounterAlertsService,
     CounterGrantSettingsService,
+    TenantAppearanceService,
   ],
 })
 export class TenantModule {}

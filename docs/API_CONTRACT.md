@@ -1529,6 +1529,20 @@ return 409, a role deleted since loading 400 (naming it); the update and its aud
 longer returns these columns. Settings only: W9 #71 generates and delivers the alerts, to holders
 of a recipient role at the alert's branch.
 
+## Pharmacy brand (UI1 #205)
+
+`GET /tenant/appearance` — any signed-in user, no permission key. Returns the tenant's brand:
+`accent` (`#rrggbb`), `sidebarStyle` (`light|tinted|dark`), `chartPalette` (`accent|distinct`),
+`statusSet` (`standard|colour-blind`), `counterTheme` (`system|light|dark`),
+`counterThemeLocked`, `version` and `updatedAt`. Before anyone saves it returns the defaults with
+`version: 0` and `updatedAt: null`.
+
+`PUT /tenant/appearance` `{ expectedVersion, appearance }` — guarded by `tenant.management`, then
+refused with 403 unless the caller is an owner. `appearance` is the full settings object. 400 when
+it is invalid, including an accent below 4.5:1 on the light surfaces (the message is the same
+sentence the web form shows, from `@pharmaceylon/shared` `accentProblem`). 409 when
+`expectedVersion` is not the stored version. Audited as `tenant.appearance_updated`.
+
 ## Versioning
 
 Pilot uses **`/api/v1`**. Breaking changes should move to `/api/v2` or be gated by explicit API version headers if you outgrow this model.

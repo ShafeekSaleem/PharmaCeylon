@@ -7,6 +7,7 @@
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { DARK_SURFACES, LIGHT_SURFACES } from "@pharmaceylon/shared";
 
 const css = readFileSync(join(__dirname, "tokens.css"), "utf8").replace(
   /\/\*[\s\S]*?\*\//g,
@@ -99,6 +100,16 @@ describe("tokens.css", () => {
   it("declares the same tokens in light and dark", () => {
     expect(Object.keys(dark).sort()).toEqual(Object.keys(light).sort());
     expect(Object.keys(cbDark).sort()).toEqual(Object.keys(cbLight).sort());
+  });
+
+  it("matches the surfaces the shared brand check measures an owner's accent against", () => {
+    // packages/shared refuses accents on these; if a surface moves here it must move there.
+    const surfaces = (p: Palette) =>
+      ["surface-page", "surface", "surface-raised", "surface-sunken", "field"].map(
+        (k) => p[`--ui-${k}`],
+      );
+    expect(surfaces(light)).toEqual([...LIGHT_SURFACES]);
+    expect(surfaces(dark)).toEqual([...DARK_SURFACES]);
   });
 
   it("keeps the follow-the-device dark blocks identical to the explicit dark blocks", () => {

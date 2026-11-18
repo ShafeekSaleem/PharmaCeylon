@@ -1,13 +1,11 @@
 /** "system" follows the OS; the other two stamp `data-theme` and win over it. */
 export type Theme = "system" | "light" | "dark";
 
-export type AccentColor = "teal" | "cyan" | "navy";
 export type Density = "comfortable" | "compact";
 export type FontSize = "small" | "medium" | "large";
 
 export type AppearancePrefs = {
   theme: Theme;
-  accent: AccentColor;
   density: Density;
   fontSize: FontSize;
 };
@@ -22,31 +20,8 @@ export const DEFAULT_APPEARANCE_PREFS: AppearancePrefs = {
   // Defaulting to the OS setting means a viewer who already runs their machine
   // dark never sees a bright flash of a product they didn't configure.
   theme: "system",
-  accent: "teal",
   density: "comfortable",
   fontSize: "medium",
-};
-
-/** Matches the primary/hover/soft/focus-ring token group in globals.css, keyed by the two
- *  alternate accent tokens (--pc-secondary-cyan / --pc-accent-navy) already defined there but
- *  otherwise unused. */
-/* Light accents reach 4.5:1 on white (Epic UI1 #205): the old teal #0d9488 and cyan #0891b2 were
-   about 3.7:1, too faint for link and selected-item text.
-   These MUST stay literal hex. They are the values written into
-   `--pc-primary` and friends, so a var() reference here would define a token in
-   terms of itself and resolve to nothing. */
-const ACCENT_TOKENS: Record<AccentColor, { primary: string; primaryHover: string; soft: string; ring: string }> = {
-  teal: { primary: "#0f766e", primaryHover: "#115e59", soft: "#e6f4f2", ring: "rgba(15, 118, 110, 0.25)" },
-  cyan: { primary: "#0e7490", primaryHover: "#155e75", soft: "rgba(14, 116, 144, 0.12)", ring: "rgba(14, 116, 144, 0.25)" },
-  navy: { primary: "#1e40af", primaryHover: "#1e3a8a", soft: "rgba(30, 64, 175, 0.12)", ring: "rgba(30, 64, 175, 0.25)" },
-};
-
-/** The same three accents lifted for a dark ground. Re-skinning with the light
- *  values would undo the contrast the dark palette in globals.css sets up. */
-const ACCENT_TOKENS_DARK: Record<AccentColor, { primary: string; primaryHover: string; soft: string; ring: string }> = {
-  teal: { primary: "#2dd4bf", primaryHover: "#5eead4", soft: "rgba(45, 212, 191, 0.16)", ring: "rgba(45, 212, 191, 0.35)" },
-  cyan: { primary: "#22d3ee", primaryHover: "#67e8f9", soft: "rgba(34, 211, 238, 0.16)", ring: "rgba(34, 211, 238, 0.35)" },
-  navy: { primary: "#60a5fa", primaryHover: "#93c5fd", soft: "rgba(96, 165, 250, 0.16)", ring: "rgba(96, 165, 250, 0.35)" },
 };
 
 /** Which palette is actually showing, accounting for "system". */
@@ -68,8 +43,14 @@ export function readAppearancePrefs(userId?: string): AppearancePrefs {
   try {
     const raw = window.localStorage.getItem(storageKey(userId));
     if (!raw) return DEFAULT_APPEARANCE_PREFS;
-    const parsed = JSON.parse(raw) as Partial<AppearancePrefs>;
-    return { ...DEFAULT_APPEARANCE_PREFS, ...parsed };
+    // Older saves carry a personal "accent"; it is ignored (the accent is the pharmacy's now).
+    const { theme, density, fontSize } = JSON.parse(raw) as Partial<AppearancePrefs>;
+    return {
+      ...DEFAULT_APPEARANCE_PREFS,
+      ...(theme ? { theme } : {}),
+      ...(density ? { density } : {}),
+      ...(fontSize ? { fontSize } : {}),
+    };
   } catch {
     return DEFAULT_APPEARANCE_PREFS;
   }
@@ -109,9 +90,9 @@ export function oppositeTheme(theme: Theme): Exclude<Theme, "system"> {
   return resolveIsDark(theme) ? "light" : "dark";
 }
 
-/** Applies preferences to the live DOM: accent re-skins --pc-primary and friends everywhere
- *  they're already consumed via var(); font size scales the rem-based root so most of the
- *  app's spacing/type scales with it; density sets a data attribute that a couple of the most
+/** Applies preferences to the live DOM. The accent is not a personal preference any more: it is
+ *  the pharmacy brand (UI1 #205, lib/pharmacy-brand.ts). Font size scales the rem-based root so
+ *  most of the app's spacing/type scales with it; density sets a data attribute that a couple of the most
  *  broadly-used shared components (FormField's .control, ActionButton) read via :global(). */
 export function applyAppearancePrefs(prefs: AppearancePrefs): void {
   if (typeof document === "undefined") return;
@@ -126,20 +107,15 @@ export function applyAppearancePrefs(prefs: AppearancePrefs): void {
     root.dataset.theme = prefs.theme;
   }
 
-  const tokens = (resolveIsDark(prefs.theme) ? ACCENT_TOKENS_DARK : ACCENT_TOKENS)[
-    prefs.accent
-  ];
-  root.style.setProperty("--pc-primary", tokens.primary);
-  root.style.setProperty("--pc-primary-hover", tokens.primaryHover);
-  root.style.setProperty("--pc-primary-soft", tokens.soft);
-  root.style.setProperty("--pc-focus-ring", tokens.ring);
-  root.style.setProperty("--pc-ring", tokens.primary);
+  // Before UI1 #205 each person picked an accent, written inline here; clear any left on the page.
+  for (const name of ["--pc-primary", "--pc-primary-hover", "--pc-primary-soft", "--pc-focus-ring", "--pc-ring"])
+    root.style.removeProperty(name);
   root.style.fontSize = `${FONT_SIZE_PX[prefs.fontSize]}px`;
   root.dataset.density = prefs.density;
 }
 
 /**
- * Re-applies the accent when the OS flips while "System" is selected.
+ * Calls back when the OS flips light/dark (the top-bar switch uses it to keep its icon right).
  *
  * Without this the accent inline styles keep whichever palette was resolved at
  * mount, so a viewer whose machine switches to dark at sunset gets the dark

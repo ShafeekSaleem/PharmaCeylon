@@ -900,6 +900,11 @@
     "source": "apps/api/src/suppliers/suppliers.controller.ts"
   },
   {
+    "method": "PUT",
+    "path": "/api/v1/tenant/appearance",
+    "source": "apps/api/src/tenant/tenant-appearance.controller.ts"
+  },
+  {
     "method": "POST",
     "path": "/api/v1/tenant/branches",
     "source": "apps/api/src/tenant/tenant.controller.ts"

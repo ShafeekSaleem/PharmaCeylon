@@ -63,7 +63,7 @@ it("follows a change made on the Appearance page", () => {
 
 it("keeps the other preferences when switching", () => {
   saveAppearancePrefs(
-    { ...DEFAULT_APPEARANCE_PREFS, density: "compact", accent: "navy" },
+    { ...DEFAULT_APPEARANCE_PREFS, density: "compact", fontSize: "large" },
     "u1",
   );
   render(<ThemeToggle />);
@@ -71,6 +71,6 @@ it("keeps the other preferences when switching", () => {
   expect(readAppearancePrefs("u1")).toMatchObject({
     theme: "dark",
     density: "compact",
-    accent: "navy",
+    fontSize: "large",
   });
 });

@@ -517,6 +517,7 @@ model Tenant {
   customers               Customer[]
   roles                   Role[]
   settings                TenantSettings?
+  appearance              TenantAppearance?
   notifications           Notification[]
   notificationPreferences NotificationPreference[]
   dashboardLayouts        DashboardLayout[]
@@ -1308,6 +1309,32 @@ model BranchMonthlyTarget {
 /// Alerts & Approvals / Security & Access. One row per tenant, lazily created on first
 /// read/write via upsert (see TenantSettingsService) — every column has a sensible default
 /// so a tenant with no row yet still resolves to sane behavior.
+/// Pharmacy brand (Epic UI1 #205, decision 4): one appearance for everyone at the pharmacy, set by an
+/// owner only and audited. No row = the PharmaCeylon defaults. Each person's light/dark, density and
+/// text size stay in their own preferences, not here. Values are checked by
+/// validatePharmacyAppearance in @pharmaceylon/shared; the CHECK constraints are the backstop.
+model TenantAppearance {
+  id                 String   @id @default(uuid()) @db.Uuid
+  tenantId           String   @unique @map("tenant_id") @db.Uuid
+  /// 6-digit lower-case hex; must reach 4.5:1 on every light surface.
+  accent             String   @db.VarChar(7)
+  sidebarStyle       String   @map("sidebar_style") @db.VarChar(16)
+  chartPalette       String   @map("chart_palette") @db.VarChar(16)
+  statusSet          String   @map("status_set") @db.VarChar(16)
+  /// The counter app's starting theme (system/light/dark) and whether cashiers may switch it.
+  counterTheme       String   @map("counter_theme") @db.VarChar(16)
+  counterThemeLocked Boolean  @map("counter_theme_locked")
+  /// Bumped on every save; a save names the version it was based on, so two owners can't overwrite each other.
+  version            Int      @default(1)
+  updatedByUserId    String?  @map("updated_by_user_id") @db.Uuid
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("tenant_appearance")
+}
+
 model TenantSettings {
   id       String @id @default(uuid()) @db.Uuid
   tenantId String @unique @map("tenant_id") @db.Uuid
