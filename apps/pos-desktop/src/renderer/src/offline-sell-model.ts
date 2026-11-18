@@ -1,5 +1,6 @@
 import type { OfflineModeState, OfflineStaff } from "../../shared/ipc-contract";
 import { time } from "./format";
+import { minor } from "./sell-model";
 
 /** P4 #50: what the offline counter shows. Pure, so the wording is tested without a screen. */
 
@@ -211,4 +212,18 @@ export function hoursBlock(hours: OfflineStaff["hours"]): string | null {
   if (hours.status === "closed")
     return "The branch is closed now. Offline sales can't be made.";
   return null;
+}
+
+export type PayMethod = "cash" | "card" | "split";
+
+/** What goes on the card: all of it, the part typed for a split (never more than the total), or none. */
+export function cardAmount(
+  method: PayMethod,
+  totalMinor: number,
+  cardIn: string,
+): number {
+  if (method === "card") return totalMinor;
+  if (method === "split")
+    return Math.min(totalMinor, Math.max(0, (cardIn ? minor(cardIn) : 0) || 0));
+  return 0;
 }

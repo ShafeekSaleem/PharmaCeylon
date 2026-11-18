@@ -1288,3 +1288,14 @@ describe("explain", () => {
     });
   });
 });
+
+describe("explain", () => {
+  it("says plainly that the disk is full, and that nothing was saved", () => {
+    for (const code of ["SQLITE_FULL", "ENOSPC"])
+      expect(explain(Object.assign(new Error("full"), { code }))).toEqual({
+        code: "DISK_FULL",
+        message: expect.stringContaining("disk is full, so nothing was saved"),
+      });
+    expect(explain(new Error("other")).code).toBe("UNEXPECTED");
+  });
+});

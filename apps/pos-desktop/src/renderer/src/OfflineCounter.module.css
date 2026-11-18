@@ -170,3 +170,70 @@
     grid-column: 2;
   }
 }
+
+/* 4b: the card on the branch's machine, shift close, after hours, switching person. */
+
+.card {
+  display: grid;
+  gap: 8px;
+}
+
+.card > p {
+  margin: 0;
+  font-size: 12px;
+}
+
+.cardForm {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--pos-line);
+  border-radius: 10px;
+  background: var(--pos-surface-2);
+  font-size: 12.5px;
+}
+
+.cardBtns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.radio {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.bannerRow {
+  align-items: center;
+}
+
+.sheet {
+  display: grid;
+  gap: 12px;
+  width: min(440px, calc(100% - 32px));
+  padding: 22px;
+}
+
+.sheet h2 {
+  margin: 0;
+  font: 650 18px/1.2 var(--pos-font-display);
+}
+
+.sheet p {
+  margin: 0;
+  font-size: 12.5px;
+}
+
+.blockBtns {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+}
+
+.cancelSwitch {
+  justify-self: center;
+  margin-top: 12px;
+}
