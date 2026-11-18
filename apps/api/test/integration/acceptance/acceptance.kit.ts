@@ -27,9 +27,9 @@ import {
 
 /**
  * P5 #51 acceptance harness: the services a manager and the nominated counter use after an
- * offline journal arrives, wired exactly as the slice suites wire them. Fixture-driven today
- * (signed journals from `offline-counter.kit`); the same specs are meant to be re-run against
- * journals written by the real P4 #50 offline checkout.
+ * offline journal arrives, wired exactly as the slice suites wire them. A1–A9 sign fixture journals
+ * (`offline-counter.kit`); `a10-real-counter-journal` runs the same scenarios on journals written
+ * by the real P4 #50 offline checkout.
  */
 class OpenHours extends MandatoryOperationEvidence {
   override async hours() {}

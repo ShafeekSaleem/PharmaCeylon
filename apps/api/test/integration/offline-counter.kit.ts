@@ -91,6 +91,8 @@ export type Counter = {
   identity: TerminalIdentity;
   grant: OfflineGrant;
   snapshot: BranchStockSnapshot;
+  /** The signed pair as issued, for a real counter to install. */
+  issued: { grant: Signed<OfflineGrant>; snapshot: Signed<BranchStockSnapshot> };
   /** Batches in the snapshot, by name. */
   batches: Record<string, string>;
 };
@@ -134,7 +136,11 @@ export async function stockedBatch(fx: TenantFixture, qty: number) {
 
 export async function counter(
   stockByBatch: Record<string, number> = { main: 40 },
-  options: { externalCard?: boolean } = {},
+  options: {
+    externalCard?: boolean;
+    /** The real desktop key (P4): it signs under its own key ID, which enrollment pins. */
+    device?: { device: Device; keyId: string };
+  } = {},
 ): Promise<Counter> {
   const fx = await createTenant(prisma, "offline-journal");
   const [owner, manager, cashier] = [fx.ownerId, fx.managerId, fx.clerkId].map((id) => user(fx, id));
@@ -167,13 +173,13 @@ export async function counter(
   for (const [name, qty] of Object.entries(stockByBatch)) batches[name] = await stockedBatch(fx, qty);
 
   // Enroll, then nominate through revised D13 (remote authorization, local activation).
-  const device = terminalDevice();
+  const device = options.device?.device ?? terminalDevice();
   const proof = (a: LocalAttendanceAttestation, actor: RequestUser) =>
     proofs.record(actor, fx.mainBranchId, device.sign(a, a.identity.keyId, "attendance"));
   const tx = <T>(run: (c: Prisma.TransactionClient) => Promise<T>) => prisma.$transaction(run, { timeout: 15_000 });
   const register = await tx((c) => trust.createCounter(c, owner, fx.mainBranchId, "Front"));
   const enrollment = await tx((c) => trust.beginEnrollment(c, owner, fx.mainBranchId, {
-    registerId: register.id, keyId: randomUUID(), publicKeyHex: device.publicKeyHex, label: "PC",
+    registerId: register.id, keyId: options.device?.keyId ?? randomUUID(), publicKeyHex: device.publicKeyHex, label: "PC",
   }));
   const ep = await proof(attest(fx, enrollment, "enrollment", owner), owner);
   const identity = await tx((c) => trust.finishEnrollment(c, owner, fx.mainBranchId, device.sign(enrollment, enrollment.identity.keyId), ep.proofId));
@@ -201,7 +207,7 @@ export async function counter(
     authenticate: async () => ({ identity, commandId: randomUUID() }),
     readState: acceptedJournalState,
   });
-  return { fx, owner, manager, cashier, device, identity, grant: issued.grant.payload, snapshot: issued.snapshot.payload, batches };
+  return { fx, owner, manager, cashier, device, identity, grant: issued.grant.payload, snapshot: issued.snapshot.payload, issued, batches };
 }
 
 /**
