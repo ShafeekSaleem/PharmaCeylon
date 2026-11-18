@@ -27,7 +27,7 @@ afterEach(() => {
 
 function withBridge() {
   const setCounterTheme = jest.fn(
-    async ({ theme }: { theme: string }) => theme,
+    async ({ theme }: { theme: string }) => ({ theme, locked: false }),
   );
   (window as unknown as { pos: unknown }).pos = { setCounterTheme };
   return setCounterTheme;

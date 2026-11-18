@@ -77,15 +77,20 @@ One appearance for everyone at the pharmacy, set by an owner on Settings › App
 - **One contrast rule, two places:** [`packages/shared/src/pharmacy-appearance.ts`](../../../packages/shared/src/pharmacy-appearance.ts). `accentProblem` refuses an accent below 4.5:1 on any light surface, and the API and the form show the same sentence. `deriveAccentTokens` builds hover, ink and soft for light, and a lifted accent for dark that reaches 6:1 on every dark surface. The surface lists there are checked against `tokens.css` by `tokens.spec.ts`.
 - **On the web:** a custom accent becomes a `<style id="pc-brand">` with the same three selectors as `tokens.css`, one `:root` more specific, so it follows light and dark without script. The status set and sidebar style are `data-status-set` and `data-sidebar` on `<html>`. The last brand is cached in this browser and redrawn before first paint (`BRAND_BOOTSTRAP_SCRIPT`), then replaced by the server copy. The default teal adds no stylesheet. An owner's choices preview live and are put back if they leave without saving.
 - **Sidebar styles:** Tinted sits on the accent's soft fill; Dark uses the dark surface in either theme.
-- **Not wired yet:** chart palette and the counter theme default and lock are stored and validated but have no control on the page until their consumers land. The desktop reads the brand (accent at sign-in with an offline copy, counter theme default and lock, receipt header) in a later PR, so P4's desktop files stay untouched for now.
+- **Not wired yet:** the chart palette is stored and validated but has no control until the charts read it.
+- **Counter app theme** (Match Windows, Light, Dark) and **Lock it on every counter** are on the same card.
 - **Logo:** the PharmaCeylon mark keeps its own teal gradient whatever the accent.
-- Screenshots: `screenshots/pr3-brand-settings/`. The appearance endpoint was stubbed in the browser for these, because the shared dev database is behind on migrations.
+- **On the desktop counter:** main reads `GET /tenant/appearance` (a counter route) when someone signs in, by password or PIN, and every five minutes while someone is signed in, and keeps it in `counter-brand.json` in the app's data folder. So a counter that restarts offline, or before anyone signs in, still has the pharmacy's look and keeps the lock. Main builds the accent stylesheet with the same shared code as the web, and the title bar draws it with the status set (`counter-brand.ts`, read every 30 seconds).
+- **Counter theme default and lock:** the owner's `counterTheme` is where a counter starts. A cashier's switch on that computer wins until the owner locks it. While it is locked, the owner's theme is shown, the switch is hidden, and main refuses a change. The cashier's last choice is kept, so unlocking brings it back.
+- **Receipt header:** the branch name prints in the accent over a 2px rule in the same colour. Every accent an owner can save reaches 4.5:1 on white, so a one-colour thermal printer prints it as solid dark text.
+- **Desktop soft fills** (`--pos-primary-soft`, `-soft-2`) now mix from the accent instead of a fixed teal. The other literal teals in the desktop CSS wait for the colour sweep below.
+- Screenshots: `screenshots/pr3-brand-settings/` (web) and `screenshots/pr4-desktop-brand/` (counter and receipt). The counter shots stand in a fake bridge for main. The appearance endpoint was stubbed in the browser for these, because the shared dev database is behind on migrations.
 
 ## Not done yet
 
 These items in #205's Phase 1 come in later PRs:
 
-- **Desktop and receipt read the pharmacy brand:** accent, counter theme default and lock, receipt header.
+- **Chart palette:** an owner control once the dashboard charts read it.
 - **Web shell and the shared list pattern.**
 - **Sweep of the remaining hard-coded colours.** About 70 literal `#fff` values in web CSS modules, many of them white text on an accent fill that fails in dark. Eight `--pc-*` names that are referenced but never defined (`--pc-surface-2`, `--pc-rule`, `--pc-border-subtle`, `--pc-radius`, `--pc-radius-lg`, `--pc-shadow-sm`, `--pc-font-mono`, `--pc-alert-danger-bg`), which always fall back to their literal. About 115 literals in the desktop renderer, left until the P4 desktop work settles.
 

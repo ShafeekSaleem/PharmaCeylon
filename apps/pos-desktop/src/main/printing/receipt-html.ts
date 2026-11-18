@@ -2,9 +2,30 @@ function escapeHtml(text: string): string {
   return text.replace(/[&<>"']/g, (char) => `&#${char.charCodeAt(0)};`);
 }
 
+/** Where a receipt was printed, and the pharmacy's accent for its header (UI1 #205). */
+export type ReceiptPlace = { branchName: string; counterLabel: string; accent?: string | null };
+
+const HEX = /^#[0-9a-f]{6}$/i;
+
+/**
+ * The header: branch name in the pharmacy's accent over a rule in the same colour. Every accent an
+ * owner can save reaches 4.5:1 on white, so on a one-colour thermal printer it still prints as solid
+ * dark text. Anything that is not a plain hex colour is left out rather than put in the style.
+ */
+function receiptHeader(place: ReceiptPlace): string {
+  const accent = place.accent && HEX.test(place.accent) ? place.accent.toLowerCase() : null;
+  const style = accent ? ` style="color: ${accent}; border-bottom: 2px solid ${accent};"` : "";
+  return `<header class="brand"${style}>
+<h1>${escapeHtml(place.branchName)}</h1>
+</header>
+<p>${escapeHtml(place.counterLabel)}</p>`;
+}
+
 const RECEIPT_STYLE = `
   body { font: 12px/1.4 Consolas, monospace; margin: 0; padding: 4mm; color: #000; }
   h1 { font-size: 14px; text-align: center; margin: 0 0 2mm; }
+  .brand { margin: 0 0 2mm; }
+  .brand h1 { color: inherit; margin: 0 0 1mm; }
   p { text-align: center; margin: 0 0 2mm; }
   table { width: 100%; border-collapse: collapse; }
   td { padding: 0.5mm 0; vertical-align: top; }
@@ -32,7 +53,7 @@ export type ReceiptSale = {
 /** A customer receipt for a completed sale, from the server's own totals. */
 export function renderSaleReceiptHtml(
   sale: ReceiptSale,
-  place: { branchName: string; counterLabel: string },
+  place: ReceiptPlace,
   /** A copy of a receipt already printed: marked, so it can't pass for a second sale. */
   options: { reprint?: boolean } = {},
 ): string {
@@ -57,8 +78,7 @@ export function renderSaleReceiptHtml(
 <style>${RECEIPT_STYLE}</style>
 </head>
 <body>
-<h1>${escapeHtml(place.branchName)}</h1>
-<p>${escapeHtml(place.counterLabel)}</p>
+${receiptHeader(place)}
 ${options.reprint ? `<p class="reprint">REPRINT</p>` : ""}
 <table>
 ${row("Invoice", sale.invoiceNo)}
@@ -101,7 +121,7 @@ function minorMoney(minor: number): string {
 /** Till receipt for a supplier cash payout executed on this counter. */
 export function renderSupplierCashPayoutReceiptHtml(
   payout: SupplierCashPayoutReceipt,
-  place: { branchName: string; counterLabel: string },
+  place: ReceiptPlace,
 ): string {
   const row = (label: string, value: string) =>
     `<tr><td>${escapeHtml(label)}</td><td>${escapeHtml(value)}</td></tr>`;
@@ -112,8 +132,7 @@ export function renderSupplierCashPayoutReceiptHtml(
 <style>${RECEIPT_STYLE}</style>
 </head>
 <body>
-<h1>${escapeHtml(place.branchName)}</h1>
-<p>${escapeHtml(place.counterLabel)}</p>
+${receiptHeader(place)}
 <table>
 ${row("Receipt", "supplier_cash_payout.executed")}
 ${row("Supplier", payout.supplierName ?? "Supplier")}

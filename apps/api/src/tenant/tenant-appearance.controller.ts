@@ -1,4 +1,5 @@
 import { Body, Controller, Get, Put } from "@nestjs/common";
+import { CounterRoute } from "../security/decorators/counter-route.decorator";
 import { CurrentUser } from "../security/decorators/current-user.decorator";
 import { RequirePermission } from "../security/decorators/require-permission.decorator";
 import { RequestUser } from "../security/interfaces/authenticated-request.interface";
@@ -10,7 +11,11 @@ import { TenantAppearanceService } from "./tenant-appearance.service";
 export class TenantAppearanceController {
   constructor(private readonly appearance: TenantAppearanceService) {}
 
-  /** No permission key: every page needs the brand to draw, whatever the person may do. */
+  /**
+   * No permission key: every page needs the brand to draw, whatever the person may do. A counter
+   * reads it too, for its accent, its theme default and lock, and the receipt header.
+   */
+  @CounterRoute()
   @Get()
   get(@CurrentUser() user: RequestUser) {
     return this.appearance.get(user.tenantId);
