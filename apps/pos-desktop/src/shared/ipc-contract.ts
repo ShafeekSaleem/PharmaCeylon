@@ -166,6 +166,9 @@ const offlineQuoteLineSchema = z.object({
   unitPriceMinor: z.number().int(),
   taxMinor: z.number().int(),
   lineTotalMinor: z.number().int(),
+  display: z
+    .object({ name: z.string(), strength: z.string().nullable(), barcode: z.string().nullable(), batchNo: z.string() })
+    .nullable(),
 });
 export const offlineStockLineSchema = z.object({
   snapshotLineId: z.string(),
@@ -175,6 +178,7 @@ export const offlineStockLineSchema = z.object({
   unitPriceMinor: z.number().int(),
   sellBefore: z.number().int(),
   blocked: offlineBlockReason.nullable(),
+  display: offlineQuoteLineSchema.shape.display,
 });
 export const offlineQuoteSchema = z.object({
   lines: z.array(offlineQuoteLineSchema),
@@ -1550,6 +1554,12 @@ export const ipcContract = {
       cashTenderedMinor: z.number().int().min(0).optional(),
     }),
     output: result(offlineReceiptSchema),
+  },
+  /** Prints (or reprints) the receipt of a sale committed offline on this counter. */
+  printOfflineReceipt: {
+    channel: "pos:offline-sale:print",
+    input: z.object({ saleCommandId: uuid, printerName: z.string().min(1).max(260) }),
+    output: printResultSchema,
   },
   /** Closes the open shift; someone else's needs `assistance` (their own PIN and why). */
   closeShift: {

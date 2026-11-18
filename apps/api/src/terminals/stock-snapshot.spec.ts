@@ -1,7 +1,9 @@
 import { generateKeyPairSync } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import type { PrismaService } from "../prisma/prisma.service";
+import { SNAPSHOT_DISPLAY_LIMITS } from "@pharmaceylon/shared";
 import { buildSignedStockSnapshot, verifyStockSnapshot } from "./stock-snapshot";
+import { snapshotDisplay } from "./stock-snapshot-lines";
 
 const identity = {
   tenantId: "tenant", branchId: "branch", terminalId: "terminal",
@@ -13,7 +15,8 @@ const verifier = { keyId: signer.keyId, publicKey };
 
 function fixture() {
   const batch = {
-    id: "batch", productId: "product",
+    id: "batch", productId: "product", batchNo: "B-77",
+    product: { name: "  Paracetamol 500mg  ", strength: "500 mg", barcode: "" },
     expiryDate: new Date("2099-12-31T00:00:00Z"),
     sellingPrice: new Prisma.Decimal("12.34"),
     stock: { onHandQty: 12, quarantinedQty: 3, reservedQty: 2 },
@@ -55,6 +58,8 @@ it("signs eligible balances and the watermark from the same repeatable-read view
     lines: [{
       batchId: "batch", availableQuantity: 7, stockReviewRequired: true,
       unitPriceMinor: 1234, taxBasisPoints: 1825, sellBefore: Date.parse("2099-12-31T18:30:00Z"),
+      // Signed with the line, trimmed, and an empty barcode is none.
+      display: { name: "Paracetamol 500mg", strength: "500 mg", barcode: null, batchNo: "B-77" },
     }],
   });
   expect(verifyStockSnapshot(signed, identity, verifier)).toBe(true);
@@ -68,6 +73,22 @@ it("signs eligible balances and the watermark from the same repeatable-read view
   expect(verifyStockSnapshot({
     ...signed, payload: { ...signed.payload, snapshotVersion: 5 },
   }, identity, verifier)).toBe(false);
+});
+
+it("clips display text to the signed bounds, so a long name can't stop offline selling", () => {
+  const display = snapshotDisplay({
+    id: "0123456789abcdef",
+    batchNo: "   ",
+    product: { name: "x".repeat(500), strength: "y".repeat(500), barcode: "z".repeat(500) },
+  });
+  expect(display).toEqual({
+    name: "x".repeat(SNAPSHOT_DISPLAY_LIMITS.name),
+    strength: "y".repeat(SNAPSHOT_DISPLAY_LIMITS.strength),
+    barcode: "z".repeat(SNAPSHOT_DISPLAY_LIMITS.barcode),
+    batchNo: "01234567",
+  });
+  expect(snapshotDisplay({ id: "b", batchNo: "L1", product: { name: " ", strength: null, barcode: null } }).name)
+    .toBe("Unnamed product");
 });
 
 it("refuses to read snapshot data without a current matching nomination", async () => {
