@@ -53,7 +53,7 @@ describe("offline policy", () => {
   it("shows safe disabled defaults, the fixed rules read-only and the sync wording", async () => {
     render(<OfflinePolicyCard />);
     expect(await screen.findByRole("switch", offlineSwitch)).not.toBeChecked();
-    expect(screen.getByText(/Desktop offline trading is not available yet/)).toBeInTheDocument();
+    expect(screen.getByText(/one is assigned in Counters & devices/)).toBeInTheDocument();
     expect(screen.getByText(/Applies to counters after their next sync/)).toBeInTheDocument();
     expect(screen.getByText(/instantly revoke/)).toBeInTheDocument();
     expect(screen.getByText("Offline permission lasts 24 hours")).toBeInTheDocument();

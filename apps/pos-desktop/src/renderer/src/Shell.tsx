@@ -297,12 +297,17 @@ export function RailItem({
   active,
   badge,
   onClick,
+  disabled,
+  title,
 }: {
   icon: IconName;
   label: string;
   active?: boolean;
   badge?: number;
   onClick: () => void;
+  disabled?: boolean;
+  /** Why it is disabled, on hover. */
+  title?: string;
 }) {
   return (
     <button
@@ -310,6 +315,8 @@ export function RailItem({
       className={cx(styles.ri, active && styles.active)}
       aria-current={active ? "page" : undefined}
       onClick={onClick}
+      disabled={disabled}
+      title={title}
     >
       <Icon name={icon} />
       {label}

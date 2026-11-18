@@ -2,6 +2,7 @@
  * Fixed shell layout for Playwright captures at 1024×640 and 1366×768 (PR #170 item 4).
  * Not shipped in the Electron app — built only as screenshot.html.
  */
+import { useState } from "react";
 import type {
   ApiReachability,
   AppInfo,
@@ -18,6 +19,14 @@ import {
   workShotState,
   type WorkShotState,
 } from "./ScreenshotCounterWork";
+
+import { OfflineCounter } from "./OfflineCounter";
+import {
+  installOfflineFixture,
+  offlineMode,
+  offlineShot,
+  useOfflineShiftState,
+} from "./ScreenshotOffline";
 
 const screenshotKeys = new KeyMap();
 import sell from "./Sell.module.css";
@@ -155,7 +164,11 @@ const workCount = workShot ? installCounterWorkFixture(workShot) : 0;
 const shotApi: ApiReachability =
   workShot === "offline" ? { ...api, reachable: false, latencyMs: null } : api;
 
+const offline = offlineShot(window.location.search);
+if (offline) installOfflineFixture(offline);
+
 export function ScreenshotShell() {
+  if (offline) return <OfflineShot otherTill={offline.otherTill} />;
   if (workShot) return <WorkShot state={workShot} />;
   return (
     <KeyMapProvider map={screenshotKeys}>
@@ -177,9 +190,18 @@ export function ScreenshotShell() {
               <div className={shell.page}>
                 <div className={sell.sell}>
                   <div className={sell.grid}>
-                    <MotionPanel title="Find" rows={["Search products", "All · in stock"]} />
-                    <MotionPanel title="Ticket" rows={["Panadol 500mg × 2", "Vitamin C 500mg × 1"]} />
-                    <MotionPanel title="Pay" rows={["Rs 1,240.00", "Cash selected"]} />
+                    <MotionPanel
+                      title="Find"
+                      rows={["Search products", "All · in stock"]}
+                    />
+                    <MotionPanel
+                      title="Ticket"
+                      rows={["Panadol 500mg × 2", "Vitamin C 500mg × 1"]}
+                    />
+                    <MotionPanel
+                      title="Pay"
+                      rows={["Rs 1,240.00", "Cash selected"]}
+                    />
                   </div>
                 </div>
               </div>
@@ -204,7 +226,11 @@ export function ScreenshotShell() {
 function WorkShot({ state: shot }: { state: WorkShotState }) {
   return (
     <KeyMapProvider map={screenshotKeys}>
-      <div className={shell.win} data-screenshot-shell data-screenshot-work={shot}>
+      <div
+        className={shell.win}
+        data-screenshot-shell
+        data-screenshot-work={shot}
+      >
         <TitleBar state={state} api={shotApi} journal={journal} />
         <div className={shell.work}>
           <div className={shell.frame}>
@@ -266,12 +292,53 @@ function MotionPanel({
 
 function MotionUl({ rows }: { rows: string[] }) {
   return (
-    <ul style={{ margin: "12px 16px", padding: 0, listStyle: "none", color: "var(--pos-text-2)" }}>
+    <ul
+      style={{
+        margin: "12px 16px",
+        padding: 0,
+        listStyle: "none",
+        color: "var(--pos-text-2)",
+      }}
+    >
       {rows.map((row) => (
-        <li key={row} style={{ padding: "6px 0", borderBottom: "1px solid var(--pos-line)" }}>
+        <li
+          key={row}
+          style={{
+            padding: "6px 0",
+            borderBottom: "1px solid var(--pos-line)",
+          }}
+        >
           {row}
         </li>
       ))}
     </ul>
+  );
+}
+
+/** The real offline counter (P4 #50) over a fixture `window.pos`, with the server unreachable. */
+function OfflineShot({ otherTill }: { otherTill: boolean }) {
+  const shift = useOfflineShiftState(otherTill);
+  const [mode] = useState(offlineMode);
+  const waiting = { ...journal, waiting: 3, recorded: 3 };
+  return (
+    <KeyMapProvider map={screenshotKeys}>
+      <div className={shell.win} data-screenshot-shell data-screenshot-offline>
+        <TitleBar
+          state={state}
+          api={{ ...api, reachable: false, latencyMs: null }}
+          journal={waiting}
+        />
+        <KeyScope active>
+          <OfflineCounter
+            device={state}
+            mode={mode}
+            journal={waiting}
+            shift={shift}
+            onShift={() => undefined}
+            printer={printer}
+          />
+        </KeyScope>
+      </div>
+    </KeyMapProvider>
   );
 }
