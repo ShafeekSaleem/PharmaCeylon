@@ -98,7 +98,25 @@ export function cardStage(attempt: CardAttemptView): CardStage {
         canSay: { approved: false, declined: false, notSure: false, neverCharged: false },
         needsSale: false,
       };
+    case "not_used":
+      return {
+        title: "Approved, but not used for a sale",
+        detail:
+          "Reversed on the card machine, or a refund is owed. A manager checks the money went back once the counter is online.",
+        tone: "neutral",
+        canSay: { approved: false, declined: false, notSure: false, neverCharged: false },
+        needsSale: false,
+      };
   }
+}
+
+/**
+ * An approved payment no sale will use can be recorded as not used (reversed on the card machine,
+ * or a refund owed). Offered only while it is approved and unmatched: it is the way out when the
+ * customer changed their mind or the sale can no longer be completed.
+ */
+export function canMarkNotUsed(attempt: CardAttemptView): boolean {
+  return attempt.state === "approved";
 }
 
 /**

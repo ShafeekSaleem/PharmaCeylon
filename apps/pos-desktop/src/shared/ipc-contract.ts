@@ -247,7 +247,7 @@ export const cardAttemptSchema = z.object({
   checkoutDraftId: z.string().uuid(),
   amount: z.string(),
   startedAt: z.string(),
-  state: z.enum(["prepared", "uncertain", "approved", "declined", "linked_to_sale"]),
+  state: z.enum(["prepared", "uncertain", "approved", "declined", "linked_to_sale", "not_used"]),
   /** True once it was declined or tied to the sale it paid for. */
   settled: z.boolean(),
   /** From the card machine's slip, once someone has recorded it. */
@@ -258,8 +258,21 @@ export type CardAttemptView = z.infer<typeof cardAttemptSchema>;
 
 const cardReference = z.string().min(1).max(64);
 
+/**
+ * An approved card payment no sale will use (review of #208): reversed on the card machine (with
+ * that slip's reference) or owed back to the customer. Ends the payment here; a manager reviews it.
+ */
+export const cardNotUsedOutcomeSchema = z.object({
+  kind: z.literal("not_used"),
+  settlement: z.enum(["reversed_on_machine", "refund_owed"]),
+  reversalReference: z.string().trim().min(1).max(64).nullable(),
+  reason: z.string().trim().min(1).max(500),
+});
+export type CardNotUsedOutcome = z.infer<typeof cardNotUsedOutcomeSchema>;
+
 /** What the person at the counter saw or knows about a card payment. */
 export const cardOutcomeSchema = z.discriminatedUnion("kind", [
+  cardNotUsedOutcomeSchema,
   z.object({ kind: z.literal("not_sure") }),
   z.object({
     kind: z.literal("approved"),
@@ -1523,6 +1536,7 @@ export const ipcContract = {
         }),
         z.object({ kind: z.literal("declined"), reference: cardReference }),
         z.object({ kind: z.literal("never_charged") }),
+        cardNotUsedOutcomeSchema,
       ]),
     }),
     output: result(z.object({ state: cardAttemptSchema.shape.state })),

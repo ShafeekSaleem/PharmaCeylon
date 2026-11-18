@@ -200,6 +200,31 @@ describe("external-card attempt events", () => {
     expect(await businessCounts()).toEqual(before);
   });
 
+  it("holds an approved payment no sale used for a manager to check the money went back", async () => {
+    const { device, identity } = await enrolledDevice();
+    const attempt = binding();
+    const before = await businessCounts();
+    await record(device.sign(cardEvent(identity, attempt, approved), identity.keyId));
+    const notUsed = {
+      state: "not_used",
+      providerReference: approved.providerReference,
+      settlement: "refund_owed",
+      reversalReference: null,
+      reason: "Customer left before the sale was finished",
+      verifiedByUserId: fx.ownerId,
+    };
+    await expect(record(device.sign(cardEvent(identity, attempt, notUsed), identity.keyId))).resolves.toMatchObject({
+      status: "held",
+      heldReason: "card_not_used",
+    });
+    const row = await prisma.offlineSupportRecord.findFirstOrThrow({
+      where: { tenantId: fx.tenantId, attemptId: attempt.attemptId, cardState: "not_used" },
+    });
+    expect(row).toMatchObject({ providerReference: approved.providerReference, verifiedByUserId: fx.ownerId, approvalCode: null, saleCommandId: null });
+    // Refunding or reversing is the manager's call; nothing moves on upload.
+    expect(await businessCounts()).toEqual(before);
+  });
+
   it("holds an event that disagrees with its attempt's draft, amount, reference or linked sale", async () => {
     const { device, identity } = await enrolledDevice();
     const attempt = binding();

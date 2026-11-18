@@ -35,14 +35,30 @@ export type ExternalCardAttemptRecord = Readonly<{
   | Readonly<{ state: "approved"; providerReference: string; approvalCode: string; approvedAt: number }>
   | Readonly<{ state: "declined"; providerReference: string; verifiedByUserId: string }>
   | Readonly<{ state: "linked_to_sale"; providerReference: string; saleCommandId: string }>
+  /** P4 #50: approved, but no sale will use it (the customer changed their mind, or the cart can
+   * no longer be sold). Ends the attempt on the counter so the drain can finish; the server holds
+   * it for a manager (`card_not_used`), who checks the money went back. Only after `approved`. */
+  | Readonly<{
+      state: "not_used";
+      providerReference: string; // the approval's own reference
+      /** `reversed_on_machine`: voided or refunded on the card machine, with that slip's reference.
+       * `refund_owed`: the machine couldn't reverse it; the customer is owed a refund online. */
+      settlement: "reversed_on_machine" | "refund_owed";
+      reversalReference: string | null; // required for reversed_on_machine, null for refund_owed
+      reason: string;
+      verifiedByUserId: string;
+    }>
 );
+export const CARD_NOT_USED_REASON_MAX_LENGTH = 500;
 export function externalCardRecoveryAction(state: ExternalCardAttemptRecord["state"]):
-  "verify_original_attempt" | "complete_original_sale" | "retry_payment_with_new_attempt" | "recover_receipt" {
+  "verify_original_attempt" | "complete_original_sale" | "retry_payment_with_new_attempt" | "recover_receipt" |
+  "manager_reviews_refund" {
   switch (state) {
     case "prepared": case "uncertain": return "verify_original_attempt";
     case "approved": return "complete_original_sale";
     case "declined": return "retry_payment_with_new_attempt";
     case "linked_to_sale": return "recover_receipt";
+    case "not_used": return "manager_reviews_refund";
     default: throw new Error("Invalid payment attempt state");
   }
 }

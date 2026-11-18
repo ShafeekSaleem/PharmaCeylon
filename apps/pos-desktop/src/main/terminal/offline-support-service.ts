@@ -15,6 +15,7 @@ import type {
 import type { OfflineJournalWriter } from "./offline-journal-writer";
 import {
   MAX_INCIDENT_DESCRIPTION_LENGTH,
+  notUsedEvent,
   OfflineSupportRecordWriter,
   type CardAttemptEvent,
 } from "./offline-support-records";
@@ -64,6 +65,13 @@ function refused(error: unknown): never {
   if (message) throw new ActionFailure(code, message);
   throw error;
 }
+
+/** Card payment states that end an attempt: nothing more is owed or to be found out here. */
+const SETTLED_STATES: readonly string[] = [
+  "declined",
+  "linked_to_sale",
+  "not_used",
+];
 
 const MAX_LISTED_SALES = 200;
 const MAX_LISTED_SETTLED = 20;
@@ -171,7 +179,7 @@ export class OfflineSupportService {
     let settledSeen = 0;
     const wanted = standing
       .filter((a) => {
-        if (a.card_state !== "declined" && a.card_state !== "linked_to_sale") return true;
+        if (!SETTLED_STATES.includes(a.card_state)) return true;
         return ++settledSeen <= MAX_LISTED_SETTLED;
       })
       .map((a) => a.attempt_id);
@@ -203,13 +211,14 @@ export class OfflineSupportService {
         amount: fromMinor(first.amountMinor),
         startedAt: new Date(first.recordedAt).toISOString(),
         state: latest.state,
-        // Declined and linked end an attempt; every other state still leaves the money open.
-        settled: latest.state === "declined" || latest.state === "linked_to_sale",
+        // Declined, linked and not used end an attempt; every other state leaves the money open.
+        settled: SETTLED_STATES.includes(latest.state),
         providerReference:
           events
             .map((e) => ("providerReference" in e ? e.providerReference : null))
             .find((r): r is string => r !== null) ?? null,
-        approvalCode: approved?.state === "approved" ? approved.approvalCode : null,
+        approvalCode:
+          approved?.state === "approved" ? approved.approvalCode : null,
       });
     }
     return views.reverse();
@@ -260,10 +269,9 @@ export class OfflineSupportService {
   }
 
   /** What happened at the card machine, or the sale it paid for. */
-  recordCardOutcome(input: {
-    attemptId: string;
-    outcome: CardOutcomeInput;
-  }): { state: ExternalCardAttemptRecord["state"] } {
+  recordCardOutcome(input: { attemptId: string; outcome: CardOutcomeInput }): {
+    state: ExternalCardAttemptRecord["state"];
+  } {
     const { key, staff, staffSignInId } = this.counter();
     const { outcome } = input;
     let event: CardAttemptEvent;
@@ -306,6 +314,11 @@ export class OfflineSupportService {
           providerReference: outcome.reference,
           saleCommandId: outcome.saleCommandId,
         };
+        break;
+      case "not_used":
+        // Approved but no sale will use it: reversed on the machine, or a refund owed. Allowed
+        // after the grant ended, so the drain can finish; the server holds it for a manager.
+        event = notUsedEvent(outcome, staff.staffUserId);
         break;
     }
     try {

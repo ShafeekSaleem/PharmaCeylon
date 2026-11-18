@@ -652,6 +652,43 @@ export class OfflineCounterService {
   }
 
   /**
+   * What settling an approved card payment no sale will use is written under (review of #208).
+   * Not offline selling: that may have stopped exactly because the grant ended or the counter is
+   * reconnecting, and the payment must still be settled for the drain to finish. It needs an outage
+   * still open, the device key, trusted time, and the person signed in offline in this outage.
+   */
+  settlementContext(): {
+    enrollmentId: string;
+    key: DeviceKey;
+    trustedNow: number;
+    signIn: OfflineStaffSignIn;
+  } {
+    const device = this.deps.device.read();
+    const key = this.deps.device.key();
+    if (!device || !key)
+      throw new ActionFailure("NOT_ENROLLED", MODE_MESSAGES.NOT_ENROLLED);
+    const enrollmentId = device.identity.enrollmentId;
+    const installed = readInstalledOfflineAuthority(this.deps.db, enrollmentId);
+    const outage = activeOutage(this.deps.db, enrollmentId);
+    if (!installed || !outage)
+      throw new ActionFailure(
+        "NO_OUTAGE",
+        "There's no offline period on this counter to settle a card payment for.",
+      );
+    const stamp = this.deps.clock.stamp();
+    if (!stamp.trusted)
+      throw new ActionFailure("CLOCK_UNTRUSTED", MODE_MESSAGES.CLOCK_UNTRUSTED);
+    const signIn = this.signer({
+      enrollmentId,
+      grant: installed.grant.payload,
+      outage,
+    });
+    if (!signIn)
+      throw new ActionFailure("NOT_SIGNED_IN", "Sign in with your PIN first.");
+    return { enrollmentId, key, trustedNow: stamp.nowMs, signIn };
+  }
+
+  /**
    * What an offline sale is written under (PR 3): the counter selling offline, the person signed
    * in here in this outage, and their own open shift on this till — the shift the sale's cash
    * lands in and the work session the server replays it into.

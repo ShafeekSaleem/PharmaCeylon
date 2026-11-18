@@ -79,12 +79,15 @@ describe("parseSaleIncident", () => {
 
 describe("parseCardAttempt", () => {
   const approved = { state: "approved", providerReference: "RRN 123456789012", approvalCode: "004512", approvedAt: 1_799_999_990_000 };
+  const notUsed = { state: "not_used", providerReference: "RRN 1", settlement: "reversed_on_machine", reversalReference: "VOID 9", reason: "Customer changed their mind", verifiedByUserId: randomUUID() };
   it.each([
     ["prepared", {}],
     ["uncertain", { state: "uncertain" }],
     ["approved", approved],
     ["declined", { state: "declined", providerReference: "RRN 1", verifiedByUserId: randomUUID() }],
     ["linked_to_sale", { state: "linked_to_sale", providerReference: "RRN 1", saleCommandId: randomUUID() }],
+    ["not_used (reversed on the machine)", notUsed],
+    ["not_used (refund owed)", { ...notUsed, settlement: "refund_owed", reversalReference: null }],
   ])("accepts a %s event with exactly its own fields", (_state, overrides) => {
     const value = attempt(overrides);
     expect(parseCardAttempt(value)).toBe(value);
@@ -101,6 +104,11 @@ describe("parseCardAttempt", () => {
     ["a card number as the reference", { ...approved, providerReference: "5500000000000004" }],
     ["an oversized reference", { ...approved, providerReference: "R".repeat(65) }],
     ["a non-UUID verifier", { state: "declined", providerReference: "RRN 1", verifiedByUserId: "manager" }],
+    ["a refund owed with a reversal reference", { ...notUsed, settlement: "refund_owed" }],
+    ["a machine reversal without its reference", { ...notUsed, reversalReference: null }],
+    ["a not-used event with no reason", { ...notUsed, reason: "  " }],
+    ["an unknown settlement", { ...notUsed, settlement: "cash_back" }],
+    ["a not-used event without the approval reference", { ...notUsed, providerReference: undefined }],
   ])("refuses %s", (_name, overrides) => {
     expect(code(() => parseCardAttempt(attempt(overrides)))).toBe("INVALID_COMMAND");
   });

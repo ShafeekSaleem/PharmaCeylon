@@ -120,6 +120,8 @@ test('uncertain card attempts recover the original outcome instead of inviting a
   assert.equal(c.externalCardRecoveryAction('approved'), 'complete_original_sale');
   assert.equal(c.externalCardRecoveryAction('linked_to_sale'), 'recover_receipt');
   assert.equal(c.externalCardRecoveryAction('declined'), 'retry_payment_with_new_attempt');
+  // An approved charge no sale will use ends on the counter and waits on a manager online.
+  assert.equal(c.externalCardRecoveryAction('not_used'), 'manager_reviews_refund');
   assert.throws(() => c.externalCardRecoveryAction('unknown'));
 });
 test('support-record text that may hold a full card number is detected before signing', () => {

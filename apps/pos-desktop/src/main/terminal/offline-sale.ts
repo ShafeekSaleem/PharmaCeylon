@@ -14,7 +14,10 @@ import type { Logger } from "../logging/logger";
 import { readInstalledOfflineAuthority } from "./offline-authority";
 import type { OfflineCounterService } from "./offline-counter";
 import type { OfflineJournalWriter } from "./offline-journal-writer";
-import { OfflineSupportRecordWriter } from "./offline-support-records";
+import {
+  notUsedEvent,
+  OfflineSupportRecordWriter,
+} from "./offline-support-records";
 import { NEVER_CHARGED_MARKER } from "./offline-support-service";
 import { ActionFailure } from "./terminal-service";
 
@@ -30,9 +33,16 @@ import { ActionFailure } from "./terminal-service";
  *
  * **Paying.** Cash, a card on the separate card machine, or both (D5). A card payment is saved as
  * `prepared` *before* the machine is asked to charge, bound to this cart's digest; the person then
- * records what the machine did. A sale only completes with every card payment for its cart
- * settled — approved ones become its payments, declined ones are left out — so a charge that may
- * have gone through is never followed by a second one or by a sale without it.
+ * records what the machine did. One card payment at a time per sale: a second can't be started
+ * while the first is unsettled or approved but not yet used, so card + card never happens; a
+ * declined one can be followed by another. A sale only completes with every card payment for its
+ * cart settled — the approved one becomes its payment, declined ones are left out — so a charge
+ * that may have gone through is never followed by a second one or by a sale without it.
+ *
+ * **An approved charge no sale will use** (the customer changed their mind, or the cart can no
+ * longer be sold: a batch passed its sell-before, the grant ended) is recorded `not_used` —
+ * reversed on the card machine with that slip's reference, or a refund owed. That ends it here,
+ * so the reconnect drain can finish, and the server holds it for a manager to check the money.
  *
  * **Committing.** The sale is checked with the shared `offlineSalePolicyError` (the one the
  * server replays with), signed, and written in one transaction with everything that follows from
@@ -115,7 +125,13 @@ export type OfflineCardOutcome =
       approvedAt: number;
     }
   | { kind: "declined"; reference: string }
-  | { kind: "never_charged" };
+  | { kind: "never_charged" }
+  | {
+      kind: "not_used";
+      settlement: "reversed_on_machine" | "refund_owed";
+      reversalReference: string | null;
+      reason: string;
+    };
 
 const POLICY_MESSAGES: Partial<Record<TerminalErrorCode, string>> = {
   LOCAL_STOCK_EXHAUSTED: BLOCK_MESSAGES.NOT_ENOUGH_STOCK,
@@ -140,7 +156,7 @@ type AttemptRow = { attempt_id: string; envelope_json: string };
 
 export type OfflineSaleDeps = {
   db: PosDatabase;
-  counter: Pick<OfflineCounterService, "saleContext">;
+  counter: Pick<OfflineCounterService, "saleContext" | "settlementContext">;
   journal: Pick<
     OfflineJournalWriter,
     "appendSignedCommand" | "getBatchUsageQuantities"
@@ -378,17 +394,12 @@ export class OfflineSaleService {
       ready.trustedNow,
       input.items,
     );
-    const charged = this.attempts(ready.enrollmentId, input.checkoutDraftId)
-      .filter(
-        (a) =>
-          a.latest.state === "approved" &&
-          a.first.reviewedSaleDigest === quote.digest,
-      )
-      .reduce((sum, a) => sum + a.first.amountMinor, 0);
-    if (input.amountMinor > quote.totalMinor - charged)
+    // One card payment per sale (the writer refuses a second while one is unsettled or unused),
+    // so the card can take at most the whole total; cash covers the rest.
+    if (input.amountMinor > quote.totalMinor)
       throw new ActionFailure(
         "CARD_OVER_TOTAL",
-        "That's more than is left to pay on this sale.",
+        "That's more than this sale comes to.",
       );
     try {
       const signed = this.supportWriter(ready.trustedNow).prepareCardAttempt({
@@ -409,8 +420,10 @@ export class OfflineSaleService {
     attemptId: string;
     outcome: OfflineCardOutcome;
   }): { state: ExternalCardAttemptRecord["state"] } {
-    const { ready, signIn } = this.deps.counter.saleContext();
     const { outcome } = input;
+    if (outcome.kind === "not_used")
+      return this.recordNotUsed(input.attemptId, outcome);
+    const { ready, signIn } = this.deps.counter.saleContext();
     const writer = this.supportWriter(ready.trustedNow);
     const verifiedByUserId = signIn.session.staffUserId;
     try {
@@ -447,6 +460,33 @@ export class OfflineSaleService {
   }
 
   /**
+   * An approved card payment no sale will use: reversed on the card machine, or owed back. Works
+   * while the outage is still open even if selling has stopped (the grant ended, the counter is
+   * reconnecting), since the drain can't finish until it's settled.
+   */
+  private recordNotUsed(
+    attemptId: string,
+    outcome: Extract<OfflineCardOutcome, { kind: "not_used" }>,
+  ): { state: ExternalCardAttemptRecord["state"] } {
+    const { key, trustedNow, signIn } = this.deps.counter.settlementContext();
+    try {
+      const signed = this.supportWriter(trustedNow).recordCardAttemptEvent({
+        key,
+        attemptId,
+        staffSignInId: signIn.staffSignInId,
+        event: notUsedEvent(outcome, signIn.session.staffUserId),
+      });
+      this.deps.logger?.info("offline.card_not_used", {
+        attemptId,
+        settlement: outcome.settlement,
+      });
+      return { state: signed.payload.state };
+    } catch (error) {
+      return cardRefused(error);
+    }
+  }
+
+  /**
    * Completes the sale: every card payment for this cart settled (approved ones are its card
    * payments), and cash for the rest. Returns the receipt; a second call for the same draft
    * returns the same one.
@@ -468,7 +508,7 @@ export class OfflineSaleService {
     const linked: { attemptId: string; providerReference: string }[] = [];
     for (const attempt of this.attempts(enrollmentId, input.checkoutDraftId)) {
       const state = attempt.latest.state;
-      if (state === "declined") continue;
+      if (state === "declined" || state === "not_used") continue;
       if (state === "prepared" || state === "uncertain")
         throw new ActionFailure(
           "CARD_UNRESOLVED",
@@ -479,7 +519,7 @@ export class OfflineSaleService {
       if (attempt.first.reviewedSaleDigest !== quote.digest)
         throw new ActionFailure(
           "CARD_FOR_OTHER_CART",
-          "The sale changed after a card was charged for it. Put it back as it was, or settle that card payment with the customer.",
+          "The sale changed after a card was charged for it. Put it back as it was, or reverse that charge on the card machine (or note the refund owed) and record it as not used.",
         );
       cards.push({
         method: "external_card",

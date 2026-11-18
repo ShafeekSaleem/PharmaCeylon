@@ -170,6 +170,7 @@ let installed: OfflineAuthority;
 let staff: OfflineCounterService;
 let sale: OfflineSaleService;
 let shiftId: string;
+let counterMode: "offline" | "online" = "offline";
 
 const advance = (ms: number) => {
   up += ms;
@@ -183,6 +184,7 @@ beforeEach(() => {
   local = openLocalStore(dir, protector, migrations);
   seedDevice(local.db);
   up = UP0;
+  counterMode = "offline";
   wall = NOW;
   const clock = new TrustedClock({
     db: local.db,
@@ -221,7 +223,7 @@ beforeEach(() => {
     pins,
     journal: writer,
     clock,
-    mode: { view: () => ({ mode: "offline", reason: null }) as never },
+    mode: { view: () => ({ mode: counterMode, reason: null }) as never },
   });
   sale = new OfflineSaleService({
     db: local.db,
@@ -542,6 +544,113 @@ describe("offline sales (P4 #50)", () => {
     );
     expect(latestCardState(attemptId)).toBe("approved");
     expect(sales()).toHaveLength(0);
+  });
+
+  it("lets a card no sale will use be recorded as not used, then takes a new card for the changed cart", () => {
+    const draft = randomUUID();
+    const first = sale.prepareCard({
+      checkoutDraftId: draft,
+      items: cart,
+      amountMinor: CART_TOTAL,
+    });
+    sale.recordCardOutcome({
+      attemptId: first.attemptId,
+      outcome: {
+        kind: "approved",
+        reference: "RRN-1",
+        approvalCode: "OK",
+        approvedAt: trusted(),
+      },
+    });
+    advance(1_000);
+    // The customer drops an item: the approved card no longer fits the cart.
+    const smaller = [{ snapshotLineId: A, quantity: 2 }];
+    fails(
+      () =>
+        sale.commit({
+          checkoutDraftId: draft,
+          items: smaller,
+          cashTenderedMinor: 0,
+        }),
+      "CARD_FOR_OTHER_CART",
+    );
+    sale.recordCardOutcome({
+      attemptId: first.attemptId,
+      outcome: {
+        kind: "not_used",
+        settlement: "reversed_on_machine",
+        reversalReference: "VOID-1",
+        reason: "Customer took one item off",
+      },
+    });
+    expect(latestCardState(first.attemptId)).toBe("not_used");
+    const second = sale.prepareCard({
+      checkoutDraftId: draft,
+      items: smaller,
+      amountMinor: 23_600,
+    });
+    sale.recordCardOutcome({
+      attemptId: second.attemptId,
+      outcome: {
+        kind: "approved",
+        reference: "RRN-2",
+        approvalCode: "OK2",
+        approvedAt: trusted(),
+      },
+    });
+    advance(1_000);
+    const receipt = sale.commit({
+      checkoutDraftId: draft,
+      items: smaller,
+      cashTenderedMinor: 0,
+    });
+    expect(receipt.payments).toEqual([
+      expect.objectContaining({
+        method: "external_card",
+        providerReference: "RRN-2",
+      }),
+    ]);
+    expect(latestCardState(first.attemptId)).toBe("not_used");
+    expect(latestCardState(second.attemptId)).toBe("linked_to_sale");
+  });
+
+  it("settles an approved card as not used after the counter has come back online", () => {
+    const { attemptId } = sale.prepareCard({
+      checkoutDraftId: randomUUID(),
+      items: cart,
+      amountMinor: CART_TOTAL,
+    });
+    sale.recordCardOutcome({
+      attemptId,
+      outcome: {
+        kind: "approved",
+        reference: "RRN-5",
+        approvalCode: "OK",
+        approvedAt: trusted(),
+      },
+    });
+    advance(1_000);
+    // Back online, the drain waits on this payment; selling offline is over.
+    counterMode = "online";
+    fails(
+      () =>
+        sale.prepareCard({
+          checkoutDraftId: randomUUID(),
+          items: cart,
+          amountMinor: 100,
+        }),
+      "ONLINE",
+    );
+    sale.recordCardOutcome({
+      attemptId,
+      outcome: {
+        kind: "not_used",
+        settlement: "refund_owed",
+        reversalReference: null,
+        reason: "Sale abandoned when the power went",
+      },
+    });
+    expect(latestCardState(attemptId)).toBe("not_used");
   });
 
   it("leaves a declined card out and lets the customer pay cash", () => {
