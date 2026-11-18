@@ -75,12 +75,38 @@ export function readAppearancePrefs(userId?: string): AppearancePrefs {
   }
 }
 
+/** Remembers whose preferences were saved last, so the pre-paint script picks that person's theme
+ *  on a shared browser rather than whichever per-user key storage happens to list first. */
+const LAST_USER_KEY = `${STORAGE_KEY}_last_user`;
+
 export function writeAppearancePrefs(prefs: AppearancePrefs, userId?: string): void {
   try {
     window.localStorage.setItem(storageKey(userId), JSON.stringify(prefs));
+    if (userId) window.localStorage.setItem(LAST_USER_KEY, userId);
   } catch {
     // Private browsing / storage disabled — preference just won't survive a reload.
   }
+}
+
+/** Fired on window after preferences are saved, so the top-bar switch and the Appearance page stay
+ *  in step when either one changes the theme. */
+export const APPEARANCE_CHANGED_EVENT = "pc:appearance-changed";
+
+/** Saves, applies and announces preferences in one step. Every control that changes appearance
+ *  goes through here. */
+export function saveAppearancePrefs(prefs: AppearancePrefs, userId?: string): void {
+  writeAppearancePrefs(prefs, userId);
+  applyAppearancePrefs(prefs);
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent<AppearancePrefs>(APPEARANCE_CHANGED_EVENT, { detail: prefs }));
+  }
+}
+
+/** The top-bar switch flips whatever is showing now. Under "system" that means leaving "system":
+ *  the person asked for the other look, so it becomes their explicit choice. The Appearance page
+ *  still offers "Match device" to go back. */
+export function oppositeTheme(theme: Theme): Exclude<Theme, "system"> {
+  return resolveIsDark(theme) ? "light" : "dark";
 }
 
 /** Applies preferences to the live DOM: accent re-skins --pc-primary and friends everywhere
@@ -132,15 +158,17 @@ export function watchSystemTheme(onChange: () => void): () => void {
  * hundred milliseconds of white for a dark-mode viewer.
  *
  * Kept deliberately tiny and dependency-free — it is a string in the document,
- * not a module. It reads the same storage keys as readAppearancePrefs; the
- * per-user key is tried first, then the anonymous one, since the signed-in
- * user id is not known this early on a cold load.
+ * not a module. It reads the same storage keys as readAppearancePrefs. The
+ * signed-in user id is not known this early on a cold load, so it tries the
+ * person who saved last, then any per-user key, then the anonymous one.
  */
 export const THEME_BOOTSTRAP_SCRIPT = `
 (function(){
   try {
     var raw = null;
-    for (var i = 0; i < localStorage.length; i++) {
+    var last = localStorage.getItem("${LAST_USER_KEY}");
+    if (last) raw = localStorage.getItem("${STORAGE_KEY}:" + last);
+    for (var i = 0; !raw && i < localStorage.length; i++) {
       var k = localStorage.key(i);
       if (k === "${STORAGE_KEY}" || (k && k.indexOf("${STORAGE_KEY}:") === 0)) {
         raw = localStorage.getItem(k);

@@ -1361,7 +1361,21 @@ const pin = z.string().regex(/^\d{4,8}$/);
 
 const noInput = z.undefined();
 
+/** The counter app's light/dark choice on this computer (Epic UI1 #205); "system" follows Windows. */
+export const counterThemeSchema = z.enum(["system", "light", "dark"]);
+export type CounterTheme = z.infer<typeof counterThemeSchema>;
+
 export const ipcContract = {
+  getCounterTheme: {
+    channel: "pos:theme:get",
+    input: noInput,
+    output: counterThemeSchema,
+  },
+  setCounterTheme: {
+    channel: "pos:theme:set",
+    input: z.object({ theme: counterThemeSchema }),
+    output: counterThemeSchema,
+  },
   getAppInfo: {
     channel: "pos:app:info",
     input: noInput,

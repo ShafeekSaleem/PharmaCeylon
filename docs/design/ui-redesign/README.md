@@ -62,11 +62,16 @@ What changed on 18 Nov 2026 to pass:
 5. **One scope control per page.** The top-bar branch switch decides what every card shows.
 6. **Dates in day-month order** (18 Nov 2026), currency as LKR on the web and Rs on the desktop.
 
+## Theme switch
+
+- **Web:** a sun/moon button in the top bar on every page flips what is showing and saves it as that person's choice in this browser (the same preferences Settings › Appearance edits). Under "Match device" a click leaves it and picks the other look; the Appearance page offers Match device to go back. The choice is applied before first paint (`THEME_BOOTSTRAP_SCRIPT`), which now reads the preferences of whoever saved last, so a shared browser shows the right person's theme.
+- **Desktop:** a sun/moon button in the title bar. Main sets Electron's `nativeTheme.themeSource`, so the page's `prefers-color-scheme` and the Windows minimise, maximise and close buttons change together, and saves the choice to `counter-theme.json` in the app's data folder on this computer. With nothing saved, the counter follows Windows. The back-office default ("light/dark/follow Windows") and the lock that hides the button come with the pharmacy brand settings.
+- Screenshots: `screenshots/pr2-theme-switch/`.
+
 ## Not done yet
 
 These items in #205's Phase 1 come in later PRs:
 
-- **Theme switch** in the web top bar and the desktop title bar, with the desktop window buttons following the chosen theme.
 - **Pharmacy brand settings on the server:** accent, sidebar style, chart palette, status set, and the counter theme default and lock.
 - **Web shell and the shared list pattern.**
 - **Sweep of the remaining hard-coded colours.** About 70 literal `#fff` values in web CSS modules, many of them white text on an accent fill that fails in dark. Eight `--pc-*` names that are referenced but never defined (`--pc-surface-2`, `--pc-rule`, `--pc-border-subtle`, `--pc-radius`, `--pc-radius-lg`, `--pc-shadow-sm`, `--pc-font-mono`, `--pc-alert-danger-bg`), which always fall back to their literal. About 115 literals in the desktop renderer, left until the P4 desktop work settles.

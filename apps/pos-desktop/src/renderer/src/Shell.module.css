@@ -24,6 +24,37 @@
   -webkit-app-region: drag;
 }
 
+/* Sun/moon switch (UI1 #205). Clickable inside the draggable title bar. */
+.themeSwitch {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: none;
+  color: var(--pos-text-2);
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+
+.themeSwitch:hover {
+  background: var(--pos-surface-3);
+  color: var(--pos-text);
+}
+
+.themeSwitch:focus-visible {
+  outline: none;
+  border-color: var(--pos-primary);
+  box-shadow: var(--pos-focus);
+}
+
+.themeSwitch :global(.pos-ic) {
+  width: 16px;
+  height: 16px;
+}
+
 .brand {
   display: flex;
   align-items: center;

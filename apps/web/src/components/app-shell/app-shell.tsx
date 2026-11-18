@@ -19,6 +19,7 @@ import { GlobalSearch } from "@/components/global-search/global-search";
 import { NotificationCenter } from "@/components/notifications/notification-center";
 import { AppearanceEffect } from "./appearance-effect";
 import { PosFallbackBanner } from "./pos-fallback-banner";
+import { ThemeToggle } from "./theme-toggle";
 import {
   IconGrid,
   IconShoppingCart,
@@ -685,6 +686,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               >
                 {isFullscreen ? <IconMinimize size={16} /> : <IconMaximize size={16} />}
               </button>
+              <ThemeToggle />
               {!webScopeRestricted && <NotificationCenter />}
 
               {/* Avatar */}

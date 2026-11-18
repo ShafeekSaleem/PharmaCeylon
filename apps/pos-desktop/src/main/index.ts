@@ -3,6 +3,7 @@ import {
   BrowserWindow,
   dialog,
   Menu,
+  nativeTheme,
   net,
   safeStorage,
   session,
@@ -101,6 +102,7 @@ import {
   TerminalService,
 } from "./terminal/terminal-service";
 import { createMainWindow } from "./window";
+import { createCounterTheme } from "./theme";
 
 const smokeMode = process.argv.includes("--smoke-test");
 if (smokeMode) {
@@ -205,6 +207,8 @@ const restorePrompt: RestorePrompt = {
 };
 
 let mainWindow: BrowserWindow | null = null;
+/** Light/dark on this computer (UI1 #205); nativeTheme carries it to the page and the window buttons. */
+const counterTheme = createCounterTheme(join(app.getPath("userData"), "counter-theme.json"), nativeTheme);
 let store: LocalStore | null = null;
 let storeBackups: StoreBackupSchedule | null = null;
 let terminal: TerminalService | null = null;
@@ -357,6 +361,8 @@ function registerIpc(
 ): void {
   registerIpcHandlers(
     {
+      getCounterTheme: () => counterTheme.get(),
+      setCounterTheme: ({ theme }) => counterTheme.set(theme),
       getAppInfo: () => ({
         appVersion: app.getVersion(),
         electronVersion: process.versions.electron ?? "",
@@ -1299,6 +1305,7 @@ async function start(): Promise<void> {
   stock = new StockLookupService({ api: terminalApi, terminal, commands });
   returns = new ReturnsService({ api: terminalApi, terminal, commands });
   registerIpc(store.schemaVersion, logger);
+  counterTheme.apply();
   mainWindow = createMainWindow({ devServerUrl, show: true });
   mainWindow.on("closed", () => (mainWindow = null));
 }
