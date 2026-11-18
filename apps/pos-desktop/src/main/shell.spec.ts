@@ -95,7 +95,9 @@ describe("buildReadinessReport", () => {
   it("covers every FR-004 area", () => {
     const ids = buildReadinessReport(healthy, new Date()).checks.map((check) => check.id);
     expect(ids).toEqual(
-      expect.arrayContaining(["database", "grant", "device", "catalogue", "receipt-numbers", "printer", "sync"]),
+      expect.arrayContaining([
+        "database", "grant", "device", "catalogue", "receipt-numbers", "printer", "sync", "clock", "card-money", "support-records",
+      ]),
     );
   });
 });
@@ -163,7 +165,7 @@ describe("offline backup readiness (P3 #49)", () => {
     enrollmentStatus: "active" as const, preparedStaff: 5,
   };
   const healthyRefresh = { nominated: true, nominatedAt: t - 60_000, lastSuccessAt: t - 60_000, consecutiveFailures: 0, lastFailure: null, nextAttemptAt: null };
-  const installed = { grantExpiresAt: t + 86_340_000, snapshotGeneratedAt: t - 120_000, authorizedStaff: 4, lines: 412 };
+  const installed = { grantExpiresAt: t + 86_340_000, snapshotGeneratedAt: t - 120_000, authorizedStaff: 4, lines: 412, receiptNumbering: { prefix: "C1R", nextReceipt: "C1R-000001" } };
   const check = (report: ReturnType<typeof buildReadinessReport>, id: string) => report.checks.find((c) => c.id === id)!;
 
   it("shows the grant's expiry, the saved stock's time and who can sign in offline", () => {
@@ -328,5 +330,92 @@ describe("store backup readiness (#166)", () => {
       detail: "The last 3 backups failed (since 14:17 today). Last backup 13:32 today. Contact support: the app log says why.",
     });
     expect(row({ lastBackupAt: null, failures: 2, failingSince: t })?.detail).toContain("There is no backup on this computer.");
+  });
+});
+
+describe("P2 #48 pre-outage readiness rows", () => {
+  const now = new Date(2026, 10, 10, 14, 32);
+  const t = now.getTime();
+  const active = {
+    databaseOpen: true, schemaVersion: 1, latestSchemaVersion: 1, credentialStoreAvailable: true,
+    enrollmentStatus: "active" as const, preparedStaff: 2,
+  };
+  const refresh = { nominated: true, nominatedAt: t - 60_000, lastSuccessAt: t - 60_000, consecutiveFailures: 0, lastFailure: null, nextAttemptAt: null };
+  const installed = {
+    grantExpiresAt: t + 86_340_000, snapshotGeneratedAt: t - 120_000, authorizedStaff: 2, lines: 12,
+    receiptNumbering: { prefix: "C1R", nextReceipt: "C1R-000042" },
+  };
+  const settled = { unresolvedCards: 0, approvedUnlinkedCards: 0, undelivered: 0, refused: 0 };
+  const healthy = {
+    ...active,
+    offlineAuthority: { refresh, installed },
+    printers: ["EPSON TM-T82III"],
+    trustedClock: { trusted: true as const, nowMs: t, anchoredAt: t - 60_000, source: "sync_response" as const },
+    offlineRecords: settled,
+    journalSync: {
+      configured: true,
+      view: {
+        recorded: 0, accepted: 0, waiting: 0, refused: 0, syncing: false, lastSuccessAt: new Date(t - 60_000).toISOString(),
+        issue: null, outage: null, lastDrain: null, pause: null,
+      },
+    },
+  };
+  const check = (facts: Parameters<typeof buildReadinessReport>[0], id: string) =>
+    buildReadinessReport(facts, now).checks.find((c) => c.id === id)!;
+
+  it("is ready once every row is healthy", () => {
+    const report = buildReadinessReport(healthy, now);
+    expect(report.checks.filter((c) => c.status !== "ok")).toEqual([]);
+    expect(report.ready).toBe(true);
+  });
+
+  it("reads receipt numbering from the installed offline permission", () => {
+    expect(check(healthy, "receipt-numbers")).toMatchObject({
+      status: "ok", detail: "Offline receipts use the series C1R. The next one is C1R-000042.",
+    });
+    expect(check({ ...healthy, offlineAuthority: { refresh, installed: null } }, "receipt-numbers")).toMatchObject({
+      status: "not_ready", detail: expect.stringContaining("has not been received yet"),
+    });
+    expect(check({ ...healthy, offlineAuthority: { refresh: null, installed: null } }, "receipt-numbers").detail)
+      .toContain("no offline permission key");
+    expect(check({ ...healthy, offlineAuthority: { refresh, installed: { ...installed, grantExpiresAt: t - 1 } } }, "receipt-numbers").status)
+      .toBe("failed");
+    expect(check({ ...healthy, enrollmentStatus: null }, "receipt-numbers").detail).toBe("Available once this device is activated.");
+  });
+
+  it("reads the printer from Windows' installed printers", () => {
+    expect(check(healthy, "printer")).toMatchObject({ status: "ok", detail: expect.stringContaining("EPSON TM-T82III is installed in Windows.") });
+    expect(check({ ...healthy, printers: ["A", "B"] }, "printer").detail).toContain("2 printers are (A, B) installed");
+    expect(check({ ...healthy, printers: [] }, "printer")).toMatchObject({ status: "not_ready", detail: expect.stringContaining("No printer is installed") });
+    expect(check({ ...healthy, printers: undefined }, "printer").status).toBe("not_ready");
+  });
+
+  it("shows whether offline selling has a trusted time", () => {
+    expect(check(healthy, "clock")).toMatchObject({ status: "ok", detail: expect.stringContaining("last received 14:31 today") });
+    expect(check({ ...healthy, trustedClock: { trusted: false, reason: "NEW_BOOT" } }, "clock")).toMatchObject({
+      status: "failed", detail: expect.stringContaining("offline selling is stopped until this counter is online again"),
+    });
+    expect(check({ ...healthy, trustedClock: { trusted: false, reason: "NO_ANCHOR" } }, "clock").status).toBe("not_ready");
+  });
+
+  it("warns about unsettled card money, approved-but-unlinked attempts included", () => {
+    expect(check(healthy, "card-money").status).toBe("ok");
+    expect(check({ ...healthy, offlineRecords: { ...settled, unresolvedCards: 3, approvedUnlinkedCards: 1 } }, "card-money")).toMatchObject({
+      status: "warning",
+      detail: expect.stringMatching(/^3 card payments are not settled: 1 approved with no sale linked, 2 with no card machine result recorded\./),
+    });
+    expect(check({ ...healthy, offlineRecords: { ...settled, unresolvedCards: 1, approvedUnlinkedCards: 1 } }, "card-money").detail)
+      .toMatch(/^1 card payment is not settled: 1 approved with no sale linked\./);
+  });
+
+  it("warns about support records waiting to upload and fails on refused ones", () => {
+    expect(check(healthy, "support-records").status).toBe("ok");
+    expect(check({ ...healthy, offlineRecords: { ...settled, undelivered: 2 } }, "support-records")).toMatchObject({
+      status: "warning", detail: expect.stringMatching(/^2 notes or card records are waiting to upload\./),
+    });
+    expect(check({ ...healthy, offlineRecords: { ...settled, undelivered: 3, refused: 1 } }, "support-records")).toMatchObject({
+      status: "failed",
+      detail: expect.stringMatching(/^The server turned down 1 note or card record\. It will not clear by itself: contact support\. 2 notes/),
+    });
   });
 });

@@ -53,10 +53,13 @@ const GROUPS: { title: string; ids: string[] }[] = [
       "printer",
     ],
   },
-  { title: "Staff and records", ids: ["staff", "unconfirmed"] },
+  {
+    title: "Staff and records",
+    ids: ["staff", "unconfirmed", "card-money", "support-records"],
+  },
   {
     title: "Offline backup",
-    ids: ["grant", "catalogue", "receipt-numbers", "sync"],
+    ids: ["grant", "catalogue", "receipt-numbers", "clock", "sync"],
   },
 ];
 

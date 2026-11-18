@@ -141,3 +141,20 @@ export function unresolvedCardAttempts(db: PosDatabase, enrollmentId: string): n
       .get(enrollmentId) as { n: number }
   ).n;
 }
+
+/** Of the unsettled card attempts, those the card machine approved that have no sale linked yet. */
+export function approvedUnlinkedCardAttempts(db: PosDatabase, enrollmentId: string): number {
+  return (
+    db
+      .prepare(
+        `SELECT COUNT(*) AS n FROM offline_support_record r
+         WHERE r.enrollment_id = ? AND r.kind = 'external_card_attempt'
+           AND r.card_state = 'approved'
+           AND r.rowid = (
+             SELECT MAX(rowid) FROM offline_support_record
+             WHERE enrollment_id = r.enrollment_id AND attempt_id = r.attempt_id
+           )`,
+      )
+      .get(enrollmentId) as { n: number }
+  ).n;
+}

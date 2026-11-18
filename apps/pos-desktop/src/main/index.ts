@@ -63,7 +63,14 @@ import {
   offlineStaffForRenderer,
 } from "./terminal/offline-counter";
 import {
+  approvedUnlinkedCardAttempts,
+  refusedSupportRecords,
+  undeliveredSupportRecords,
+  unresolvedCardAttempts,
+} from "./terminal/offline-journal";
+import {
   OfflineSaleService,
+  nextOfflineReceiptNumber,
   offlineReceiptForPrinting,
 } from "./terminal/offline-sale";
 import { TrustedClock } from "./terminal/trusted-clock";
@@ -346,9 +353,50 @@ function offlineAuthorityFacts(): Pick<ReadinessFacts, "offlineAuthority"> {
         snapshotGeneratedAt: installed.snapshot.payload.generatedAt,
         authorizedStaff: installed.grant.payload.authorizedStaff.length,
         lines: installed.snapshot.payload.lines.length,
+        receiptNumbering: {
+          prefix: installed.grant.payload.receiptNumbering.prefix,
+          nextReceipt: nextOfflineReceiptNumber(
+            store.db,
+            installed.grant.payload.receiptNumbering,
+          ),
+        },
       },
     },
   };
+}
+
+/** Trusted time and the offline card payments and records still open, for the readiness checks. */
+function offlineCounterFacts(): Pick<
+  ReadinessFacts,
+  "trustedClock" | "offlineRecords"
+> {
+  if (!store) return {};
+  const trustedClock = new TrustedClock({ db: store.db }).now();
+  const enrollmentId = new DeviceStore(store.db).read()?.identity.enrollmentId;
+  if (!enrollmentId) return { trustedClock };
+  return {
+    trustedClock,
+    offlineRecords: {
+      unresolvedCards: unresolvedCardAttempts(store.db, enrollmentId),
+      approvedUnlinkedCards: approvedUnlinkedCardAttempts(
+        store.db,
+        enrollmentId,
+      ),
+      undelivered: undeliveredSupportRecords(store.db, enrollmentId),
+      refused: refusedSupportRecords(store.db, enrollmentId),
+    },
+  };
+}
+
+/** Display names of the printers Windows has installed; absent while there is no window to ask. */
+async function printerFacts(): Promise<Pick<ReadinessFacts, "printers">> {
+  if (!mainWindow) return {};
+  const printers = await mainWindow.webContents
+    .getPrintersAsync()
+    .catch(() => null);
+  return printers
+    ? { printers: printers.map((p) => p.displayName || p.name) }
+    : {};
 }
 
 function registerIpc(
@@ -363,7 +411,7 @@ function registerIpc(
         schemaVersion,
         packaged: app.isPackaged,
       }),
-      getReadiness: () =>
+      getReadiness: async () =>
         buildReadinessReport(
           {
             databaseOpen: store?.db.open ?? false,
@@ -388,6 +436,8 @@ function registerIpc(
             ...unconfirmedFacts(),
             ...offlineAuthorityFacts(),
             ...journalSyncFacts(),
+            ...offlineCounterFacts(),
+            ...(await printerFacts()),
             ...(storeBackups ? { storeBackups: storeBackups.status() } : {}),
           },
           new Date(),

@@ -4,6 +4,7 @@ import type { OfflineBackup, ReadinessCheck, ReadinessReport } from "../shared/i
 import type { StoreBackupStatus } from "./backup/store-backup";
 import type { OfflineAuthorityRefreshStatus } from "./terminal/offline-authority-refresh";
 import type { JournalSyncView } from "./terminal/offline-journal-sync";
+import type { TrustedNow } from "./terminal/trusted-clock";
 
 export type ReadinessFacts = {
   databaseOpen: boolean;
@@ -29,7 +30,24 @@ export type ReadinessFacts = {
       snapshotGeneratedAt: number;
       authorizedStaff: number;
       lines: number;
+      /** The offline receipt series: the grant's prefix and the number the next offline sale gets. */
+      receiptNumbering: { prefix: string; nextReceipt: string };
     } | null;
+  };
+  /** Display names of the printers installed in Windows. Absent: not looked at (no window yet). */
+  printers?: string[];
+  /** Trusted time for offline decisions (P4 #50). Absent: not looked at (no store open). */
+  trustedClock?: TrustedNow;
+  /** Offline card payments and support records (P4 #50). Absent: not looked at (not enrolled). */
+  offlineRecords?: {
+    /** Card attempts whose money is not settled, approved-but-unlinked ones included. */
+    unresolvedCards: number;
+    /** Of those, approved on the card machine with no sale linked yet. */
+    approvedUnlinkedCards: number;
+    /** Support records the server does not hold yet, refused ones included. */
+    undelivered: number;
+    /** Support records the server refused for good. */
+    refused: number;
   };
   /** Backups of this computer's store (P5 #51, #166). Absent: not running (no store open). */
   storeBackups?: StoreBackupStatus;
@@ -188,6 +206,96 @@ function syncRow(facts: ReadinessFacts, now: Date): Row {
   };
 }
 
+/** The offline receipt series, from the installed offline permission. */
+function receiptRow(facts: ReadinessFacts, now: Date): Row {
+  const authority = facts.offlineAuthority;
+  if (facts.enrollmentStatus !== "active" || !authority) return { status: "not_ready", detail: NEEDS_ACTIVATION };
+  if (!authority.refresh)
+    return { status: "not_ready", detail: "This computer has no offline permission key set up. Contact support." };
+  const installed = authority.installed;
+  if (!installed)
+    return { status: "not_ready", detail: "Comes with the offline permission, which has not been received yet." };
+  const { prefix, nextReceipt } = installed.receiptNumbering;
+  if (now.getTime() >= installed.grantExpiresAt)
+    return {
+      status: "failed",
+      detail: `The offline permission that holds the receipt series ${prefix} has expired. A renewed one brings it back.`,
+    };
+  return { status: "ok", detail: `Offline receipts use the series ${prefix}. The next one is ${nextReceipt}.` };
+}
+
+/** The receipt printer: what Windows has installed. The printer itself is chosen at each sale. */
+function printerRow(facts: ReadinessFacts): Row {
+  const printers = facts.printers;
+  if (!printers) return { status: "not_ready", detail: "Not checked yet: the counter is still starting." };
+  if (printers.length === 0)
+    return { status: "not_ready", detail: "No printer is installed in Windows on this computer, so receipts can't print." };
+  const installed = printers.length === 1 ? `${printers[0]} is` : `${printers.length} printers are (${printers.join(", ")})`;
+  return { status: "ok", detail: `${installed} installed in Windows. Print a test receipt below to check it.` };
+}
+
+/** Trusted time (P4 #50): offline selling needs the server's signed time, carried on by Windows uptime. */
+function clockRow(facts: ReadinessFacts, now: Date): Row {
+  const clock = facts.trustedClock;
+  if (facts.enrollmentStatus !== "active" || !clock) return { status: "not_ready", detail: NEEDS_ACTIVATION };
+  if (clock.trusted)
+    return {
+      status: "ok",
+      detail: `Set from the server's time, last received ${clockTime(clock.anchoredAt, now)}. The Windows clock is not used.`,
+    };
+  if (clock.reason === "NO_ANCHOR")
+    return {
+      status: "not_ready",
+      detail: "The server's time has not been received yet. It arrives by itself while someone is signed in here and online.",
+    };
+  return {
+    status: "failed",
+    detail:
+      "Windows restarted since the server's time was last received, so offline selling is stopped until this counter is online again. It sets itself once online.",
+  };
+}
+
+const counted = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+
+/** Card payments taken during an outage whose money is not settled (P4 #50). */
+function cardsRow(facts: ReadinessFacts): Row {
+  const records = facts.offlineRecords;
+  if (facts.enrollmentStatus !== "active" || !records) return { status: "not_ready", detail: NEEDS_ACTIVATION };
+  const { unresolvedCards: unresolved, approvedUnlinkedCards: approved } = records;
+  if (unresolved === 0) return { status: "ok", detail: "Every card payment from an offline sale is settled." };
+  const unknown = unresolved - approved;
+  const how = [
+    approved ? `${approved} approved with no sale linked` : null,
+    unknown ? `${unknown} with no card machine result recorded` : null,
+  ]
+    .filter((part): part is string => part !== null)
+    .join(", ");
+  return {
+    status: "warning",
+    detail: `${counted(unresolved, "card payment is", "card payments are")} not settled: ${how}. After an outage, online selling waits until they are. Record what the card machine did under Offline records below.`,
+  };
+}
+
+/** Offline notes and card records still to reach the server (P4 #50). */
+function supportRow(facts: ReadinessFacts): Row {
+  const records = facts.offlineRecords;
+  if (facts.enrollmentStatus !== "active" || !records) return { status: "not_ready", detail: NEEDS_ACTIVATION };
+  const { undelivered, refused } = records;
+  const waiting = undelivered - refused;
+  const waitingText = waiting
+    ? `${counted(waiting, "note or card record is", "notes or card records are")} waiting to upload. They upload by themselves while someone is signed in and online.`
+    : "";
+  if (refused > 0)
+    return {
+      status: "failed",
+      detail: `The server turned down ${counted(refused, "note or card record", "notes or card records")}. ${
+        refused === 1 ? "It will not clear by itself" : "They will not clear by themselves"
+      }: contact support.${waitingText ? ` ${waitingText}` : ""}`,
+    };
+  if (waiting > 0) return { status: "warning", detail: waitingText };
+  return { status: "ok", detail: "Every offline note and card record is on the server." };
+}
+
 const DEVICE_CHECK: Record<"none" | "pending" | "active" | "revoked" | "retired", Pick<ReadinessCheck, "status" | "detail">> = {
   none: { status: "not_ready", detail: "This device has not been enrolled at a branch." },
   pending: { status: "warning", detail: "Enrollment did not finish. A manager must sign in here." },
@@ -277,9 +385,12 @@ export function buildReadinessReport(facts: ReadinessFacts, now: Date): Readines
     },
     { id: "grant", label: "Offline permission", ...offline.grant },
     { id: "catalogue", label: "Product catalogue", ...offline.catalogue },
-    { id: "receipt-numbers", label: "Receipt numbering", status: "not_ready", detail: NEEDS_ACTIVATION },
-    { id: "printer", label: "Receipt printer", status: "not_ready", detail: "No receipt printer has been set up." },
+    { id: "receipt-numbers", label: "Receipt numbering", ...receiptRow(facts, now) },
+    { id: "clock", label: "Trusted time", ...clockRow(facts, now) },
+    { id: "printer", label: "Receipt printer", ...printerRow(facts) },
     { id: "sync", label: "Synchronisation", ...syncRow(facts, now) },
+    { id: "card-money", label: "Offline card payments", ...cardsRow(facts) },
+    { id: "support-records", label: "Offline notes and card records", ...supportRow(facts) },
   ];
   const backups = backupRow(facts, now);
   if (backups) checks.splice(3, 0, { id: "backups", label: "Store backups", ...backups });
