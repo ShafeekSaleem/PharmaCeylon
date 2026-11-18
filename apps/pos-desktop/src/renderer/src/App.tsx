@@ -4,6 +4,7 @@ import type {
   AppInfo,
   DeviceState,
   JournalSync,
+  OfflineModeState,
   Printer,
   ReadinessReport,
   ShiftState,
@@ -13,6 +14,8 @@ import { CounterWork } from "./CounterWork";
 import full from "./Fullscreen.module.css";
 import { Icon } from "./Icon";
 import { KeyBinding, KeyScope } from "./keymap";
+import { OfflineCounter } from "./OfflineCounter";
+import { cannotSellOffline } from "./offline-sell-model";
 import { PersonPanel } from "./Person";
 import { Returns } from "./Returns";
 import { Sell } from "./Sell";
@@ -51,6 +54,7 @@ export function App() {
   const [lockError, setLockError] = useState<string | null>(null);
   const [shift, setShift] = useState<ShiftState | null>(null);
   const [journal, setJournal] = useState<JournalSync | null>(null);
+  const [offlineMode, setOfflineMode] = useState<OfflineModeState | null>(null);
   /** Who the last handover named to take over, picked first on the lock screen. */
   const [nextUp, setNextUp] = useState<string | null>(null);
 
@@ -150,6 +154,20 @@ export function App() {
     const timer = window.setInterval(loadJournal, JOURNAL_SYNC_MS);
     return () => window.clearInterval(timer);
   }, [Boolean(device), loadJournal]);
+
+  // Whether this counter is selling offline, and if it can't, why (P4 #50). A local read.
+  const loadOfflineMode = useCallback(() => {
+    window.pos
+      .getOfflineMode()
+      .then(setOfflineMode)
+      .catch(() => undefined);
+  }, []);
+  useEffect(() => {
+    if (!device) return;
+    loadOfflineMode();
+    const timer = window.setInterval(loadOfflineMode, JOURNAL_SYNC_MS);
+    return () => window.clearInterval(timer);
+  }, [Boolean(device), loadOfflineMode]);
 
   // Owners and managers approve their own refunds by default (the tenant's self-approval
   // roles); Returns words its button by this, and the server decides.
@@ -263,6 +281,18 @@ export function App() {
         api={api}
         info={info}
         readiness={readiness}
+      />
+    );
+  else if (offlineMode?.mode === "offline")
+    // The nominated counter selling offline: its own PIN sign-in, shift and Sell (P4 #50).
+    body = (
+      <OfflineCounter
+        device={device}
+        mode={offlineMode}
+        journal={journal}
+        shift={shift}
+        onShift={loadShift}
+        printer={printer}
       />
     );
   else if (!session) body = signIn;
@@ -384,7 +414,10 @@ export function App() {
                   </div>
                 </KeyScope>
                 {api && !api.reachable && page !== "counter" && (
-                  <ServerBlock onRetry={refreshApi} />
+                  <ServerBlock
+                    onRetry={refreshApi}
+                    reason={cannotSellOffline(offlineMode)}
+                  />
                 )}
               </main>
             </div>

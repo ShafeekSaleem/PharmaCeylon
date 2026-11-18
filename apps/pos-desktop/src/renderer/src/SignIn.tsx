@@ -23,7 +23,7 @@ export const PIN_OK = /^\d{4,8}$/;
 const PIN_MAX = 8;
 
 /** Dots and a number pad. The keyboard's digits, Backspace and Enter work too. */
-function PinPad({
+export function PinPad({
   value,
   onChange,
   onSubmit,

@@ -187,13 +187,15 @@ describe("counter journal sync status (P5 #51)", () => {
         detail: "Front · stopped at entry 2; nothing after it syncs",
         reference: "PC",
         status: "INVALID_COMMAND",
-        href: "/settings/counters",
+        href: `/inventory/offline-records?recordId=${review.id}`,
         approval: false,
         createdAt: review.firstReceivedAt.toISOString(),
       }),
     ]);
-    // Only for whoever manages the counters.
-    expect(await journalWork(c, (key) => key !== "tenant.management")).toEqual(
+    // Only for whoever may settle it.
+    expect(
+      await journalWork(c, (key) => key !== "sales.review_offline_entries"),
+    ).toEqual(
       [],
     );
 

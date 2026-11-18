@@ -228,6 +228,12 @@ export function TitleBar({
       </div>
       <span className={ui.grow} />
       {derived?.active ? <SyncTitlePill sync={derived} /> : <ReachabilityPill api={api} />}
+      {api && !api.reachable && journal && journal.waiting > 0 && (
+        <span className={cx(ui.pill, ui.neutral)} role="status">
+          <Icon name="upload" />
+          {journal.waiting} to send
+        </span>
+      )}
       <div className={styles.clock}>
         {shortDay(now)} · {time(now)}
       </div>
@@ -235,7 +241,7 @@ export function TitleBar({
   );
 }
 
-function RailItem({
+export function RailItem({
   icon,
   label,
   active,
@@ -490,18 +496,25 @@ export function SyncBlock({ sync, children }: { sync: JournalSync; children?: Re
 }
 
 /** Covers a selling page while the server can't be reached. The page stays underneath, cart and all. */
-export function ServerBlock({ onRetry }: { onRetry: () => void }) {
+export function ServerBlock({
+  onRetry,
+  reason = null,
+}: {
+  onRetry: () => void;
+  /** Why this counter isn't selling offline instead, when it can say (P4 #50). */
+  reason?: { title: string; text: string } | null;
+}) {
   return (
     <div className={styles.block} role="alert">
       <div className={cx(ui.panel, styles.blockCard)}>
         <span className={cx(ui.kind, styles.blockIcon)}>
           <Icon name="wifi-off" />
         </span>
-        <h2>The server can&apos;t be reached</h2>
+        <h2>{reason?.title ?? "The server can't be reached"}</h2>
         <p>
-          Selling needs the server until this counter can sell offline. Check
-          the network cable or Wi-Fi. The counter keeps trying every 15 seconds,
-          and the sale on screen is kept.
+          {reason
+            ? `${reason.text} The counter keeps trying every 15 seconds.`
+            : "Selling needs the server until this counter can sell offline. Check the network cable or Wi-Fi. The counter keeps trying every 15 seconds, and the sale on screen is kept."}
         </p>
         <button
           type="button"
