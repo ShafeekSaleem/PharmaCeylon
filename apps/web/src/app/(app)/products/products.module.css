@@ -1023,7 +1023,7 @@
 .viewHeaderBtnPrimary {
   border-color: transparent;
   background: var(--pc-primary);
-  color: var(--pc-primary-fg, #fff);
+  color: var(--pc-btn-primary-text);
 }
 
 .viewHeaderBtnPrimary:hover {

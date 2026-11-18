@@ -30,12 +30,14 @@ export const DEFAULT_APPEARANCE_PREFS: AppearancePrefs = {
 /** Matches the primary/hover/soft/focus-ring token group in globals.css, keyed by the two
  *  alternate accent tokens (--pc-secondary-cyan / --pc-accent-navy) already defined there but
  *  otherwise unused. */
-/* These MUST stay literal hex. They are the values written into
+/* Light accents reach 4.5:1 on white (Epic UI1 #205): the old teal #0d9488 and cyan #0891b2 were
+   about 3.7:1, too faint for link and selected-item text.
+   These MUST stay literal hex. They are the values written into
    `--pc-primary` and friends, so a var() reference here would define a token in
    terms of itself and resolve to nothing. */
 const ACCENT_TOKENS: Record<AccentColor, { primary: string; primaryHover: string; soft: string; ring: string }> = {
-  teal: { primary: "#0d9488", primaryHover: "#0f766e", soft: "rgba(13, 148, 136, 0.12)", ring: "rgba(13, 148, 136, 0.25)" },
-  cyan: { primary: "#0891b2", primaryHover: "#0e7490", soft: "rgba(8, 145, 178, 0.12)", ring: "rgba(8, 145, 178, 0.25)" },
+  teal: { primary: "#0f766e", primaryHover: "#115e59", soft: "#e6f4f2", ring: "rgba(15, 118, 110, 0.25)" },
+  cyan: { primary: "#0e7490", primaryHover: "#155e75", soft: "rgba(14, 116, 144, 0.12)", ring: "rgba(14, 116, 144, 0.25)" },
   navy: { primary: "#1e40af", primaryHover: "#1e3a8a", soft: "rgba(30, 64, 175, 0.12)", ring: "rgba(30, 64, 175, 0.25)" },
 };
 

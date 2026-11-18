@@ -577,7 +577,7 @@
 .branchRankBadgeLead {
   background: var(--pc-primary);
   border-color: var(--pc-primary);
-  color: var(--pc-primary-fg, #fff);
+  color: var(--pc-btn-primary-text);
 }
 
 .branchLeaderInfo {
@@ -2537,7 +2537,7 @@ a.alertItem:hover {
 
 .topProductRank_lead {
   background: var(--pc-primary);
-  color: var(--pc-primary-fg, #fff);
+  color: var(--pc-btn-primary-text);
 }
 
 .topProductBody {
@@ -4357,11 +4357,11 @@ a.alertItem:hover {
 .customizeBtnPrimary {
   background: var(--pc-primary);
   border-color: var(--pc-primary);
-  color: var(--pc-primary-contrast, #fff);
+  color: var(--pc-btn-primary-text);
 }
 
 .customizeBtnPrimary:hover:not(:disabled) {
-  color: var(--pc-primary-contrast, #fff);
+  color: var(--pc-btn-primary-text);
   opacity: 0.92;
 }
 
@@ -4586,7 +4586,7 @@ a.alertItem:hover {
 }
 
 .addWidgetItem:hover .addWidgetItemAdd {
-  color: var(--pc-primary-contrast, #fff);
+  color: var(--pc-btn-primary-text);
   background: var(--pc-primary);
 }
 

@@ -116,7 +116,7 @@
 }
 
 .warn {
-  color: var(--pc-warning-fg, #b45309);
+  color: var(--pc-warning);
 }
 
 .form {
