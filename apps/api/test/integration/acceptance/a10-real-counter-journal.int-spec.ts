@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Signed, SyncResponse } from "@pharmaceylon/shared";
 import { acceptedJournalState, issueOfflineAuthority } from "../../../src/terminals/offline-authority-issuance";
+import { ApiError } from "../../../../pos-desktop/src/main/api/api-client";
 import type { SecretProtector } from "../../../../pos-desktop/src/main/db/key-store";
 import { migrations } from "../../../../pos-desktop/src/main/db/migrations";
 import { DeviceKey } from "../../../../pos-desktop/src/main/device/device-key";
@@ -51,17 +52,19 @@ type Desktop = {
   dir: string;
   staff: OfflineCounterService;
   sale: OfflineSaleService;
+  clock: TrustedClock;
   advance: (ms: number) => void;
   trusted: () => number;
 };
 
-let desktop: Desktop | null = null;
+/** The open local store, set as soon as it opens so a failed setup is cleaned up too. */
+let opened: { local: LocalStore; dir: string } | null = null;
 
 afterEach(() => {
-  if (!desktop) return;
-  desktop.local.db.close();
-  rmSync(desktop.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
-  desktop = null;
+  if (!opened) return;
+  opened.local.db.close();
+  rmSync(opened.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  opened = null;
 });
 
 afterAll(async () => {
@@ -87,20 +90,25 @@ async function realCounter(stock: Record<string, number>): Promise<{ c: Counter;
   );
   const dir = mkdtempSync(join(tmpdir(), "pos-real-journal-"));
   const local = openLocalStore(dir, protector, migrations);
+  opened = { local, dir };
   const { identity } = c;
   const till = { registerId: c.grant.registerId, tillId: c.grant.tillId };
-  local.db
-    .prepare(
-      `INSERT INTO device_identity (
-        id, status, api_base_url, tenant_id, branch_id, branch_name, terminal_id,
-        enrollment_id, key_id, register_id, till_id, counter_label, label,
-        public_key_hex, private_key_pkcs8, enrolled_by_user_id, created_at, branch_code
-      ) VALUES (1, 'active', 'http://127.0.0.1:3000', ?, ?, '', ?, ?, ?, ?, ?, '', '', ?, ?, ?, ?, '')`,
-    )
-    .run(
-      identity.tenantId, identity.branchId, identity.terminalId, identity.enrollmentId, identity.keyId,
-      till.registerId, till.tillId, key.publicKeyHex, key.exportPkcs8(), c.owner.userId, new Date().toISOString(),
-    );
+  // Saved as the desktop saves an enrollment, then activated as the server confirmed it.
+  const device = new DeviceStore(local.db);
+  device.savePending({
+    apiBaseUrl: "http://127.0.0.1:3000",
+    identity,
+    branchName: "Main",
+    branchCode: "",
+    ...till,
+    counterLabel: "Front",
+    label: "PC",
+    key,
+    enrolledByUserId: c.owner.userId,
+    enrolledByName: "Owner",
+    now: new Date(),
+  });
+  device.setStatus("active", new Date());
 
   let up = UP0;
   let wall = Date.now();
@@ -135,15 +143,14 @@ async function realCounter(stock: Record<string, number>): Promise<{ c: Counter;
   writer.ensureOfflineOutageSession(identity.enrollmentId, trusted());
   const staff = new OfflineCounterService({
     db: local.db,
-    device: new DeviceStore(local.db),
+    device,
     pins,
     journal: writer,
     clock,
     mode: { view: () => ({ mode: "offline", reason: null }) as never },
   });
   const sale = new OfflineSaleService({ db: local.db, counter: staff, journal: writer });
-  desktop = { local, dir, staff, sale, advance, trusted };
-  return { c, key, d: desktop };
+  return { c, key, d: { local, dir, staff, sale, clock, advance, trusted } };
 }
 
 /** The desktop uploader, with HTTP replaced by a direct call to the server's intake. */
@@ -154,6 +161,8 @@ function uploader(c: Counter, d: Desktop) {
     db: d.local.db,
     terminal: { current: () => ({ identity: c.identity }) as never },
     signer: { keyId: signer.keyId, publicKey: server.publicKey },
+    // As the desktop wires it: a verified reply's signed server time anchors the trusted clock.
+    clock: d.clock,
     report: (error) => {
       throw error;
     },
@@ -182,7 +191,8 @@ async function pendingUpload(c: Counter, d: Desktop) {
     api: {
       request: (async (_method: string, _path: string, options: { body: unknown }) => {
         body = JSON.parse(JSON.stringify(options.body)) as unknown;
-        throw new Error("network unreachable");
+        // What the desktop's API client throws when the server can't be reached.
+        throw new ApiError(0, "NETWORK", "network unreachable");
       }) as never,
     },
   });
@@ -220,11 +230,7 @@ describe("A10: a journal written by the real P4 offline checkout replays once on
     d.advance(2_000);
     const card = d.sale.commit({ checkoutDraftId: draft, items: items(3), cashTenderedMinor: 10_000 });
     d.advance(60_000);
-    const expected = (
-      d.local.db.prepare("SELECT expected_cash_minor FROM till_shift WHERE state = 'open'").get() as {
-        expected_cash_minor: number;
-      }
-    ).expected_cash_minor;
+    const expected = openShiftCash(d);
     expect(expected).toBe(10_000 + cash.totalMinor + (card.totalMinor - 5_000));
     d.staff.closeShift({ totalMinor: expected, lines: [] });
 
@@ -249,6 +255,13 @@ describe("A10: a journal written by the real P4 offline checkout replays once on
       orderBy: { createdAt: "asc" },
     });
     expect(saved.map((s) => s.offlineCommandId).sort()).toEqual([cash.saleCommandId, card.saleCommandId].sort());
+    // Under the receipt numbers the counter printed.
+    expect(saved.map((s) => [s.offlineCommandId, s.invoiceNo]).sort()).toEqual(
+      [
+        [cash.saleCommandId, cash.receiptNumber],
+        [card.saleCommandId, card.receiptNumber],
+      ].sort(),
+    );
     const cardSale = saved.find((s) => s.offlineCommandId === card.saleCommandId)!;
     expect(cardSale.payments.find((p) => p.method === "card")).toMatchObject({ reference: "RRN-A10" });
     // The shift closed on the server with the drawer the counter counted, and no variance.
@@ -269,17 +282,26 @@ describe("A10: a journal written by the real P4 offline checkout replays once on
       refused: 0,
       issue: null,
     });
+    // The verified reply's signed server time now anchors the counter's trusted clock.
+    const head = up.replies.at(-1)!.payload;
+    expect(d.clock.now()).toMatchObject({ trusted: true, source: "sync_response" });
+    expect((d.clock.now() as { anchoredAt: number }).anchoredAt).toBeGreaterThanOrEqual(head.serverTime);
 
     // A response lost after commit: the same bytes again give the original receipts, once.
-    const resend = await journal.sync(c.cashier, c.fx.mainBranchId, up.sent[0], Date.now() + 120_000);
-    expect(statuses(resend.payload.acknowledgements)).toEqual(["duplicate", "duplicate", "duplicate", "duplicate"]);
+    const resent = [];
+    for (const body of up.sent) resent.push(await journal.sync(c.cashier, c.fx.mainBranchId, body, Date.now() + 120_000));
+    expect(statuses(resent.flatMap((r) => r.payload.acknowledgements))).toEqual([
+      "duplicate",
+      "duplicate",
+      "duplicate",
+      "duplicate",
+    ]);
     // And the desktop's next look sends nothing new.
     await up.sync.tick({ force: true });
     expect(await effects(c)).toEqual(once);
     expect(await onHand(c.batches.main)).toBe(15);
 
     // P3: the next authority is rebased over the accepted journal: its head, and the stock it used.
-    const head = up.replies[0]!.payload;
     const renewal = await issueOfflineAuthority(prisma as never, access, {
       signer,
       defaultVatRatePercent: 18,
@@ -294,7 +316,11 @@ describe("A10: a journal written by the real P4 offline checkout replays once on
       availableQuantity: 15,
       stockReviewRequired: false,
     });
-    expect(renewal.grant.payload.receiptNumbering.nextNumber).toBeGreaterThan(c.grant.receiptNumbering.nextNumber + 1);
+    // Numbering resumes one past the two receipts the counter used, under the same prefix.
+    expect(renewal.grant.payload.receiptNumbering).toEqual({
+      prefix: c.grant.receiptNumbering.prefix,
+      nextNumber: c.grant.receiptNumbering.nextNumber + 2,
+    });
   });
 
   it("A1 on a real journal: reordered, concurrent and modified uploads give one receipt and one business effect", async () => {
@@ -345,14 +371,20 @@ describe("A10: a journal written by the real P4 offline checkout replays once on
       "duplicate",
       "duplicate",
     ]);
-    expect(readJournalSyncView(d.local.db, c.identity.enrollmentId)).toMatchObject({ accepted: 4, waiting: 0, refused: 0 });
+    // The outage's network failure no longer shows once the server has answered.
+    expect(readJournalSyncView(d.local.db, c.identity.enrollmentId)).toMatchObject({
+      accepted: 4,
+      waiting: 0,
+      refused: 0,
+      issue: null,
+    });
 
     // Modified: the same entry, re-signed by the counter's own key with changed content, fails.
     const sale = two!.payload as unknown as { lines: Array<{ quantity: number }> };
     const changed = key.sign({ ...two!.payload, lines: [{ ...sale.lines[0]!, quantity: 9 }] }, "command");
     const refused = await journal.sync(c.cashier, c.fx.mainBranchId, { ...body, commands: [changed] }, now());
     expect(refused.payload.acknowledgements[0]).toMatchObject({ status: "rejected", error: { code: "REPLAY_CONFLICT" } });
-    expect(await effects(c)).toEqual({ ...once, receipts: expect.any(Number) });
+    expect(await effects(c)).toEqual(once);
     expect(await onHand(c.batches.main)).toBe(14);
   });
 
@@ -471,10 +503,16 @@ describe("A10: a journal written by the real P4 offline checkout replays once on
     await up.sync.tick({ force: true });
     expect(statuses(up.replies.flatMap((r) => r.payload.acknowledgements))).toEqual(Array(6).fill("committed"));
     expect(await onHand(c.batches.main)).toBe(17);
+    expect(readJournalSyncView(d.local.db, c.identity.enrollmentId)).toMatchObject({
+      accepted: 6,
+      waiting: 0,
+      refused: 0,
+      issue: null,
+    });
 
     const tillShifts = await prisma.tillShift.findMany({
       where: { tenantId: c.fx.tenantId },
-      orderBy: { openingCashMinor: "asc" },
+      orderBy: { openedAt: "asc" },
     });
     expect(tillShifts.map((s) => [s.staffUserId, s.openingCashMinor, s.closingCashCountMinor, s.expectedCashMinor])).toEqual([
       [c.cashier.userId, 5_000, cashierCount, cashierCount],
