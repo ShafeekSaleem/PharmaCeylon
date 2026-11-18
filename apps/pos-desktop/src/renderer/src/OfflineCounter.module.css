@@ -1,0 +1,172 @@
+/* P4 #50: the nominated counter selling offline. Layout comes from Sell; these are the extras. */
+
+.sell {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.banner {
+  flex: none;
+}
+
+.banner > div > div {
+  margin-top: 2px;
+}
+
+.center {
+  display: grid;
+  place-items: start center;
+  padding: 24px;
+  overflow: auto;
+  height: 100%;
+}
+
+.offRows {
+  display: grid;
+  gap: 6px;
+}
+
+.offRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--pos-line);
+  border-radius: 10px;
+  font-size: 12.5px;
+  color: var(--pos-text-2);
+}
+
+.offRow > :global(.pos-ic) {
+  width: 15px;
+  height: 15px;
+  color: var(--pos-text-3);
+}
+
+.lastSale {
+  display: grid;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--pos-line);
+  border-radius: 10px;
+  background: var(--pos-surface-2);
+  font-size: 12.5px;
+}
+
+.lastSale small {
+  font-weight: 600;
+  color: var(--pos-text-2);
+}
+
+.lastRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--pos-canvas) 70%, transparent);
+  backdrop-filter: blur(2px);
+}
+
+.receipt {
+  width: 320px;
+  padding: 20px 22px;
+  gap: 0;
+  font-size: 13px;
+  box-shadow: var(--pos-shadow-lg);
+}
+
+.rHead {
+  display: grid;
+  gap: 2px;
+  padding-bottom: 10px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--pos-text-2);
+}
+
+.rHead b {
+  font-size: 14px;
+  color: var(--pos-text);
+}
+
+.rRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 3px 0;
+}
+
+.rLines {
+  margin: 8px 0;
+  padding: 8px 0;
+  border-block: 1px dashed var(--pos-line-strong);
+}
+
+.rThanks {
+  margin: 10px 0 12px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--pos-line-strong);
+  text-align: center;
+  font-size: 12px;
+  color: var(--pos-text-2);
+}
+
+.blocked {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  padding: 16px 20px;
+  overflow: auto;
+  height: 100%;
+}
+
+.list {
+  display: grid;
+  gap: 8px;
+  max-width: 720px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.list li {
+  display: grid;
+  grid-template-columns: 18px 220px 1fr;
+  gap: 10px;
+  align-items: start;
+  padding: 12px 14px;
+  border: 1px solid var(--pos-line);
+  border-radius: 10px;
+  background: var(--pos-surface);
+  font-size: 13px;
+}
+
+.list li > :global(.pos-ic) {
+  width: 16px;
+  height: 16px;
+  margin-top: 1px;
+  color: var(--pos-text-3);
+}
+
+.list li span {
+  color: var(--pos-text-2);
+}
+
+@media (max-width: 900px) {
+  .list li {
+    grid-template-columns: 18px 1fr;
+  }
+
+  .list li span {
+    grid-column: 2;
+  }
+}

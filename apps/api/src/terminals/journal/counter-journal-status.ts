@@ -33,7 +33,7 @@ export const acceptedHeadJoin = Prisma.sql`LEFT JOIN LATERAL (
  * refusal, so the server holds nothing after it and can't tell how many entries follow.
  */
 export const stoppedAtJoin = Prisma.sql`LEFT JOIN LATERAL (
-    SELECT v.sequence, v.outcome, v.error_code, v.first_received_at FROM offline_journal_review v
+    SELECT v.id, v.sequence, v.outcome, v.error_code, v.first_received_at FROM offline_journal_review v
     WHERE v.tenant_id = e.tenant_id AND v.branch_id = e.branch_id AND v.enrollment_id = e.id
       AND v.record_kind = 'command' AND v.sequence > COALESCE(h.offline_sequence, 0)
     ORDER BY v.sequence, CASE v.outcome WHEN 'conflict' THEN 0 WHEN 'rejected' THEN 1 ELSE 2 END,
@@ -95,10 +95,8 @@ export function journalStatusQuery(
  * retired) whose journal stopped on a rejected entry. Slice 4 (#155) settles exactly these: its
  * settlement writes the receipt at that sequence, the head moves past it and the item drops out.
  * Conflicts and revoked or retired counters are left to D11 journal recovery (#154) and are not
- * listed: nothing here clears them. The Counters page still shows them.
- *
- * TODO(#155): once slice 4 is in `develop`, link `/inventory/offline-records` instead of the
- * Counters page (and gate the source on `sales.review_offline_entries` in daily-work.service).
+ * listed: nothing here clears them. The Counters page still shows them. The row opens the refused
+ * entry on the Offline records page, where it is settled.
  */
 export function stuckJournalWorkSource(
   tenantId: string,
@@ -108,7 +106,7 @@ export function stuckJournalWorkSource(
   return Prisma.sql`
     SELECT 'journal:' || e.id, 'offline_journal.review', 'counter', 'Review refused offline entry',
       concat(COALESCE(k.label, t.label), ' · stopped at entry ', x.sequence, '; nothing after it syncs'),
-      t.label, x.error_code, '/settings/counters', 'Open counters', x.first_received_at, NULL::timestamp,
+      t.label, x.error_code, '/inventory/offline-records?recordId=' || x.id, 'Review entry', x.first_received_at, NULL::timestamp,
       'Branch managers', false, false, false, 1
     ${scope.from}
     LEFT JOIN terminal_counter k ON k.tenant_id = e.tenant_id AND k.branch_id = e.branch_id AND k.id = t.register_id
