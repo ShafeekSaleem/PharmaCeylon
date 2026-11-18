@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
   type FormEvent,
+  type ReactNode,
   type RefObject,
 } from "react";
 import type {
@@ -32,6 +33,7 @@ import { KeyHint } from "./KeyHint";
 import { inField, KeyScope, SCAN_GAP_MS, useKeyBinding } from "./keymap";
 import s from "./Sell.module.css";
 import { SyncBlock } from "./Shell";
+import type { ReconnectNotice } from "./reconnect-model";
 import {
   discountFromInput,
   discountPercent,
@@ -57,14 +59,20 @@ import { Avatar } from "./Shell";
 import ui from "./ui.module.css";
 import { cx } from "./useAction";
 
-type Line = { product: CatalogProduct; qty: number; discount: LineDiscount | null };
+type Line = {
+  product: CatalogProduct;
+  qty: number;
+  discount: LineDiscount | null;
+};
 
 /** A line's discount in cents at its current quantity: a percent follows the quantity, an amount
  *  stays put but never exceeds the line. */
 function discountMinorOf(line: Line): number {
   if (!line.discount) return 0;
   const gross = minor(line.product.unitPrice) * line.qty;
-  return discountFromInput(line.discount.mode, line.discount.value, gross) ?? gross;
+  return (
+    discountFromInput(line.discount.mode, line.discount.value, gross) ?? gross
+  );
 }
 type Method = "cash" | "card" | "split";
 
@@ -116,7 +124,12 @@ function PendingCheckouts({
           ? { coSign: { approverUserId: draft.coSignerId, pin } }
           : {}),
         ...(draft.discountCoSignerId && managerPin
-          ? { discountCoSign: { approverUserId: draft.discountCoSignerId, pin: managerPin } }
+          ? {
+              discountCoSign: {
+                approverUserId: draft.discountCoSignerId,
+                pin: managerPin,
+              },
+            }
           : {}),
       }),
     );
@@ -340,6 +353,8 @@ export function Sell({
   onCommandSent,
   online = true,
   syncPause = null,
+  syncNotice = null,
+  syncExtra = null,
 }: {
   onActivity?: () => void;
   onCommandSent?: () => void;
@@ -350,6 +365,10 @@ export function Sell({
    * unconfirmed sales: the drain waits for them, so they must stay confirmable under it.
    */
   syncPause?: JournalSync | null;
+  /** What the block says about this counter's offline sales (P4 #50, `d-drain` / `d-review`). */
+  syncNotice?: ReconnectNotice | null;
+  /** Shown in the block above the unconfirmed sales: the last offline sale and its reprint. */
+  syncExtra?: ReactNode;
 } = {}) {
   const [catalog, setCatalog] = useState<CatalogProduct[] | null>(null);
   const [vatRatePercent, setVatRatePercent] = useState(0);
@@ -633,11 +652,13 @@ export function Sell({
   const discountOffReason = !online
     ? "Discounts need the server. They're off while the counter is offline."
     : null;
-  const canDiscount = !busy && !awaiting && !sale && lines.length > 0 && !discountOffReason;
+  const canDiscount =
+    !busy && !awaiting && !sale && lines.length > 0 && !discountOffReason;
 
   function openDiscount(productId: string | null = selectedId) {
     if (!online) return;
-    const line = lines.find((l) => l.product.productId === productId) ?? lines[0];
+    const line =
+      lines.find((l) => l.product.productId === productId) ?? lines[0];
     if (!line) return;
     setSelectedId(line.product.productId);
     setDiscountFor(line.product.productId);
@@ -722,7 +743,10 @@ export function Sell({
               product,
               qty: Math.min(l.qty, product.available),
               discount: l.discountMinor
-                ? { mode: "amount" as const, value: plainMoney(l.discountMinor) }
+                ? {
+                    mode: "amount" as const,
+                    value: plainMoney(l.discountMinor),
+                  }
                 : null,
             },
           ]
@@ -882,7 +906,10 @@ export function Sell({
   // character of a barcode scan; if no scan follows it, it was a person keying the cash received,
   // and it moves there. A scan therefore never lands in cash.
   const digitToCash = useRef<number | null>(null);
-  useEffect(() => () => window.clearTimeout(digitToCash.current ?? undefined), []);
+  useEffect(
+    () => () => window.clearTimeout(digitToCash.current ?? undefined),
+    [],
+  );
   useKeyBinding("Digit", (event) => {
     const digit = event.key;
     const before = searchRef.current?.value ?? query;
@@ -1312,7 +1339,9 @@ export function Sell({
                         >
                           <Icon name="tag" />
                           Discount −
-                          {percentText(discountPercent(lineDiscount, grossMinor))}
+                          {percentText(
+                            discountPercent(lineDiscount, grossMinor),
+                          )}
                           {needsManager ? " · manager" : ""}
                         </button>
                       )}
@@ -1731,32 +1760,37 @@ export function Sell({
         })()}
       {sheetOpen && needsPrescription && (
         <KeyScope layer>
-        <PrescriptionSheet
-          rxLines={rxLines}
-          hasControlled={hasControlled}
-          customer={customer}
-          prescription={prescription}
-          approverId={approverId}
-          pin={pin}
-          refusal={refusal}
-          refusedApproverIds={refusedApproverIds}
-          pinRef={pinRef}
-          totalText={money(totals.totalMinor)}
-          onPrescription={setPrescription}
-          onApprover={(id, name) => {
-            setApproverId(id);
-            setApproverName(name ?? "");
-            setPin("");
-          }}
-          onPin={setPin}
-          onCommandSent={onCommandSent}
-          onHold={() => void hold()}
-          onClose={closeSheet}
-          onContinue={continueToPayment}
-        />
+          <PrescriptionSheet
+            rxLines={rxLines}
+            hasControlled={hasControlled}
+            customer={customer}
+            prescription={prescription}
+            approverId={approverId}
+            pin={pin}
+            refusal={refusal}
+            refusedApproverIds={refusedApproverIds}
+            pinRef={pinRef}
+            totalText={money(totals.totalMinor)}
+            onPrescription={setPrescription}
+            onApprover={(id, name) => {
+              setApproverId(id);
+              setApproverName(name ?? "");
+              setPin("");
+            }}
+            onPin={setPin}
+            onCommandSent={onCommandSent}
+            onHold={() => void hold()}
+            onClose={closeSheet}
+            onContinue={continueToPayment}
+          />
         </KeyScope>
       )}
-      {syncPause && <SyncBlock sync={syncPause}>{pendingCheckouts}</SyncBlock>}
+      {syncPause && (
+        <SyncBlock sync={syncPause} notice={syncNotice}>
+          {syncExtra}
+          {pendingCheckouts}
+        </SyncBlock>
+      )}
     </div>
   );
 }

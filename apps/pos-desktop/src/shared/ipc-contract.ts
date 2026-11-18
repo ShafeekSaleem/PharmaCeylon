@@ -142,6 +142,42 @@ export const offlineModeSchema = z.object({
 });
 export type OfflineModeState = z.infer<typeof offlineModeSchema>;
 
+/**
+ * P4 #50, slice 4c: one entry of this counter's offline journal, as the title bar's upload queue
+ * lists it. Local only; times are ISO, money in minor units.
+ */
+export const offlineJournalEntrySchema = z.object({
+  /** The journal command ID; for a sale it is the `saleCommandId` that reprints its receipt. */
+  commandId: z.string(),
+  sequence: z.number().int().min(1),
+  kind: z.enum(["sale", "shift_open", "shift_close"]),
+  at: z.string().nullable(),
+  /** The number on the customer's receipt (C1R-…), final. Sales only. */
+  receiptNumber: z.string().nullable(),
+  totalMinor: z.number().int().nullable(),
+  /**
+   * `waiting`: behind a refused entry, which a manager settles on the web before anything after
+   * it can be accepted. `sending` while connected, `queued` while not.
+   */
+  status: z.enum(["queued", "sending", "accepted", "refused", "waiting"]),
+  /** Accepted, and its stock waits on a manager's review. Never why (Q3). */
+  stockReview: z.boolean(),
+  /** A refused entry a manager settled without recording it. */
+  notHonoured: z.boolean(),
+  /** Why the server refused it, as its error code, while `refused`. */
+  refusalCode: z.string().nullable(),
+  /** Its receipt is kept on this counter, so it can be reprinted. */
+  printable: z.boolean(),
+});
+export type OfflineJournalEntry = z.infer<typeof offlineJournalEntrySchema>;
+export const offlineJournalQueueSchema = z.object({
+  /** Newest first: everything not yet accepted, and the rest of the latest outage. */
+  entries: z.array(offlineJournalEntrySchema),
+  /** More entries exist than are listed. */
+  more: z.boolean(),
+});
+export type OfflineJournalQueue = z.infer<typeof offlineJournalQueueSchema>;
+
 /** P4 #50: who is signed in offline, and who may sign in. Times are ISO. */
 export const offlineStaffSchema = z.object({
   signedIn: z
@@ -1717,6 +1753,12 @@ export const ipcContract = {
     channel: "pos:offline-mode:get",
     input: noInput,
     output: offlineModeSchema,
+  },
+  /** This counter's offline journal as the upload queue lists it, newest first (P4 #50). Local only. */
+  getOfflineJournalQueue: {
+    channel: "pos:journal-queue:get",
+    input: noInput,
+    output: offlineJournalQueueSchema,
   },
   /** Offline sales recorded on this counter, for noting a problem with one (P4 #50). Local only. */
   offlineSales: {
