@@ -31,7 +31,7 @@ import { startOfflineAuthorityRefresh, type OfflineAuthorityRefresh } from "./te
 import { OfflineJournalWriter } from "./terminal/offline-journal-writer";
 import { offlineModeForRenderer, startOfflineMode, type OfflineModeService } from "./terminal/offline-mode";
 import { OfflineCounterService, offlineStaffForRenderer } from "./terminal/offline-counter";
-import { OfflineSaleService } from "./terminal/offline-sale";
+import { OfflineSaleService, offlineReceiptForPrinting } from "./terminal/offline-sale";
 import { TrustedClock } from "./terminal/trusted-clock";
 import {
   readJournalSyncView,
@@ -594,6 +594,19 @@ function registerIpc(schemaVersion: number, logger: ReturnType<typeof createLogg
           return requireOfflineSale().recordCardOutcome({ attemptId, outcome: { ...outcome, approvedAt } });
         }),
       offlineCommitSale: (input) => act(logger, "offlineCommitSale", () => requireOfflineSale().commit(input)),
+      printOfflineReceipt: ({ saleCommandId, printerName }) => {
+        // Kept on disk with the sale, so it can be reprinted after a restart while still offline.
+        const receipt = offlineSale?.receipt(saleCommandId);
+        const device = store ? new DeviceStore(store.db).read() : null;
+        if (!receipt || !device) return { ok: false, error: "That sale is not available to print here." };
+        return printHtml(
+          printerName,
+          renderSaleReceiptHtml(offlineReceiptForPrinting(receipt), {
+            branchName: device.branchName,
+            counterLabel: device.counterLabel,
+          }),
+        );
+      },
       offlineSales: () => act(logger, "offlineSales", () => requireOfflineSupport().sales()),
       noteSaleProblem: (input) => act(logger, "noteSaleProblem", () => requireOfflineSupport().recordIncident(input)),
       cardAttempts: () => act(logger, "cardAttempts", () => requireOfflineSupport().cardAttempts()),

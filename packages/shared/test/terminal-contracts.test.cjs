@@ -20,6 +20,32 @@ test('a nonzero snapshot watermark requires a string hash', () => {
   assert.throws(() => c.assertStockSnapshotBounds(snapshot), /Invalid snapshot watermark/);
 });
 
+test('snapshot display text is optional, bounded, and never changes the sale policy', () => {
+  const display = { name: 'Paracetamol 500mg', strength: '500 mg', barcode: '4791234567890', batchNo: 'B-77' };
+  const f = fresh();
+  assert.equal(check(f), null);
+  f.snapshot.lines[0].display = display;
+  assert.doesNotThrow(() => c.assertStockSnapshotBounds(f.snapshot));
+  assert.equal(check(f), null);
+  f.snapshot.lines[0].display = { ...display, strength: null, barcode: null };
+  assert.doesNotThrow(() => c.assertStockSnapshotBounds(f.snapshot));
+  for (const bad of [
+    null,
+    'Paracetamol',
+    { ...display, name: '' },
+    { ...display, name: '   ' },
+    { ...display, name: 'x'.repeat(c.SNAPSHOT_DISPLAY_LIMITS.name + 1) },
+    { ...display, barcode: 'x'.repeat(c.SNAPSHOT_DISPLAY_LIMITS.barcode + 1) },
+    { ...display, batchNo: null },
+    { ...display, strength: 5 },
+  ]) {
+    const g = fresh();
+    g.snapshot.lines[0].display = bad;
+    assert.throws(() => c.assertStockSnapshotBounds(g.snapshot), /Invalid snapshot display/);
+    assert.equal(check(g), 'SNAPSHOT_INVALID');
+  }
+});
+
 function shiftCommand(f, kind, fields = {}) {
   return {
     contractVersion: 1, kind, commandId: `command-${kind}`, identity: f.sale.identity,

@@ -6,11 +6,14 @@ import {
   type OfflinePayment,
   type OfflineSaleCommand,
   type Signed,
+  type StockSnapshotDisplay,
   type StockSnapshotLine,
   type TerminalErrorCode,
 } from "@pharmaceylon/shared";
+import { fromMinor } from "../checkout/money";
 import type { PosDatabase } from "../db/database";
 import type { Logger } from "../logging/logger";
+import type { ReceiptSale } from "../printing/receipt-html";
 import { readInstalledOfflineAuthority } from "./offline-authority";
 import type { OfflineCounterService } from "./offline-counter";
 import type { OfflineJournalWriter } from "./offline-journal-writer";
@@ -76,6 +79,9 @@ export type OfflineQuoteLine = {
   unitPriceMinor: number;
   taxMinor: number;
   lineTotalMinor: number;
+  /** Name, strength, barcode and batch number from the signed snapshot; null in one issued before
+   * it carried them. */
+  display: StockSnapshotDisplay | null;
 };
 
 export type OfflineQuote = {
@@ -101,6 +107,7 @@ export type OfflineStockLine = {
   unitPriceMinor: number;
   sellBefore: number;
   blocked: OfflineBlockReason | null;
+  display: StockSnapshotDisplay | null;
 };
 
 export type OfflineReceipt = {
@@ -211,6 +218,7 @@ export class OfflineSaleService {
         unitPriceMinor: line.unitPriceMinor,
         sellBefore: line.sellBefore,
         blocked: this.blockFor(line, remaining, ready.trustedNow),
+        display: line.display ?? null,
       };
     });
   }
@@ -283,6 +291,7 @@ export class OfflineSaleService {
         unitPriceMinor: known.unitPriceMinor,
         taxMinor: tax,
         lineTotalMinor: net + tax,
+        display: known.display ?? null,
       });
       quote.subtotalMinor += net;
       quote.taxMinor += tax;
@@ -715,4 +724,58 @@ function cardRefused(error: unknown): never {
   const message = CARD_REFUSALS[code];
   if (message) throw new ActionFailure(code, message);
   throw error;
+}
+
+/** How a line reads on screen and on paper: name and strength, else the batch (older snapshot). */
+export function offlineLineLabel(
+  line: Pick<OfflineQuoteLine, "batchId" | "display">,
+): string {
+  if (!line.display) return `Item, batch ${line.batchId.slice(0, 8)}`;
+  const { name, strength } = line.display;
+  return strength && !name.includes(strength) ? `${name} ${strength}` : name;
+}
+
+/**
+ * An offline receipt in the printed receipt's shape. Its number is the journal entry's, shortened
+ * and marked offline: the server gives the sale its invoice number only once it is uploaded.
+ */
+export function offlineReceiptForPrinting(
+  receipt: OfflineReceipt,
+): ReceiptSale {
+  const paid = receipt.payments.reduce(
+    (sum, p) => sum + (p.method === "cash" ? p.tenderedMinor : p.amountMinor),
+    0,
+  );
+  return {
+    invoiceNo: `OFFLINE-${receipt.saleCommandId.slice(0, 8).toUpperCase()}`,
+    soldAt: new Date(receipt.soldAt).toISOString(),
+    subtotal: fromMinor(receipt.subtotalMinor),
+    discountTotal: fromMinor(0),
+    taxTotal: fromMinor(receipt.taxMinor),
+    grandTotal: fromMinor(receipt.totalMinor),
+    amountPaid: fromMinor(paid),
+    changeDue: fromMinor(receipt.changeMinor),
+    sellerName: receipt.sellerName,
+    lines: receipt.lines.map((line) => ({
+      name: line.display
+        ? `${offlineLineLabel(line)} (batch ${line.display.batchNo})`
+        : offlineLineLabel(line),
+      qty: line.quantity,
+      unitPrice: fromMinor(line.unitPriceMinor),
+      lineTotal: fromMinor(line.lineTotalMinor),
+    })),
+    payments: receipt.payments.map((p) =>
+      p.method === "cash"
+        ? {
+            method: "cash",
+            amount: fromMinor(p.tenderedMinor),
+            reference: null,
+          }
+        : {
+            method: "card",
+            amount: fromMinor(p.amountMinor),
+            reference: p.providerReference,
+          },
+    ),
+  };
 }

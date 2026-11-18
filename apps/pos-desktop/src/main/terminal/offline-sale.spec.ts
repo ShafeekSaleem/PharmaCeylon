@@ -30,7 +30,12 @@ import {
 } from "./offline-authority";
 import { OfflineCounterService } from "./offline-counter";
 import { OfflineJournalWriter } from "./offline-journal-writer";
-import { OfflineSaleService } from "./offline-sale";
+import { renderSaleReceiptHtml } from "../printing/receipt-html";
+import {
+  OfflineSaleService,
+  offlineLineLabel,
+  offlineReceiptForPrinting,
+} from "./offline-sale";
 import { TrustedClock } from "./trusted-clock";
 
 const protector: SecretProtector = {
@@ -75,9 +80,27 @@ const A = "batch-a";
 const B = "batch-b";
 const REVIEW = "batch-review";
 const EXPIRED = "batch-expired";
+const PANADOL = {
+  name: "Panadol",
+  strength: "500 mg",
+  barcode: "4791111111111",
+  batchNo: "PN-01",
+};
+const PLASTERS = {
+  name: "Plasters 10s",
+  strength: null,
+  barcode: null,
+  batchNo: "PL-9",
+};
+/** A and B carry display text; the other two stand in for a snapshot issued before it existed. */
 const lines = [
-  line(A),
-  line(B, { availableQuantity: 2, unitPriceMinor: 333, taxBasisPoints: 1_500 }),
+  line(A, { display: PANADOL }),
+  line(B, {
+    availableQuantity: 2,
+    unitPriceMinor: 333,
+    taxBasisPoints: 1_500,
+    display: PLASTERS,
+  }),
   line(REVIEW, { stockReviewRequired: true }),
   line(EXPIRED, { sellBefore: NOW }),
 ];
@@ -774,5 +797,86 @@ describe("offline sales (P4 #50)", () => {
     }
     expect(quantities).toEqual({ [A]: 5, [B]: 1 });
     expect(sale.stock().find((l) => l.snapshotLineId === A)?.remaining).toBe(0);
+  });
+
+  it("names each line from the signed snapshot, and falls back to the batch for an older one", () => {
+    const stock = new Map(
+      sale.stock().map((l) => [l.snapshotLineId, l.display]),
+    );
+    expect(stock.get(A)).toEqual(PANADOL);
+    expect(stock.get(REVIEW)).toBeNull();
+    const quote = sale.quote(cart);
+    expect(quote.lines.map(offlineLineLabel)).toEqual([
+      "Panadol 500 mg",
+      "Plasters 10s",
+    ]);
+    expect(offlineLineLabel({ batchId: REVIEW, display: null })).toBe(
+      "Item, batch batch-re",
+    );
+    // A name already ending in its strength isn't doubled.
+    expect(
+      offlineLineLabel({
+        batchId: A,
+        display: { ...PANADOL, name: "Panadol 500 mg" },
+      }),
+    ).toBe("Panadol 500 mg");
+  });
+
+  it("prints an offline receipt with names, batches, payments and an offline number", () => {
+    const draft = randomUUID();
+    const { attemptId } = sale.prepareCard({
+      checkoutDraftId: draft,
+      items: cart,
+      amountMinor: 20_000,
+    });
+    sale.recordCardOutcome({
+      attemptId,
+      outcome: {
+        kind: "approved",
+        reference: "RRN-5",
+        approvalCode: "OK",
+        approvedAt: trusted(),
+      },
+    });
+    advance(1_000);
+    const receipt = sale.commit({
+      checkoutDraftId: draft,
+      items: cart,
+      cashTenderedMinor: 5_000,
+    });
+    const printed = offlineReceiptForPrinting(receipt);
+    expect(printed).toMatchObject({
+      invoiceNo: `OFFLINE-${receipt.saleCommandId.slice(0, 8).toUpperCase()}`,
+      sellerName: "Nimal",
+      subtotal: "203.33",
+      taxTotal: "36.50",
+      grandTotal: "239.83",
+      amountPaid: "250.00",
+      changeDue: "10.17",
+      lines: [
+        {
+          name: "Panadol 500 mg (batch PN-01)",
+          qty: 2,
+          unitPrice: "100.00",
+          lineTotal: "236.00",
+        },
+        {
+          name: "Plasters 10s (batch PL-9)",
+          qty: 1,
+          unitPrice: "3.33",
+          lineTotal: "3.83",
+        },
+      ],
+      payments: [
+        { method: "card", amount: "200.00", reference: "RRN-5" },
+        { method: "cash", amount: "50.00", reference: null },
+      ],
+    });
+    const html = renderSaleReceiptHtml(printed, {
+      branchName: "Kandy",
+      counterLabel: "Till 1",
+    });
+    expect(html).toContain("Panadol 500 mg (batch PN-01)");
+    expect(html).toContain("RRN-5");
   });
 });

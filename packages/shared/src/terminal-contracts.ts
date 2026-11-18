@@ -122,6 +122,19 @@ export type StockSnapshotLine = Readonly<{
   unitPriceMinor: number;
   taxBasisPoints: number;
   sellBefore: number; // exclusive UTC instant, resolved from branch business date
+  /** P4 #50: what the counter shows and prints for this line while offline. Signed with the rest,
+   * so it can't be swapped for another product's name, but never read by pricing or policy.
+   * Optional: snapshots issued before it existed carry none. */
+  display?: StockSnapshotDisplay;
+}>;
+
+/** Bounds for `StockSnapshotLine.display`; the server clips to them, the counter rejects beyond. */
+export const SNAPSHOT_DISPLAY_LIMITS = { name: 200, strength: 100, barcode: 64, batchNo: 64 } as const;
+export type StockSnapshotDisplay = Readonly<{
+  name: string;
+  strength: string | null;
+  barcode: string | null;
+  batchNo: string;
 }>;
 
 /** Server signs a consistent stock/catalog view and the device journal inclusion watermark. */
@@ -723,7 +736,19 @@ export function assertStockSnapshotBounds(snapshot: BranchStockSnapshot): void {
     assertSafeInteger(line.taxBasisPoints);
     assertSafeInteger(line.sellBefore);
     if (line.taxBasisPoints > 10000) throw new Error("Invalid snapshot tax policy");
+    if (line.display !== undefined) assertSnapshotDisplay(line.display);
   }
+}
+
+function assertSnapshotDisplay(display: StockSnapshotDisplay): void {
+  const text = (value: unknown, max: number, nullable: boolean) =>
+    (nullable && value === null) ||
+    (typeof value === "string" && value.trim().length > 0 && value.length <= max);
+  if (typeof display !== "object" || display === null ||
+      !text(display.name, SNAPSHOT_DISPLAY_LIMITS.name, false) ||
+      !text(display.strength, SNAPSHOT_DISPLAY_LIMITS.strength, true) ||
+      !text(display.barcode, SNAPSHOT_DISPLAY_LIMITS.barcode, true) ||
+      !text(display.batchNo, SNAPSHOT_DISPLAY_LIMITS.batchNo, false)) throw new Error("Invalid snapshot display");
 }
 
 /** A probe succeeding alone does not establish online operation. */
