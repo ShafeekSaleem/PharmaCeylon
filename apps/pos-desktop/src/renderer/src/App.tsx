@@ -4,6 +4,7 @@ import type {
   AppInfo,
   DeviceState,
   JournalSync,
+  OfflineJournalQueue,
   OfflineModeState,
   Printer,
   ReadinessReport,
@@ -15,7 +16,13 @@ import full from "./Fullscreen.module.css";
 import { Icon } from "./Icon";
 import { KeyBinding, KeyScope } from "./keymap";
 import { OfflineCounter } from "./OfflineCounter";
-import { cannotSellOffline } from "./offline-sell-model";
+import { LastOfflineSale, ReconnectBanner } from "./ReconnectNotice";
+import {
+  lastOfflineSale,
+  noticeSale,
+  reconnectNotice,
+  serverBlockReason,
+} from "./reconnect-model";
 import { PersonPanel } from "./Person";
 import { Returns } from "./Returns";
 import { Sell } from "./Sell";
@@ -39,6 +46,16 @@ const SHIFT_LOCAL_MS = 3_000;
 const SHIFT_SERVER_MS = 30_000;
 /** The offline journal's upload state (P5 #51) is a local read too. */
 const JOURNAL_SYNC_MS = 3_000;
+/** Which drain's "all accepted" banner was put away, so it stays away after a restart. */
+const DISMISSED_DRAIN_KEY = "pos.reconnect.dismissedDrainAt";
+
+function readDismissedDrain(): string | null {
+  try {
+    return window.localStorage.getItem(DISMISSED_DRAIN_KEY);
+  } catch {
+    return null;
+  }
+}
 
 export function App() {
   const [info, setInfo] = useState<AppInfo | null>(null);
@@ -55,6 +72,11 @@ export function App() {
   const [shift, setShift] = useState<ShiftState | null>(null);
   const [journal, setJournal] = useState<JournalSync | null>(null);
   const [offlineMode, setOfflineMode] = useState<OfflineModeState | null>(null);
+  /** This counter's offline journal, for the upload queue and the last offline sale (P4 #50). */
+  const [queue, setQueue] = useState<OfflineJournalQueue | null>(null);
+  const [dismissedDrain, setDismissedDrain] = useState<string | null>(
+    readDismissedDrain,
+  );
   /** Who the last handover named to take over, picked first on the lock screen. */
   const [nextUp, setNextUp] = useState<string | null>(null);
 
@@ -169,13 +191,40 @@ export function App() {
     return () => window.clearInterval(timer);
   }, [Boolean(device), loadOfflineMode]);
 
+  // The upload queue (P4 #50, slice 4c): a local read, only once this counter has a journal.
+  const hasJournal = (journal?.recorded ?? 0) > 0;
+  const loadQueue = useCallback(() => {
+    window.pos
+      .getOfflineJournalQueue()
+      .then(setQueue)
+      .catch(() => undefined);
+  }, []);
+  useEffect(() => {
+    if (!device || !hasJournal) return;
+    loadQueue();
+    const timer = window.setInterval(loadQueue, JOURNAL_SYNC_MS);
+    return () => window.clearInterval(timer);
+  }, [Boolean(device), hasJournal, loadQueue]);
+
+  const dismissDrain = useCallback((drainedAt: string) => {
+    setDismissedDrain(drainedAt);
+    try {
+      window.localStorage.setItem(DISMISSED_DRAIN_KEY, drainedAt);
+    } catch {
+      // Kept for this run only.
+    }
+  }, []);
+
   // Owners and managers approve their own refunds by default (the tenant's self-approval
   // roles); Returns words its button by this, and the server decides.
   const sessionRole = device?.counterStaff.find(
     (person) => person.staffUserId === session?.staffUserId,
   )?.role;
-  const mayApproveRefunds = sessionRole === "owner" || sessionRole === "manager";
-  const shellActive = Boolean(device?.enrollment?.status === "active" && session && !device?.locked);
+  const mayApproveRefunds =
+    sessionRole === "owner" || sessionRole === "manager";
+  const shellActive = Boolean(
+    device?.enrollment?.status === "active" && session && !device?.locked,
+  );
   useShellReadinessPoll(shellActive, refreshReadiness, api?.reachable);
 
   useEffect(() => {
@@ -224,7 +273,13 @@ export function App() {
   if (!device)
     return (
       <div className={shell.win}>
-        <TitleBar state={null} api={api} journal={journal} />
+        <TitleBar
+          state={null}
+          api={api}
+          journal={journal}
+          mode={offlineMode}
+          queue={queue}
+        />
         {deviceFailed && (
           <section className={full.screen} aria-label="Not started">
             <div className={full.wrap}>
@@ -258,9 +313,35 @@ export function App() {
   const current = shift?.current ?? null;
   const sellGated =
     Boolean(shift) &&
-    !(current?.status === "open" && current.staffUserId === session?.staffUserId);
+    !(
+      current?.status === "open" && current.staffUserId === session?.staffUserId
+    );
   // The server can be reached but this counter is still synchronising an outage's sales.
   const syncPaused = Boolean(journal?.pause) && Boolean(api?.reachable);
+  // What the counter says about its offline sales once it is back online (P4 #50, slice 4c).
+  const lastSale = lastOfflineSale(queue);
+  const notice = reconnectNotice(journal, queue);
+  const showNotice =
+    notice !== null &&
+    !(notice.dismissible && journal?.lastDrainAt === dismissedDrain);
+  const banner =
+    showNotice && notice && !syncPaused ? (
+      <ReconnectBanner
+        notice={notice}
+        lastSale={noticeSale(queue)}
+        printer={printer}
+        onDismiss={() =>
+          journal?.lastDrainAt && dismissDrain(journal.lastDrainAt)
+        }
+      />
+    ) : null;
+  // #212 note 1: the offline screen goes once the connection is back, so the sale saved just
+  // before it stays reprintable here until the outage's sales are all on the server.
+  const draining = offlineMode?.mode === "draining" || Boolean(journal?.pause);
+  const lastSaleWhileSignedOut =
+    draining && lastSale && (!session || device.locked) ? (
+      <LastOfflineSale entry={lastSale} printer={printer} floating />
+    ) : null;
   const signIn = (
     <SignInScreen
       key={sessionId ?? "signed-out"}
@@ -295,11 +376,18 @@ export function App() {
         printer={printer}
       />
     );
-  else if (!session) body = signIn;
+  else if (!session)
+    body = (
+      <>
+        {signIn}
+        {lastSaleWhileSignedOut}
+      </>
+    );
   else
     body = (
       <>
         {device.locked && signIn}
+        {lastSaleWhileSignedOut}
         {/* Locking hides the frame rather than closing it, so the sale on screen is still there
             after the unlock. Its keys go quiet with it. */}
         <KeyScope active={!device.locked}>
@@ -323,12 +411,19 @@ export function App() {
                     there's no open shift to sell on. */}
                 <KeyScope active={page === "sell" && !sellGated && !syncPaused}>
                   <div className={shell.page} hidden={page !== "sell"}>
+                    {banner}
                     <Sell
                       key={sessionId}
                       onActivity={refreshReadiness}
                       onCommandSent={onCommandSent}
                       online={api?.reachable !== false}
                       syncPause={syncPaused ? journal : null}
+                      syncNotice={showNotice ? notice : null}
+                      syncExtra={
+                        lastSale ? (
+                          <LastOfflineSale entry={lastSale} printer={printer} />
+                        ) : null
+                      }
                     />
                   </div>
                 </KeyScope>
@@ -416,7 +511,7 @@ export function App() {
                 {api && !api.reachable && page !== "counter" && (
                   <ServerBlock
                     onRetry={refreshApi}
-                    reason={cannotSellOffline(offlineMode)}
+                    reason={serverBlockReason(offlineMode)}
                   />
                 )}
               </main>
@@ -445,7 +540,13 @@ export function App() {
 
   return (
     <div className={shell.win}>
-      <TitleBar state={device} api={api} journal={journal} />
+      <TitleBar
+        state={device}
+        api={api}
+        journal={journal}
+        mode={offlineMode}
+        queue={queue}
+      />
       {body}
     </div>
   );

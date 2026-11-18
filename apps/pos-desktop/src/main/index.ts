@@ -43,6 +43,10 @@ import { DispensingService } from "./checkout/dispensing";
 import { CounterWorkService } from "./terminal/counter-work";
 import { ReturnsService } from "./returns/returns-service";
 import { journalSyncForRenderer } from "./journal-sync-renderer";
+import {
+  EMPTY_JOURNAL_QUEUE,
+  readOfflineJournalQueue,
+} from "./terminal/offline-journal-queue";
 import { readInstalledOfflineAuthority } from "./terminal/offline-authority";
 import {
   startOfflineAuthorityRefresh,
@@ -902,6 +906,21 @@ function registerIpc(
         );
       },
       getOfflineMode: () => offlineModeForRenderer(offlineMode?.view() ?? null),
+      getOfflineJournalQueue: () => {
+        const enrollmentId = store
+          ? new DeviceStore(store.db).read()?.identity.enrollmentId
+          : undefined;
+        if (!store || !enrollmentId) return EMPTY_JOURNAL_QUEUE;
+        const view = offlineMode?.view() ?? null;
+        try {
+          return readOfflineJournalQueue(store.db, enrollmentId, {
+            connected: view ? view.connected && view.mode !== "offline" : true,
+          });
+        } catch (error) {
+          logger.error("journal_queue.read_failed", { error });
+          return EMPTY_JOURNAL_QUEUE;
+        }
+      },
       offlineStaff: () =>
         offlineStaffForRenderer(
           offlineCounter?.state() ?? {

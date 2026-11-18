@@ -3,7 +3,13 @@ import { createRoot } from "react-dom/client";
 import "../../../../web/src/app/globals.css";
 import "./tokens.css";
 import "./shell.css";
+import { App } from "./App";
 import { ScreenshotShell } from "./ScreenshotShell";
+import { installReconnectFixture, reconnectShot } from "./ScreenshotReconnect";
+
+// P4 #50, slice 4c: the real App on fixture answers (`?reconnect=drain`, …).
+const reconnect = reconnectShot(window.location.search);
+if (reconnect) installReconnectFixture(reconnect);
 
 function ThemeFromQuery() {
   useEffect(() => {
@@ -17,6 +23,6 @@ function ThemeFromQuery() {
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <ThemeFromQuery />
-    <ScreenshotShell />
+    {reconnect ? <App /> : <ScreenshotShell />}
   </StrictMode>,
 );
