@@ -165,6 +165,21 @@ const POLICY_MESSAGES: Partial<Record<TerminalErrorCode, string>> = {
 
 type AttemptRow = { attempt_id: string; envelope_json: string };
 
+/** A card payment left unsettled on this counter, and the cart it was for. */
+export type OpenOfflineCard = {
+  checkoutDraftId: string;
+  items: OfflineSaleItem[] | null;
+  /** What that cart comes to now, from the saved stock; null without the cart. */
+  totalMinor: number | null;
+  attempt: {
+    attemptId: string;
+    amountMinor: number;
+    state: "prepared" | "uncertain" | "approved";
+    reference: string | null;
+    approvalCode: string | null;
+  };
+};
+
 export type OfflineSaleDeps = {
   db: PosDatabase;
   counter: Pick<OfflineCounterService, "saleContext" | "settlementContext">;
@@ -414,18 +429,118 @@ export class OfflineSaleService {
         "CARD_OVER_TOTAL",
         "That's more than this sale comes to.",
       );
+    // One card on the machine per counter: a second sale can't start a card while another
+    // sale's card is unsettled, so that one is never left behind.
+    const open = this.openAttempt(ready.enrollmentId);
+    if (open && open.first.checkoutDraftId !== input.checkoutDraftId)
+      throw new ActionFailure(
+        "CARD_UNRESOLVED",
+        "Another sale's card payment isn't settled. Finish that sale, or record what the card machine did, first.",
+      );
     try {
-      const signed = this.supportWriter(ready.trustedNow).prepareCardAttempt({
-        key: ready.key,
-        staffSignInId: signIn.staffSignInId,
-        checkoutDraftId: input.checkoutDraftId,
-        reviewedSaleDigest: quote.digest,
-        amountMinor: input.amountMinor,
-      });
+      // The cart is kept beside the attempt, so Sell can show this card again if it closes.
+      const signed = this.deps.db.transaction(() => {
+        const prepared = this.supportWriter(
+          ready.trustedNow,
+        ).prepareCardAttempt({
+          key: ready.key,
+          staffSignInId: signIn.staffSignInId,
+          checkoutDraftId: input.checkoutDraftId,
+          reviewedSaleDigest: quote.digest,
+          amountMinor: input.amountMinor,
+        });
+        this.deps.db
+          .prepare(
+            `INSERT INTO offline_card_cart (attempt_id, enrollment_id, checkout_draft_id, items_json, created_at)
+             VALUES (?, ?, ?, ?, ?)`,
+          )
+          .run(
+            prepared.payload.attemptId,
+            ready.enrollmentId,
+            input.checkoutDraftId,
+            JSON.stringify(
+              input.items.map((i) => ({
+                snapshotLineId: i.snapshotLineId,
+                quantity: i.quantity,
+              })),
+            ),
+            new Date().toISOString(),
+          );
+        return prepared;
+      })();
       return { attemptId: signed.payload.attemptId, digest: quote.digest };
     } catch (error) {
       return cardRefused(error);
     }
+  }
+
+  /** The newest card payment on this counter that isn't settled for good, with its events. */
+  private openAttempt(enrollmentId: string) {
+    const row = this.deps.db
+      .prepare(
+        `SELECT r.attempt_id FROM offline_support_record r
+         WHERE r.enrollment_id = ? AND r.kind = 'external_card_attempt'
+           AND r.card_state IN ('prepared', 'uncertain', 'approved')
+           AND r.rowid = (SELECT MAX(rowid) FROM offline_support_record
+                          WHERE enrollment_id = r.enrollment_id AND attempt_id = r.attempt_id)
+         ORDER BY r.rowid DESC LIMIT 1`,
+      )
+      .get(enrollmentId) as { attempt_id: string } | undefined;
+    if (!row) return null;
+    const events = (
+      this.deps.db
+        .prepare(
+          `SELECT envelope_json FROM offline_support_record
+           WHERE enrollment_id = ? AND attempt_id = ? ORDER BY rowid`,
+        )
+        .all(enrollmentId, row.attempt_id) as { envelope_json: string }[]
+    ).map(
+      (r) =>
+        (JSON.parse(r.envelope_json) as Signed<ExternalCardAttemptRecord>)
+          .payload,
+    );
+    return {
+      attemptId: row.attempt_id,
+      first: events[0]!,
+      latest: events[events.length - 1]!,
+      approved: events.find((e) => e.state === "approved"),
+    };
+  }
+
+  /**
+   * The card payment this counter left on the machine, with the cart it was prepared for, so Sell
+   * can show it again after a person switch, a reload or a restart. Null when none is open.
+   * `items` is null when the cart wasn't kept (a card prepared before this was recorded): the
+   * charge can then only be recorded as not used.
+   */
+  openCard(): OpenOfflineCard | null {
+    const { enrollmentId, trustedNow } = this.deps.counter.settlementContext();
+    const open = this.openAttempt(enrollmentId);
+    if (!open) return null;
+    const kept = this.deps.db
+      .prepare(
+        "SELECT items_json FROM offline_card_cart WHERE attempt_id = ? AND enrollment_id = ?",
+      )
+      .get(open.attemptId, enrollmentId) as { items_json: string } | undefined;
+    const items = kept
+      ? (JSON.parse(kept.items_json) as OfflineSaleItem[])
+      : null;
+    const approved =
+      open.approved?.state === "approved" ? open.approved : undefined;
+    return {
+      checkoutDraftId: open.first.checkoutDraftId,
+      items,
+      totalMinor: items
+        ? this.price(enrollmentId, trustedNow, items).totalMinor
+        : null,
+      attempt: {
+        attemptId: open.attemptId,
+        amountMinor: open.first.amountMinor,
+        state: open.latest.state as OpenOfflineCard["attempt"]["state"],
+        reference: approved?.providerReference ?? null,
+        approvalCode: approved?.approvalCode ?? null,
+      },
+    };
   }
 
   /** What the card machine did with a prepared card payment, as the person at the counter saw it. */

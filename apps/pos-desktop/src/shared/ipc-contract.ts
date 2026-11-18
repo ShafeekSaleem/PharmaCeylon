@@ -1879,6 +1879,30 @@ export const ipcContract = {
     }),
     output: result(z.object({ attemptId: z.string(), digest: z.string() })),
   },
+  /**
+   * The card payment this counter left unsettled, with the cart it was prepared for, so Sell
+   * shows it again after a person switch, a reload or a restart. Null when there is none.
+   */
+  offlineOpenCard: {
+    channel: "pos:offline-sale:card-open",
+    input: noInput,
+    output: result(
+      z
+        .object({
+          checkoutDraftId: uuid,
+          items: z.array(offlineSaleItemSchema).nullable(),
+          totalMinor: z.number().int().nullable(),
+          attempt: z.object({
+            attemptId: uuid,
+            amountMinor: z.number().int(),
+            state: z.enum(["prepared", "uncertain", "approved"]),
+            reference: z.string().nullable(),
+            approvalCode: z.string().nullable(),
+          }),
+        })
+        .nullable(),
+    ),
+  },
   /** What the card machine did with a prepared offline card payment. */
   offlineCardOutcome: {
     channel: "pos:offline-sale:card-outcome",

@@ -24,7 +24,7 @@ import type { DeviceStore } from "../device/device-store";
 import type { Logger } from "../logging/logger";
 import type { PinStore } from "../staff/pin-store";
 import { readInstalledOfflineAuthority } from "./offline-authority";
-import { activeOutage } from "./offline-journal";
+import { activeOutage, unresolvedCardAttempts } from "./offline-journal";
 import {
   draftOfflineStaffSignIn,
   type OfflineJournalWriter,
@@ -747,6 +747,12 @@ export class OfflineCounterService {
       throw new ActionFailure(
         "SHIFT_NOT_OPEN",
         "There's no open shift on this till to close.",
+      );
+    // A card on the machine belongs to a sale in this shift: closing would leave it behind.
+    if (unresolvedCardAttempts(this.deps.db, ready.enrollmentId) > 0)
+      throw new ActionFailure(
+        "CARD_UNRESOLVED",
+        "A card payment isn't settled yet. Finish that sale, or record what the card machine did, before closing the shift.",
       );
     const assisted = open.staff_user_id !== person;
     if (assisted && !options.assistance)

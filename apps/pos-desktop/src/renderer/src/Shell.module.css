@@ -241,7 +241,12 @@
   cursor: pointer;
 }
 
-.ri:hover:not(.active) {
+.ri:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.ri:hover:not(.active):not(:disabled) {
   background: var(--pos-surface-3);
 }
 

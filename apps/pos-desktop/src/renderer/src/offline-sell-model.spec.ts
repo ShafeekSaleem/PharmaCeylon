@@ -2,6 +2,7 @@ import { describe, expect, it } from "@jest/globals";
 import type { OfflineModeState } from "../../shared/ipc-contract";
 import {
   blockedText,
+  cardAmount,
   cannotSellOffline,
   findOfflineLines,
   hoursBlock,
@@ -134,5 +135,15 @@ describe("what the cashier is told", () => {
       /manager must acknowledge/,
     );
     expect(hoursBlock({ status: "closed" })).toMatch(/closed/);
+  });
+});
+
+describe("what goes on the card", () => {
+  it("is the whole sale, the part typed for a split (capped at the total), or nothing", () => {
+    expect(cardAmount("cash", 9600, "50")).toBe(0);
+    expect(cardAmount("card", 9600, "")).toBe(9600);
+    expect(cardAmount("split", 9600, "50")).toBe(5000);
+    expect(cardAmount("split", 9600, "500")).toBe(9600);
+    expect(cardAmount("split", 9600, "")).toBe(0);
   });
 });

@@ -964,6 +964,8 @@ function registerIpc(
         act(logger, "offlinePrepareCard", () =>
           requireOfflineSale().prepareCard(input),
         ),
+      offlineOpenCard: () =>
+        act(logger, "offlineOpenCard", () => requireOfflineSale().openCard()),
       offlineCardOutcome: ({ attemptId, outcome }) =>
         act(logger, "offlineCardOutcome", () => {
           if (outcome.kind !== "approved")
