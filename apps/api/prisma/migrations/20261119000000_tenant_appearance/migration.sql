@@ -27,3 +27,8 @@ CREATE UNIQUE INDEX "tenant_appearance_tenant_id_key" ON "tenant_appearance"("te
 
 ALTER TABLE "tenant_appearance" ADD CONSTRAINT "tenant_appearance_tenant_id_fkey"
   FOREIGN KEY ("tenant_id") REFERENCES "tenant"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- Staged tenant isolation, disabled like every other table's until the controlled rollout.
+CREATE POLICY pc_tenant_isolation ON tenant_appearance
+  USING (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid);
