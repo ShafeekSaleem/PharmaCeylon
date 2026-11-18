@@ -7,7 +7,13 @@
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { DARK_SURFACES, LIGHT_SURFACES } from "@pharmaceylon/shared";
+import {
+  DARK_SURFACES,
+  LIGHT_SURFACES,
+  MIN_CHART_CONTRAST,
+  accentChartSeries,
+  distinctChartSeries,
+} from "@pharmaceylon/shared";
 
 const css = readFileSync(join(__dirname, "tokens.css"), "utf8").replace(
   /\/\*[\s\S]*?\*\//g,
@@ -105,11 +111,48 @@ describe("tokens.css", () => {
   it("matches the surfaces the shared brand check measures an owner's accent against", () => {
     // packages/shared refuses accents on these; if a surface moves here it must move there.
     const surfaces = (p: Palette) =>
-      ["surface-page", "surface", "surface-raised", "surface-sunken", "field"].map(
-        (k) => p[`--ui-${k}`],
-      );
+      [
+        "surface-page",
+        "surface",
+        "surface-raised",
+        "surface-sunken",
+        "field",
+      ].map((k) => p[`--ui-${k}`]);
     expect(surfaces(light)).toEqual([...LIGHT_SURFACES]);
     expect(surfaces(dark)).toEqual([...DARK_SURFACES]);
+  });
+
+  describe("chart series", () => {
+    const series = (p: Palette, set: string) =>
+      [1, 2, 3, 4, 5, 6].map((n) => p[`--ui-chart-${set}-${n}`]);
+
+    it("matches the shared derivation for the default accent and the distinct set", () => {
+      const accent = accentChartSeries(light["--ui-accent"]);
+      expect(series(light, "accent")).toEqual(accent.light);
+      // The first dark series is the hand-tuned dark accent; the rest are derived.
+      expect(series(dark, "accent")[0]).toBe(dark["--ui-accent"]);
+      expect(series(dark, "accent").slice(1)).toEqual(accent.dark.slice(1));
+      const distinct = distinctChartSeries();
+      expect(series(light, "distinct")).toEqual(distinct.light);
+      expect(series(dark, "distinct")).toEqual(distinct.dark);
+    });
+
+    it.each([
+      ["light", light],
+      ["dark", dark],
+    ] as const)("reaches 3:1 on every %s surface", (_name, p) => {
+      for (const set of ["accent", "distinct"])
+        for (const colour of series(p, set))
+          for (const k of [
+            "surface-page",
+            "surface",
+            "surface-raised",
+            "surface-sunken",
+          ])
+            expect(
+              Math.round(contrast(colour, p[`--ui-${k}`]) * 100) / 100,
+            ).toBeGreaterThanOrEqual(MIN_CHART_CONTRAST);
+    });
   });
 
   it("keeps the follow-the-device dark blocks identical to the explicit dark blocks", () => {

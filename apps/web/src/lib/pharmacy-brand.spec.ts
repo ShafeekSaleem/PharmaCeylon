@@ -19,6 +19,7 @@ function reset() {
   styleEl()?.remove();
   delete root.dataset.statusSet;
   delete root.dataset.sidebar;
+  delete root.dataset.chart;
   window.localStorage.clear();
 }
 
@@ -51,6 +52,13 @@ describe("applyPharmacyBrand", () => {
     expect(document.querySelectorAll("#pc-brand")).toHaveLength(1);
     applyPharmacyBrand(DEFAULT_PHARMACY_APPEARANCE);
     expect(styleEl()).toBeNull();
+  });
+
+  it("switches the chart series with data-chart", () => {
+    applyPharmacyBrand({ ...ocean, chartPalette: "distinct" });
+    expect(root.dataset.chart).toBe("distinct");
+    applyPharmacyBrand(ocean);
+    expect(root.dataset.chart).toBeUndefined();
   });
 
   it("sets the status colour set and sidebar style as attributes", () => {
