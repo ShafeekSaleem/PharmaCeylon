@@ -1,14 +1,12 @@
 import type { ReportSyncFreshness } from "@pharmaceylon/shared";
 import { salesZeroNote } from "./sales-zero";
 
-const now = new Date("2026-11-19T06:30:00Z"); // 12:00 in Colombo
-
 type Counter = ReportSyncFreshness["branches"][number]["counters"][number];
 
 function freshness(counters: Partial<Counter>[]): ReportSyncFreshness {
   return {
     days: 1,
-    asOf: now.getTime(),
+    asOf: Date.parse("2026-11-19T06:30:00Z"),
     complete: true,
     branches: [
       {
@@ -31,40 +29,33 @@ function freshness(counters: Partial<Counter>[]): ReportSyncFreshness {
   } as unknown as ReportSyncFreshness;
 }
 
-it("names the counter that hasn't reported since the branch's day began", () => {
-  // 23:00 on the 18th in Colombo: the same UTC date as "today", a different branch day.
-  const lastNight = Date.parse("2026-11-18T17:30:00Z");
+const stopped = {
+  sequence: 4,
+  outcome: "held",
+  since: 1,
+} as unknown as Counter["stoppedAt"];
+
+it("does not flag a quiet morning: an old offline-journal entry says nothing about today", () => {
+  // The counter last went offline a week ago; it sells online today, which the journal never sees.
+  const lastWeek = Date.parse("2026-11-12T05:00:00Z");
   expect(
-    salesZeroNote(freshness([{ lastAcceptedAt: lastNight }]), now),
-  ).toEqual({
-    text: "Counter 1 hasn't sent sales yet today",
-    warning: true,
-  });
+    salesZeroNote(freshness([{ lastAcceptedAt: lastWeek, lastReceivedAt: lastWeek }])),
+  ).toEqual({ text: "No sales recorded yet today", warning: false });
+  expect(salesZeroNote(freshness([{}, {}])).warning).toBe(false);
 });
 
-it("counts several quiet counters and puts a stopped upload first", () => {
-  expect(salesZeroNote(freshness([{}, {}]), now).text).toBe(
-    "2 counters haven't sent sales yet today",
-  );
-  const stopped = {
-    sequence: 4,
-    outcome: "held",
-    since: 1,
-  } as unknown as Counter["stoppedAt"];
-  expect(salesZeroNote(freshness([{}, { stoppedAt: stopped }]), now)).toEqual({
-    text: "Counter 2 has stopped sending sales",
+it("names a counter whose offline upload has stopped, and counts several", () => {
+  expect(salesZeroNote(freshness([{}, { stoppedAt: stopped }]))).toEqual({
+    text: "Counter 2 has offline sales that haven't uploaded",
     warning: true,
   });
+  expect(
+    salesZeroNote(freshness([{ stoppedAt: stopped }, { stoppedAt: stopped }])).text,
+  ).toBe("2 counters have offline sales that haven't uploaded");
 });
 
-it("is a plain zero when every counter has reported or there are none", () => {
-  const thisMorning = Date.parse("2026-11-19T03:00:00Z");
-  expect(
-    salesZeroNote(freshness([{ lastAcceptedAt: thisMorning }]), now),
-  ).toEqual({
-    text: "Every counter has reported; no sales yet",
-    warning: false,
-  });
-  expect(salesZeroNote(freshness([]), now).warning).toBe(false);
-  expect(salesZeroNote(null, now).text).toBe("No sales recorded yet today");
+it("ignores a retired counter's stopped journal, and is a plain zero with nothing to read", () => {
+  expect(salesZeroNote(freshness([{ stoppedAt: stopped, current: false }])).warning).toBe(false);
+  expect(salesZeroNote(freshness([])).warning).toBe(false);
+  expect(salesZeroNote(null).text).toBe("No sales recorded yet today");
 });

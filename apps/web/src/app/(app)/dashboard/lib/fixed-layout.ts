@@ -19,3 +19,7 @@ export function isFixedWidget(role: DashboardRole, key: string): boolean {
 }
 
 export const WORK_PAGE_SIZE = 8;
+
+/** The owner/manager queue reads this many items at once (the API's largest page) and pages them
+ *  itself, so its groups are drawn over the whole queue rather than one server page of 8. */
+export const WORK_FETCH_SIZE = 100;

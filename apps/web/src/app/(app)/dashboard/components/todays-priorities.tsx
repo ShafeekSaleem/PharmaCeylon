@@ -25,7 +25,7 @@ import {
   PRIORITY_LIST_TAKE,
   type PriorityListCount,
 } from "../lib/priority-list-count";
-import { WORK_PAGE_SIZE } from "../lib/fixed-layout";
+import { WORK_FETCH_SIZE, WORK_PAGE_SIZE } from "../lib/fixed-layout";
 import {
   isStockFilter,
   STOCK_PRIORITY_CHIPS,
@@ -35,7 +35,12 @@ import {
 } from "../lib/priority-filters";
 import { dashboardHref, usePosHidden } from "../lib/pos-links";
 import { paginate } from "../lib/paginate";
-import { groupWorkItems, workLateness, type WorkLateness } from "../lib/work-groups";
+import {
+  groupWorkItems,
+  workLateness,
+  type WorkGroupKey,
+  type WorkLateness,
+} from "../lib/work-groups";
 import { asOfLabel } from "../widgets/counter-waiting";
 import css from "./todays-priorities.module.css";
 
@@ -68,7 +73,9 @@ export function TodaysPriorities({
       WORK_PRIORITY_CHIPS.find((c) => c.key === filter)?.workFilter ?? "all"
     );
   }, [filter]);
-  const work = useDailyWork(branchId, refreshKey, workFilter, WORK_PAGE_SIZE);
+  // The whole queue (up to the API's page limit), grouped, then paged here: a group is never
+  // split by the server's ordering across pages.
+  const work = useDailyWork(branchId, refreshKey, workFilter, WORK_FETCH_SIZE);
 
   const stockListsEnabled =
     Boolean(branchId) && filter !== "overdue_deliveries";
@@ -196,7 +203,7 @@ export function TodaysPriorities({
   const overdueRows = filter === "overdue_deliveries" ? overduePosAll : [];
 
   type Row =
-    | { kind: "work"; item: DailyWorkItem }
+    | { kind: "work"; item: DailyWorkItem; group: WorkGroupKey; groupTitle: string }
     | { kind: "po"; item: PurchaseOrderListItem }
     | { kind: "stock"; item: StockRow | BatchRow };
 
@@ -207,24 +214,33 @@ export function TodaysPriorities({
     if (isStockFilter(filter)) {
       return stockRows.map((item) => ({ kind: "stock" as const, item }));
     }
-    return workRows.map((item) => ({ kind: "work" as const, item }));
+    return groupWorkItems(workRows).flatMap((group) =>
+      group.items.map((item) => ({
+        kind: "work" as const,
+        item,
+        group: group.key,
+        groupTitle: group.title,
+      })),
+    );
   }, [filter, overdueRows, stockRows, workRows]);
 
-  const usingClientPager =
-    isStockFilter(filter) || filter === "overdue_deliveries";
-  const clientListCapped =
-    usingClientPager &&
-    (isStockFilter(filter)
-      ? stockItemsForFilter(stockLists, filter).length >= PRIORITY_LIST_TAKE
-      : overduePosAll.length >= PRIORITY_LIST_TAKE);
-  const page = usingClientPager ? clientPage : work.page;
-  const clientTotal = allClientRows.length;
-  const total = usingClientPager ? clientTotal : (work.data?.total ?? 0);
-  const pageItems = usingClientPager
-    ? paginate(allClientRows, page - 1, WORK_PAGE_SIZE)
-    : allClientRows.map((r) => r);
+  const showingWork = !isStockFilter(filter) && filter !== "overdue_deliveries";
+  // More open work than one read holds: the footer says so rather than pretend it has it all.
+  const workCapped =
+    showingWork && Boolean(work.data && work.data.total > workRows.length);
+  const clientListCapped = isStockFilter(filter)
+    ? stockItemsForFilter(stockLists, filter).length >= PRIORITY_LIST_TAKE
+    : filter === "overdue_deliveries" && overduePosAll.length >= PRIORITY_LIST_TAKE;
+  const page = clientPage;
+  const total = allClientRows.length;
+  const pageItems = paginate(allClientRows, page - 1, WORK_PAGE_SIZE);
 
   const pageCount = Math.max(1, Math.ceil(total / WORK_PAGE_SIZE));
+
+  // Work done elsewhere can shorten the list under the page being read.
+  useEffect(() => {
+    if (clientPage > pageCount) setClientPage(pageCount);
+  }, [clientPage, pageCount]);
   const rangeStart = total ? (page - 1) * WORK_PAGE_SIZE + 1 : 0;
   const rangeEnd = Math.min(page * WORK_PAGE_SIZE, total);
 
@@ -236,7 +252,7 @@ export function TodaysPriorities({
         : "tasks";
 
   const loading =
-    (!usingClientPager && work.loading && !work.data) ||
+    (showingWork && work.loading && !work.data) ||
     (filter === "overdue_deliveries" && data.loading && overdueRows.length === 0) ||
     (isStockFilter(filter) &&
       stockLists.loading &&
@@ -447,14 +463,14 @@ export function TodaysPriorities({
           </div>
         ) : null}
         {!loading && !error
-          ? usingClientPager
-            ? pageItems.map((row) => renderRow(row as Row))
-            : groupWorkItems(workRows).map((group) => (
+          ? showingWork
+            ? pageGroups(pageItems as Extract<Row, { kind: "work" }>[]).map((group) => (
                 <div key={group.key} className={css.group}>
                   <h3 className={css.groupTitle}>{group.title}</h3>
                   {group.items.map(renderWork)}
                 </div>
               ))
+            : pageItems.map((row) => renderRow(row as Row))
           : null}
       </div>
 
@@ -462,19 +478,15 @@ export function TodaysPriorities({
         <span role="status">
           {loading
             ? "Updating…"
-            : usingClientPager
-              ? `${rangeStart}–${rangeEnd} of ${formatPriorityListTotal(total, clientListCapped)} ${rowNoun}`
-              : `${rangeStart}–${rangeEnd} of ${total} ${rowNoun}`}
+            : showingWork
+              ? `${rangeStart}–${rangeEnd} of ${workCapped ? `${total}+` : total} ${rowNoun}`
+              : `${rangeStart}–${rangeEnd} of ${formatPriorityListTotal(total, clientListCapped)} ${rowNoun}`}
         </span>
         <div className={css.pager}>
           <button
             type="button"
             disabled={loading || page <= 1}
-            onClick={() =>
-              usingClientPager
-                ? setClientPage((p) => p - 1)
-                : work.setPage(page - 1)
-            }
+            onClick={() => setClientPage((p) => p - 1)}
             aria-label="Previous page"
           >
             <IconChevronLeft size={14} />
@@ -483,11 +495,7 @@ export function TodaysPriorities({
           <button
             type="button"
             disabled={loading || page >= pageCount}
-            onClick={() =>
-              usingClientPager
-                ? setClientPage((p) => p + 1)
-                : work.setPage(page + 1)
-            }
+            onClick={() => setClientPage((p) => p + 1)}
             aria-label="Next page"
           >
             Next
@@ -497,4 +505,17 @@ export function TodaysPriorities({
       </footer>
     </section>
   );
+}
+
+/** The page's slice of the grouped queue, cut back into its groups for the headings. */
+function pageGroups(
+  rows: { item: DailyWorkItem; group: WorkGroupKey; groupTitle: string }[],
+): { key: WorkGroupKey; title: string; items: DailyWorkItem[] }[] {
+  const groups: { key: WorkGroupKey; title: string; items: DailyWorkItem[] }[] = [];
+  for (const row of rows) {
+    const last = groups[groups.length - 1];
+    if (last && last.key === row.group) last.items.push(row.item);
+    else groups.push({ key: row.group, title: row.groupTitle, items: [row.item] });
+  }
+  return groups;
 }

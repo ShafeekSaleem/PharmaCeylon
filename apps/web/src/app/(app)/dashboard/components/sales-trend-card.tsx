@@ -32,16 +32,20 @@ export function dayBarLabel(
 
 /**
  * When the last days in the range are zero, say since when, so a run of empty days reads as a
- * question about the counters rather than a flat line. Null when today or yesterday had sales.
+ * question about the counters rather than a flat line. Today (the last bar) is not over, so it
+ * never counts towards the run on its own: it takes two whole days without sales, and none so far
+ * today, before the card asks. One closed day (a Sunday) is not a question.
  */
 export function quietSince(
   points: readonly DailySales[],
   days: TrendDays,
 ): string | null {
-  let i = points.length - 1;
+  const today = points.length - 1;
+  if (today < 0 || points[today].value !== 0) return null;
+  let i = today - 1;
   while (i >= 0 && points[i].value === 0) i--;
-  const quietDays = points.length - 1 - i;
-  if (quietDays < 2) return null;
+  const quietWholeDays = today - 1 - i;
+  if (quietWholeDays < 2) return null;
   if (i < 0) return `No sales recorded in the last ${days} days.`;
   const last = points[i];
   const when = last.date
@@ -93,6 +97,8 @@ export function SalesTrendCard({
     };
   }, [days, analyticsBranchId, refreshVersion]);
 
+  // The page's own 7-day trend stands in only for the 7-day range; other ranges show nothing
+  // until their read lands.
   const shown = points ?? (days === 7 ? fallback : []);
   const max = Math.max(0, ...shown.map((p) => p.value));
   const quiet = quietSince(shown, days);
@@ -117,7 +123,12 @@ export function SalesTrendCard({
               type="button"
               aria-pressed={days === n}
               className={days === n ? css.rangeOn : undefined}
-              onClick={() => setDays(n)}
+              onClick={() => {
+                if (n === days) return;
+                // The old range's bars must not sit under the new range's title while it loads.
+                setPoints(null);
+                setDays(n);
+              }}
             >
               {n} days
             </button>
