@@ -2,7 +2,7 @@ import { render, screen, fireEvent, within } from "@testing-library/react";
 import { TodaysPriorities } from "./todays-priorities";
 import { useDailyWork } from "../hooks/use-daily-work";
 import { usePriorityStock } from "../hooks/use-priority-stock";
-import { WORK_PAGE_SIZE } from "../lib/fixed-layout";
+import { WORK_FETCH_SIZE, WORK_PAGE_SIZE } from "../lib/fixed-layout";
 import { PRIORITY_LIST_TAKE } from "../lib/priority-list-count";
 import type { DailyWorkItem } from "@pharmaceylon/shared";
 import type { DashboardData } from "../hooks/use-dashboard-data";
@@ -96,7 +96,7 @@ beforeEach(() => {
   mockedStock.mockReturnValue(emptyStock);
 });
 
-it("requests work with page size 8", () => {
+it("reads the whole queue in one request and pages it eight at a time itself", () => {
   render(
     <TodaysPriorities data={dataBase} refreshKey={null} counterLive={false} />,
   );
@@ -104,8 +104,9 @@ it("requests work with page size 8", () => {
     "branch-1",
     null,
     "all",
-    WORK_PAGE_SIZE,
+    WORK_FETCH_SIZE,
   );
+  expect(WORK_PAGE_SIZE).toBe(8);
 });
 
 it("disables stock fetch while the overdue deliveries filter is active", () => {
@@ -445,4 +446,57 @@ it("groups the page's work by what you do next and names each document", () => {
   expect(screen.getByText("Hemas Pharmaceuticals")).toBeInTheDocument();
   expect(screen.getByText("4 days late")).toBeInTheDocument();
   expect(screen.getByText(/3 open · 1 late/)).toBeInTheDocument();
+});
+
+it("groups the whole queue before paging, so a decision on the source's page 2 still comes first", () => {
+  const receiving = Array.from({ length: 8 }, (_, i) =>
+    workItem({ reference: `PO-${100 + i}` }),
+  );
+  const approvals = [0, 1].map((i) =>
+    workItem({
+      reference: `PO-9${i}`,
+      kind: "purchase_order.approve",
+      title: "Approve purchase order",
+      approval: true,
+      action: "Review order",
+    }),
+  );
+  mockedWork.mockReturnValue({
+    ...workBase,
+    data: {
+      ...workBase.data!,
+      total: 10,
+      pageSize: WORK_FETCH_SIZE,
+      counts: { all: 10, mine: 0, approvals: 2, overdue: 0, counter: 0 },
+      items: [...receiving, ...approvals],
+    },
+  });
+  render(<TodaysPriorities data={dataBase} refreshKey={null} />);
+  expect(mockedWork).toHaveBeenCalledWith("branch-1", null, "all", WORK_FETCH_SIZE);
+  const headings = () =>
+    screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent);
+  expect(headings()).toEqual(["Needs your decision", "Receiving and dispatch"]);
+  expect(screen.getByText("PO-90")).toBeInTheDocument();
+  expect(screen.getByText("1–8 of 10 tasks")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Next page" }));
+  expect(headings()).toEqual(["Receiving and dispatch"]);
+  expect(screen.getByText("PO-107")).toBeInTheDocument();
+  expect(screen.getByText("9–10 of 10 tasks")).toBeInTheDocument();
+});
+
+it("says when the queue holds more than one read could fetch", () => {
+  mockedWork.mockReturnValue({
+    ...workBase,
+    data: {
+      ...workBase.data!,
+      total: 140,
+      pageSize: WORK_FETCH_SIZE,
+      counts: { all: 140, mine: 0, approvals: 0, overdue: 0, counter: 0 },
+      items: Array.from({ length: WORK_FETCH_SIZE }, (_, i) =>
+        workItem({ reference: `PO-${1000 + i}` }),
+      ),
+    },
+  });
+  render(<TodaysPriorities data={dataBase} refreshKey={null} />);
+  expect(screen.getByText(`1–8 of ${WORK_FETCH_SIZE}+ tasks`)).toBeInTheDocument();
 });

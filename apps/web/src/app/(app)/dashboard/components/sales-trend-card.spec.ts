@@ -23,3 +23,14 @@ it("says since when a run of empty days has lasted", () => {
     "No sales recorded in the last 7 days.",
   );
 });
+
+it("does not ask on the morning after one closed day, or once today has a sale", () => {
+  // Saturday sold, Sunday closed, Monday morning before the first sale.
+  expect(quietSince(pts([120, 140, 0, 0]), 7)).toBeNull();
+  // Two whole days without sales, then a sale this morning: answered.
+  expect(quietSince(pts([120, 0, 0, 30]), 7)).toBeNull();
+  // Two whole days and nothing yet today: worth asking.
+  expect(quietSince(pts([120, 0, 0, 0]), 7)).toBe(
+    "No sales recorded since Wednesday 11 Nov. Check that the counters are sending their sales.",
+  );
+});

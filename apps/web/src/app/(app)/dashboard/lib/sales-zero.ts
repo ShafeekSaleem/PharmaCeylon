@@ -12,46 +12,27 @@ const NO_SALES: SalesZeroNote = {
   warning: false,
 };
 
-function dayKey(at: number | Date, timeZone: string): string {
-  return new Date(at).toLocaleDateString("en-CA", { timeZone });
-}
-
 /**
- * Why today's sales read zero (UI1 #205). A zero is either a quiet morning or counters that have
- * not reported, and a green "+0.0%" can't tell them apart. The counters' last accepted upload
- * (the same read Reports uses for its freshness caveat) can: a counter that has sent nothing
- * since the branch's day began, or whose upload has stopped, is named.
+ * Why today's sales read zero (UI1 #205). The freshness read is about the counters' **offline**
+ * journals: online sales never pass through it, and a counter that has never been offline is not
+ * listed. So a counter's last journal entry being old says nothing about today, and a quiet
+ * morning must not be flagged. What the read can say is that a counter's offline upload has
+ * stopped (`stoppedAt`): sales it made offline are not reaching the server, so a zero here may be
+ * missing them. Only that is named; anything else is a plain zero.
  */
 export function salesZeroNote(
   freshness: ReportSyncFreshness | null,
-  now: Date = new Date(),
 ): SalesZeroNote {
   const branch = freshness?.branches[0];
-  if (!branch) return NO_SALES;
-  const counters = branch.counters.filter((c) => c.current);
-  if (counters.length === 0) return NO_SALES;
-  const today = dayKey(now, branch.timezone);
-  const stopped = counters.filter((c) => c.stoppedAt);
-  if (stopped.length > 0)
-    return {
-      text:
-        stopped.length === 1
-          ? `${stopped[0].terminalLabel} has stopped sending sales`
-          : `${stopped.length} counters have stopped sending sales`,
-      warning: true,
-    };
-  const quiet = counters.filter(
-    (c) =>
-      c.lastAcceptedAt === null ||
-      dayKey(c.lastAcceptedAt, branch.timezone) !== today,
+  const stopped = (branch?.counters ?? []).filter(
+    (c) => c.current && c.stoppedAt,
   );
-  if (quiet.length === 0)
-    return { text: "Every counter has reported; no sales yet", warning: false };
+  if (stopped.length === 0) return NO_SALES;
   return {
     text:
-      quiet.length === 1
-        ? `${quiet[0].terminalLabel} hasn't sent sales yet today`
-        : `${quiet.length} counters haven't sent sales yet today`,
+      stopped.length === 1
+        ? `${stopped[0].terminalLabel} has offline sales that haven't uploaded`
+        : `${stopped.length} counters have offline sales that haven't uploaded`,
     warning: true,
   };
 }
