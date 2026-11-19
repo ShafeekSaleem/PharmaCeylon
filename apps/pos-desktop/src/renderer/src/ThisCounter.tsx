@@ -48,6 +48,7 @@ const GROUPS: { title: string; ids: string[] }[] = [
       "database",
       "schema",
       "credential-store",
+      "disk",
       "backups",
       "device",
       "printer",
@@ -55,7 +56,7 @@ const GROUPS: { title: string; ids: string[] }[] = [
   },
   {
     title: "Staff and records",
-    ids: ["staff", "unconfirmed", "card-money", "support-records"],
+    ids: ["staff", "offline-managers", "unconfirmed", "card-money", "support-records"],
   },
   {
     title: "Offline backup",

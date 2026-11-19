@@ -1,4 +1,4 @@
-import { MAX_SNAPSHOT_AGE_AT_OUTAGE_MS } from "@pharmaceylon/shared";
+import { MAX_SNAPSHOT_AGE_AT_OUTAGE_MS, type OfflineStaffAuthorization } from "@pharmaceylon/shared";
 import { drainHoldSentences } from "../shared/drain-holds";
 import type { OfflineBackup, ReadinessCheck, ReadinessReport } from "../shared/ipc-contract";
 import type { StoreBackupStatus } from "./backup/store-backup";
@@ -32,6 +32,8 @@ export type ReadinessFacts = {
       lines: number;
       /** The offline receipt series: the grant's prefix and the number the next offline sale gets. */
       receiptNumbering: { prefix: string; nextReceipt: string };
+      /** Who the grant lets do each offline manager task, by name (D8, assisted handover). */
+      offlineManagers: { acknowledgeHours: string[]; assistHandover: string[] };
     } | null;
   };
   /** Display names of the printers installed in Windows. Absent: not looked at (no window yet). */
@@ -51,6 +53,9 @@ export type ReadinessFacts = {
     /** Support records the server refused for good. */
     refused: number;
   };
+  /** Free space on the drive that holds the store, in bytes; null when Windows could not say.
+   * Absent: not looked at (no store open). */
+  freeDiskBytes?: number | null;
   /** Backups of this computer's store (P5 #51, #166). Absent: not running (no store open). */
   storeBackups?: StoreBackupStatus;
   /** The offline journal's upload (P5 #51). Absent: not looked at (not enrolled). */
@@ -354,6 +359,72 @@ function backupRow(facts: ReadinessFacts, now: Date): Row | null {
   return { status: "ok", detail: `${last} Backups stay on this computer.` };
 }
 
+/** Below this the disk row warns; below `DISK_FAILED_BYTES` it fails (P2 #48). */
+export const DISK_WARNING_BYTES = 1024 ** 3;
+export const DISK_FAILED_BYTES = 200 * 1024 ** 2;
+
+function megabytesOrGigabytes(bytes: number): string {
+  return bytes >= 1024 ** 3 ? `${(bytes / 1024 ** 3).toFixed(1)} GB` : `${Math.floor(bytes / 1024 ** 2)} MB`;
+}
+
+/** Free disk space, so a disk filling up is seen before it stops a sale, not when it does. */
+function diskRow(facts: ReadinessFacts): Row | null {
+  if (facts.freeDiskBytes === undefined) return null;
+  if (facts.freeDiskBytes === null)
+    return { status: "warning", detail: "Windows could not say how much disk space is free. Contact support if this stays." };
+  const free = `${megabytesOrGigabytes(facts.freeDiskBytes)} free on the drive that holds this counter's records.`;
+  if (facts.freeDiskBytes < DISK_FAILED_BYTES)
+    return { status: "failed", detail: `Only ${free} Sales stop when it fills: free up space or contact support now.` };
+  if (facts.freeDiskBytes < DISK_WARNING_BYTES)
+    return { status: "warning", detail: `Only ${free} Free up space before it fills, or contact support.` };
+  return { status: "ok", detail: `${free[0]!.toUpperCase()}${free.slice(1)}` };
+}
+
+/**
+ * Names the people the installed grant lets do each offline manager task. A person whose PIN is
+ * no longer prepared here can't sign in offline, so they are left out.
+ */
+export function offlineManagerNames(
+  authorizedStaff: ReadonlyArray<OfflineStaffAuthorization>,
+  nameOf: (staffUserId: string) => string | null,
+): { acknowledgeHours: string[]; assistHandover: string[] } {
+  const holding = (action: OfflineStaffAuthorization["offlineManagerActions"][number]) =>
+    authorizedStaff
+      .filter((s) => s.offlineManagerActions.includes(action))
+      .map((s) => nameOf(s.staffUserId))
+      .filter((name): name is string => name !== null)
+      .sort((a, b) => a.localeCompare(b));
+  return { acknowledgeHours: holding("acknowledge_business_hours"), assistHandover: holding("assist_shift_handover") };
+}
+
+const listNames = (names: string[]) =>
+  names.length <= 1 ? (names[0] ?? "") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+
+/**
+ * Who among the people prepared here may do the two offline manager tasks: allow selling after
+ * the routine hours (D8) and cover an absent cashier's shift handover. Without them a counter
+ * still sells offline, but nobody there can do either until it is back online.
+ */
+function managersRow(facts: ReadinessFacts): Row {
+  const installed = facts.offlineAuthority?.installed;
+  if (facts.enrollmentStatus !== "active" || !facts.offlineAuthority) return { status: "not_ready", detail: NEEDS_ACTIVATION };
+  if (!installed) return { status: "not_ready", detail: "Comes with the offline permission." };
+  const { acknowledgeHours, assistHandover } = installed.offlineManagers;
+  const tasks = [
+    { names: acknowledgeHours, can: "allow selling after hours", none: "Nobody here can allow selling after hours while offline." },
+    { names: assistHandover, can: "close an absent cashier's shift", none: "Nobody here can close an absent cashier's shift while offline." },
+  ];
+  const sentences = tasks.map((t) =>
+    t.names.length ? `${listNames(t.names)} can ${t.can} offline.` : t.none,
+  );
+  if (tasks.some((t) => t.names.length === 0))
+    return {
+      status: "warning",
+      detail: `${sentences.join(" ")} A manager whose role allows it prepares their PIN on this counter while it is online.`,
+    };
+  return { status: "ok", detail: sentences.join(" ") };
+}
+
 export function buildReadinessReport(facts: ReadinessFacts, now: Date): ReadinessReport {
   const offline = offlineRows(facts, now);
   const offlineStaff = offline.backup ? offline.backup.authorizedStaff : null;
@@ -392,6 +463,7 @@ export function buildReadinessReport(facts: ReadinessFacts, now: Date): Readines
             }`
           : "Nobody has prepared their PIN on this counter yet.",
     },
+    { id: "offline-managers", label: "Offline manager cover", ...managersRow(facts) },
     {
       id: "unconfirmed",
       label: "Unconfirmed sales and actions",
@@ -420,6 +492,8 @@ export function buildReadinessReport(facts: ReadinessFacts, now: Date): Readines
   ];
   const backups = backupRow(facts, now);
   if (backups) checks.splice(3, 0, { id: "backups", label: "Store backups", ...backups });
+  const disk = diskRow(facts);
+  if (disk) checks.splice(3, 0, { id: "disk", label: "Disk space", ...disk });
 
   return {
     ready: checks.every((check) => check.status === "ok"),
