@@ -529,9 +529,14 @@ try {
         .waitFor({ timeout: 5000 });
     }
     if (role === "owner") {
-      await page
-        .getByRole("button", { name: "Colombo Central", exact: true })
-        .click();
+      // The top-bar branch switch (UI1 #205) is named for what it does and which branch is
+      // current; its menu items are the plain branch names.
+      const branchSwitch = (current) =>
+        page.getByRole("button", {
+          name: `Branch: ${current}. Switch branch`,
+          exact: true,
+        });
+      await branchSwitch("Colombo Central").click();
       const changed = page.waitForResponse(
         (r) =>
           r.url().includes("/dashboard/work?") &&
@@ -545,9 +550,7 @@ try {
         otherWork.items.map((i) => i.reference),
         ["PO-KANDY-ONLY"],
       );
-      await page
-        .getByRole("button", { name: "Kandy Central", exact: true })
-        .click();
+      await branchSwitch("Kandy Central").click();
       const restored = page.waitForResponse(
         (r) =>
           r.url().includes("/dashboard/work?") &&
