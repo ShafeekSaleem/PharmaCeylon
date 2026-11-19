@@ -35,7 +35,7 @@
   place-items: center;
   border-radius: 10px;
   background: var(--pc-gradient-main);
-  color: #fff;
+  color: var(--pc-brand-text);
   box-shadow: 0 6px 18px color-mix(in srgb, var(--pc-primary) 24%, transparent);
 }
 .card {

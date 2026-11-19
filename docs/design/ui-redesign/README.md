@@ -120,13 +120,24 @@ Rules for a page moving onto it:
 - An OTC product shows plain "OTC" even when it has a schedule; the schedule is in the tooltip.
 - Screenshots: `screenshots/pr-list-pattern/`, before and after, light and dark, at 1440 × 900, 1366 × 768 and 390 × 844. No page scroll sideways at any of them; at 390 px the table scrolls inside its box.
 
+## Web colour sweep
+
+The web CSS modules now take every surface, line, text, accent and status colour from a token (104 literal colours before, 35 after, all on the allow-list below).
+
+- **Which token:** text on an accent fill uses `--pc-btn-primary-text` (the accent ink); text on a solid tone fill (role avatars, rank dots) uses `--pc-on-tone`. Text on the brand gradient, the fixed accent preset swatches and the photo scrim uses `--pc-brand-text`, white in both themes, because those fills don't change with the theme. Tints that mixed into `white` mix into `--pc-card-bg`, so they darken in dark. The onboarding journey panel sits on the accent, so its text and its translucent rings are mixed from the accent ink.
+- **Fallbacks removed:** `var(--token, #fff)` and the like are now `var(--token)`, so a missing token shows up instead of hiding behind a light-theme literal.
+- **The eight undefined names** are defined in `globals.css`: `--pc-surface-2` (sunken surface), `--pc-rule` and `--pc-border-subtle` (line), `--pc-alert-danger-bg` (danger soft), `--pc-radius` (8px), `--pc-radius-lg` (20px), `--pc-shadow-sm` (with a dark value) and `--pc-font-mono`.
+- **Guard:** `apps/web/src/app/no-literal-colours.spec.ts` scans every `*.module.css` and fails on a hex, `rgb()`, `hsl()`, `white` or `black` outside its allow-list. It skips `@media print` and shadow properties (`box-shadow`, `text-shadow`, `filter`), which are depth, not colour roles. The allow-list holds the reports treemap and heatmap text, which sits on chart series fills, and, as TODO entries, the files the web shell and shared list PRs own (`components/app-shell/**`, `page-header`, `data-table`, filter, chip and row-menu components, `app/(app)/products/**`).
+- Screenshots: `screenshots/pr-web-colour-sweep/`, 1440 × 900, light and dark, before and after.
+
 ## Not done yet
 
 These items in #205's Phase 1 come in later PRs:
 
 - **Web shell.**
 - **Inventory, Purchasing and the other list pages** moving onto the list pattern (Phase 4).
-- **Sweep of the remaining hard-coded colours.** About 70 literal `#fff` values in web CSS modules, many of them white text on an accent fill that fails in dark. Eight `--pc-*` names that are referenced but never defined (`--pc-surface-2`, `--pc-rule`, `--pc-border-subtle`, `--pc-radius`, `--pc-radius-lg`, `--pc-shadow-sm`, `--pc-font-mono`, `--pc-alert-danger-bg`), which always fall back to their literal. About 115 literals in the desktop renderer, left until the P4 desktop work settles.
+- **Colours left in the files the shell and list PRs own.** 32 literals in `app-shell.module.css`, `products.module.css` and `product-detail.module.css` (white text on accent fills, a photo overlay, and the dark sidebar's hard-coded palette). Sweep them once those PRs merge and drop their TODO entries from the guard's allow-list.
+- **Desktop renderer colours.** About 115 literals, left until the P4 desktop work settles.
 
 ## Screenshots
 

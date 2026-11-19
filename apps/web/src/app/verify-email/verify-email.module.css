@@ -34,7 +34,7 @@
   place-items: center;
   border-radius: 10px;
   background: var(--pc-gradient-main);
-  color: #fff;
+  color: var(--pc-brand-text);
 }
 .card {
   width: min(1180px, calc(100% - 2rem));
@@ -143,14 +143,14 @@
   border: 0;
   border-radius: var(--pc-radius-sm);
   background: var(--pc-gradient-main);
-  color: #fff;
+  color: var(--pc-brand-text);
   font: inherit;
   font-weight: 700;
   text-decoration: none;
   cursor: pointer;
 }
 .primary:hover:not(:disabled) {
-  color: #fff;
+  color: var(--pc-brand-text);
   filter: brightness(0.97);
   transform: translateY(-1px);
 }

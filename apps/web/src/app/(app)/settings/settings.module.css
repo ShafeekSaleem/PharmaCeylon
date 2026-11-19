@@ -488,7 +488,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: #fff;
+  color: var(--pc-brand-text);
   transition: box-shadow 0.15s, transform 0.1s;
 }
 

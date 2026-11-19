@@ -39,8 +39,8 @@
   border-radius: 11px;
   background: linear-gradient(
     90deg,
-    color-mix(in srgb, var(--pc-primary) 11%, white),
-    color-mix(in srgb, var(--pc-secondary-cyan) 5%, white)
+    color-mix(in srgb, var(--pc-primary) 11%, var(--pc-card-bg)),
+    color-mix(in srgb, var(--pc-secondary-cyan) 5%, var(--pc-card-bg))
   );
   display: flex;
   align-items: center;
@@ -237,7 +237,7 @@
   padding-inline: 22px;
   background: linear-gradient(
     90deg,
-    color-mix(in srgb, var(--pc-primary) 8%, white),
+    color-mix(in srgb, var(--pc-primary) 8%, var(--pc-card-bg)),
     transparent 80%
   );
 }
@@ -278,7 +278,7 @@
   display: grid;
   place-items: center;
   color: var(--pc-primary);
-  background: color-mix(in srgb, var(--pc-primary) 10%, white);
+  background: color-mix(in srgb, var(--pc-primary) 10%, var(--pc-card-bg));
 }
 
 .taskCopy strong {
@@ -325,17 +325,17 @@
   outline-offset: 2px;
 }
 
-/* The next step's call to action, on the brand gradient. Its label is white, so the hover
+/* The next step's call to action, on the brand gradient. Its label is the brand-gradient text colour, so the hover
    state has to restate that or the anchor rule in globals.css takes the colour. */
 .taskNext .primarySmall,
 .taskNext .primarySmall:visited {
   border-color: transparent;
-  color: #fff;
+  color: var(--pc-brand-text);
   background: var(--pc-gradient-main);
 }
 
 .taskNext .primarySmall:hover:not(:disabled) {
-  color: #fff;
+  color: var(--pc-brand-text);
   background: var(--pc-gradient-hover);
   border-color: transparent;
 }
@@ -353,7 +353,7 @@
   border: 0;
   border-radius: 9px;
   background: linear-gradient(135deg, var(--pc-primary), var(--pc-info));
-  color: #fff;
+  color: var(--pc-btn-primary-text);
   font: inherit;
   font-size: 0.82rem;
   font-weight: 650;
@@ -367,7 +367,7 @@
 }
 
 .finishButton:hover:not(:disabled) {
-  color: #fff;
+  color: var(--pc-btn-primary-text);
   transform: translateY(-1px);
   box-shadow: 0 10px 24px color-mix(in srgb, var(--pc-primary) 28%, transparent);
 }
@@ -414,12 +414,12 @@
 
 .blockedFooter {
   color: var(--pc-warning);
-  background: color-mix(in srgb, var(--pc-alert-warning-bg) 55%, white);
+  background: color-mix(in srgb, var(--pc-alert-warning-bg) 55%, var(--pc-card-bg));
 }
 
 .readyFooter {
   color: var(--pc-success);
-  background: color-mix(in srgb, var(--pc-alert-success-bg) 70%, white);
+  background: color-mix(in srgb, var(--pc-alert-success-bg) 70%, var(--pc-card-bg));
 }
 
 .blockedFooter div,
@@ -478,7 +478,7 @@
   display: grid;
   place-items: center;
   color: var(--pc-primary);
-  background: color-mix(in srgb, var(--pc-primary) 12%, white);
+  background: color-mix(in srgb, var(--pc-primary) 12%, var(--pc-card-bg));
 }
 
 .nextVisual h2 {

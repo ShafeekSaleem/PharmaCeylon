@@ -153,7 +153,7 @@
 }
 .icon_customer {
   color: var(--pc-tone-violet);
-  background: rgba(124, 58, 237, 0.12);
+  background: color-mix(in srgb, var(--pc-tone-violet) 12%, transparent);
 }
 .icon_supplier {
   color: var(--pc-alert-warning-icon);
@@ -165,7 +165,7 @@
 }
 .icon_transfer {
   color: var(--pc-tone-info);
-  background: rgba(2, 132, 199, 0.12);
+  background: color-mix(in srgb, var(--pc-tone-info) 12%, transparent);
 }
 .icon_stocktake {
   color: var(--pc-alert-success-icon);

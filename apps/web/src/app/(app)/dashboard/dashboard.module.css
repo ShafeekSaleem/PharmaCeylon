@@ -2290,7 +2290,7 @@ a.alertItem:hover {
   border-radius: 50%;
   font-size: 0.65rem;
   font-weight: 700;
-  color: var(--pc-btn-primary-text, #fff);
+  color: var(--pc-btn-primary-text);
   flex-shrink: 0;
   background: var(--pc-primary);
 }
@@ -3984,7 +3984,7 @@ a.alertItem:hover {
   justify-content: center;
   font-size: 0.72rem;
   font-weight: 700;
-  color: #fff;
+  color: var(--pc-btn-primary-text);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   min-width: 0;
