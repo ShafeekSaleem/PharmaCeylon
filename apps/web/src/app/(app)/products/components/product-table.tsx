@@ -158,14 +158,11 @@ export function ProductTable({
         header: "Form / Strength",
         width: "160px",
         getValue: (row) => row.dosageForm ?? "",
-        render: (row) =>
-          row.dosageForm || row.strength ? (
-            <>
-              {row.dosageForm ?? ""}
-              {row.dosageForm && row.strength ? " · " : ""}
-              {row.strength ?? ""}
-            </>
-          ) : null,
+        // One line, cut with an ellipsis; the full wording is in the tooltip.
+        render: (row) => {
+          const text = [row.dosageForm, row.strength].filter(Boolean).join(" · ");
+          return text ? <span title={text}>{text}</span> : null;
+        },
       },
       {
         key: "manufacturer",
@@ -326,7 +323,7 @@ export function ProductTable({
       onSelectionChange={onSelectionChange}
       variant="list"
       fixedLayout
-      minTableWidth="980px"
+      minTableWidth="1180px"
       emptyTitle={
         scope === "reference"
           ? "No reference products found"

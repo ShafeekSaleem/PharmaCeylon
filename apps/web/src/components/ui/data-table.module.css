@@ -472,6 +472,9 @@
 }
 
 .listWrap .scrollArea {
+  /* Positioned so absolutely placed children (the screen-reader-only "Actions" header) are
+     clipped by this box too; otherwise they sit past the page edge and widen the page. */
+  position: relative;
   overflow-x: auto;
   scrollbar-color: color-mix(in srgb, var(--ui-text-muted) 45%, var(--ui-line))
     transparent;
@@ -495,12 +498,22 @@
 /* `height` on a cell is a minimum: a two-line cell (name over generic name) still fits 44px,
    and anything taller grows the row rather than clipping. */
 .list tbody td {
-  height: var(--dt-row-h);
+  /* The bottom border is part of the row, so the cell is 1px shorter than the row. */
+  height: calc(var(--dt-row-h) - 1px);
+  /* One line per value: a long dosage form wrapping to three lines made some rows twice the
+     height of others. A cell that needs two lines (name over generic name) stacks its own. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   padding: 0.25rem var(--dt-cell-x);
   font-size: 0.85rem;
   line-height: 1.3;
   color: var(--ui-text);
   border-bottom: 1px solid var(--ui-line);
+}
+
+.fixedLayout.list tbody td {
+  overflow-wrap: normal;
 }
 
 :global(html[data-density="compact"]) .list tbody td {
