@@ -1,15 +1,13 @@
 /**
- * Cohesive donut / payment-mix palette from PharmaCeylon theme tokens.
- * Teal → cyan → soft mint → sage → slate (no navy/rainbow clashes).
+ * Payment-mix colours from the pharmacy's chart series (UI1 #205). Credit takes the
+ * neutral last series.
  */
 export const PAYMENT_MIX_COLORS: Record<string, string> = {
-  cash: "var(--pc-primary)",
-  card: "var(--pc-secondary-cyan)",
-  mobile_wallet:
-    "color-mix(in srgb, var(--pc-primary) 48%, #99f6e4)",
-  bank_transfer:
-    "color-mix(in srgb, var(--pc-primary-hover) 62%, var(--pc-muted-fg))",
-  credit: "var(--pc-muted-fg)",
+  cash: "var(--pc-chart-1)",
+  card: "var(--pc-chart-2)",
+  mobile_wallet: "var(--pc-chart-3)",
+  bank_transfer: "var(--pc-chart-4)",
+  credit: "var(--pc-chart-6)",
 };
 
 export const PAYMENT_MIX_FALLBACK_COLOR =
