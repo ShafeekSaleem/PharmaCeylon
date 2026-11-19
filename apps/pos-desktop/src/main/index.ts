@@ -9,6 +9,7 @@ import {
   session,
 } from "electron";
 import { createPublicKey } from "node:crypto";
+import { statfs } from "node:fs/promises";
 import { join } from "node:path";
 import type { ActionResult } from "../shared/ipc-contract";
 import { ApiSession } from "./api/api-client";
@@ -90,7 +91,7 @@ import { ShiftService } from "./shifts/shift-service";
 import { OfflineSupportService } from "./terminal/offline-support-service";
 import { StockLookupService } from "./terminal/stock-lookup";
 import type { CompletedSale } from "../shared/ipc-contract";
-import { buildReadinessReport, type ReadinessFacts } from "./readiness";
+import { buildReadinessReport, offlineManagerNames, type ReadinessFacts } from "./readiness";
 import { isAppUrl } from "./renderer-path";
 import {
   hardenSession,
@@ -399,9 +400,31 @@ function offlineAuthorityFacts(
             installed.grant.payload.receiptNumbering,
           ),
         },
+        offlineManagers: offlineManagerNames(
+          installed.grant.payload.authorizedStaff,
+          (staffUserId) =>
+            (store!.db
+              .prepare(
+                "SELECT staff_name AS name, pin_version AS version FROM staff_credential WHERE staff_user_id = ? AND enrollment_id = ?",
+              )
+              .get(staffUserId, enrollmentId) as
+              | { name: string; version: number }
+              | undefined) ?? null,
+        ),
       },
     },
   };
+}
+
+/** Free space on the drive that holds the store; null when Windows can't say. */
+async function diskFacts(): Promise<Pick<ReadinessFacts, "freeDiskBytes">> {
+  if (!store) return {};
+  try {
+    const fs = await statfs(join(app.getPath("userData"), "data"));
+    return { freeDiskBytes: Number(fs.bavail) * Number(fs.bsize) };
+  } catch {
+    return { freeDiskBytes: null };
+  }
 }
 
 /** Trusted time and the offline card payments and records still open, for the readiness checks. */
@@ -463,7 +486,7 @@ function registerIpc(
         packaged: app.isPackaged,
       }),
       getReadiness: async () => {
-        const printers = await printerFacts();
+        const [printers, disk] = await Promise.all([printerFacts(), diskFacts()]);
         // Read once, after the wait: every fact below is about this one enrollment.
         const device = store ? new DeviceStore(store.db).read() : null;
         const enrollmentId = device?.identity.enrollmentId;
@@ -488,6 +511,7 @@ function registerIpc(
             ...journalSyncFacts(enrollmentId),
             ...offlineCounterFacts(enrollmentId),
             ...printers,
+            ...disk,
             ...(storeBackups ? { storeBackups: storeBackups.status() } : {}),
           },
           new Date(),

@@ -2,7 +2,15 @@ import { join, resolve, sep } from "node:path";
 import { ipcContract } from "../shared/ipc-contract";
 import { checkApi } from "./api-check";
 import { renderTestReceiptHtml } from "./printing/receipt-html";
-import { buildReadinessReport, clockTime, explainRefreshFailure, isVirtualPrinter } from "./readiness";
+import {
+  buildReadinessReport,
+  clockTime,
+  DISK_FAILED_BYTES,
+  DISK_WARNING_BYTES,
+  explainRefreshFailure,
+  isVirtualPrinter,
+  offlineManagerNames,
+} from "./readiness";
 import { isAppUrl, resolveRendererFile } from "./renderer-path";
 import type { CheckoutSyncPause } from "./terminal/reconnect-drain";
 
@@ -165,7 +173,7 @@ describe("offline backup readiness (P3 #49)", () => {
     enrollmentStatus: "active" as const, preparedStaff: 5,
   };
   const healthyRefresh = { nominated: true, nominatedAt: t - 60_000, lastSuccessAt: t - 60_000, consecutiveFailures: 0, lastFailure: null, nextAttemptAt: null };
-  const installed = { grantExpiresAt: t + 86_340_000, snapshotGeneratedAt: t - 120_000, authorizedStaff: 4, lines: 412, receiptNumbering: { prefix: "C1R", nextReceipt: "C1R-000001" } };
+  const installed = { grantExpiresAt: t + 86_340_000, snapshotGeneratedAt: t - 120_000, authorizedStaff: 4, lines: 412, receiptNumbering: { prefix: "C1R", nextReceipt: "C1R-000001" }, offlineManagers: { acknowledgeHours: ["Nadeesha"], assistHandover: ["Nadeesha"] } };
   const check = (report: ReturnType<typeof buildReadinessReport>, id: string) => report.checks.find((c) => c.id === id)!;
 
   it("shows the grant's expiry, the saved stock's time and who can sign in offline", () => {
@@ -344,12 +352,14 @@ describe("P2 #48 pre-outage readiness rows", () => {
   const installed = {
     grantExpiresAt: t + 86_340_000, snapshotGeneratedAt: t - 120_000, authorizedStaff: 2, lines: 12,
     receiptNumbering: { prefix: "C1R", nextReceipt: "C1R-000042" },
+    offlineManagers: { acknowledgeHours: ["Nadeesha Perera"], assistHandover: ["Nadeesha Perera", "Ruwan Silva"] },
   };
   const settled = { unresolvedCards: 0, approvedUnlinkedCards: 0, undelivered: 0, refused: 0 };
   const healthy = {
     ...active,
     offlineAuthority: { refresh, installed },
     printers: ["EPSON TM-T82III"],
+    freeDiskBytes: 40 * 1024 ** 3,
     trustedClock: { trusted: true as const, nowMs: t, anchoredAt: t - 60_000, source: "sync_response" as const },
     offlineRecords: settled,
     journalSync: {
@@ -457,5 +467,97 @@ describe("P2 #48 pre-outage readiness rows", () => {
       status: "failed",
       detail: expect.stringMatching(/^The server turned down 1 note or card record\. It will not clear by itself: contact support\. 2 notes/),
     });
+  });
+});
+
+describe("P2 #48 offline manager cover and disk space", () => {
+  const now = new Date(2026, 10, 19, 10, 0);
+  const t = now.getTime();
+  const base = {
+    databaseOpen: true, schemaVersion: 1, latestSchemaVersion: 1, credentialStoreAvailable: true,
+    enrollmentStatus: "active" as const, preparedStaff: 3,
+  };
+  const refresh = { nominated: true, nominatedAt: t - 60_000, lastSuccessAt: t - 60_000, consecutiveFailures: 0, lastFailure: null, nextAttemptAt: null };
+  const installed = (acknowledgeHours: string[], assistHandover: string[]) => ({
+    grantExpiresAt: t + 86_340_000, snapshotGeneratedAt: t - 120_000, authorizedStaff: 3, lines: 12,
+    receiptNumbering: { prefix: "C1R", nextReceipt: "C1R-000001" },
+    offlineManagers: { acknowledgeHours, assistHandover },
+  });
+  const row = (facts: Parameters<typeof buildReadinessReport>[0], id: string) =>
+    buildReadinessReport(facts, now).checks.find((c) => c.id === id);
+
+  it("names who can allow after-hours selling and close an absent cashier's shift offline", () => {
+    expect(row({ ...base, offlineAuthority: { refresh, installed: installed(["Ruwan", "Amal"], ["Nadeesha"]) } }, "offline-managers")).toEqual({
+      id: "offline-managers",
+      label: "Offline manager cover",
+      status: "ok",
+      detail: "Ruwan and Amal can allow selling after hours offline. Nadeesha can close an absent cashier's shift offline.",
+    });
+  });
+
+  it("warns, with what to do, when nobody prepared here can do a manager task offline", () => {
+    expect(row({ ...base, offlineAuthority: { refresh, installed: installed(["Ruwan"], []) } }, "offline-managers")).toMatchObject({
+      status: "warning",
+      detail:
+        "Ruwan can allow selling after hours offline. Nobody here can close an absent cashier's shift while offline. A manager whose role allows it prepares their PIN on this counter while it is online.",
+    });
+    expect(row({ ...base, offlineAuthority: { refresh, installed: installed([], []) } }, "offline-managers")!.status).toBe("warning");
+  });
+
+  it("waits for the offline permission, and for activation", () => {
+    expect(row({ ...base, offlineAuthority: { refresh, installed: null } }, "offline-managers")).toMatchObject({
+      status: "not_ready", detail: "Comes with the offline permission.",
+    });
+    expect(row({ ...base, enrollmentStatus: null }, "offline-managers")).toMatchObject({
+      status: "not_ready", detail: "Available once this device is activated.",
+    });
+  });
+
+  const staff = (id: string, actions: Array<"acknowledge_business_hours" | "assist_shift_handover">) => ({
+    staffUserId: id, staffAuthorizationId: `auth-${id}`, credentialVersion: 1, signInMethod: "personal_pin" as const, offlineManagerActions: actions,
+  });
+
+  it("reads names from the grant's staff, leaving out anyone not prepared here", () => {
+    const names: Record<string, string> = { a: "Ruwan", b: "Amal", c: "Nadeesha" };
+    expect(
+      offlineManagerNames(
+        [staff("a", ["acknowledge_business_hours", "assist_shift_handover"]), staff("b", ["acknowledge_business_hours"]), staff("c", []), staff("gone", ["assist_shift_handover"])],
+        (id) => (names[id] ? { name: names[id]!, version: 1 } : null),
+      ),
+    ).toEqual({ acknowledgeHours: ["Amal", "Ruwan"], assistHandover: ["Ruwan"] });
+  });
+
+  it("leaves out a manager who changed their PIN since the grant, as offline sign-in does, and the row warns", () => {
+    // Ruwan's PIN is prepared here at version 2; the grant still vouches for version 1.
+    const prepared: Record<string, { name: string; version: number }> = {
+      a: { name: "Ruwan", version: 2 },
+      b: { name: "Amal", version: 1 },
+    };
+    const managers = offlineManagerNames(
+      [staff("a", ["acknowledge_business_hours", "assist_shift_handover"]), staff("b", ["acknowledge_business_hours"])],
+      (id) => prepared[id] ?? null,
+    );
+    expect(managers).toEqual({ acknowledgeHours: ["Amal"], assistHandover: [] });
+    expect(
+      row({ ...base, offlineAuthority: { refresh, installed: { ...installed([], []), offlineManagers: managers } } }, "offline-managers"),
+    ).toMatchObject({
+      status: "warning",
+      detail: expect.stringContaining("Nobody here can close an absent cashier's shift while offline."),
+    });
+  });
+
+  it("shows free disk space, warning before it is low and failing before it is full", () => {
+    expect(row({ ...base, freeDiskBytes: 40 * 1024 ** 3 }, "disk")).toEqual({
+      id: "disk", label: "Disk space", status: "ok", detail: "40.0 GB free on the drive that holds this counter's records.",
+    });
+    expect(row({ ...base, freeDiskBytes: DISK_WARNING_BYTES - 1 }, "disk")).toMatchObject({
+      status: "warning", detail: "Only 1023 MB free on the drive that holds this counter's records. Free up space before it fills, or contact support.",
+    });
+    expect(row({ ...base, freeDiskBytes: DISK_FAILED_BYTES - 1 }, "disk")).toMatchObject({
+      status: "failed", detail: expect.stringContaining("Sales stop when it fills"),
+    });
+    expect(row({ ...base, freeDiskBytes: null }, "disk")).toMatchObject({ status: "warning", detail: expect.stringContaining("could not say") });
+    // Not looked at (no store open): no row at all.
+    expect(row(base, "disk")).toBeUndefined();
   });
 });
