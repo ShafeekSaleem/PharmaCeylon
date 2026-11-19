@@ -381,17 +381,22 @@ function diskRow(facts: ReadinessFacts): Row | null {
 }
 
 /**
- * Names the people the installed grant lets do each offline manager task. A person whose PIN is
- * no longer prepared here can't sign in offline, so they are left out.
+ * Names the people the installed grant lets do each offline manager task. Only those who could
+ * sign in offline count, by the same rule offline sign-in uses: a PIN prepared here at exactly the
+ * version the grant vouches for. Someone not prepared here, or who changed their PIN since the
+ * grant was issued, is left out.
  */
 export function offlineManagerNames(
   authorizedStaff: ReadonlyArray<OfflineStaffAuthorization>,
-  nameOf: (staffUserId: string) => string | null,
+  preparedOf: (staffUserId: string) => { name: string; version: number } | null,
 ): { acknowledgeHours: string[]; assistHandover: string[] } {
   const holding = (action: OfflineStaffAuthorization["offlineManagerActions"][number]) =>
     authorizedStaff
       .filter((s) => s.offlineManagerActions.includes(action))
-      .map((s) => nameOf(s.staffUserId))
+      .map((s) => {
+        const prepared = preparedOf(s.staffUserId);
+        return prepared?.version === s.credentialVersion ? prepared.name : null;
+      })
       .filter((name): name is string => name !== null)
       .sort((a, b) => a.localeCompare(b));
   return { acknowledgeHours: holding("acknowledge_business_hours"), assistHandover: holding("assist_shift_handover") };

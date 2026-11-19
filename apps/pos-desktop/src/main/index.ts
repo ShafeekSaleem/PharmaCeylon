@@ -397,13 +397,13 @@ function offlineAuthorityFacts(
         offlineManagers: offlineManagerNames(
           installed.grant.payload.authorizedStaff,
           (staffUserId) =>
-            (
-              store!.db
-                .prepare(
-                  "SELECT staff_name AS name FROM staff_credential WHERE staff_user_id = ? AND enrollment_id = ?",
-                )
-                .get(staffUserId, enrollmentId) as { name: string } | undefined
-            )?.name ?? null,
+            (store!.db
+              .prepare(
+                "SELECT staff_name AS name, pin_version AS version FROM staff_credential WHERE staff_user_id = ? AND enrollment_id = ?",
+              )
+              .get(staffUserId, enrollmentId) as
+              | { name: string; version: number }
+              | undefined) ?? null,
         ),
       },
     },

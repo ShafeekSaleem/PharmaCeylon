@@ -513,17 +513,37 @@ describe("P2 #48 offline manager cover and disk space", () => {
     });
   });
 
+  const staff = (id: string, actions: Array<"acknowledge_business_hours" | "assist_shift_handover">) => ({
+    staffUserId: id, staffAuthorizationId: `auth-${id}`, credentialVersion: 1, signInMethod: "personal_pin" as const, offlineManagerActions: actions,
+  });
+
   it("reads names from the grant's staff, leaving out anyone not prepared here", () => {
-    const staff = (id: string, actions: Array<"acknowledge_business_hours" | "assist_shift_handover">) => ({
-      staffUserId: id, staffAuthorizationId: `auth-${id}`, credentialVersion: 1, signInMethod: "personal_pin" as const, offlineManagerActions: actions,
-    });
     const names: Record<string, string> = { a: "Ruwan", b: "Amal", c: "Nadeesha" };
     expect(
       offlineManagerNames(
         [staff("a", ["acknowledge_business_hours", "assist_shift_handover"]), staff("b", ["acknowledge_business_hours"]), staff("c", []), staff("gone", ["assist_shift_handover"])],
-        (id) => names[id] ?? null,
+        (id) => (names[id] ? { name: names[id]!, version: 1 } : null),
       ),
     ).toEqual({ acknowledgeHours: ["Amal", "Ruwan"], assistHandover: ["Ruwan"] });
+  });
+
+  it("leaves out a manager who changed their PIN since the grant, as offline sign-in does, and the row warns", () => {
+    // Ruwan's PIN is prepared here at version 2; the grant still vouches for version 1.
+    const prepared: Record<string, { name: string; version: number }> = {
+      a: { name: "Ruwan", version: 2 },
+      b: { name: "Amal", version: 1 },
+    };
+    const managers = offlineManagerNames(
+      [staff("a", ["acknowledge_business_hours", "assist_shift_handover"]), staff("b", ["acknowledge_business_hours"])],
+      (id) => prepared[id] ?? null,
+    );
+    expect(managers).toEqual({ acknowledgeHours: ["Amal"], assistHandover: [] });
+    expect(
+      row({ ...base, offlineAuthority: { refresh, installed: { ...installed([], []), offlineManagers: managers } } }, "offline-managers"),
+    ).toMatchObject({
+      status: "warning",
+      detail: expect.stringContaining("Nobody here can close an absent cashier's shift while offline."),
+    });
   });
 
   it("shows free disk space, warning before it is low and failing before it is full", () => {
