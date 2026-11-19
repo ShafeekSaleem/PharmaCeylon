@@ -24,6 +24,7 @@ describe("unreviewed expiry sale safety", () => {
       },
       stockLedger: { create: jest.fn() },
       sale: { create: jest.fn() },
+      branch: { findFirst: jest.fn().mockResolvedValue(null) }, // not live on PharmaCeylon POS
     };
     prisma.$transaction = jest.fn((fn) => fn(prisma));
     const service = new SalesService(

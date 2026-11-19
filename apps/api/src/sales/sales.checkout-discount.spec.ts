@@ -30,6 +30,7 @@ describe("SalesService checkout discount authority", () => {
   let txnEntered: boolean;
   // Past the authority checks, the next thing checkout reads on its transaction is the tenant.
   const tx = {
+    branch: { findFirst: jest.fn().mockResolvedValue(null) }, // not live on PharmaCeylon POS
     tenant: {
       findUnique: jest.fn(async () => {
         throw new Error("stop-after-authority");
