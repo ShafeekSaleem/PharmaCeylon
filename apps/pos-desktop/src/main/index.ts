@@ -43,6 +43,7 @@ import {
   recordAfterCommandRetry,
   recordAfterDirectPayoutExecute,
   recordAfterDirectRefundExecute,
+  recordAfterReturnOutcome,
 } from "./shifts/shift-posting-from-execute";
 import { CheckoutService } from "./checkout/checkout-service";
 import { DispensingService } from "./checkout/dispensing";
@@ -861,13 +862,17 @@ function registerIpc(
           return returns.approvers();
         }),
       approveReturn: ({ saleId, refundRequestId, coSign }) =>
-        act(logger, "approveReturn", () => {
+        act(logger, "approveReturn", async () => {
           if (!returns)
             throw new ActionFailure(
               "NOT_READY",
               "The counter is still starting.",
             );
-          return returns.approve(saleId, refundRequestId, coSign);
+          const outcome = await returns.approve(saleId, refundRequestId, coSign);
+          // The co-sign can let the refund execute here: its cash leaves this shift's drawer too.
+          const executor = terminal?.current()?.staff.staffUserId;
+          if (executor && shifts) recordAfterReturnOutcome(shifts, outcome, executor);
+          return outcome;
         }),
       submitReturn: (input) =>
         act(logger, "submitReturn", async () => {
@@ -879,14 +884,7 @@ function registerIpc(
           const outcome = await returns.submit(input);
           // A cash refund done here leaves the open shift's drawer: the counter's own figure too.
           const executor = terminal?.current()?.staff.staffUserId;
-          if (outcome.status === "refunded" && executor && shifts)
-            recordAfterDirectRefundExecute(
-              shifts,
-              outcome.refund.refundRequestId,
-              outcome.refund.refundedTo,
-              executor,
-              outcome.refund.alreadyApplied,
-            );
+          if (executor && shifts) recordAfterReturnOutcome(shifts, outcome, executor);
           return outcome;
         }),
       pendingCommands: () => commands?.pending() ?? [],

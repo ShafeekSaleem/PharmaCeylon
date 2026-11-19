@@ -16,6 +16,7 @@ import {
   recordAfterCommandRetry,
   recordAfterDirectPayoutExecute,
   recordAfterDirectRefundExecute,
+  recordAfterReturnOutcome,
 } from "./shift-posting-from-execute";
 import { ShiftService } from "./shift-service";
 
@@ -379,6 +380,55 @@ describe("shift posting from execute helpers", () => {
     recordAfterDirectRefundExecute(shifts, refundRequestId, refundedTo, cashier.staffUserId, false);
     recordAfterCommandRetry(shifts, refundReceipt(refundRequestId, refundedTo), cashier.staffUserId);
     expect(shifts.state().current!.expectedCashMinor).toBe(500_000 - 70_000);
+    expect(postings()).toEqual({ n: 1 });
+  });
+
+  const refunded = (
+    refundRequestId: string,
+    refundedTo: { method: string; amountMinor: number }[],
+    alreadyApplied = false,
+  ) =>
+    ({
+      status: "refunded",
+      refund: {
+        refundRequestId,
+        requestNumber: "RFR-12",
+        amountMinor: refundedTo.reduce((sum, r) => sum + r.amountMinor, 0),
+        refundedTo,
+        alreadyApplied,
+        requestedBy: "Sachini R.",
+        approvedBy: "Dilini F.",
+      },
+    }) as const;
+
+  it("a refund a manager's co-sign let execute takes its cash out of the drawer, once", async () => {
+    const shifts = service();
+    await shifts.open(PIN, FIVE_THOUSAND);
+    const outcome = refunded(randomUUID(), [
+      { method: "cash", amountMinor: 70_000 },
+      { method: "card", amountMinor: 30_000 },
+    ]);
+    recordAfterReturnOutcome(shifts, outcome, cashier.staffUserId);
+    recordAfterReturnOutcome(shifts, outcome, cashier.staffUserId);
+    expect(shifts.state().current!.expectedCashMinor).toBe(500_000 - 70_000);
+    expect(postings()).toEqual({ n: 1 });
+  });
+
+  it("a card refund, one already done elsewhere, or one still waiting moves no cash", async () => {
+    const shifts = service();
+    await shifts.open(PIN, FIVE_THOUSAND);
+    recordAfterReturnOutcome(shifts, refunded(randomUUID(), [{ method: "card", amountMinor: 30_000 }]), cashier.staffUserId);
+    recordAfterReturnOutcome(
+      shifts,
+      refunded(randomUUID(), [{ method: "cash", amountMinor: 70_000 }], true),
+      cashier.staffUserId,
+    );
+    recordAfterReturnOutcome(
+      shifts,
+      { status: "awaiting_approval", refundRequestId: randomUUID(), requestNumber: "RFR-13", amount: "6300.00" },
+      cashier.staffUserId,
+    );
+    expect(shifts.state().current!.expectedCashMinor).toBe(500_000);
     expect(postings()).toEqual({ n: 1 });
   });
 });
