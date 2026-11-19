@@ -83,7 +83,7 @@ One appearance for everyone at the pharmacy, set by an owner on Settings › App
 - **On the desktop counter:** main reads `GET /tenant/appearance` (a counter route) when someone signs in, by password or PIN, and every five minutes while someone is signed in, and keeps it in `counter-brand.json` in the app's data folder. So a counter that restarts offline, or before anyone signs in, still has the pharmacy's look and keeps the lock. Main builds the accent stylesheet with the same shared code as the web, and the title bar draws it with the status set (`counter-brand.ts`, read every 30 seconds).
 - **Counter theme default and lock:** the owner's `counterTheme` is where a counter starts. A cashier's switch on that computer wins until the owner locks it. While it is locked, the owner's theme is shown, the switch is hidden, and main refuses a change. The cashier's last choice is kept, so unlocking brings it back.
 - **Receipt header:** the branch name prints in the accent over a 2px rule in the same colour. Every accent an owner can save reaches 4.5:1 on white, so a one-colour thermal printer prints it as solid dark text.
-- **Desktop soft fills** (`--pos-primary-soft`, `-soft-2`) now mix from the accent instead of a fixed teal. The other literal teals in the desktop CSS wait for the colour sweep below.
+- **Desktop soft fills** (`--pos-primary-soft`, `-soft-2`) now mix from the accent instead of a fixed teal.
 - Screenshots: `screenshots/pr-chart-palette/` (dashboard with Teal and Plum brand colours and the distinct set), `screenshots/pr3-brand-settings/` (web) and `screenshots/pr4-desktop-brand/` (counter and receipt). The counter shots stand in a fake bridge for main. The appearance endpoint was stubbed in the browser for these, because the shared dev database is behind on migrations.
 
 ## List pattern
@@ -130,6 +130,16 @@ The web CSS modules now take every surface, line, text, accent and status colour
 - **Guard:** `apps/web/src/app/no-literal-colours.spec.ts` scans every `*.module.css` and fails on a hex, `rgb()`, `hsl()`, `white` or `black` outside its allow-list. It skips `@media print` and shadow properties (`box-shadow`, `text-shadow`, `filter`), which are depth, not colour roles. The allow-list holds the reports treemap and heatmap text, which sits on chart series fills, and, as TODO entries, the files the web shell and shared list PRs own (`components/app-shell/**`, `page-header`, `data-table`, filter, chip and row-menu components, `app/(app)/products/**`).
 - Screenshots: `screenshots/pr-web-colour-sweep/`, 1440 × 900, light and dark, before and after.
 
+## Desktop colour sweep
+
+Every colour in the counter's renderer comes from a token. [`tokens.css`](../../../apps/pos-desktop/src/renderer/src/tokens.css) is the one renderer file that holds literals, and [`colour-literals.spec.ts`](../../../apps/pos-desktop/src/renderer/src/colour-literals.spec.ts) fails on a hex, `rgb()`/`hsl()`, named colour or web `--pc-*` colour anywhere else in `src/renderer/src` (stylesheets and component strings), with an allow-list that is empty today. Receipt and print HTML in `src/main/printing` is outside it.
+
+- **Follows the accent now:** primary buttons and the PIN pad's Go (`--pos-grad` runs from `--ui-accent` to `--ui-accent-hover`, so the accent ink keeps its contrast across the fill), the focus ring (`--pos-focus`), the key hints on a primary button (tinted from `--ui-accent-ink`, one rule for light and dark), and the tile that was fixed teal: receiving on Counter work, the counter on This counter, the first avatar colour and Cash & shift's "other" method. That tile is `--pos-t-accent` (it was `--pos-t-teal`).
+- **Solid ok, warn and bad fills** (Counter work's step dots, Dispensing's done tick, Setup's done steps) draw their tick in `--pos-on-status` (`--ui-on-status`) instead of the surface colour.
+- **Stays the counter's own:** the other tile colours (`--pos-t-cyan`, `-indigo`, `-rose`, `-amber`, `-violet`, `-emerald`, `-blue`), prescription purple (`--pos-rx*`), shadows and the sheet scrim. The PharmaCeylon mark in the title bar keeps its teal as `--pos-logo-grad`, `--pos-logo-ink` and `--pos-logo-edge`.
+- `App.module.css`, the last stylesheet on the web's `--pc-*` names, was imported nowhere and is gone.
+- Screenshots: `screenshots/pr-desktop-colour-sweep/`, before and after, Sell, Counter work, Cash & shift and Returns at 1366 × 768 and 1024 × 640 in light and dark, from the screenshot fixture.
+
 ## Not done yet
 
 These items in #205's Phase 1 come in later PRs:
@@ -137,7 +147,6 @@ These items in #205's Phase 1 come in later PRs:
 - **Web shell.**
 - **Inventory, Purchasing and the other list pages** moving onto the list pattern (Phase 4).
 - **Colours left in the files the shell and list PRs own.** 32 literals in `app-shell.module.css`, `products.module.css` and `product-detail.module.css` (white text on accent fills, a photo overlay, and the dark sidebar's hard-coded palette). Sweep them once those PRs merge and drop their TODO entries from the guard's allow-list.
-- **Desktop renderer colours.** About 115 literals, left until the P4 desktop work settles.
 
 ## Screenshots
 

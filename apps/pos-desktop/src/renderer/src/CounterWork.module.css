@@ -115,8 +115,8 @@
   background: color-mix(in srgb, var(--c) 13%, transparent);
 }
 
-.teal {
-  --c: var(--pos-t-teal);
+.accent {
+  --c: var(--pos-t-accent);
 }
 .cyan {
   --c: var(--pos-t-cyan);
@@ -393,7 +393,7 @@
 .done .dot {
   border-color: var(--pos-ok);
   background: var(--pos-ok);
-  color: var(--pos-surface);
+  color: var(--pos-on-status);
 }
 
 .now .dot {
@@ -406,13 +406,13 @@
 .warnStep .dot {
   border-color: var(--pos-warn);
   background: var(--pos-warn);
-  color: var(--pos-surface);
+  color: var(--pos-on-status);
 }
 
 .badStep .dot {
   border-color: var(--pos-bad);
   background: var(--pos-bad);
-  color: var(--pos-surface);
+  color: var(--pos-on-status);
 }
 
 .step > div {

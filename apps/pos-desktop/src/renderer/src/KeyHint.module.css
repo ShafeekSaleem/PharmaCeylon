@@ -19,23 +19,11 @@
   padding: 2px 4px;
 }
 
-/* On a primary (gradient) button. */
+/* On a primary (accent) button: tinted from the button's ink, so it suits light or dark ink. */
 .onPrimary {
-  background: rgba(255, 255, 255, 0.18);
-  border-color: rgba(255, 255, 255, 0.35);
+  background: var(--pos-on-primary-key);
+  border-color: var(--pos-on-primary-key-line);
   color: var(--pos-on-primary);
-}
-
-/* Dark primary buttons have dark text, so the key's overlay is dark too. */
-@media (prefers-color-scheme: dark) {
-  :global(:root:not([data-theme="light"])) .onPrimary {
-    background: rgba(4, 32, 28, 0.12);
-    border-color: rgba(4, 32, 28, 0.3);
-  }
-}
-:global(:root[data-theme="dark"]) .onPrimary {
-  background: rgba(4, 32, 28, 0.12);
-  border-color: rgba(4, 32, 28, 0.3);
 }
 
 /* Pushed to the end of a full-width row (a scan bar, a checklist line). */

@@ -40,7 +40,7 @@ import { tillDisplayName } from "./this-counter-display";
 export type Page = "sell" | "returns" | "work" | "stock" | "cash" | "counter";
 
 const TONES = [
-  styles.teal,
+  styles.accent,
   styles.violet,
   styles.blue,
   styles.amber,
