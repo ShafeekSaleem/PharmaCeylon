@@ -67,13 +67,18 @@ export function useNavBadges(
       return;
     }
     const controller = new AbortController();
-    const params = new URLSearchParams({ filter: "all", page: "1", pageSize: "1" });
+    const params = new URLSearchParams({
+      filter: "all",
+      page: "1",
+      pageSize: "1",
+    });
     apiJson<DailyWorkResponse>(`/dashboard/work?${params}`, {
       signal: controller.signal,
       headers: { "x-branch-id": branchId },
     })
       .then((res) => {
-        if (!controller.signal.aborted) setCounts(navBadgeCounts(res.categories));
+        if (!controller.signal.aborted)
+          setCounts(navBadgeCounts(res.categories));
       })
       .catch(() => {
         // A badge is a hint: on a failed read keep the last counts rather than flash them away.

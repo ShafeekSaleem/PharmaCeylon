@@ -10,7 +10,13 @@ beforeEach(() => apiJson.mockReset());
 
 it("maps the queue's areas onto sidebar links and leaves out empty and unlinked ones", () => {
   expect(
-    navBadgeCounts({ purchasing: 3, transfers: 0, returns: 2, counter: 5, stocktakes: 1 }),
+    navBadgeCounts({
+      purchasing: 3,
+      transfers: 0,
+      returns: 2,
+      counter: 5,
+      stocktakes: 1,
+    }),
   ).toEqual({ "/purchasing": 3, "/stocktakes": 1 });
   expect(navBadgeCounts(undefined)).toEqual({});
 });

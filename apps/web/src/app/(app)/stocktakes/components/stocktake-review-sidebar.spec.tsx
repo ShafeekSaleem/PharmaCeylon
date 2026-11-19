@@ -23,7 +23,8 @@ it("says each approval step's state in words, not only by dot colour", () => {
       onSaveReview={() => {}}
     />,
   );
-  const list = screen.getByText("Approval checklist").nextElementSibling as HTMLElement;
+  const list = screen.getByText("Approval checklist")
+    .nextElementSibling as HTMLElement;
   const steps = within(list).getAllByRole("listitem");
   expect(steps.map((li) => li.lastElementChild?.textContent)).toEqual([
     "Done",
