@@ -102,7 +102,7 @@
 .done i {
   background: var(--pos-ok);
   border-color: var(--pos-ok);
-  color: var(--pos-surface);
+  color: var(--pos-on-status);
 }
 
 .now i {

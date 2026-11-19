@@ -332,7 +332,7 @@
 }
 
 .qi {
-  --c: var(--pos-t-teal);
+  --c: var(--pos-t-accent);
   display: grid;
   place-items: center;
   flex: none;
