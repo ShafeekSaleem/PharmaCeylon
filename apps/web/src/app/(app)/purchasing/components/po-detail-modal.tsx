@@ -52,6 +52,7 @@ import {
 import { PurchasingSelect } from "./purchasing-select";
 import { HeldDeliveryBanner, heldLineUnits } from "./held-delivery-banner";
 import { PreparedReceiptPanel } from "./prepared-receipt-panel";
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 
 type Props = {
   poId: string | null;
@@ -1431,7 +1432,7 @@ export function PoDetailModal({
                               />
                               {line.countMode === "packs" && (
                                 <div className={css.packHint}>
-                                  {receivedUnits(line).toLocaleString()} units
+                                  {receivedUnits(line).toLocaleString(DISPLAY_LOCALE)} units
                                 </div>
                               )}
                               {receivedUnits(line) > line.remainingQty && (

@@ -6,6 +6,7 @@ import { ActionButton, ApprovalEvidencePanel, CounterHandoff, StatusBadge } from
 import { formatMoney } from "@/lib/money";
 import type { CaseBatch, ResolutionKind, SettlementLink, StockCaseDetail, StockCasePlan } from "./types";
 import css from "./stock-cases.module.css";
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 
 export const REVIEW_PERMISSION = "inventory.resolve_stock_cases";
 
@@ -41,7 +42,7 @@ export const PLAN_LABELS: Record<StockCasePlan["status"], string> = {
 
 export const when = (iso: string | null | undefined) =>
   iso
-    ? new Date(iso).toLocaleString(undefined, { year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })
+    ? new Date(iso).toLocaleString(DISPLAY_LOCALE, { year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })
     : "—";
 const signed = (n: number) => (n > 0 ? `+${n}` : String(n));
 const name = (p: { name: string | null } | null) => p?.name ?? "—";

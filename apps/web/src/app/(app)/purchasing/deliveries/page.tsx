@@ -37,6 +37,7 @@ import { useSuppliers } from "../hooks/use-suppliers";
 import css from "../purchasing.module.css";
 import type { DeliveryRow, HeldDelivery } from "../types";
 import { formatDate, formatDateTime, formatMoney } from "../utils";
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 
 function DeliveriesContent() {
   const access = usePurchasingAccess();
@@ -248,7 +249,7 @@ function DeliveriesContent() {
       align: "right",
       render: (row) => (
         <>
-          <div>{row.paidUnits.toLocaleString()}</div>
+          <div>{row.paidUnits.toLocaleString(DISPLAY_LOCALE)}</div>
           {row.freeUnits > 0 || row.rejectedUnits > 0 ? (
             <div className={css.supplierCode}>
               {[
@@ -311,7 +312,7 @@ function DeliveriesContent() {
             <StatCard
               size="sm"
               title="Units received"
-              value={totals.units.toLocaleString()}
+              value={totals.units.toLocaleString(DISPLAY_LOCALE)}
               subtitle="Billed units"
               icon={<IconPackage size={16} />}
               iconTone="info"
@@ -320,7 +321,7 @@ function DeliveriesContent() {
             <StatCard
               size="sm"
               title="Free units"
-              value={totals.free.toLocaleString()}
+              value={totals.free.toLocaleString(DISPLAY_LOCALE)}
               subtitle="At no charge"
               icon={<IconBox size={16} />}
               iconTone="success"
@@ -330,7 +331,7 @@ function DeliveriesContent() {
             <StatCard
               size="sm"
               title="Damaged"
-              value={totals.damaged.toLocaleString()}
+              value={totals.damaged.toLocaleString(DISPLAY_LOCALE)}
               subtitle="Held in quarantine"
               icon={<IconAlertTriangle size={16} />}
               iconTone={totals.damaged > 0 ? "warning" : "info"}

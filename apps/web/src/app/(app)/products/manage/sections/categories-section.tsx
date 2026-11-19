@@ -28,6 +28,7 @@ import type {
   CommercialCategoryNode,
   OnboardingGroupStatus,
 } from "../../categories/types";
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 
 /**
  * Merchandising categories — how the pharmacy groups what it sells, for the shop floor and for
@@ -250,7 +251,7 @@ export function CategoriesSection({
               aria-label="Search categories"
               placeholder={
                 categoryCount > 0
-                  ? `Search ${categoryCount.toLocaleString()} categor${categoryCount === 1 ? "y" : "ies"}…`
+                  ? `Search ${categoryCount.toLocaleString(DISPLAY_LOCALE)} categor${categoryCount === 1 ? "y" : "ies"}…`
                   : "Search categories…"
               }
               value={query}

@@ -7,10 +7,11 @@ import { useDailyWork } from "../hooks/use-daily-work";
 import type { DashboardData } from "../hooks/use-dashboard-data";
 import { dashboardHref, usePosHidden } from "../lib/pos-links";
 import css from "../dashboard.module.css";
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 
 /** "As of 10:42", in the branch's business timezone: the moment the queue was read. */
 export function asOfLabel(asOf: string, timezone: string): string {
-  return `As of ${new Date(asOf).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: timezone })}`;
+  return `As of ${new Date(asOf).toLocaleTimeString(DISPLAY_LOCALE, { hour: "2-digit", minute: "2-digit", timeZone: timezone })}`;
 }
 
 /**

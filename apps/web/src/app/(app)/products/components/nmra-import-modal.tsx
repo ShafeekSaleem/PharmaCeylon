@@ -6,6 +6,7 @@ import { IconCheck, IconUpload, IconX } from "@/components/icons";
 import { Modal, ModalButton, ModalFooter } from "@/components/ui";
 import { apiFetch } from "@/lib/auth-client";
 import css from "../products.module.css";
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 
 type PreviewResult = {
   totalRows: number;
@@ -117,7 +118,7 @@ function ResultTile({
         tone === "warn" ? ` ${css.nmraDoneTileWarn}` : ""
       }`}
     >
-      <span className={css.nmraDoneValue}>{value.toLocaleString()}</span>
+      <span className={css.nmraDoneValue}>{value.toLocaleString(DISPLAY_LOCALE)}</span>
       <span className={css.nmraDoneLabel}>{label}</span>
     </div>
   );
@@ -477,13 +478,13 @@ export function NmraImportModal({ open, mode, onClose, onImported }: Props) {
           </div>
           <p className={css.nmraProgressMeta}>
             {progress.total > 0
-              ? `Processing ${progress.processed.toLocaleString()} of ${progress.total.toLocaleString()}…`
+              ? `Processing ${progress.processed.toLocaleString(DISPLAY_LOCALE)} of ${progress.total.toLocaleString(DISPLAY_LOCALE)}…`
               : "Starting import job…"}
             {(progress.created > 0 || progress.updated > 0) && (
               <>
                 {" "}
-                · Created {progress.created.toLocaleString()} · Updated{" "}
-                {progress.updated.toLocaleString()}
+                · Created {progress.created.toLocaleString(DISPLAY_LOCALE)} · Updated{" "}
+                {progress.updated.toLocaleString(DISPLAY_LOCALE)}
               </>
             )}
           </p>
@@ -516,7 +517,7 @@ export function NmraImportModal({ open, mode, onClose, onImported }: Props) {
             <div>
               <strong>Import complete</strong>
               <span>
-                {result.parsed.toLocaleString()} rows read from the register
+                {result.parsed.toLocaleString(DISPLAY_LOCALE)} rows read from the register
               </span>
             </div>
           </div>
@@ -530,8 +531,8 @@ export function NmraImportModal({ open, mode, onClose, onImported }: Props) {
           </div>
           {(result.categoryMapsAdded > 0 || result.tagsTouched > 0) && (
             <p className={css.nmraDoneFoot}>
-              Also filed {result.categoryMapsAdded.toLocaleString()} category links and{" "}
-              {result.tagsTouched.toLocaleString()} tags.
+              Also filed {result.categoryMapsAdded.toLocaleString(DISPLAY_LOCALE)} category links and{" "}
+              {result.tagsTouched.toLocaleString(DISPLAY_LOCALE)} tags.
             </p>
           )}
           <p className={css.nmraDoneFoot}>

@@ -5,6 +5,7 @@ import { IconChevronRight } from "@/components/icons";
 import { RowMenu } from "@/components/ui";
 import type { CommercialCategoryNode } from "../types";
 import css from "../categories.module.css";
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 
 type Props = {
   nodes: CommercialCategoryNode[];
@@ -178,7 +179,7 @@ export function CategoryTree({
 
                 <td className={css.cellNum}>
                   {dept.rangedCount > 0 ? (
-                    dept.rangedCount.toLocaleString()
+                    dept.rangedCount.toLocaleString(DISPLAY_LOCALE)
                   ) : (
                     <span className={css.zero}>0</span>
                   )}
@@ -186,7 +187,7 @@ export function CategoryTree({
 
                 {showReferenceCounts && (
                   <td className={`${css.cellNum} ${css.cellNumMuted}`}>
-                    {dept.referenceCount.toLocaleString()}
+                    {dept.referenceCount.toLocaleString(DISPLAY_LOCALE)}
                   </td>
                 )}
 
@@ -255,18 +256,18 @@ export function CategoryTree({
                                   ? ` ${css.countBadgeFilled}`
                                   : ""
                               }`}
-                              aria-label={`${child.rangedCount.toLocaleString()} products`}
+                              aria-label={`${child.rangedCount.toLocaleString(DISPLAY_LOCALE)} products`}
                             >
-                              {child.rangedCount.toLocaleString()}
+                              {child.rangedCount.toLocaleString(DISPLAY_LOCALE)}
                             </span>
                             {/* Same pill, different colour: the shop's own count is the one
                                 being acted on, the register's is context beside it. */}
                             {showReferenceCounts && child.referenceCount > 0 && (
                               <span
                                 className={`${css.countBadge} ${css.countBadgeReference}`}
-                                aria-label={`${child.referenceCount.toLocaleString()} reference-catalog products`}
+                                aria-label={`${child.referenceCount.toLocaleString(DISPLAY_LOCALE)} reference-catalog products`}
                               >
-                                {child.referenceCount.toLocaleString()}
+                                {child.referenceCount.toLocaleString(DISPLAY_LOCALE)}
                               </span>
                             )}
                           </span>

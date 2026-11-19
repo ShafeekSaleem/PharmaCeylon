@@ -31,6 +31,7 @@ import {
 } from "@/lib/setup-readiness-client";
 import { useRoleAccess } from "@/lib/use-role-access";
 import css from "./get-started.module.css";
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 
 const TASK_ICONS: Record<ReadinessTaskKey, ReactNode> = {
   business_branch: <IconHome size={21} />,
@@ -430,7 +431,7 @@ function GetStartedContent() {
                   <small>
                     {data.optional.catalogOrganized
                       ? "Everything you sell is filed under a category."
-                      : `${data.optional.catalogCoverage.unplaced.toLocaleString()} of ${data.optional.catalogCoverage.ranged.toLocaleString()} products still need a category.`}
+                      : `${data.optional.catalogCoverage.unplaced.toLocaleString(DISPLAY_LOCALE)} of ${data.optional.catalogCoverage.ranged.toLocaleString(DISPLAY_LOCALE)} products still need a category.`}
                   </small>
                 </p>
                 <em>

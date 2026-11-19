@@ -1,4 +1,5 @@
 import type { CashCount } from "../../shared/ipc-contract";
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 
 /**
  * The drawer as the counter counts it (mockup screen=cash): notes one row each, and the coins as a
@@ -65,8 +66,8 @@ export function describeCount(lines: CashCount["lines"]): string {
   return lines
     .map((line) =>
       line.denominationMinor === 100
-        ? `Rs ${line.count.toLocaleString("en-LK")} in coins`
-        : `${line.count} × ${(line.denominationMinor / 100).toLocaleString("en-LK")}`,
+        ? `Rs ${line.count.toLocaleString(DISPLAY_LOCALE)} in coins`
+        : `${line.count} × ${(line.denominationMinor / 100).toLocaleString(DISPLAY_LOCALE)}`,
     )
     .join(", ");
 }

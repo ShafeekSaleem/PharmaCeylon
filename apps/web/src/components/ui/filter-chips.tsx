@@ -1,6 +1,7 @@
 "use client";
 
 import styles from "./filter-chips.module.css";
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 
 export type FilterChip<Id extends string = string> = {
   id: Id;
@@ -49,7 +50,7 @@ export function FilterChips<Id extends string = string>({
       {chips.map((chip) => {
         const selected = chip.id === active;
         const count =
-          chip.count != null ? chip.count.toLocaleString() : undefined;
+          chip.count != null ? chip.count.toLocaleString(DISPLAY_LOCALE) : undefined;
         return (
           <button
             key={chip.id}

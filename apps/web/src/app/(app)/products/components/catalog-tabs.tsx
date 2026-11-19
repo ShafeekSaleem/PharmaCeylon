@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { IconArchive, IconPackage } from "@/components/icons";
 import css from "../products.module.css";
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 
 export type CatalogTab = "mine" | "reference";
 
@@ -104,14 +105,14 @@ function ScopeTab({
   // screen reader hears "Reference catalog, 6,589 medicines on the NMRA register" rather than
   // two unattached numbers.
   const accessibleName =
-    count != null ? `${label}, ${count.toLocaleString()} ${countLabel}` : label;
+    count != null ? `${label}, ${count.toLocaleString(DISPLAY_LOCALE)} ${countLabel}` : label;
   const body = (
     <>
       {icon}
       {label}
       {count != null && (
         <span className={css.scopeTabCount} aria-hidden>
-          {count.toLocaleString()}
+          {count.toLocaleString(DISPLAY_LOCALE)}
         </span>
       )}
     </>

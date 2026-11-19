@@ -2,6 +2,7 @@
 
 import { useId, useMemo, useRef, useState, type MouseEvent } from "react";
 import css from "../dashboard.module.css";
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 
 export type ChartPoint = { label: string; value: number };
 export type SeriesPoint = { label: string; a: number; b?: number };
@@ -656,7 +657,7 @@ export function SimpleBarChart({
                     {p.label}
                     {i === peakIdx ? " · Peak" : ""}
                   </span>
-                  <span className={css.chartTooltipValue}>{p.value.toLocaleString()}</span>
+                  <span className={css.chartTooltipValue}>{p.value.toLocaleString(DISPLAY_LOCALE)}</span>
                 </div>
               ) : null}
               <div
@@ -1016,7 +1017,7 @@ export function SimpleGroupedBarChart({
               <span className={css.chartTooltipLabel}>
                 {activePoint.label} · {activeSeriesLabel}
               </span>
-              <span className={css.chartTooltipValue}>{Math.round(activeValue).toLocaleString()}</span>
+              <span className={css.chartTooltipValue}>{Math.round(activeValue).toLocaleString(DISPLAY_LOCALE)}</span>
             </div>
           ) : null}
         </div>

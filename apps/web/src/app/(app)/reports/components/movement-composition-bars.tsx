@@ -1,6 +1,7 @@
 "use client";
 
 import css from "../reports.module.css";
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 
 export type CompositionRow = { key: string; label: string; direction: "in" | "out"; units: number };
 
@@ -26,7 +27,7 @@ function DirectionBar({ title, rows, palette }: { title: string; rows: Compositi
                 key={r.key}
                 className={css.exposureBarSegment}
                 style={{ width: `${(r.units / total) * 100}%`, background: palette[i % palette.length] }}
-                data-tooltip={`${r.label}: ${r.units.toLocaleString("en-IN")} units (${((r.units / total) * 100).toFixed(1)}%)`}
+                data-tooltip={`${r.label}: ${r.units.toLocaleString(DISPLAY_LOCALE)} units (${((r.units / total) * 100).toFixed(1)}%)`}
               />
             ))}
           </div>
@@ -35,7 +36,7 @@ function DirectionBar({ title, rows, palette }: { title: string; rows: Compositi
               <span key={r.key} className={css.exposureBarLegendItem}>
                 <i className={css.exposureBarSwatch} style={{ background: palette[i % palette.length] }} />
                 <span className={css.exposureBarLegendLabel}>{r.label}</span>
-                <span className={css.mutedcell}>{r.units.toLocaleString("en-IN")}</span>
+                <span className={css.mutedcell}>{r.units.toLocaleString(DISPLAY_LOCALE)}</span>
               </span>
             ))}
           </div>

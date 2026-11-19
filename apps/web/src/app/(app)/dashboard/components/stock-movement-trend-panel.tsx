@@ -10,6 +10,7 @@ import { MetricCell } from "./metric-cell";
 import { PeriodToggle } from "./period-toggle";
 import { SimpleGroupedBarChart } from "./simple-charts";
 import css from "../dashboard.module.css";
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 
 type Period = "today" | "week" | "month";
 
@@ -116,19 +117,19 @@ export function StockMovementTrendPanel({ branchId }: Props) {
           >
             <MetricCell
               label="Received"
-              value={`+${data.receivedTotal.toLocaleString()} units`}
+              value={`+${data.receivedTotal.toLocaleString(DISPLAY_LOCALE)} units`}
               icon={<IconPackage size={16} strokeWidth={1.75} />}
               iconTone="bills"
             />
             <MetricCell
               label="Issued"
-              value={`−${data.issuedTotal.toLocaleString()} units`}
+              value={`−${data.issuedTotal.toLocaleString(DISPLAY_LOCALE)} units`}
               icon={<IconTruck size={16} strokeWidth={1.75} />}
               iconTone="avg"
             />
             <MetricCell
               label="Net"
-              value={`${data.netTotal >= 0 ? "+" : "−"}${Math.abs(data.netTotal).toLocaleString()} units`}
+              value={`${data.netTotal >= 0 ? "+" : "−"}${Math.abs(data.netTotal).toLocaleString(DISPLAY_LOCALE)} units`}
               icon={<IconActivity size={16} strokeWidth={1.75} />}
               iconTone="peak"
             />

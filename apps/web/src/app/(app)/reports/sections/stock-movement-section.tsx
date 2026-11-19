@@ -25,6 +25,7 @@ import type {
   Scope,
 } from "../lib/types";
 import css from "../reports.module.css";
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 
 type Props = { scope: Scope; isOwner: boolean; days: number; categoryId?: string; supplierId?: string; movementType?: MovementTypeFilterKey; onExportData: OnExportData };
 
@@ -162,7 +163,7 @@ export function StockMovementSection({ scope, isOwner, days, categoryId, supplie
   const insightItems: ActionPanelItem[] = useMemo(() => {
     const topDept = data?.categoryMovement?.[0];
     const examplesByKey: Record<string, ActionPanelItem["examples"]> = {
-      fastMovingCategory: topDept ? [{ label: topDept.departmentName, badge: `${topDept.inboundUnits.toLocaleString("en-IN")} in / ${topDept.outboundUnits.toLocaleString("en-IN")} out`, tone: "neutral" }] : undefined,
+      fastMovingCategory: topDept ? [{ label: topDept.departmentName, badge: `${topDept.inboundUnits.toLocaleString(DISPLAY_LOCALE)} in / ${topDept.outboundUnits.toLocaleString(DISPLAY_LOCALE)} out`, tone: "neutral" }] : undefined,
       replenishmentWatch: [{ label: "Cover threshold", badge: `< ${MOVEMENT_REPLENISHMENT_COVER_DAYS} days`, tone: "negative" }],
       highTransfersAdjustments: [{ label: "Materiality threshold", badge: `≥ ${MOVEMENT_TRANSFER_SHARE_THRESHOLD}%`, tone: "neutral" }],
       shrinkageVariance: [{ label: "Variance threshold", badge: `> ${MOVEMENT_SHRINKAGE_THRESHOLD}%`, tone: "negative" }],
@@ -204,13 +205,13 @@ export function StockMovementSection({ scope, isOwner, days, categoryId, supplie
     ) },
     { key: "flow", header: "Out / In", align: "right", width: "4.3rem", sortable: true, getValue: (r) => r.unitsOut, render: (r) => (
       <>
-        <span>{r.unitsOut.toLocaleString("en-IN")} out</span>
-        <div className={`${css.mutedcell} ${css.productNameCell}`}>{r.unitsIn.toLocaleString("en-IN")} in</div>
+        <span>{r.unitsOut.toLocaleString(DISPLAY_LOCALE)} out</span>
+        <div className={`${css.mutedcell} ${css.productNameCell}`}>{r.unitsIn.toLocaleString(DISPLAY_LOCALE)} in</div>
       </>
     ) },
     { key: "net", header: "Net", align: "right", width: "4.6rem", sortable: true, getValue: (r) => r.netChange, render: (r) => (
       <>
-        <span className={r.netChange > 0 ? css.deltaUp : r.netChange < 0 ? css.deltaDown : undefined}>{r.netChange > 0 ? "+" : ""}{r.netChange.toLocaleString("en-IN")}</span>
+        <span className={r.netChange > 0 ? css.deltaUp : r.netChange < 0 ? css.deltaDown : undefined}>{r.netChange > 0 ? "+" : ""}{r.netChange.toLocaleString(DISPLAY_LOCALE)}</span>
         <div className={`${css.mutedcell} ${css.productNameCell}`}>{r.avgDailyUnitsOut.toFixed(1)}/day</div>
       </>
     ) },
@@ -224,9 +225,9 @@ export function StockMovementSection({ scope, isOwner, days, categoryId, supplie
         <span className={`${css.productNameCell}`} title={r.departmentName}>{r.departmentName}</span>
       </span>
     ) },
-    { key: "in", header: "In", align: "right", width: "3.6rem", sortable: true, getValue: (r) => r.inboundUnits, render: (r) => r.inboundUnits.toLocaleString("en-IN") },
-    { key: "out", header: "Out", align: "right", width: "3.6rem", sortable: true, getValue: (r) => r.outboundUnits, render: (r) => r.outboundUnits.toLocaleString("en-IN") },
-    { key: "net", header: "Net", align: "right", width: "4rem", sortable: true, getValue: (r) => r.netUnits, render: (r) => <span className={r.netUnits > 0 ? css.deltaUp : r.netUnits < 0 ? css.deltaDown : undefined}>{r.netUnits > 0 ? "+" : ""}{r.netUnits.toLocaleString("en-IN")}</span> },
+    { key: "in", header: "In", align: "right", width: "3.6rem", sortable: true, getValue: (r) => r.inboundUnits, render: (r) => r.inboundUnits.toLocaleString(DISPLAY_LOCALE) },
+    { key: "out", header: "Out", align: "right", width: "3.6rem", sortable: true, getValue: (r) => r.outboundUnits, render: (r) => r.outboundUnits.toLocaleString(DISPLAY_LOCALE) },
+    { key: "net", header: "Net", align: "right", width: "4rem", sortable: true, getValue: (r) => r.netUnits, render: (r) => <span className={r.netUnits > 0 ? css.deltaUp : r.netUnits < 0 ? css.deltaDown : undefined}>{r.netUnits > 0 ? "+" : ""}{r.netUnits.toLocaleString(DISPLAY_LOCALE)}</span> },
     { key: "cover", header: "Cover", align: "right", width: "3.5rem", sortable: true, getValue: (r) => r.avgDaysCover ?? -1, render: (r) => (r.avgDaysCover == null ? "—" : `${r.avgDaysCover}d`) },
     { key: "trend", header: "Trend (Net)", align: "right", width: "5.5rem", render: (r) => <NetSparkline points={r.trend} /> },
   ];
@@ -306,7 +307,7 @@ export function StockMovementSection({ scope, isOwner, days, categoryId, supplie
         />
         <StatCard size="sm" showMenu={false}
           title="Stockout Events"
-          value={loading || !kpis ? "…" : kpis.stockoutEvents.toLocaleString("en-IN")}
+          value={loading || !kpis ? "…" : kpis.stockoutEvents.toLocaleString(DISPLAY_LOCALE)}
           subtitle="Times stock hit zero this period"
           icon={<IconAlertTriangle size={16} />}
           iconTone="danger"
@@ -323,7 +324,7 @@ export function StockMovementSection({ scope, isOwner, days, categoryId, supplie
             </div>
           </div>
           <div className={css.heatmapGrow}>
-            <WaterfallChart steps={data?.stockFlowBridge ?? []} formatValue={(n) => n.toLocaleString("en-IN")} />
+            <WaterfallChart steps={data?.stockFlowBridge ?? []} formatValue={(n) => n.toLocaleString(DISPLAY_LOCALE)} />
           </div>
         </div>
 
@@ -343,21 +344,21 @@ export function StockMovementSection({ scope, isOwner, days, categoryId, supplie
               <span className={`${css.movementFooterIcon} ${css.actionIconSq} ${css.primary}`}><IconDownload size={11} /></span>
               <span className={css.movementFooterText}>
                 <span className={css.movementFooterLabel} title="Average Inbound / Day">Avg In</span>
-                <span className={css.movementFooterValue}>{Math.round(data?.avgInboundPerDay ?? 0).toLocaleString("en-IN")}</span>
+                <span className={css.movementFooterValue}>{Math.round(data?.avgInboundPerDay ?? 0).toLocaleString(DISPLAY_LOCALE)}</span>
               </span>
             </div>
             <div className={css.movementFooterCell}>
               <span className={`${css.movementFooterIcon} ${css.actionIconSq} ${css.warning}`}><IconUpload size={11} /></span>
               <span className={css.movementFooterText}>
                 <span className={css.movementFooterLabel} title="Average Outbound / Day">Avg Out</span>
-                <span className={css.movementFooterValue}>{Math.round(data?.avgOutboundPerDay ?? 0).toLocaleString("en-IN")}</span>
+                <span className={css.movementFooterValue}>{Math.round(data?.avgOutboundPerDay ?? 0).toLocaleString(DISPLAY_LOCALE)}</span>
               </span>
             </div>
             <div className={css.movementFooterCell}>
               <span className={`${css.movementFooterIcon} ${css.actionIconSq} ${css.muted}`}><IconActivity size={11} /></span>
               <span className={css.movementFooterText}>
                 <span className={css.movementFooterLabel} title="Average Net / Day">Avg Net</span>
-                <span className={css.movementFooterValue}>{(data?.avgNetPerDay ?? 0) > 0 ? "+" : ""}{Math.round(data?.avgNetPerDay ?? 0).toLocaleString("en-IN")}</span>
+                <span className={css.movementFooterValue}>{(data?.avgNetPerDay ?? 0) > 0 ? "+" : ""}{Math.round(data?.avgNetPerDay ?? 0).toLocaleString(DISPLAY_LOCALE)}</span>
               </span>
             </div>
             <div className={css.movementFooterCell}>
@@ -366,7 +367,7 @@ export function StockMovementSection({ scope, isOwner, days, categoryId, supplie
                 <span className={css.movementFooterLabel} title="Most Significant Net Day">Best Day</span>
                 <span className={css.movementFooterValue}>
                   {data?.bestNetDay ? data.bestNetDay.label : "—"}
-                  {data?.bestNetDay ? <small className={data.bestNetDay.netUnits >= 0 ? css.deltaUp : css.deltaDown}>{data.bestNetDay.netUnits >= 0 ? "+" : ""}{data.bestNetDay.netUnits.toLocaleString("en-IN")}</small> : null}
+                  {data?.bestNetDay ? <small className={data.bestNetDay.netUnits >= 0 ? css.deltaUp : css.deltaDown}>{data.bestNetDay.netUnits >= 0 ? "+" : ""}{data.bestNetDay.netUnits.toLocaleString(DISPLAY_LOCALE)}</small> : null}
                 </span>
               </span>
             </div>
@@ -395,7 +396,7 @@ export function StockMovementSection({ scope, isOwner, days, categoryId, supplie
             </div>
           </div>
           <div className={css.heatmapGrow}>
-            <MovementMirrorChart rows={mirrorRows} formatValue={(n) => n.toLocaleString("en-IN")} onRowClick={focusDepartment} activeId={selectedDeptId} />
+            <MovementMirrorChart rows={mirrorRows} formatValue={(n) => n.toLocaleString(DISPLAY_LOCALE)} onRowClick={focusDepartment} activeId={selectedDeptId} />
           </div>
           {(data?.highestMovementCategories?.length ?? 0) > 0 ? (
             <div className={css.churnFooter}>
@@ -411,7 +412,7 @@ export function StockMovementSection({ scope, isOwner, days, categoryId, supplie
                       onClick={() => focusDepartment(deptId)}
                     >
                       <span className={css.chip2Label}>{c.departmentName}</span>
-                      <b className={css.chip2Neutral}>{c.totalUnits.toLocaleString("en-IN")} units</b>
+                      <b className={css.chip2Neutral}>{c.totalUnits.toLocaleString(DISPLAY_LOCALE)} units</b>
                     </button>
                   );
                 })}

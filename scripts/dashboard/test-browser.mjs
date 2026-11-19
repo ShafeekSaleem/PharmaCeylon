@@ -529,14 +529,14 @@ try {
         .waitFor({ timeout: 5000 });
     }
     if (role === "owner") {
-      // The top-bar branch switch (UI1 #205) is named for what it does and which branch is
-      // current; its menu items are the plain branch names.
-      const branchSwitch = (current) =>
-        page.getByRole("button", {
-          name: `Branch: ${current}. Switch branch`,
+      // The top-bar switch (#227) is named "Branch: <name>. Switch branch";
+      // its menu items are the bare branch names.
+      await page
+        .getByRole("button", {
+          name: "Branch: Colombo Central. Switch branch",
           exact: true,
-        });
-      await branchSwitch("Colombo Central").click();
+        })
+        .click();
       const changed = page.waitForResponse(
         (r) =>
           r.url().includes("/dashboard/work?") &&
@@ -550,7 +550,12 @@ try {
         otherWork.items.map((i) => i.reference),
         ["PO-KANDY-ONLY"],
       );
-      await branchSwitch("Kandy Central").click();
+      await page
+        .getByRole("button", {
+          name: "Branch: Kandy Central. Switch branch",
+          exact: true,
+        })
+        .click();
       const restored = page.waitForResponse(
         (r) =>
           r.url().includes("/dashboard/work?") &&

@@ -1,6 +1,7 @@
 import type { OfflineModeState, OfflineStaff } from "../../shared/ipc-contract";
 import { time } from "./format";
 import { minor } from "./sell-model";
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 
 /** P4 #50: what the offline counter shows. Pure, so the wording is tested without a screen. */
 
@@ -100,7 +101,7 @@ export const remainingText = (remaining: number) =>
 
 /** "Expires Aug 2027", from the batch's sell-before time. */
 export function expiryText(sellBefore: number): string {
-  return `Exp ${new Intl.DateTimeFormat("en-GB", {
+  return `Exp ${new Intl.DateTimeFormat(DISPLAY_LOCALE, {
     month: "short",
     year: "numeric",
   }).format(new Date(sellBefore))}`;
@@ -143,7 +144,7 @@ function dayWord(at: Date, now: Date): string {
   if (diff === 0) return "today";
   if (diff === 1) return "tomorrow";
   if (diff === -1) return "yesterday";
-  return new Intl.DateTimeFormat("en-GB", {
+  return new Intl.DateTimeFormat(DISPLAY_LOCALE, {
     day: "numeric",
     month: "short",
   }).format(at);

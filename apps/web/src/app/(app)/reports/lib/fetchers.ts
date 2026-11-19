@@ -39,6 +39,7 @@ import type {
   SupplierSpendResponse,
   SupplierPerformanceResponse,
 } from "./types";
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 
 function scopeQs(scope: Scope, isOwner: boolean): string {
   return isOwner && scope === "tenant" ? "&scope=tenant" : "";
@@ -334,7 +335,7 @@ export function fetchMarginTrendByCategory(days: number, scope: Scope, isOwner: 
  *  built from `marginTrendByCategory` looks identical to the chart it's replacing. */
 function dayLabel(iso: string, days: number): string {
   const d = new Date(`${iso}T12:00:00`);
-  return days <= 7 ? d.toLocaleDateString(undefined, { weekday: "short" }) : d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  return days <= 7 ? d.toLocaleDateString(DISPLAY_LOCALE, { weekday: "short" }) : d.toLocaleDateString(DISPLAY_LOCALE, { month: "short", day: "numeric" });
 }
 
 /** Sales Summary's trend line, but built on the same tax-inclusive, returns-netted revenue basis

@@ -13,6 +13,7 @@ import { useInventoryStock } from "../hooks/use-inventory-stock";
 import css from "../inventory.module.css";
 import { InventoryFilterSelect } from "./inventory-filter-select";
 import { adjustmentKeys, submitAdjustment } from "./submit-adjustment";
+import { formatDisplayDate } from "@pharmaceylon/shared";
 
 /** What happened to the stock — each sets the direction and is recorded as the reason. */
 type Kind = "found" | "damaged" | "expired" | "lost" | "opening" | "correction";
@@ -369,7 +370,7 @@ function AdjustmentModalContent({
                     {batch.expired ? <span className={css.adjOut}>expired</span> : null}
                   </span>
                   <span className={css.fieldHint}>
-                    exp {new Date(batch.expiryDate).toLocaleDateString()} · {batch.qtyOnHand} on hand
+                    exp {formatDisplayDate(batch.expiryDate)} · {batch.qtyOnHand} on hand
                     {batch.quarantinedQty > 0 ? ` · ${batch.quarantinedQty} held` : ""}
                     {batch.reservedQty > 0 ? ` · ${batch.reservedQty} reserved` : ""}
                   </span>

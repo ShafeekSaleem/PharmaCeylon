@@ -11,6 +11,7 @@ import css from "../inventory.module.css";
 import type { StockRow } from "../types";
 import { formatRelativeTime } from "../utils";
 import { HeldChips } from "./batches-table";
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 
 export type StockSortKey = "name" | "available" | "onHand";
 
@@ -109,7 +110,7 @@ export function StockTable({
         align: "right",
         render: (row) => (
           <span className={css.qtyStack}>
-            <span className={css.qtyPrimary}>{row.qtyOnHand.toLocaleString()}</span>
+            <span className={css.qtyPrimary}>{row.qtyOnHand.toLocaleString(DISPLAY_LOCALE)}</span>
           </span>
         ),
       },

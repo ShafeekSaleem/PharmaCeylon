@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import { squarify } from "../lib/treemap";
 import css from "../reports.module.css";
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 
 export type TreemapNode = {
   id: string;
@@ -67,7 +68,7 @@ export function StockValueTreemap({ nodes, formatValue, formatTileValue, colorOf
         const showContent = r.w >= MIN_TILE_W_FOR_CONTENT && r.h >= MIN_TILE_H_FOR_CONTENT;
         const showValue = showContent && r.h >= MIN_TILE_H_FOR_VALUE;
         const showShare = showValue && r.h >= MIN_TILE_H_FOR_SHARE;
-        const tooltip = `${n.label}: ${formatValue(n.value)} · ${n.units.toLocaleString("en-IN")} units · ${n.share.toFixed(1)}% share · Cover: ${n.daysOfCover == null ? "—" : `${n.daysOfCover}d`}`;
+        const tooltip = `${n.label}: ${formatValue(n.value)} · ${n.units.toLocaleString(DISPLAY_LOCALE)} units · ${n.share.toFixed(1)}% share · Cover: ${n.daysOfCover == null ? "—" : `${n.daysOfCover}d`}`;
         const Tag = onTileClick ? "button" : "div";
         return (
           <Tag

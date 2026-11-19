@@ -4,6 +4,7 @@
  * free of React and the DOM so it can be tested on its own (sell-model.spec.ts).
  */
 import type { CatalogProduct } from "../../shared/ipc-contract";
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 
 /** The find panel's filter chips. */
 export type FindFilter = "all" | "stock" | "rx" | "otc";
@@ -23,7 +24,7 @@ export const LOW_STOCK = 10;
 
 export const minor = (amount: string) => Math.round(Number(amount) * 100);
 
-const grouped = new Intl.NumberFormat("en-US", {
+const grouped = new Intl.NumberFormat(DISPLAY_LOCALE, {
   minimumFractionDigits: 2,
   maximumFractionDigits: 2,
 });

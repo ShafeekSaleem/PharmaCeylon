@@ -1,16 +1,17 @@
 import { PAYMENT_METHOD_LABELS } from "./constants";
 import type { PaymentMethod } from "./types";
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 
 export function formatDate(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" });
+  return d.toLocaleDateString(DISPLAY_LOCALE, { day: "numeric", month: "short", year: "numeric" });
 }
 
 export function formatTime(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+  return d.toLocaleTimeString(DISPLAY_LOCALE, { hour: "2-digit", minute: "2-digit" });
 }
 
 export function formatDateTime(iso: string): string {

@@ -1,7 +1,8 @@
 import { fireEvent, screen, within } from "@testing-library/react";
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 
 const longDay = (date: Date) =>
-  date.toLocaleDateString("en-US", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+  date.toLocaleDateString(DISPLAY_LOCALE, { weekday: "long", day: "numeric", month: "long", year: "numeric" });
 
 /**
  * Choose a date in the app's calendar (`DatePicker`) the way a person does: open the field,
@@ -12,7 +13,7 @@ const longDay = (date: Date) =>
 export function pickDate(field: RegExp, iso: string) {
   fireEvent.click(screen.getByRole("button", { name: field }));
   const target = new Date(`${iso}T00:00:00`);
-  const wanted = target.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+  const wanted = target.toLocaleDateString(DISPLAY_LOCALE, { month: "long", year: "numeric" });
   const popover = screen.getByRole("dialog", { name: /choose a date/ });
 
   for (let step = 0; step < 240; step += 1) {

@@ -24,6 +24,7 @@ import { AgeingTrendChart, type AgeingTrendPoint } from "../components/ageing-tr
 import { ActionsPanel, type ActionPanelItem } from "../components/actions-panel";
 import type { DeadStockAction, DeadStockItem, ExportPayload, OnExportData, Scope, StockHealthItem, StockHealthZone } from "../lib/types";
 import css from "../reports.module.css";
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 
 type Props = { scope: Scope; isOwner: boolean; categoryId?: string; supplierId?: string; onExportData: OnExportData };
 
@@ -324,7 +325,7 @@ export function StockHealthSection({ scope, isOwner, categoryId, supplierId, onE
       </span>
     ) },
     { key: "issue", header: "Health Issue", width: "5.5rem", render: (r) => <span className={`${css.badge2} ${css.badge2Tight} ${css[r.zone]}`}>{ZONE_LABEL[r.zone]}</span> },
-    { key: "units", header: "Units", width: "3.5rem", align: "right", sortable: true, getValue: (r) => r.qtyOnHand, render: (r) => r.qtyOnHand.toLocaleString("en-IN") },
+    { key: "units", header: "Units", width: "3.5rem", align: "right", sortable: true, getValue: (r) => r.qtyOnHand, render: (r) => r.qtyOnHand.toLocaleString(DISPLAY_LOCALE) },
     { key: "value", header: "Value", width: "5.5rem", align: "right", sortable: true, getValue: (r) => Number(r.value), render: (r) => formatMoney(Number(r.value)) },
     { key: "cover", header: "Cover", width: "3.8rem", align: "right", sortable: true, getValue: (r) => r.daysOfCover ?? -1, render: (r) => (r.daysOfCover == null ? "—" : `${r.daysOfCover}d`) },
     { key: "lastSale", header: "Last Sale", width: "4.5rem", align: "right", sortable: true, getValue: (r) => r.daysSinceLastSale ?? Number.MAX_SAFE_INTEGER, render: (r) => (r.daysSinceLastSale == null ? "Never" : `${r.daysSinceLastSale}d ago`) },
@@ -388,7 +389,7 @@ export function StockHealthSection({ scope, isOwner, categoryId, supplierId, onE
         />
         <StatCard size="sm" showMenu={false}
           title="Low / Out-of-Stock SKUs"
-          value={loading ? "…" : lowOrOutCount.toLocaleString("en-IN")}
+          value={loading ? "…" : lowOrOutCount.toLocaleString(DISPLAY_LOCALE)}
           subtitle={loading ? "" : `${outOfStockCount} out of stock, ${reorderRiskItems.length} below reorder`}
           icon={<IconAlertTriangle size={16} />}
           iconTone="danger"
