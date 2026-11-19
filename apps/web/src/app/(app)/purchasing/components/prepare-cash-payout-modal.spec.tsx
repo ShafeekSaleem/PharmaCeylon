@@ -21,4 +21,9 @@ describe("PrepareCashPayoutModal", () => {
     expect(screen.getByText("Enter the amount to pay out")).toBeTruthy();
     expect(screen.getByRole("button", { name: /Prepare cash payout/i })).toBeTruthy();
   });
+
+  it("does not surface the self-approve note inside the modal", () => {
+    render(<PrepareCashPayoutModal open onClose={() => undefined} onPrepared={() => undefined} />);
+    expect(screen.queryByText(/self-approve supplier payments/i)).toBeNull();
+  });
 });

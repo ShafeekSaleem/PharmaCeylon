@@ -741,11 +741,12 @@ function registerIpc(
             );
           const executed = await counterWork.executeRefund(refundRequestId);
           const executor = terminal?.current()?.staff.staffUserId;
-          if (!executed.alreadyApplied && executor)
-            shifts?.recordRefund(
+          if (executor)
+            shifts?.recordRefundAfterExecute(
               executed.requestNumber,
               executed.refundedTo,
               executor,
+              executed.alreadyApplied,
             );
           return executed;
         }),
@@ -768,11 +769,12 @@ function registerIpc(
           const executed = await counterWork.executeCashPayout(cashPayoutId);
           const executor = terminal?.current()?.staff.staffUserId;
           let expectedCashMinorAfter: number | null = null;
-          if (!executed.alreadyApplied && executor) {
-            shifts?.recordSupplierPayout(
+          if (executor) {
+            shifts?.recordCashPayoutAfterExecute(
               cashPayoutId,
               executed.amountMinor,
               executor,
+              executed.alreadyApplied,
             );
             expectedCashMinorAfter =
               shifts?.state().current?.expectedCashMinor ?? null;
@@ -873,15 +875,12 @@ function registerIpc(
           const outcome = await returns.submit(input);
           // A cash refund done here leaves the open shift's drawer: the counter's own figure too.
           const executor = terminal?.current()?.staff.staffUserId;
-          if (
-            outcome.status === "refunded" &&
-            !outcome.refund.alreadyApplied &&
-            executor
-          )
-            shifts?.recordRefund(
+          if (outcome.status === "refunded" && executor)
+            shifts?.recordRefundAfterExecute(
               outcome.refund.requestNumber,
               outcome.refund.refundedTo,
               executor,
+              outcome.refund.alreadyApplied,
             );
           return outcome;
         }),

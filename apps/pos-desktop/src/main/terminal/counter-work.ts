@@ -365,6 +365,8 @@ export class CounterWorkService {
       payoutNumber: ready.payoutNumber,
       amountMinor: result.amountMinor,
       supplierPaymentId: result.supplierPaymentId,
+      supplierPaymentNo: result.supplierPaymentNo ?? null,
+      executedAt: new Date(receipt.recordedAt).toISOString(),
       alreadyApplied: result.effect === "already_applied",
       requestedBy: ready.requestedBy,
       approvedBy: ready.approvedBy,

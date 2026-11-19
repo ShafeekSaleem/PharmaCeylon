@@ -1116,6 +1116,7 @@ export function CashShiftPage({
           device={device}
           shift={open ? current : null}
           online={online}
+          printer={printer}
           focusPayoutId={focusId}
           onFocusConsumed={() => {
             setFocusId(null);

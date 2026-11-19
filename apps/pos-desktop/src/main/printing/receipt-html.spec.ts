@@ -1,5 +1,9 @@
 import { describe, expect, it } from "@jest/globals";
-import { renderSaleReceiptHtml, type ReceiptSale } from "./receipt-html";
+import {
+  renderSaleReceiptHtml,
+  renderSupplierCashPayoutReceiptHtml,
+  type ReceiptSale,
+} from "./receipt-html";
 
 const sale: ReceiptSale = {
   invoiceNo: "C1R-000186",
@@ -49,5 +53,33 @@ describe("sale receipt", () => {
     });
     expect(html).toContain('<header class="brand">');
     expect(html).not.toContain("onload");
+  });
+});
+
+describe("supplier cash payout receipt", () => {
+  const payout = {
+    payoutNumber: "SCP-0042",
+    amountMinor: 1_250_000,
+    supplierPaymentId: "44444444-4444-4444-8444-444444444444",
+    supplierPaymentNo: "SP-0012",
+    supplierName: "Hemas",
+    movementReason: "Supplier payout · SCP-0042",
+    executedAt: "2026-11-14T12:30:00.000Z",
+  };
+
+  it("prints the supplier payment number and applied time", () => {
+    const html = renderSupplierCashPayoutReceiptHtml(payout, place);
+    expect(html).toContain("SP-0012");
+    expect(html).toContain("12:30:00");
+    expect(html).not.toContain("44444444-4444");
+  });
+
+  it("falls back to the payment id prefix when supplierPaymentNo is absent", () => {
+    const html = renderSupplierCashPayoutReceiptHtml(
+      { ...payout, supplierPaymentNo: null },
+      place,
+    );
+    expect(html).toContain("44444444");
+    expect(html).not.toContain("SP-0012");
   });
 });

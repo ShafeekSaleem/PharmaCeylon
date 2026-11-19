@@ -258,6 +258,54 @@ describe("the counter's own running expected cash", () => {
       | undefined;
     expect(row?.kind).toBe("payout");
   });
+
+  it("records cash payout execute on first apply", async () => {
+    const shifts = service();
+    await shifts.open(PIN, FIVE_THOUSAND);
+    const payoutId = randomUUID();
+    shifts.recordCashPayoutAfterExecute(payoutId, 1_250_000, cashier.staffUserId, false);
+    expect(shifts.state().current!.expectedCashMinor).toBe(500_000 - 1_250_000);
+    expect(shifts.hasPosting(`payout:${payoutId}`)).toBe(true);
+  });
+
+  it("backfills a lost-response retry when the posting is missing", async () => {
+    const shifts = service();
+    await shifts.open(PIN, FIVE_THOUSAND);
+    const payoutId = randomUUID();
+    shifts.recordCashPayoutAfterExecute(payoutId, 1_250_000, cashier.staffUserId, true);
+    expect(shifts.state().current!.expectedCashMinor).toBe(500_000 - 1_250_000);
+    expect(local.db.prepare("SELECT COUNT(*) AS n FROM till_shift_posting").get()).toEqual({ n: 1 });
+  });
+
+  it("does not double-post when the payout posting already exists", async () => {
+    const shifts = service();
+    await shifts.open(PIN, FIVE_THOUSAND);
+    const payoutId = randomUUID();
+    shifts.recordCashPayoutAfterExecute(payoutId, 1_250_000, cashier.staffUserId, false);
+    shifts.recordCashPayoutAfterExecute(payoutId, 1_250_000, cashier.staffUserId, true);
+    expect(shifts.state().current!.expectedCashMinor).toBe(500_000 - 1_250_000);
+    expect(local.db.prepare("SELECT COUNT(*) AS n FROM till_shift_posting").get()).toEqual({ n: 1 });
+  });
+
+  it("backfills refund execute retries without double posting", async () => {
+    const shifts = service();
+    await shifts.open(PIN, FIVE_THOUSAND);
+    const requestNumber = "RF-0099";
+    shifts.recordRefundAfterExecute(
+      requestNumber,
+      [{ method: "cash", amountMinor: 700 }],
+      cashier.staffUserId,
+      false,
+    );
+    shifts.recordRefundAfterExecute(
+      requestNumber,
+      [{ method: "cash", amountMinor: 700 }],
+      cashier.staffUserId,
+      true,
+    );
+    expect(shifts.state().current!.expectedCashMinor).toBe(500_000 - 700);
+    expect(local.db.prepare("SELECT COUNT(*) AS n FROM till_shift_posting").get()).toEqual({ n: 1 });
+  });
 });
 
 describe("closing a shift", () => {

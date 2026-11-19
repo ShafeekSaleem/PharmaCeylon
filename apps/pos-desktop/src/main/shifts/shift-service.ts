@@ -653,6 +653,39 @@ export class ShiftService {
     this.post(`payout:${cashPayoutId}`, "payout", executorId, { cashIn: 0, change: 0, cashOut: amountMinor });
   }
 
+  hasPosting(id: string): boolean {
+    return Boolean(
+      this.deps.db.prepare("SELECT 1 AS x FROM till_shift_posting WHERE id = ? LIMIT 1").get(id),
+    );
+  }
+
+  /**
+   * Record drawer cash after payout execute. On a lost-response retry (`alreadyApplied`) the local
+   * posting may be missing even though the server already moved money — backfill once.
+   */
+  recordCashPayoutAfterExecute(
+    cashPayoutId: string,
+    amountMinor: number,
+    executorId: string,
+    alreadyApplied: boolean,
+  ): void {
+    const postingId = `payout:${cashPayoutId}`;
+    if (alreadyApplied && this.hasPosting(postingId)) return;
+    this.recordSupplierPayout(cashPayoutId, amountMinor, executorId);
+  }
+
+  /** Same idempotent backfill for refund execute when the server says `already_applied`. */
+  recordRefundAfterExecute(
+    requestNumber: string,
+    refundedTo: { method: string; amountMinor: number }[],
+    executorId: string,
+    alreadyApplied: boolean,
+  ): void {
+    const postingId = `refund:${requestNumber}`;
+    if (alreadyApplied && this.hasPosting(postingId)) return;
+    this.recordRefund(requestNumber, refundedTo, executorId);
+  }
+
   private post(
     id: string,
     kind: "sale" | "refund" | "payout",
