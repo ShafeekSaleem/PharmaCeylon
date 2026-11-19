@@ -19,7 +19,7 @@ type Props = { days: number; cityFilter?: string; onNavigate: (c: CategoryKey, r
 
 type TrendView = "all" | "top" | "compare2";
 
-const BRANCH_PALETTE = ["var(--pc-primary)", "var(--pc-secondary-cyan)", "var(--pc-tone-violet)", "var(--pc-tone-orange)", "var(--pc-tone-success)", "var(--pc-tone-orange-strong)", "var(--pc-muted-fg)"];
+const BRANCH_PALETTE = ["var(--pc-chart-1)", "var(--pc-chart-2)", "var(--pc-chart-3)", "var(--pc-chart-4)", "var(--pc-chart-5)", "var(--pc-chart-6)", "var(--pc-muted-fg)"];
 
 type BranchEnriched = {
   branchId: string;

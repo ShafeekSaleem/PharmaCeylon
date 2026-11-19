@@ -40,6 +40,7 @@ beforeEach(() => {
   saveBrand.mockReset();
   document.getElementById("pc-brand")?.remove();
   delete document.documentElement.dataset.sidebar;
+  delete document.documentElement.dataset.chart;
 });
 
 it("shows non-owners the brand without letting them change it", async () => {
@@ -137,5 +138,23 @@ it("sets the counter app's starting theme and locks it", async () => {
   expect(saveBrand).toHaveBeenCalledWith(
     3,
     expect.objectContaining({ counterTheme: "dark", counterThemeLocked: true }),
+  );
+});
+
+it("lets the owner pick the distinct chart colours", async () => {
+  saveBrand.mockImplementation(async (_v, a) =>
+    stored({ ...(a as object), version: 4 }),
+  );
+  await renderCard("owner");
+  fireEvent.click(screen.getByRole("button", { name: "Distinct colours" }));
+  expect(document.documentElement.dataset.chart).toBe("distinct");
+  await act(async () => {
+    fireEvent.click(
+      screen.getByRole("button", { name: "Save for the pharmacy" }),
+    );
+  });
+  expect(saveBrand).toHaveBeenCalledWith(
+    3,
+    expect.objectContaining({ chartPalette: "distinct" }),
   );
 });
