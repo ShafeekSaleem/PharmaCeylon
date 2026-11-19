@@ -117,6 +117,8 @@ export function App() {
   const [commandsSent, setCommandsSent] = useState(0);
   const onCommandSent = useCallback(() => setCommandsSent((n) => n + 1), []);
   const [cashPayoutFocus, setCashPayoutFocus] = useState<string | null>(null);
+  // Cash & shift's "View" on a card payment to sort out: This counter opens on it.
+  const [cardAttemptFocus, setCardAttemptFocus] = useState<string | null>(null);
 
   const refreshReadiness = useCallback(() => {
     window.pos
@@ -482,6 +484,10 @@ export function App() {
                       online={api?.reachable !== false}
                       focusPayoutId={cashPayoutFocus}
                       onFocusPayoutConsumed={() => setCashPayoutFocus(null)}
+                      onOpenCardPayments={(attemptId) => {
+                        setCardAttemptFocus(attemptId);
+                        setPage("counter");
+                      }}
                       onHandover={(next) => {
                         // The outgoing person is done: the counter locks for whoever comes next.
                         setNextUp(next);
@@ -505,6 +511,9 @@ export function App() {
                       info={info}
                       readiness={readiness}
                       onCheck={refreshReadiness}
+                      active={page === "counter"}
+                      focusCardAttemptId={cardAttemptFocus}
+                      onFocusCardAttemptConsumed={() => setCardAttemptFocus(null)}
                     />
                   </div>
                 </KeyScope>

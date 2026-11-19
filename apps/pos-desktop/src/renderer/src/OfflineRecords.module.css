@@ -66,6 +66,12 @@
   background: var(--pos-surface-2);
 }
 
+/* The payment Cash & shift's "View" opened this page on. */
+.cardFocus {
+  border-color: var(--pos-primary);
+  box-shadow: 0 0 0 2px var(--pos-primary-soft);
+}
+
 .cardH {
   display: flex;
   align-items: center;
