@@ -22,8 +22,8 @@
   width: 42px;
   height: 42px;
   border-radius: 11px;
-  color: var(--pos-t-teal);
-  background: color-mix(in srgb, var(--pos-t-teal) 13%, transparent);
+  color: var(--pos-t-accent);
+  background: color-mix(in srgb, var(--pos-t-accent) 13%, transparent);
 }
 
 .heroKind :global(.pos-ic) {

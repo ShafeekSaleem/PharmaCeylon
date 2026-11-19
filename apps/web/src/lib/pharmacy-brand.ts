@@ -61,6 +61,9 @@ export function applyPharmacyBrand(settings: PharmacyAppearanceSettings): void {
   else delete root.dataset.statusSet;
   if (settings.sidebarStyle === "light") delete root.dataset.sidebar;
   else root.dataset.sidebar = settings.sidebarStyle;
+  // Chart series: the accent family unless the owner chose the distinct set.
+  if (settings.chartPalette === "distinct") root.dataset.chart = "distinct";
+  else delete root.dataset.chart;
 }
 
 export function readCachedBrand(): PharmacyAppearanceSettings | null {
@@ -164,6 +167,7 @@ export const BRAND_BOOTSTRAP_SCRIPT = `
     }
     if (s.statusSet === "colour-blind") root.dataset.statusSet = "colour-blind";
     if (s.sidebarStyle === "tinted" || s.sidebarStyle === "dark") root.dataset.sidebar = s.sidebarStyle;
+    if (s.chartPalette === "distinct") root.dataset.chart = "distinct";
   } catch (e) {}
 })();
 `;

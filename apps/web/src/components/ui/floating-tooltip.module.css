@@ -31,14 +31,14 @@
   top: 100%;
   left: var(--tooltip-arrow-offset, 50%);
   transform: translateX(-50%);
-  border-top-color: #fff;
+  border-top-color: var(--pc-card-bg);
 }
 
 .bottom::after {
   bottom: 100%;
   left: var(--tooltip-arrow-offset, 50%);
   transform: translateX(-50%);
-  border-bottom-color: #fff;
+  border-bottom-color: var(--pc-card-bg);
   filter: drop-shadow(0 -1px 0 var(--pc-tone-neutral-line));
 }
 
@@ -46,7 +46,7 @@
   right: 100%;
   top: var(--tooltip-arrow-offset, 50%);
   transform: translateY(-50%);
-  border-right-color: #fff;
+  border-right-color: var(--pc-card-bg);
   filter: drop-shadow(-1px 0 0 var(--pc-tone-neutral-line));
 }
 
@@ -54,6 +54,6 @@
   left: 100%;
   top: var(--tooltip-arrow-offset, 50%);
   transform: translateY(-50%);
-  border-left-color: #fff;
+  border-left-color: var(--pc-card-bg);
   filter: drop-shadow(1px 0 0 var(--pc-tone-neutral-line));
 }

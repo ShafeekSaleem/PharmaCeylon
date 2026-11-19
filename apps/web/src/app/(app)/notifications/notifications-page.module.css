@@ -305,7 +305,7 @@
   white-space: nowrap;
 }
 .itemActions .primaryAction:hover {
-  color: #fff;
+  color: var(--pc-btn-primary-text);
   filter: brightness(0.94);
 }
 

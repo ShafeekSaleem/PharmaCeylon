@@ -2,7 +2,9 @@
  * The counter app's design tokens. Surfaces, text, accent and status point at the semantic set
  * shared with the web (apps/web/src/app/tokens.css, Epic UI1 #205), so the counter and the back
  * office use one palette in light and dark. What is left here is the counter's own: fonts,
- * prescription purple, tile colours, shadows and sheets. Components never hard-code colours.
+ * prescription purple, tile colours, the PharmaCeylon mark, shadows and sheets. Components never
+ * hard-code colours: colour-literals.spec.ts fails on a literal colour outside this
+ * file.
  *
  * The theme follows Windows (prefers-color-scheme) and an explicit data-theme wins, the same three
  * states as apps/web/src/app/globals.css.
@@ -30,7 +32,29 @@
   --pos-primary-soft: color-mix(in srgb, var(--ui-accent) 7%, transparent);
   --pos-primary-soft-2: color-mix(in srgb, var(--ui-accent) 13%, transparent);
   --pos-on-primary: var(--ui-accent-ink);
-  --pos-grad: linear-gradient(135deg, #0d9488 0%, #0891b2 100%);
+  /* Primary buttons and the PIN pad's Go: the accent (the owner's brand colour when set), deepening
+     to its hover shade, so --pos-on-primary keeps its contrast across the whole fill. */
+  --pos-grad: linear-gradient(
+    135deg,
+    var(--ui-accent) 0%,
+    var(--ui-accent-hover) 100%
+  );
+  /* A key hint (kbd) on a primary fill, tinted from the accent's ink so it suits either ink. */
+  --pos-on-primary-key: color-mix(
+    in srgb,
+    var(--ui-accent-ink) 18%,
+    transparent
+  );
+  --pos-on-primary-key-line: color-mix(
+    in srgb,
+    var(--ui-accent-ink) 35%,
+    transparent
+  );
+  --pos-on-primary-edge: color-mix(
+    in srgb,
+    var(--ui-accent-ink) 18%,
+    transparent
+  );
   --pos-cyan: var(--pc-secondary-cyan);
 
   --pos-ok: var(--ui-ok);
@@ -55,8 +79,12 @@
   --pos-rx-line: #ddd6fe;
   --pos-badge: var(--ui-danger);
   --pos-on-badge: var(--ui-on-status);
+  /* Text or a tick on a solid ok, warn or bad fill. */
+  --pos-on-status: var(--ui-on-status);
 
-  --pos-t-teal: #0d9488;
+  /* Kind and avatar tiles. The accent tile (receiving, the counter itself, the first avatar) follows
+     the accent; the others are the counter's own fixed set. */
+  --pos-t-accent: var(--ui-accent);
   --pos-t-cyan: #0891b2;
   --pos-t-indigo: #4f46e5;
   --pos-t-rose: #e11d48;
@@ -68,7 +96,12 @@
   --pos-shadow:
     0 1px 2px rgba(15, 23, 42, 0.05), 0 1px 3px rgba(15, 23, 42, 0.04);
   --pos-shadow-lg: 0 24px 60px -24px rgba(15, 23, 42, 0.28);
-  --pos-focus: 0 0 0 3px rgba(13, 148, 136, 0.18);
+  --pos-focus: 0 0 0 3px color-mix(in srgb, var(--ui-accent) 18%, transparent);
+
+  /* The PharmaCeylon mark in the title bar keeps its own teal whatever the pharmacy's accent. */
+  --pos-logo-grad: linear-gradient(135deg, #0d9488 0%, #0891b2 100%);
+  --pos-logo-ink: #ffffff;
+  --pos-logo-edge: rgba(255, 255, 255, 0.15);
 
   /* A sheet over a page (Sell's prescription sheet): the dimmed page and the sheet's shadow. */
   --pos-scrim: rgba(15, 23, 42, 0.26);
@@ -81,12 +114,21 @@
   :root:not([data-theme="light"]) {
     --pos-primary-soft: color-mix(in srgb, var(--ui-accent) 8%, transparent);
     --pos-primary-soft-2: color-mix(in srgb, var(--ui-accent) 15%, transparent);
-    --pos-grad: linear-gradient(135deg, #2dd4bf 0%, #22d3ee 100%);
+    --pos-on-primary-key: color-mix(
+      in srgb,
+      var(--ui-accent-ink) 12%,
+      transparent
+    );
+    --pos-on-primary-key-line: color-mix(
+      in srgb,
+      var(--ui-accent-ink) 30%,
+      transparent
+    );
+    --pos-logo-grad: linear-gradient(135deg, #2dd4bf 0%, #22d3ee 100%);
     --pos-rx: #a78bfa;
     --pos-rx-ink: #c4b5fd;
     --pos-rx-soft: rgba(167, 139, 250, 0.11);
     --pos-rx-line: rgba(167, 139, 250, 0.3);
-    --pos-t-teal: #2dd4bf;
     --pos-t-cyan: #22d3ee;
     --pos-t-indigo: #818cf8;
     --pos-t-rose: #fb7185;
@@ -96,7 +138,7 @@
     --pos-t-blue: #60a5fa;
     --pos-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
     --pos-shadow-lg: 0 30px 70px -24px rgba(0, 0, 0, 0.7);
-    --pos-focus: 0 0 0 3px rgba(45, 212, 191, 0.2);
+    --pos-focus: 0 0 0 3px color-mix(in srgb, var(--ui-accent) 20%, transparent);
     --pos-scrim: rgba(2, 6, 14, 0.55);
   }
 }
@@ -104,12 +146,21 @@
 :root[data-theme="dark"] {
   --pos-primary-soft: color-mix(in srgb, var(--ui-accent) 8%, transparent);
   --pos-primary-soft-2: color-mix(in srgb, var(--ui-accent) 15%, transparent);
-  --pos-grad: linear-gradient(135deg, #2dd4bf 0%, #22d3ee 100%);
+  --pos-on-primary-key: color-mix(
+    in srgb,
+    var(--ui-accent-ink) 12%,
+    transparent
+  );
+  --pos-on-primary-key-line: color-mix(
+    in srgb,
+    var(--ui-accent-ink) 30%,
+    transparent
+  );
+  --pos-logo-grad: linear-gradient(135deg, #2dd4bf 0%, #22d3ee 100%);
   --pos-rx: #a78bfa;
   --pos-rx-ink: #c4b5fd;
   --pos-rx-soft: rgba(167, 139, 250, 0.11);
   --pos-rx-line: rgba(167, 139, 250, 0.3);
-  --pos-t-teal: #2dd4bf;
   --pos-t-cyan: #22d3ee;
   --pos-t-indigo: #818cf8;
   --pos-t-rose: #fb7185;
@@ -119,6 +170,6 @@
   --pos-t-blue: #60a5fa;
   --pos-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
   --pos-shadow-lg: 0 30px 70px -24px rgba(0, 0, 0, 0.7);
-  --pos-focus: 0 0 0 3px rgba(45, 212, 191, 0.2);
+  --pos-focus: 0 0 0 3px color-mix(in srgb, var(--ui-accent) 20%, transparent);
   --pos-scrim: rgba(2, 6, 14, 0.55);
 }

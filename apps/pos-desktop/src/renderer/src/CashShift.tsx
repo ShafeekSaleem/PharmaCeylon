@@ -39,7 +39,7 @@ const TONE: Record<string, string> = {
   rose: "var(--pos-t-rose)",
   emerald: "var(--pos-t-emerald)",
   cyan: "var(--pos-t-cyan)",
-  teal: "var(--pos-t-teal)",
+  accent: "var(--pos-t-accent)",
 };
 
 const roleLabel = (role: string | null | undefined) => (role ? (ROLE_LABELS[role] ?? role) : null);
@@ -359,7 +359,7 @@ const METHODS: Record<string, { label: string; icon: IconName; tone: string; not
   mobile_wallet: { label: "Mobile wallet", icon: "smartphone", tone: "violet" },
   credit: { label: "On account", icon: "user", tone: "amber", note: "Customer credit" },
 };
-const method = (key: string) => METHODS[key] ?? { label: key, icon: "receipt" as IconName, tone: "teal" };
+const method = (key: string) => METHODS[key] ?? { label: key, icon: "receipt" as IconName, tone: "accent" };
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 const itemsText = (items: ShiftSummary["refunds"][number]["items"]) =>
   items.map((item) => `${item.name}${item.qty > 1 ? ` × ${item.qty}` : ""}`).join(", ");
@@ -478,7 +478,7 @@ function CashLog({ shift }: { shift: LocalShift }) {
       </div>
       <div className={styles.log}>
         <div className={styles.lgr}>
-          <span className={styles.qi} style={{ ["--c" as string]: TONE.teal }}>
+          <span className={styles.qi} style={{ ["--c" as string]: TONE.accent }}>
             <Icon name="wallet" />
           </span>
           <div>

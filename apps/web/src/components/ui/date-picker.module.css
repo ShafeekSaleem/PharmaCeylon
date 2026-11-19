@@ -232,7 +232,7 @@
 .selected:hover:not(:disabled) {
   background: var(--pc-primary);
   border-color: var(--pc-primary);
-  color: var(--pc-btn-primary-text, #fff);
+  color: var(--pc-btn-primary-text);
   font-weight: 650;
 }
 

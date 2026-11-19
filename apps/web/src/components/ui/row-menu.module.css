@@ -21,18 +21,18 @@
   border: none;
   border-radius: 6px;
   background: none;
-  color: var(--pc-muted-fg);
+  color: var(--ui-text-muted);
   cursor: pointer;
 }
 
 .trigger:hover,
 .triggerOpen {
-  background: var(--pc-hover-overlay);
-  color: var(--pc-foreground);
+  background: var(--ui-surface-sunken);
+  color: var(--ui-text);
 }
 
 .trigger:focus-visible {
-  outline: 2px solid var(--pc-primary);
+  outline: 2px solid var(--ui-accent);
   outline-offset: 1px;
 }
 
@@ -47,9 +47,9 @@
   min-width: 190px;
   max-width: min(280px, calc(100vw - 16px));
   padding: 0.25rem;
-  border: 1px solid var(--pc-border);
+  border: 1px solid var(--ui-line);
   border-radius: var(--pc-radius-md);
-  background: var(--pc-card-bg);
+  background: var(--ui-surface);
   box-shadow: var(--pc-shadow-card);
 }
 
@@ -62,7 +62,7 @@
   border: 0;
   border-radius: var(--pc-radius-sm);
   background: none;
-  color: var(--pc-foreground);
+  color: var(--ui-text);
   font-family: inherit;
   font-size: 0.8rem;
   text-align: left;
@@ -70,36 +70,36 @@
 }
 
 .item:hover:not(:disabled) {
-  background: var(--pc-hover-overlay);
+  background: var(--ui-surface-sunken);
 }
 
 .item:focus-visible {
-  outline: 2px solid var(--pc-primary);
+  outline: 2px solid var(--ui-accent);
   outline-offset: -2px;
 }
 
 .item:disabled {
-  color: var(--pc-muted-fg);
+  color: var(--ui-text-muted);
   cursor: default;
 }
 
 .itemDanger {
-  color: var(--pc-destructive);
+  color: var(--ui-danger-ink);
 }
 
 .itemDanger:hover:not(:disabled) {
-  background: var(--pc-destructive-soft);
+  background: var(--ui-danger-soft);
 }
 
 .hint {
   font-size: 0.72rem;
   font-weight: 400;
-  color: var(--pc-muted-fg);
+  color: var(--ui-text-muted);
   line-height: 1.35;
 }
 
 .separator {
   height: 1px;
   margin: 0.25rem 0.3rem;
-  background: var(--pc-border);
+  background: var(--ui-line);
 }

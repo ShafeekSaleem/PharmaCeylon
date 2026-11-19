@@ -488,7 +488,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: #fff;
+  color: var(--pc-brand-text);
   transition: box-shadow 0.15s, transform 0.1s;
 }
 
@@ -588,4 +588,15 @@
   gap: 0.6rem;
   margin-top: 0.75rem;
   font-size: 0.85rem;
+}
+
+.chartStrip {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.chartStrip i {
+  width: 8px;
+  height: 14px;
+  border-radius: 2px;
 }

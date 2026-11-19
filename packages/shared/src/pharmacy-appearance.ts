@@ -254,13 +254,124 @@ export function deriveAccentTokens(value: string): {
   return { light, dark };
 }
 
-function block(selector: string, t: AccentTokens, indent = ""): string {
+/** Chart marks (bars, lines, slices) are not text: WCAG 1.4.11 asks 3:1 against what they sit on. */
+export const MIN_CHART_CONTRAST = 3;
+
+/** How many series colours a chart gets before it starts again. */
+export const CHART_SERIES_COUNT = 6;
+
+type Hsl = [number, number, number];
+
+/**
+ * Moves a colour's lightness (darker on light surfaces, lighter on dark ones) from `start` until
+ * it reaches `min` against every surface. Hue and saturation stay, so a series keeps its identity.
+ */
+function fitLightness(
+  [h, s]: Hsl,
+  start: number,
+  surfaces: readonly string[],
+  dark: boolean,
+  min = MIN_CHART_CONTRAST,
+): string {
+  const worst = (c: string) =>
+    Math.min(...surfaces.map((bg) => contrastRatio(c, bg)));
+  let l = start;
+  let colour = fromHsl([h, s, l]);
+  while (worst(colour) < min && l > 0.02 && l < 0.98) {
+    l += dark ? 0.01 : -0.01;
+    colour = fromHsl([h, s, l]);
+  }
+  return colour;
+}
+
+/**
+ * The "distinct" chart colours: hues from the Okabe–Ito set (blue, vermilion, bluish green,
+ * reddish purple, ochre) plus slate, which stay apart for the common colour blindnesses. They are
+ * fixed, whatever the accent, and fitted to 3:1 in each theme.
+ */
+const DISTINCT_HUES: Hsl[] = [
+  [202 / 360, 1, 0.35],
+  [26 / 360, 1, 0.42],
+  [164 / 360, 1, 0.31],
+  [327 / 360, 0.45, 0.5],
+  [41 / 360, 1, 0.33],
+  [215 / 360, 0.16, 0.42],
+];
+
+/** The "accent" chart colours: the accent first, then its neighbours and one contrast hue. */
+const ACCENT_OFFSETS: { dh: number; light: number; dark: number }[] = [
+  { dh: 0, light: -1, dark: -1 }, // the accent itself (-1 = use the theme's accent lightness)
+  { dh: 40 / 360, light: 0.48, dark: 0.7 },
+  { dh: -40 / 360, light: 0.36, dark: 0.62 },
+  { dh: 160 / 360, light: 0.45, dark: 0.68 },
+  { dh: 100 / 360, light: 0.4, dark: 0.66 },
+  { dh: 0, light: 0.42, dark: 0.66 }, // a neutral, desaturated below
+];
+
+export interface ChartSeries {
+  light: string[];
+  dark: string[];
+}
+
+export function distinctChartSeries(): ChartSeries {
+  return {
+    light: DISTINCT_HUES.map((c) =>
+      fitLightness(c, c[2], LIGHT_SURFACES, false),
+    ),
+    // Fully saturated hues glare on a dark page, so dark keeps them softer.
+    dark: DISTINCT_HUES.map(([h, sat, l]) =>
+      fitLightness(
+        [h, Math.min(sat, 0.7), l],
+        Math.max(l, 0.55),
+        DARK_SURFACES,
+        true,
+      ),
+    ),
+  };
+}
+
+/** The accent family for charts, in both themes, every colour at 3:1 on every surface. */
+export function accentChartSeries(value: string): ChartSeries {
+  const { light, dark } = deriveAccentTokens(value);
+  const series = (
+    accent: string,
+    surfaces: readonly string[],
+    isDark: boolean,
+  ) => {
+    const [h, s, l] = toHsl(accent);
+    return ACCENT_OFFSETS.map((o, i) => {
+      // The first series is the theme's accent exactly; it already reads at 4.5:1 or better.
+      if (i === 0) return accent;
+      // A grey accent already is the neutral, so its last series takes a far hue instead.
+      const neutral = i === ACCENT_OFFSETS.length - 1 && s >= 0.2;
+      const dh = i === ACCENT_OFFSETS.length - 1 && !neutral ? 200 / 360 : o.dh;
+      const hue = (((h + dh) % 1) + 1) % 1;
+      const sat = neutral
+        ? Math.min(s, 0.14)
+        : Math.min(Math.max(s, 0.4), isDark ? 0.7 : 0.85);
+      const start = o.light < 0 ? l : isDark ? o.dark : o.light;
+      return fitLightness([hue, sat, start], start, surfaces, isDark);
+    });
+  };
+  return {
+    light: series(light.accent, LIGHT_SURFACES, false),
+    dark: series(dark.accent, DARK_SURFACES, true),
+  };
+}
+
+function block(
+  selector: string,
+  t: AccentTokens,
+  chart: string[],
+  indent = "",
+): string {
   const lines = [
     `--ui-accent: ${t.accent};`,
     `--ui-accent-hover: ${t.hover};`,
     `--ui-accent-ink: ${t.ink};`,
     `--ui-accent-soft: ${t.soft};`,
     `--ui-selected: ${t.soft};`,
+    ...chart.map((c, i) => `--ui-chart-accent-${i + 1}: ${c};`),
   ];
   return `${indent}${selector} {\n${lines.map((l) => `${indent}  ${l}`).join("\n")}\n${indent}}`;
 }
@@ -268,14 +379,16 @@ function block(selector: string, t: AccentTokens, indent = ""): string {
 /**
  * The accent as a stylesheet. It mirrors tokens.css's three theme states with every selector one
  * `:root` more specific, so it wins wherever the page puts it (the pre-paint script may insert it
- * before the app's own stylesheets) and follows light/dark without any script.
+ * before the app's own stylesheets) and follows light/dark without any script. It carries the
+ * accent chart colours too; which chart set a page uses is the `data-chart` attribute's job.
  */
 export function pharmacyBrandCss(accent: string): string {
   const { light, dark } = deriveAccentTokens(accent);
+  const chart = accentChartSeries(accent);
   return [
-    block(":root:root", light),
-    `@media (prefers-color-scheme: dark) {\n${block(':root:root:not([data-theme="light"])', dark, "  ")}\n}`,
-    block(':root:root[data-theme="dark"]', dark),
+    block(":root:root", light, chart.light),
+    `@media (prefers-color-scheme: dark) {\n${block(':root:root:not([data-theme="light"])', dark, chart.dark, "  ")}\n}`,
+    block(':root:root[data-theme="dark"]', dark, chart.dark),
   ].join("\n");
 }
 

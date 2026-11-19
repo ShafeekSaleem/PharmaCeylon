@@ -1,6 +1,26 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { RowMenu } from "./row-menu";
+import { RowMenu, orderRowMenuActions } from "./row-menu";
+
+describe("orderRowMenuActions", () => {
+  it("moves destructive actions after routine ones and separates the first", () => {
+    const ordered = orderRowMenuActions([
+      { label: "Delete", danger: true, onClick: jest.fn() },
+      { label: "Edit", onClick: jest.fn() },
+      { label: "Archive", danger: true, onClick: jest.fn() },
+      { label: "Duplicate", onClick: jest.fn() },
+    ]);
+
+    expect(ordered.map((a) => a.label)).toEqual(["Edit", "Duplicate", "Delete", "Archive"]);
+    expect(ordered.map((a) => !!a.separated)).toEqual([false, false, true, false]);
+  });
+
+  it("leaves a menu of only destructive actions as it is", () => {
+    const ordered = orderRowMenuActions([{ label: "Delete", danger: true, onClick: jest.fn() }]);
+    expect(ordered).toHaveLength(1);
+    expect(ordered[0].separated).toBeFalsy();
+  });
+});
 
 /**
  * Categories, Tags and the Work Queue each independently grew a row of four to six unlabeled

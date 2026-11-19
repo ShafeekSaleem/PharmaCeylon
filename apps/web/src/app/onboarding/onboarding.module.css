@@ -32,7 +32,7 @@
   place-items: center;
   border-radius: 10px;
   background: var(--pc-gradient-main);
-  color: #fff;
+  color: var(--pc-brand-text);
 }
 .headerTitle > i {
   width: 1px;
@@ -53,7 +53,7 @@
   place-items: center;
   border-radius: 50%;
   background: var(--pc-gradient-main);
-  color: #fff;
+  color: var(--pc-brand-text);
   font-size: 0.78rem;
   font-weight: 750;
 }
@@ -542,7 +542,7 @@
   min-width: 132px;
   border: 0;
   background: var(--pc-gradient-main);
-  color: #fff;
+  color: var(--pc-brand-text);
   box-shadow: 0 6px 16px color-mix(in srgb, var(--pc-primary) 20%, transparent);
 }
 .primary:hover:not(:disabled) {

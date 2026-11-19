@@ -71,14 +71,14 @@
   width: 24px;
   height: 24px;
   border-radius: 7px;
-  background: var(--pos-grad);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.15);
+  background: var(--pos-logo-grad);
+  box-shadow: inset 0 0 0 1px var(--pos-logo-edge);
 }
 
 .logo svg {
   width: 14px;
   height: 14px;
-  fill: #fff;
+  fill: var(--pos-logo-ink);
 }
 
 .tag {
@@ -383,7 +383,7 @@
 
 /* ---------- avatar ---------- */
 .av {
-  --c: var(--pos-t-teal);
+  --c: var(--pos-t-accent);
   display: grid;
   place-items: center;
   flex: none;
@@ -397,8 +397,8 @@
   font-size: 12.5px;
 }
 
-.teal {
-  --c: var(--pos-t-teal);
+.accent {
+  --c: var(--pos-t-accent);
 }
 
 .violet {
