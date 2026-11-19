@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { usePageChrome } from "@/lib/page-chrome-context";
 import { useAuth } from "@/lib/use-auth";
 import { hasPermission, usePermissions } from "@/lib/permissions";
@@ -12,13 +12,13 @@ import { useFullscreen } from "@/lib/use-fullscreen";
 import {
   BRANCHES_CHANGED_EVENT,
   fetchTenantBranches,
-  fetchTenantDisplayName,
   type TenantBranch,
 } from "@/lib/auth-client";
 import { GlobalSearch } from "@/components/global-search/global-search";
 import { NotificationCenter } from "@/components/notifications/notification-center";
 import { AppearanceEffect } from "./appearance-effect";
 import { PosFallbackBanner } from "./pos-fallback-banner";
+import { PageTitleProvider } from "./page-title-context";
 import { ThemeToggle } from "./theme-toggle";
 import {
   IconGrid,
@@ -41,6 +41,7 @@ import {
   IconMaximize,
   IconMinimize,
   IconReceipt,
+  IconMapPin,
 } from "@/components/icons";
 import styles from "./app-shell.module.css";
 import {
@@ -236,31 +237,55 @@ for (const g of NAV_GROUPS) {
     PAGE_TITLES[item.href] = item.label;
   }
 }
-PAGE_TITLES["/purchasing/deliveries"] = "Deliveries";
-PAGE_TITLES["/purchasing/invoices"] = "Invoices";
-PAGE_TITLES["/purchasing/supplier-returns"] = "Supplier returns";
-PAGE_TITLES["/inventory/batches"] = "Batch stock";
-PAGE_TITLES["/inventory/adjustments"] = "Stock adjustments";
-PAGE_TITLES["/inventory/movements"] = "Stock movements";
-PAGE_TITLES["/notifications"] = "Notifications";
-PAGE_TITLES["/settings/my-profile"] = "My Profile";
-PAGE_TITLES["/settings/tenant-profile"] = "Organization Profile";
-PAGE_TITLES["/settings/branches"] = "Branches";
-PAGE_TITLES["/settings/branches/hours"] = "Opening Hours";
-PAGE_TITLES["/settings/main"] = "Counters & receipts";
-PAGE_TITLES["/settings/counter-alerts"] = "Counter alerts";
-PAGE_TITLES["/settings/payments"] = "Payments";
-PAGE_TITLES["/settings/offline-policy"] = "Offline policy";
-PAGE_TITLES["/settings/catalog"] = "Catalog";
-PAGE_TITLES["/settings/operations"] = "Inventory & Operations";
-PAGE_TITLES["/settings/alerts-recipients"] = "Recipients & Channels";
-PAGE_TITLES["/settings/notifications"] = "Notifications";
-PAGE_TITLES["/settings/approval-rules"] = "Approval Rules";
-PAGE_TITLES["/settings/insights-reports"] = "Reports";
-PAGE_TITLES["/settings/password-login"] = "Password & Security";
-PAGE_TITLES["/settings/appearance"] = "Appearance";
+// Pages outside the sidebar, and pages below a sidebar item. The page header shows this name
+// (#205: the title appears once), and a parent's name is its breadcrumb link.
+Object.assign(PAGE_TITLES, {
+  "/purchasing/deliveries": "Deliveries",
+  "/purchasing/invoices": "Invoices",
+  "/purchasing/supplier-returns": "Supplier returns",
+  "/purchasing/cash-payouts": "Cash payouts",
+  "/inventory/batches": "Batch stock",
+  "/inventory/adjustments": "Stock adjustments",
+  "/inventory/movements": "Stock movements",
+  "/inventory/offline-records": "Offline records",
+  "/inventory/stock-cases": "Stock cases",
+  "/products/categories": "Categories",
+  "/products/tags": "Tags",
+  "/products/organize": "Organize products",
+  "/products/nmra-matches": "NMRA matches",
+  "/products/import": "Import products",
+  "/products/manage": "Catalog management",
+  "/returns": "Returns",
+  "/refund-approvals": "Refund approvals",
+  "/insights": "Insights",
+  "/notifications": "Notifications",
+  "/users/roles": "Roles",
+  "/settings/my-profile": "My Profile",
+  "/settings/tenant-profile": "Organization Profile",
+  "/settings/branches": "Branches",
+  "/settings/branches/hours": "Opening Hours",
+  "/settings/main": "Counters & receipts",
+  "/settings/counters": "Counters",
+  "/settings/counter-alerts": "Counter alerts",
+  "/settings/payments": "Payments",
+  "/settings/offline-policy": "Offline policy",
+  "/settings/catalog": "Catalog",
+  "/settings/catalog/categories": "Categories",
+  "/settings/catalog/tags": "Tags",
+  "/settings/operations": "Operations",
+  "/settings/profitability": "Profitability",
+  "/settings/alerts-recipients": "Recipients & Channels",
+  "/settings/notifications": "Notifications",
+  "/settings/approval-rules": "Approval Rules",
+  "/settings/insights-reports": "Insights & Reports",
+  "/settings/password-login": "Password & Login",
+  "/settings/appearance": "Appearance",
+} satisfies Record<string, string>);
 
 const COLLAPSE_KEY = "pc_sidebar_collapsed";
+
+// Next renders client components on the server too, where a layout effect only warns.
+const useIsomorphicLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
 
 function getInitials(name: string): string {
   return name
@@ -295,13 +320,24 @@ function resolvePageTitle(pathname: string): string {
   return match ? PAGE_TITLES[match] : "Page";
 }
 
-function buildBreadcrumbs(
+/** A record id in the path (a UUID or similar) — never shown as a title. */
+function looksLikeId(segment: string): boolean {
+  return /^[0-9a-f-]{20,}$/i.test(segment) || /^c[a-z0-9]{20,}$/i.test(segment);
+}
+
+function segmentLabel(segment: string): string {
+  if (looksLikeId(segment)) return "Details";
+  const words = decodeURIComponent(segment).replace(/-/g, " ");
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+export function buildBreadcrumbs(
   pathname: string,
   lastSegmentLabel?: string | null,
 ): { label: string; href?: string }[] {
   const navBases = new Set(NAV_GROUPS.flatMap((g) => g.items.map((i) => i.href)));
   const base = [...navBases].find((k) => pathname === k || pathname.startsWith(k + "/"));
-  if (!base) return [{ label: resolvePageTitle(pathname) }];
+  if (!base) return [{ label: lastSegmentLabel || resolvePageTitle(pathname) }];
 
   const crumbs: { label: string; href?: string }[] = [{ label: PAGE_TITLES[base], href: base }];
   const rest = pathname.slice(base.length).replace(/^\//, "");
@@ -313,8 +349,7 @@ function buildBreadcrumbs(
       path += `/${seg}`;
       const isLast = i === segments.length - 1;
       const known = PAGE_TITLES[path];
-      const label =
-        isLast && lastSegmentLabel ? lastSegmentLabel : (known ?? seg.replace(/-/g, " "));
+      const label = isLast && lastSegmentLabel ? lastSegmentLabel : (known ?? segmentLabel(seg));
       crumbs.push(isLast ? { label } : { label, href: path });
     }
   }
@@ -351,7 +386,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [avatarOpen, setAvatarOpen] = useState(false);
   const [branchOpen, setBranchOpen] = useState(false);
   const [branches, setBranches] = useState<TenantBranch[]>([]);
-  const [tenantName, setTenantName] = useState<string | null>(null);
+  // False while the page has drawn no <h1> of its own (no PageHeader, no hero): the shell then
+  // shows the page title itself, so every page still has exactly one.
+  const [pageHasHeading, setPageHasHeading] = useState(true);
+  const mainRef = useRef<HTMLElement>(null);
   const [showSetupJourney, setShowSetupJourney] = useState(false);
   const avatarRef = useRef<HTMLDivElement>(null);
   const branchRef = useRef<HTMLDivElement>(null);
@@ -389,19 +427,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, [ready, isAuthenticated]);
 
   useEffect(() => loadBranches(), [loadBranches]);
-
-  useEffect(() => {
-    if (!ready || !isAuthenticated) return;
-    let cancelled = false;
-    fetchTenantDisplayName()
-      .then((name) => {
-        if (!cancelled) setTenantName(name);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [ready, isAuthenticated]);
 
   const loadSetupJourney = useCallback(() => {
     const isOwner = user?.branchRoles.some((entry) => entry.role === "owner") ?? false;
@@ -529,11 +554,27 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         items: group.items.filter(
           (item) =>
             (item.href !== "/get-started" || showSetupJourney) &&
-            (item.href !== "/pos" || !posHidden),
+            (item.href !== "/pos" || !posHidden) &&
+            (!webScopeRestricted ||
+              item.href === "/settings" ||
+              (item.href === "/pos" && rollout?.state === "fallback")),
         ),
-      })),
-    [showSetupJourney, posHidden],
+      })).filter((group) => group.items.length > 0),
+    [showSetupJourney, posHidden, webScopeRestricted, rollout?.state],
   );
+
+  // Watch the page for its own <h1>. Pages that draw one (a PageHeader, a product hero) keep it;
+  // the rest get the shell's. Layout effect, so the fallback never flashes on a page that has one.
+  useIsomorphicLayoutEffect(() => {
+    const main = mainRef.current;
+    if (!main) return;
+    const check = () =>
+      setPageHasHeading(main.querySelector("h1:not([data-shell-title])") !== null);
+    check();
+    const observer = new MutationObserver(check);
+    observer.observe(main, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, [ready, isAuthenticated, pathname, chromeHidden]);
 
   if (!ready || !isAuthenticated) {
     return (
@@ -544,16 +585,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }
 
   const currentBranch = branches.find((b) => b.id === branchId);
-  const branchName = currentBranch?.name ?? "Select Branch";
-  const pageTitle = resolvePageTitle(pathname);
-  const breadcrumbs = [...buildBreadcrumbs(pathname, lastSegmentLabel), ...extraCrumbs];
+  const branchName = currentBranch?.name ?? "Select branch";
+  const crumbs = [...buildBreadcrumbs(pathname, lastSegmentLabel), ...extraCrumbs];
+  // The page header shows the page's name; the breadcrumb only names the pages above it.
+  const pageTitle = crumbs[crumbs.length - 1]?.label ?? "Page";
+  const parentCrumbs = crumbs.slice(0, -1);
   const initials = user ? getInitials(user.fullName) : "??";
   const isSettings = pathname === "/settings" || pathname.startsWith("/settings/");
-  // Owner/manager settings reach tenant-wide (or, for a manager, several branches they
-  // manage) — show the tenant name. Every other role's settings are personal or scoped to
-  // their one branch, so the branch name reads more accurately there.
-  const settingsScopedToTenant =
-    user?.branchRoles.some((br) => br.role === "owner" || br.role === "manager") ?? false;
 
   const sidebarCls = [
     styles.sidebar,
@@ -590,18 +628,24 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             {!collapsed && <span className={styles.sidebarBrand}>PharmaCeylon</span>}
           </div>
 
-          <nav className={styles.sidebarNav}>
-            {navGroups.map((group) => (
-              <div key={group.label} className={styles.navGroup}>
-                <span className={styles.navGroupLabel}>{group.label}</span>
-                {group.items
-                  .filter(
-                    (item) =>
-                      !webScopeRestricted ||
-                      item.href === "/settings" ||
-                      (item.href === "/pos" && rollout?.state === "fallback"),
-                  )
-                  .map((item) => {
+          <nav className={styles.sidebarNav} aria-label="Main">
+            {navGroups.map((group) => {
+              // A heading earns its place only over two or more items (#205); over a lone item
+              // it just repeats it ("Sales" over "Sales").
+              const showHeading = group.items.length > 1;
+              return (
+                <div
+                  key={group.label}
+                  className={`${styles.navGroup}${showHeading ? "" : ` ${styles.navGroupHeadless}`}`}
+                  role="group"
+                  aria-label={showHeading ? group.label : undefined}
+                >
+                  {showHeading && (
+                    <span className={styles.navGroupLabel} aria-hidden>
+                      {group.label}
+                    </span>
+                  )}
+                  {group.items.map((item) => {
                     const active = pathname === item.href || pathname.startsWith(item.href + "/");
                     const allowed = navItemAllowed(item, userRoles, permissionKeys);
                     const deniedTip = roleDeniedMessage(item.roles);
@@ -626,6 +670,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                         key={item.href}
                         href={item.href}
                         className={`${styles.navItem}${active ? ` ${styles.navItemActive}` : ""}`}
+                        aria-current={active ? "page" : undefined}
                         onClick={() => setMobileOpen(false)}
                         {...(collapsed
                           ? {
@@ -639,8 +684,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                       </Link>
                     );
                   })}
-              </div>
-            ))}
+                </div>
+              );
+            })}
           </nav>
 
           <div className={styles.sidebarFooter}>Version 1.0.0</div>
@@ -651,7 +697,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <div
         className={`${styles.main}${collapsed ? ` ${styles.mainCollapsed}` : ""}${chromeHidden ? ` ${styles.mainChromeHidden}` : ""}`}
       >
-        {/* Top bar */}
+        {/* Top bar: branch (the page's one scope control), search, theme, notifications,
+            account. No page title here (the page header has it) and no New sale (#205). */}
         {!chromeHidden && (
           <header className={styles.topbar}>
             <button
@@ -665,37 +712,69 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             >
               <IconMenu size={20} />
             </button>
-            <span className={styles.pageTitle}>{pageTitle}</span>
 
-            {!webScopeRestricted && (
-              <GlobalSearch permissionKeys={permissionKeys} posHidden={posHidden} />
+            {/* Settings pages state their own scope, so the switch stays off them, as before. */}
+            {!isSettings && (
+              <div className={styles.branchDropWrap} ref={branchRef}>
+                <button
+                  type="button"
+                  className={styles.branchDropBtn}
+                  onClick={() => setBranchOpen((v) => !v)}
+                  aria-haspopup="true"
+                  aria-expanded={branchOpen}
+                  aria-label={`Branch: ${branchName}. Switch branch`}
+                >
+                  <IconMapPin size={15} />
+                  <span className={styles.branchDropName}>{branchName}</span>
+                  <IconChevronDown size={14} />
+                </button>
+                {branchOpen && (
+                  <div className={styles.branchDropMenu}>
+                    {branches.length === 0 && (
+                      <div className={`${styles.branchDropItem} ${styles.branchDropLoading}`}>
+                        Loading...
+                      </div>
+                    )}
+                    {branches.map((b) => (
+                      <button
+                        key={b.id}
+                        type="button"
+                        className={`${styles.branchDropItem}${b.id === branchId ? ` ${styles.branchDropItemActive}` : ""}`}
+                        aria-current={b.id === branchId ? "true" : undefined}
+                        onClick={() => {
+                          setBranchId(b.id);
+                          setBranchOpen(false);
+                        }}
+                      >
+                        {b.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             )}
 
+            {/* GlobalSearch centres itself in its positioned parent; the slot keeps it between
+                the branch switch and the icons rather than under them on narrow screens. */}
+            <div className={styles.searchSlot}>
+              {!webScopeRestricted && (
+                <GlobalSearch permissionKeys={permissionKeys} posHidden={posHidden} />
+              )}
+            </div>
+
             <div className={styles.topbarRight}>
-              <button
-                type="button"
-                className={`${styles.iconBtn}${isFullscreen ? ` ${styles.iconBtnActive}` : ""}`}
-                onClick={toggleFullscreen}
-                aria-pressed={isFullscreen}
-                aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
-                data-tooltip={
-                  isFullscreen
-                    ? "Exit fullscreen (Ctrl+Shift+F)"
-                    : "Enter fullscreen (Ctrl+Shift+F)"
-                }
-              >
-                {isFullscreen ? <IconMinimize size={16} /> : <IconMaximize size={16} />}
-              </button>
               <ThemeToggle />
               {!webScopeRestricted && <NotificationCenter />}
 
-              {/* Avatar */}
+              {/* Account */}
               <div className={styles.avatarWrap} ref={avatarRef}>
                 <button
                   type="button"
                   className={styles.avatarBtn}
                   onClick={() => setAvatarOpen((v) => !v)}
                   aria-label="User menu"
+                  aria-haspopup="true"
+                  aria-expanded={avatarOpen}
                 >
                   {user?.avatarUrl ? <img src={user.avatarUrl} alt="" /> : initials}
                 </button>
@@ -716,6 +795,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                       >
                         <IconUser size={16} /> Profile
                       </button>
+                      <button
+                        type="button"
+                        className={styles.avatarMenuItem}
+                        onClick={() => {
+                          setAvatarOpen(false);
+                          toggleFullscreen();
+                        }}
+                      >
+                        {isFullscreen ? <IconMinimize size={16} /> : <IconMaximize size={16} />}
+                        {isFullscreen ? "Exit full screen" : "Full screen"}
+                        <kbd className={styles.avatarMenuKbd}>Ctrl+Shift+F</kbd>
+                      </button>
                       <div className={styles.avatarMenuDivider} />
                       <button
                         type="button"
@@ -732,72 +823,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </header>
         )}
 
-        {/* Sub-header */}
-        {!chromeHidden && (
-          <div className={styles.subheader}>
-            <span className={styles.branchBadge}>
-              {isSettings
-                ? settingsScopedToTenant
-                  ? (tenantName ?? "Tenant")
-                  : branchName
-                : branchName}
-            </span>
-            {breadcrumbs.map((crumb, i) => (
-              <span key={i} className={styles.breadcrumbSegment}>
-                <IconChevronRight size={12} />
-                {crumb.href && !webScopeRestricted ? (
-                  <Link href={crumb.href} className={styles.breadcrumbLink}>
-                    {crumb.label}
-                  </Link>
-                ) : (
-                  <span className={styles.breadcrumbPage}>{crumb.label}</span>
-                )}
-              </span>
-            ))}
-
-            {!isSettings && (
-              <div className={styles.subheaderRight}>
-                <span className={styles.branchLabel}>Switch branch</span>
-                <div className={styles.branchDropWrap} ref={branchRef}>
-                  <button
-                    type="button"
-                    className={styles.branchDropBtn}
-                    onClick={() => setBranchOpen((v) => !v)}
-                  >
-                    <span>{branchName}</span>
-                    <IconChevronDown size={14} />
-                  </button>
-                  {branchOpen && (
-                    <div className={styles.branchDropMenu}>
-                      {branches.length === 0 && (
-                        <div
-                          className={styles.branchDropItem}
-                          style={{ color: "var(--pc-muted-fg)" }}
-                        >
-                          Loading...
-                        </div>
-                      )}
-                      {branches.map((b) => (
-                        <button
-                          key={b.id}
-                          type="button"
-                          className={`${styles.branchDropItem}${b.id === branchId ? ` ${styles.branchDropItemActive}` : ""}`}
-                          onClick={() => {
-                            setBranchId(b.id);
-                            setBranchOpen(false);
-                          }}
-                        >
-                          {b.name}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
         {/* Every page of the branch while a fallback runs, the full-screen till included. */}
         {rollout?.state === "fallback" && rollout.fallback && (
           <PosFallbackBanner endsAt={rollout.fallback.endsAt} />
@@ -805,36 +830,65 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
         {/* Page content. The FAB is fixed over this, so reserve its footprint at the
             bottom — otherwise a fully scrolled page ends underneath it. */}
-        <main className={`${styles.content}${showQuickSale ? ` ${styles.contentWithFab}` : ""}`}>
-          {pageAllowed ? (
-            children
-          ) : permissionsLoading || (!scopeRollout && !rolloutFailed) ? (
-            <p role="status">Checking web access…</p>
-          ) : !accessResolved || rolloutFailed ? (
-            <p role="alert">Web access could not be checked. Refresh this page to try again.</p>
-          ) : (
-            <section aria-label="Counter access">
-              <h1>Use PharmaCeylon POS</h1>
-              <p>
-                Work at your branch counter in PharmaCeylon POS. You can manage your personal
-                account here.
-              </p>
-              <Link href="/settings/my-profile">My Profile</Link>
-              {" · "}
-              <Link href="/settings/password-login">Password &amp; Security</Link>
-              {" · "}
-              <Link href="/settings/appearance">Display settings</Link>
-              {rollout?.state === "fallback" && permissionKeys.includes("sales.pos_use") && (
-                <p>
-                  <Link href="/pos">Open web POS fallback</Link>
-                </p>
-              )}
-            </section>
+        <main
+          ref={mainRef}
+          className={`${styles.content}${showQuickSale ? ` ${styles.contentWithFab}` : ""}`}
+        >
+          {!chromeHidden && parentCrumbs.length > 0 && (
+            <nav aria-label="Breadcrumb" className={styles.breadcrumb}>
+              <ol>
+                {parentCrumbs.map((crumb, i) => (
+                  <li key={i} className={styles.breadcrumbSegment}>
+                    {crumb.href && !webScopeRestricted ? (
+                      <Link href={crumb.href} className={styles.breadcrumbLink}>
+                        {crumb.label}
+                      </Link>
+                    ) : (
+                      <span className={styles.breadcrumbPage}>{crumb.label}</span>
+                    )}
+                    <IconChevronRight size={12} aria-hidden />
+                  </li>
+                ))}
+              </ol>
+            </nav>
           )}
+          {!chromeHidden && pageAllowed && !pageHasHeading && (
+            <h1 className={styles.shellTitle} data-shell-title>
+              {pageTitle}
+            </h1>
+          )}
+          <PageTitleProvider value={pageTitle}>
+            {pageAllowed ? (
+              children
+            ) : permissionsLoading || (!scopeRollout && !rolloutFailed) ? (
+              <p role="status">Checking web access…</p>
+            ) : !accessResolved || rolloutFailed ? (
+              <p role="alert">Web access could not be checked. Refresh this page to try again.</p>
+            ) : (
+              <section aria-label="Counter access">
+                <h1>Use PharmaCeylon POS</h1>
+                <p>
+                  Work at your branch counter in PharmaCeylon POS. You can manage your personal
+                  account here.
+                </p>
+                <Link href="/settings/my-profile">My Profile</Link>
+                {" · "}
+                <Link href="/settings/password-login">Password &amp; Security</Link>
+                {" · "}
+                <Link href="/settings/appearance">Display settings</Link>
+                {rollout?.state === "fallback" && permissionKeys.includes("sales.pos_use") && (
+                  <p>
+                    <Link href="/pos">Open web POS fallback</Link>
+                  </p>
+                )}
+              </section>
+            )}
+          </PageTitleProvider>
         </main>
       </div>
 
-      {/* Permission-aware, context-sensitive Quick Sale launcher.
+      {/* Permission-aware, context-sensitive Quick Sale launcher. Unchanged by #205: hiding web
+          selling is W2's job (#64), branch by branch.
 
           Stays mounted while obstructed rather than unmounting: the overlap is detected from
           this element's own rect, so removing it would clear the overlap and bring it

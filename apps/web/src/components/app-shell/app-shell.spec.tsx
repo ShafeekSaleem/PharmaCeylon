@@ -1,11 +1,12 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { PageHeader } from "@/components/ui/page-header";
 import { apiJson } from "@/lib/auth-client";
 import {
   notifyPosRolloutChanged,
   resetBranchRolloutCache,
   type PosRollout,
 } from "@/lib/branch-rollout";
-import { AppShell } from "./app-shell";
+import { AppShell, buildBreadcrumbs } from "./app-shell";
 
 const push = jest.fn();
 let mockPathname = "/dashboard";
@@ -323,5 +324,114 @@ describe("W3 back-office web scope", () => {
     expect(screen.getByText("Page body")).toBeInTheDocument();
     expect(posNavLink()).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Customers" })).not.toBeInTheDocument();
+  });
+});
+
+describe("#205 web shell: one title, one scope control, quiet sidebar", () => {
+  it("shows the page title once, in the page, and no breadcrumb on a top-level page", async () => {
+    mockPathname = "/customers";
+    await renderShell();
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Customers");
+    expect(screen.getByRole("banner")).not.toHaveTextContent("Customers");
+    expect(screen.queryByRole("navigation", { name: "Breadcrumb" })).not.toBeInTheDocument();
+  });
+
+  it("leaves the title to a page that draws its own heading", async () => {
+    mockPathname = "/customers";
+    render(
+      <AppShell>
+        <h1>Customers from the page</h1>
+      </AppShell>,
+    );
+    await waitFor(() => expect(request).toHaveBeenCalledWith("/tenant/context"));
+    await waitFor(() => expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1));
+    const headings = screen.getAllByRole("heading", { level: 1 });
+    expect(headings).toHaveLength(1);
+    expect(headings[0]).toHaveTextContent("Customers from the page");
+  });
+
+  it("lets PageHeader take the shell's name for the page", async () => {
+    mockPathname = "/products/import";
+    render(
+      <AppShell>
+        <PageHeader subtitleOnly description="Upload your product list." />
+      </AppShell>,
+    );
+    await waitFor(() => expect(request).toHaveBeenCalledWith("/tenant/context"));
+    // The shell's own title steps aside once it sees the page's heading.
+    await waitFor(() => expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1));
+    const headings = screen.getAllByRole("heading", { level: 1 });
+    expect(headings[0]).toHaveTextContent("Import products");
+  });
+
+  it("keeps the breadcrumb only for the parents of a nested page", async () => {
+    mockPathname = "/settings/appearance";
+    await renderShell();
+    const crumb = screen.getByRole("navigation", { name: "Breadcrumb" });
+    expect(crumb).toHaveTextContent("Settings");
+    expect(crumb).not.toHaveTextContent("Appearance");
+    expect(screen.getByRole("link", { name: "Settings", current: false })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Appearance");
+  });
+
+  it("puts the branch switch in the top bar and nowhere else", async () => {
+    await renderShell();
+    const banner = screen.getByRole("banner");
+    await waitFor(() =>
+      expect(
+        within(banner).getByRole("button", { name: "Branch: Colombo. Switch branch" }),
+      ).toBeInTheDocument(),
+    );
+    expect(screen.getAllByRole("button", { name: /Switch branch/ })).toHaveLength(1);
+    expect(within(banner).queryByText(/New sale/i)).not.toBeInTheDocument();
+  });
+
+  it("keeps the branch switch off settings pages, as before", async () => {
+    mockPathname = "/settings/my-profile";
+    await renderShell();
+    expect(screen.queryByRole("button", { name: /Switch branch/ })).not.toBeInTheDocument();
+  });
+
+  it("moves full screen into the account menu without changing its shortcut", async () => {
+    await renderShell();
+    expect(screen.queryByRole("button", { name: /fullscreen/i })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "User menu" }));
+    expect(screen.getByRole("button", { name: /full screen/i })).toHaveTextContent("Ctrl+Shift+F");
+  });
+
+  it("heads a sidebar group only when it has more than one item", async () => {
+    await renderShell();
+    const nav = screen.getByRole("navigation", { name: "Main" });
+    // Dispensary has Customers and Prescriptions; Sales and Catalog have one item each.
+    expect(within(nav).getByRole("group", { name: "Dispensary" })).toBeInTheDocument();
+    expect(within(nav).queryByText("Catalog")).not.toBeInTheDocument();
+    expect(within(nav).getAllByText("Sales")).toHaveLength(1);
+  });
+
+  it("drops a group's heading once its other items are hidden", async () => {
+    rollout = LIVE;
+    await renderShell();
+    const nav = screen.getByRole("navigation", { name: "Main" });
+    // Main is Dashboard + POS; with POS hidden at a live branch, Dashboard stands alone.
+    expect(within(nav).queryByText("Main")).not.toBeInTheDocument();
+    expect(within(nav).getByRole("link", { name: "Dashboard" })).toBeInTheDocument();
+  });
+
+  it("names the page the same in the title and as a parent", () => {
+    expect(buildBreadcrumbs("/settings/appearance")).toEqual([
+      { label: "Settings", href: "/settings" },
+      { label: "Appearance" },
+    ]);
+    expect(buildBreadcrumbs("/inventory/offline-records").at(-1)).toEqual({
+      label: "Offline records",
+    });
+    expect(buildBreadcrumbs("/sales/3f2c9a7e-1b2d-4c5e-8f90-123456789abc").at(-1)).toEqual({
+      label: "Details",
+    });
+    expect(buildBreadcrumbs("/sales/3f2c9a7e-1b2d-4c5e-8f90-123456789abc", "INV-1")).toEqual([
+      { label: "Sales", href: "/sales" },
+      { label: "INV-1" },
+    ]);
   });
 });

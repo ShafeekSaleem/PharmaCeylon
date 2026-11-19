@@ -1,10 +1,16 @@
+"use client";
+
 import type { ReactNode } from "react";
+import { usePageTitle } from "@/components/app-shell/page-title-context";
 import styles from "./page-header.module.css";
 
 type Props = {
   title?: string;
   description?: string;
-  /** When true, only the description is shown (shell already displays the page title). */
+  /**
+   * Use the shell's name for this page (from the route, or a page's `setLastSegmentLabel`)
+   * instead of passing `title`. The page header is the one place a page's title appears (#205).
+   */
   subtitleOnly?: boolean;
   actions?: ReactNode;
   children?: ReactNode;
@@ -22,7 +28,9 @@ export function PageHeader({
   className,
   floatingActions = false,
 }: Props) {
+  const shellTitle = usePageTitle();
   const hasActions = Boolean(actions);
+  const heading = subtitleOnly ? (shellTitle ?? undefined) : title;
   return (
     <div
       className={`${styles.header}${
@@ -30,9 +38,9 @@ export function PageHeader({
       }${className ? ` ${className}` : ""}`}
     >
       <div className={styles.left}>
-        {!subtitleOnly && title ? <h1 className={styles.title}>{title}</h1> : null}
+        {heading ? <h1 className={styles.title}>{heading}</h1> : null}
         {description ? (
-          <p className={subtitleOnly ? styles.subtitleLead : styles.description}>{description}</p>
+          <p className={heading ? styles.description : styles.subtitleLead}>{description}</p>
         ) : null}
       </div>
       {hasActions && <div className={styles.actions}>{actions}</div>}

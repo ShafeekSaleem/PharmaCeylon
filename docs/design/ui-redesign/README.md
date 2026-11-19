@@ -140,11 +140,23 @@ Every colour in the counter's renderer comes from a token. [`tokens.css`](../../
 - `App.module.css`, the last stylesheet on the web's `--pc-*` names, was imported nowhere and is gone.
 - Screenshots: `screenshots/pr-desktop-colour-sweep/`, before and after, Sell, Counter work, Cash & shift and Returns at 1366 × 768 and 1024 × 640 in light and dark, from the screenshot fixture.
 
+## Web shell
+
+The frame around every back-office page ([`components/app-shell/`](../../../apps/web/src/components/app-shell)).
+
+- **Top bar, left to right:** sidebar button, branch switch, search, theme switch, notifications, account. The branch switch is the only scope control in the shell. It stays off Settings pages, as before, because those say their own scope. The top bar has no New sale slot (decision 1). The New Sale button and its Ctrl+Shift+P shortcut are unchanged, because hiding web selling is W2 #64's job.
+- **Full screen** moved from the top bar into the account menu. Ctrl+Shift+F still works.
+- **The page title appears once, in the page header.** The top bar no longer shows it, and the breadcrumb row under the top bar is gone. The shell works out the page's name (`PAGE_TITLES`, or a page's `setLastSegmentLabel`, e.g. a product's name or an invoice number) and passes it down through `PageTitleProvider`. `PageHeader` with `subtitleOnly` now shows it as the page's `<h1>`. A page that draws no `<h1>` of its own gets one from the shell, so every page has exactly one.
+- **Breadcrumb only for parents.** A nested page shows the pages above it, as links over its title ("Settings ›" over "Appearance"). A top-level page has no breadcrumb. A record id in the path is never shown as a name.
+- **Sidebar:** a group shows its heading only when it shows more than one item. Sales and Catalog have one item each, and Main shrinks to Dashboard where POS is hidden. A group with nothing visible is dropped. The sidebar has no nav badges today. If badges are added, they show only counts that need someone to act, never totals.
+- **Narrow screens:** search sits in its own slot between the branch switch and the icons, so it can't slide under them. At 390 px the branch name truncates and the page doesn't scroll sideways. Checked at 1440 × 900, 1366 × 768 and 390 × 844.
+- `components/pms-nav.tsx`, an old link row nothing used, is deleted.
+- Screenshots: `screenshots/pr-web-shell/` (Dashboard, Products, Settings › Appearance and Batch stock, before and after, light and dark).
+
 ## Not done yet
 
 These items in #205's Phase 1 come in later PRs:
 
-- **Web shell.**
 - **Inventory, Purchasing and the other list pages** moving onto the list pattern (Phase 4).
 - **Colours left in the files the shell and list PRs own.** 32 literals in `app-shell.module.css`, `products.module.css` and `product-detail.module.css` (white text on accent fills, a photo overlay, and the dark sidebar's hard-coded palette). Sweep them once those PRs merge and drop their TODO entries from the guard's allow-list.
 
