@@ -4,27 +4,26 @@
  * tenant-defined and effectively unbounded, so slices are colored by *position* (already
  * sorted by revenue, so the biggest slices get the most distinct hues) rather than by name.
  *
- * Every color here is either a theme variable or one of this app's own established semantic
- * tones (the same purple/warning/danger hex `reports.module.css`'s `.actionIconSq` tone
- * classes use for "Category Insights"), so the chart reads as part of the same design system
- * instead of an arbitrary rainbow — same principle as `branch-colors.ts`.
+ * The first six are the pharmacy's chart series (UI1 #205: accent family or the distinct set,
+ * as the owner chose), then blends of them, so the chart follows the brand like
+ * `branch-colors.ts`.
  */
 const CATEGORY_MIX_PALETTE = [
-  "var(--pc-primary)",
-  "var(--pc-secondary-cyan)",
-  "var(--pc-accent-navy)",
-  "var(--pc-tone-violet)", // purple — matches the "Highest Margin" insight tone
-  "var(--pc-tone-orange)", // orange — matches the "Opportunity"/warning insight tone
-  "var(--pc-tone-danger)", // red — matches the "At Risk"/danger insight tone
-  "color-mix(in srgb, var(--pc-secondary-cyan) 55%, var(--pc-muted-fg))",
-  "color-mix(in srgb, var(--pc-accent-navy) 50%, var(--pc-primary))",
-  // Extra blends so a 13-way breakdown (e.g. Near Expiry's Medicines sub-categories) still gets
-  // a distinct color per entry instead of repeating from index 8 onward.
-  "color-mix(in srgb, var(--pc-tone-violet) 55%, var(--pc-primary))",
-  "color-mix(in srgb, var(--pc-tone-orange) 55%, var(--pc-accent-navy))",
-  "color-mix(in srgb, var(--pc-tone-danger) 45%, var(--pc-secondary-cyan))",
-  "color-mix(in srgb, var(--pc-primary) 45%, var(--pc-tone-violet))",
-  "color-mix(in srgb, var(--pc-accent-navy) 45%, var(--pc-tone-danger))",
+  "var(--pc-chart-1)",
+  "var(--pc-chart-2)",
+  "var(--pc-chart-3)",
+  "var(--pc-chart-4)",
+  "var(--pc-chart-5)",
+  "var(--pc-chart-6)",
+  // Blends of the series so a 13-way breakdown (e.g. Near Expiry's Medicines sub-categories)
+  // still gets a distinct colour per entry instead of repeating from index 7 onward.
+  "color-mix(in srgb, var(--pc-chart-1) 50%, var(--pc-chart-3))",
+  "color-mix(in srgb, var(--pc-chart-2) 50%, var(--pc-chart-4))",
+  "color-mix(in srgb, var(--pc-chart-3) 50%, var(--pc-chart-5))",
+  "color-mix(in srgb, var(--pc-chart-4) 50%, var(--pc-chart-1))",
+  "color-mix(in srgb, var(--pc-chart-5) 50%, var(--pc-chart-2))",
+  "color-mix(in srgb, var(--pc-chart-2) 50%, var(--pc-chart-6))",
+  "color-mix(in srgb, var(--pc-chart-1) 50%, var(--pc-chart-6))",
 ];
 
 export const CATEGORY_MIX_OTHERS_COLOR = "var(--pc-muted-fg)";
@@ -45,19 +44,20 @@ export function categoryMixColor(index: number): string {
  * readable level for these particular hues (they're lighter than e.g. navy or red to begin with).
  */
 const TREEMAP_TONE_PALETTE = [
-  "color-mix(in srgb, var(--pc-primary) 92%, #fff)",
-  "color-mix(in srgb, var(--pc-secondary-cyan) 88%, #fff)",
-  "color-mix(in srgb, var(--pc-tone-success) 85%, #fff)",
-  "color-mix(in srgb, var(--pc-primary) 70%, #fff)",
-  "color-mix(in srgb, var(--pc-secondary-cyan) 68%, #fff)",
-  "color-mix(in srgb, var(--pc-tone-success) 65%, #fff)",
+  "color-mix(in srgb, var(--pc-chart-1) 92%, #fff)",
+  "color-mix(in srgb, var(--pc-chart-2) 88%, #fff)",
+  "color-mix(in srgb, var(--pc-chart-3) 85%, #fff)",
+  "color-mix(in srgb, var(--pc-chart-1) 70%, #fff)",
+  "color-mix(in srgb, var(--pc-chart-2) 68%, #fff)",
+  "color-mix(in srgb, var(--pc-chart-3) 65%, #fff)",
 ];
 
 export function categoryMixColorLight(index: number): string {
   return TREEMAP_TONE_PALETTE[index % TREEMAP_TONE_PALETTE.length]!;
 }
 
-export const CATEGORY_MIX_OTHERS_COLOR_LIGHT = "color-mix(in srgb, var(--pc-muted-fg) 78%, #fff)";
+export const CATEGORY_MIX_OTHERS_COLOR_LIGHT =
+  "color-mix(in srgb, var(--pc-muted-fg) 78%, #fff)";
 
 /**
  * Tints a parent department's own donut color for its child-breakdown bar, so the breakdown
@@ -66,7 +66,11 @@ export const CATEGORY_MIX_OTHERS_COLOR_LIGHT = "color-mix(in srgb, var(--pc-mute
  * in both light and dark themes — the first child stays close to the full parent color, later
  * ones recede toward the card surface.
  */
-export function categoryChildColor(baseColor: string, indexAmongSiblings: number, totalSiblings: number): string {
+export function categoryChildColor(
+  baseColor: string,
+  indexAmongSiblings: number,
+  totalSiblings: number,
+): string {
   if (totalSiblings <= 1) return baseColor;
   const t = indexAmongSiblings / (totalSiblings - 1);
   const mixPct = Math.round(92 - t * 52); // 92% → 40% of the base color

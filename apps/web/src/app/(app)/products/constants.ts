@@ -1,6 +1,7 @@
 import type { CatalogSource, ColumnKey, StatFilter } from "./types";
 
-export const PAGE_SIZE = 10;
+/** About 15 rows show at 1440 × 900 on the list pattern's 44px rows (#205); the rest scroll. */
+export const PAGE_SIZE = 25;
 export const COLUMN_STORAGE_KEY = "pc-products-visible-columns-v3";
 
 export const WRITE_ROLES = new Set(["owner", "manager", "inventory_clerk"]);
@@ -55,7 +56,6 @@ export const INITIAL_FORM = {
 };
 
 export const COLUMN_META: { key: ColumnKey; label: string; hideable: boolean }[] = [
-  { key: "image", label: "Image", hideable: true },
   { key: "sku", label: "SKU", hideable: true },
   { key: "name", label: "Product", hideable: false },
   { key: "brandName", label: "Brand", hideable: true },
@@ -66,7 +66,7 @@ export const COLUMN_META: { key: ColumnKey; label: string; hideable: boolean }[]
   { key: "schedule", label: "Schedule", hideable: true },
   { key: "stock", label: "Stock", hideable: true },
   { key: "reorderLevel", label: "Reorder level", hideable: true },
-  { key: "status", label: "Status", hideable: true },
+  { key: "status", label: "Status (inactive only)", hideable: true },
   { key: "actions", label: "Actions", hideable: false },
 ];
 

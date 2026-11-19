@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const {
   ACCENT_PRESETS, DEFAULT_PHARMACY_APPEARANCE, LIGHT_SURFACES, DARK_SURFACES,
   accentProblem, contrastRatio, deriveAccentTokens, pharmacyBrandCss, validatePharmacyAppearance,
+  accentChartSeries, distinctChartSeries, MIN_CHART_CONTRAST,
 } = require('../dist/pharmacy-appearance.js');
 
 const AA = 4.5;
@@ -64,4 +65,21 @@ test('validation names the first problem', () => {
   assert.match(validatePharmacyAppearance({ ...base, statusSet: 'rainbow' }).error, /status colour/);
   assert.match(validatePharmacyAppearance({ ...base, counterThemeLocked: 'yes' }).error, /locked/);
   assert.equal(validatePharmacyAppearance(null).ok, false);
+});
+
+test('chart series reach 3:1 on every surface, for every accent and the distinct set', () => {
+  const sets = [...ACCENTS.map((hex) => [hex, accentChartSeries(hex)]), ['distinct', distinctChartSeries()]];
+  for (const [name, { light, dark }] of sets) {
+    assert.equal(light.length, 6);
+    assert.equal(new Set(light).size, 6, `${name}: light series repeat`);
+    assert.equal(new Set(dark).size, 6, `${name}: dark series repeat`);
+    for (const c of light) for (const s of LIGHT_SURFACES) atLeast(c, s, MIN_CHART_CONTRAST, `${name} light chart`);
+    for (const c of dark) for (const s of DARK_SURFACES) atLeast(c, s, MIN_CHART_CONTRAST, `${name} dark chart`);
+  }
+});
+
+test('the accent chart set starts with the accent, and the stylesheet carries it', () => {
+  assert.equal(accentChartSeries('#1d5fa8').light[0], '#1d5fa8');
+  assert.match(pharmacyBrandCss('#1d5fa8'), /--ui-chart-accent-1: #1d5fa8;/);
+  assert.match(pharmacyBrandCss('#1d5fa8'), /--ui-chart-accent-6: #[0-9a-f]{6};/);
 });

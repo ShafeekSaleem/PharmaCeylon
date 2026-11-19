@@ -8,6 +8,13 @@
 /* PharmaCeylon design tokens — keep in sync across the web app */
 :root {
   --pc-primary: var(--ui-accent);
+  /* Chart series: the owner picks accent or distinct (data-chart on <html>). */
+  --pc-chart-1: var(--ui-chart-accent-1);
+  --pc-chart-2: var(--ui-chart-accent-2);
+  --pc-chart-3: var(--ui-chart-accent-3);
+  --pc-chart-4: var(--ui-chart-accent-4);
+  --pc-chart-5: var(--ui-chart-accent-5);
+  --pc-chart-6: var(--ui-chart-accent-6);
   --pc-primary-hover: var(--ui-accent-hover);
   --pc-secondary-cyan: #0891b2;
   --pc-secondary-cyan-hover: #0e7490;
@@ -131,6 +138,16 @@
   --pc-tone-neutral-line: #d1d5db;
 
   color-scheme: light;
+}
+
+/* The pharmacy brand's "Distinct colours" chart set (UI1 #205). */
+:root[data-chart="distinct"] {
+  --pc-chart-1: var(--ui-chart-distinct-1);
+  --pc-chart-2: var(--ui-chart-distinct-2);
+  --pc-chart-3: var(--ui-chart-distinct-3);
+  --pc-chart-4: var(--ui-chart-distinct-4);
+  --pc-chart-5: var(--ui-chart-distinct-5);
+  --pc-chart-6: var(--ui-chart-distinct-6);
 }
 
 /*
