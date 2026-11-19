@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import type {
+  CardAttemptView,
   CashPayoutAtCounter,
   DeviceState,
   LocalShift,
@@ -25,6 +26,7 @@ import { invoke } from "./invoke";
 import { Icon, type IconName } from "./Icon";
 import { KeyHint } from "./KeyHint";
 import { clickSubmit, useKeyBinding } from "./keymap";
+import { cardStage } from "./offline-records-model";
 import { minor, money } from "./sell-model";
 import { Avatar } from "./Shell";
 import { ROLE_LABELS } from "./SignIn";
@@ -1001,6 +1003,41 @@ function WaitingToBePaidOut({
   );
 }
 
+/**
+ * Card payments taken offline that are not settled yet (mockup "Card payment to sort out"). They
+ * are settled on This counter → Offline sales and card payments, which View opens. Nothing here
+ * changes a payment.
+ */
+export function CardPaymentsToSortOut({ active, onView }: { active: boolean; onView: () => void }) {
+  const [rows, setRows] = useState<CardAttemptView[]>([]);
+  useEffect(() => {
+    if (!active) return;
+    void invoke(() => window.pos.cardAttempts()).then((result) => {
+      setRows(result.ok ? result.value.filter((attempt) => !attempt.settled) : []);
+    });
+  }, [active]);
+  if (!rows.length) return null;
+  return (
+    <section aria-label="Card payments to sort out" className={styles.cardFollowList}>
+      {rows.map((attempt) => (
+        <div key={attempt.attemptId} className={cx(ui.note, ui.noteWarn, styles.cardFollow)}>
+          <Icon name="alert-triangle" />
+          <div>
+            <b>Card payment to sort out · Rs {attempt.amount}</b>
+            <small>
+              Started at {time(new Date(attempt.startedAt))} while offline: {cardStage(attempt).title.toLowerCase()}.
+              Settle it on This counter before this customer is charged again.
+            </small>
+          </div>
+          <button type="button" className={cx(ui.btn, ui.outline, ui.sm)} onClick={onView}>
+            View
+          </button>
+        </div>
+      ))}
+    </section>
+  );
+}
+
 /** Prints the X report: a mid-shift summary on the receipt printer. The shift stays open. */
 function XReportButton({ printer }: { printer: Printer | null | undefined }) {
   const [state, setState] = useState<"idle" | "printing" | "done">("idle");
@@ -1054,6 +1091,7 @@ export function CashShiftPage({
   online = true,
   focusPayoutId = null,
   onFocusPayoutConsumed,
+  onOpenCardPayments = () => undefined,
 }: {
   device: DeviceState;
   shift: ShiftState | null;
@@ -1066,6 +1104,8 @@ export function CashShiftPage({
   online?: boolean;
   focusPayoutId?: string | null;
   onFocusPayoutConsumed?: () => void;
+  /** "View" on a card payment to sort out: opens This counter, where it is settled. */
+  onOpenCardPayments?: () => void;
 }) {
   const [view, setView] = useState<"shift" | "payout" | "past">("shift");
   const [payoutBadge, setPayoutBadge] = useState(0);
@@ -1177,6 +1217,7 @@ export function CashShiftPage({
               </>
             )}
             {!current && shift?.lastClosed && <LastClose shift={shift.lastClosed} />}
+            <CardPaymentsToSortOut active={active && view === "shift"} onView={onOpenCardPayments} />
           </div>
           {open ? (
             <ClosePanel

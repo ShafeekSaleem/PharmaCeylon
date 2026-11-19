@@ -482,6 +482,7 @@ export function App() {
                       online={api?.reachable !== false}
                       focusPayoutId={cashPayoutFocus}
                       onFocusPayoutConsumed={() => setCashPayoutFocus(null)}
+                      onOpenCardPayments={() => setPage("counter")}
                       onHandover={(next) => {
                         // The outgoing person is done: the counter locks for whoever comes next.
                         setNextUp(next);
@@ -505,6 +506,7 @@ export function App() {
                       info={info}
                       readiness={readiness}
                       onCheck={refreshReadiness}
+                      active={page === "counter"}
                     />
                   </div>
                 </KeyScope>

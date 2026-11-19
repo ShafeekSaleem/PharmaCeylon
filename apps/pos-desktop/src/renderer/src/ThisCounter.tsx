@@ -655,11 +655,14 @@ export function ThisCounterPage({
   info,
   readiness,
   onCheck,
+  active = true,
 }: {
   state: DeviceState;
   info: AppInfo | null;
   readiness: ReadinessReport | null;
   onCheck: () => void;
+  /** Whether the page is the one shown: offline records reload each time it is. */
+  active?: boolean;
 }) {
   const enrollment = state.enrollment!;
   const enrolledAtDate = enrollment.enrolledAt
@@ -757,7 +760,7 @@ export function ThisCounterPage({
         <Readiness readiness={readiness} onCheck={onCheck} />
         <div className={styles.side}>
           <PrinterTest />
-          <OfflineRecords />
+          <OfflineRecords active={active} />
           <OfflineCounterPanel
             branchName={enrollment.branchName}
             backup={readiness?.offlineBackup ?? null}

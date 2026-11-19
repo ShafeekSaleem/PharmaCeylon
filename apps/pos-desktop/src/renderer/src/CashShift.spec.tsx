@@ -1,7 +1,7 @@
 /** @jest-environment jsdom */
 import { afterEach, describe, expect, it } from "@jest/globals";
-import { act, cleanup, fireEvent, screen } from "@testing-library/react";
-import type { LocalShift, ShiftState } from "../../shared/ipc-contract";
+import { act, cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
+import type { CardAttemptView, LocalShift, ShiftState } from "../../shared/ipc-contract";
 import {
   deviceState,
   emptyEnrollmentOfflineBackup,
@@ -9,7 +9,7 @@ import {
   renderWithKeys,
   stubPos,
 } from "../test/harness";
-import { CashShiftPage, ShiftGate } from "./CashShift";
+import { CardPaymentsToSortOut, CashShiftPage, ShiftGate } from "./CashShift";
 import { SignInScreen } from "./SignIn";
 
 afterEach(cleanup);
@@ -338,5 +338,75 @@ describe("this shift on Cash & shift", () => {
     expect(pos.printXReport).toHaveBeenCalledWith({ printerName: "EPSON" });
     expect(screen.getByRole("button", { name: /Printed/ })).toBeTruthy();
     expect(pos.closeShift).not.toHaveBeenCalled();
+  });
+});
+
+describe("card payments to sort out on Cash & shift (P2b #103)", () => {
+  const card = (over: Partial<CardAttemptView> = {}): CardAttemptView => ({
+    attemptId: "00000000-0000-4000-8000-0000000000b1",
+    checkoutDraftId: "00000000-0000-4000-8000-0000000000c1",
+    amount: "1250.00",
+    startedAt: "2026-11-12T07:18:00.000Z",
+    state: "approved",
+    settled: false,
+    providerReference: "RRN-1",
+    approvalCode: "A1",
+    ...over,
+  });
+
+  it("lists each unsettled card payment with its amount and where it stands, and View opens This counter", async () => {
+    stubPos({
+      cardAttempts: async () => ({
+        ok: true,
+        value: [
+          card(),
+          card({ attemptId: "00000000-0000-4000-8000-0000000000b2", amount: "400.00", state: "uncertain", providerReference: null, approvalCode: null }),
+          card({ attemptId: "00000000-0000-4000-8000-0000000000b3", amount: "999.00", state: "linked_to_sale", settled: true }),
+        ],
+      }),
+    });
+    let viewed = 0;
+    renderWithKeys(
+      <CashShiftPage
+        device={signedIn(ids.ana, "Ana Perera")}
+        shift={state(shift())}
+        onShift={() => undefined}
+        onOpenCardPayments={() => (viewed += 1)}
+      />,
+    );
+    const list = await screen.findByRole("region", { name: "Card payments to sort out" });
+    const text = list.textContent ?? "";
+    expect(text).toContain("Card payment to sort out · Rs 1250.00");
+    expect(text).toContain("approved, not matched to a sale yet");
+    expect(text).toContain("Card payment to sort out · Rs 400.00");
+    expect(text).toContain("not sure if it went through");
+    expect(text).toContain("Settle it on This counter before this customer is charged again.");
+    // A settled one is not something to sort out.
+    expect(text).not.toContain("999.00");
+    const views = screen.getAllByRole("button", { name: "View" });
+    expect(views).toHaveLength(2);
+    fireEvent.click(views[0]!);
+    expect(viewed).toBe(1);
+  });
+
+  it("shows nothing when every card payment is settled, or when they can't be read", async () => {
+    const settled = stubPos({ cardAttempts: async () => ({ ok: true, value: [card({ settled: true, state: "declined" })] }) });
+    renderWithKeys(<CardPaymentsToSortOut active onView={() => undefined} />);
+    await waitFor(() => expect(settled.cardAttempts).toHaveBeenCalled());
+    expect(screen.queryByRole("region", { name: "Card payments to sort out" })).toBeNull();
+    cleanup();
+
+    const failing = stubPos({ cardAttempts: async () => ({ ok: false, error: { code: "NOT_ENROLLED", message: "Not enrolled" } }) });
+    renderWithKeys(<CardPaymentsToSortOut active onView={() => undefined} />);
+    await waitFor(() => expect(failing.cardAttempts).toHaveBeenCalled());
+    expect(screen.queryByRole("region", { name: "Card payments to sort out" })).toBeNull();
+  });
+
+  it("reads them only while the page is shown", async () => {
+    const pos = stubPos({ cardAttempts: async () => ({ ok: true, value: [card()] }) });
+    const view = renderWithKeys(<CardPaymentsToSortOut active={false} onView={() => undefined} />);
+    expect(pos.cardAttempts).not.toHaveBeenCalled();
+    view.rerender(<CardPaymentsToSortOut active onView={() => undefined} />);
+    expect(await screen.findByText("Card payment to sort out · Rs 1250.00")).toBeTruthy();
   });
 });

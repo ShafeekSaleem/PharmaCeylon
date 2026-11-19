@@ -32,7 +32,7 @@ const PILL = { warn: ui.warn, bad: ui.bad, ok: ui.ok, neutral: ui.neutral } as c
  * sales made while the counter was offline. Both are evidence for the back office; nothing here
  * changes a sale, stock, cash or a card payment, and nothing charges a card.
  */
-export function OfflineRecords() {
+export function OfflineRecords({ active = true }: { active?: boolean } = {}) {
   const [sales, setSales] = useState<OfflineSaleView[] | null>(null);
   const [attempts, setAttempts] = useState<CardAttemptView[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -49,9 +49,11 @@ export function OfflineRecords() {
     setLoadError(!s.ok ? s.error.message : !a.ok ? a.error.message : null);
   }, []);
 
+  // Each time the page is shown: a card payment settled or started elsewhere (Cash & shift's
+  // "View" lands here) is current when someone looks.
   useEffect(() => {
-    void load();
-  }, [load]);
+    if (active) void load();
+  }, [active, load]);
 
   const unsettled = (attempts ?? []).filter((a) => !a.settled);
   const settled = (attempts ?? []).filter((a) => a.settled).slice(0, 5);

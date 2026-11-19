@@ -272,3 +272,19 @@ describe("OfflineRecords: noting a problem with a sale", () => {
 });
 
 void jest;
+
+describe("OfflineRecords: reloading", () => {
+  it("reads the card payments again each time This counter is shown", async () => {
+    const pos = stubPos({
+      offlineSales: async () => ({ ok: true, value: [] }),
+      cardAttempts: async () => ({ ok: true, value: [attempt()] }),
+    });
+    const view = renderWithKeys(<OfflineRecords active={false} />);
+    expect(pos.cardAttempts).not.toHaveBeenCalled();
+    view.rerender(<OfflineRecords active />);
+    await waitFor(() => expect(pos.cardAttempts).toHaveBeenCalledTimes(1));
+    view.rerender(<OfflineRecords active={false} />);
+    view.rerender(<OfflineRecords active />);
+    await waitFor(() => expect(pos.cardAttempts).toHaveBeenCalledTimes(2));
+  });
+});
