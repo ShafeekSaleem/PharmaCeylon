@@ -62,13 +62,13 @@
 }
 
 :global(html[data-sidebar="dark"]) .sidebar {
-  --pc-card-bg: #131c2e;
-  --pc-foreground: #e6edf7;
-  --pc-muted-fg: #9aa8bd;
-  --pc-muted-bg: #1b2639;
-  --pc-border: #26324a;
-  --pc-tone-neutral-line: #34425c;
-  --pc-primary: #e6edf7;
+  --pc-card-bg: var(--pc-sidebar-dark-bg);
+  --pc-foreground: var(--pc-sidebar-dark-text);
+  --pc-muted-fg: var(--pc-sidebar-dark-muted);
+  --pc-muted-bg: var(--pc-sidebar-dark-raised);
+  --pc-border: var(--pc-sidebar-dark-line);
+  --pc-tone-neutral-line: var(--pc-sidebar-dark-line-strong);
+  --pc-primary: var(--pc-sidebar-dark-text);
   color-scheme: dark;
 }
 
@@ -93,7 +93,7 @@
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  color: #fff;
+  color: var(--pc-brand-text);
 }
 
 .sidebarBrand {
@@ -220,6 +220,39 @@
 
 .sidebarCollapsed .navItemLabel {
   display: none;
+}
+
+/* Work waiting in this area (#205). Neutral: the number is the news, and "Colour only the
+   exception" keeps status colours for late and blocked. */
+.navBadge {
+  margin-left: auto;
+  min-width: 1.35rem;
+  padding: 0 0.4rem;
+  border-radius: 999px;
+  border: 1px solid var(--pc-border);
+  background: var(--pc-muted-bg);
+  color: var(--pc-foreground);
+  font-size: 0.7rem;
+  font-weight: 600;
+  line-height: 1.2rem;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.navItemActive .navBadge {
+  border-color: transparent;
+  background: var(--pc-card-bg);
+}
+
+/* Collapsed: the pill sits on the icon's corner. */
+.sidebarCollapsed .navBadge {
+  position: absolute;
+  top: -0.1rem;
+  left: 1.7rem;
+  min-width: 1.1rem;
+  padding: 0 0.25rem;
+  font-size: 0.62rem;
+  line-height: 1rem;
 }
 
 .sidebarFooter {
@@ -422,7 +455,7 @@
   padding: 0.75rem 1rem;
   border-bottom: 1px solid var(--pc-border);
   background: var(--pc-gradient-main);
-  color: #fff;
+  color: var(--pc-brand-text);
 }
 
 .notifTitle {
@@ -435,14 +468,14 @@
   background: none;
   font-family: inherit;
   font-size: 0.7rem;
-  color: rgba(255, 255, 255, 0.85);
+  color: var(--pc-brand-text-muted);
   cursor: pointer;
   text-decoration: underline;
   text-underline-offset: 2px;
 }
 
 .notifMarkAll:hover {
-  color: #fff;
+  color: var(--pc-brand-text);
 }
 
 .notifBody {
@@ -567,18 +600,18 @@
 .avatarMenuHeader {
   padding: 0.85rem 1rem;
   background: var(--pc-gradient-main);
-  color: #fff;
+  color: var(--pc-brand-text);
 }
 
 .avatarMenuName {
   font-size: 0.875rem;
   font-weight: 600;
-  color: #fff;
+  color: var(--pc-brand-text);
 }
 
 .avatarMenuEmail {
   font-size: 0.75rem;
-  color: rgba(255, 255, 255, 0.85);
+  color: var(--pc-brand-text-muted);
   margin-top: 2px;
 }
 

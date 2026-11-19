@@ -59,6 +59,15 @@
   --pc-brand-text-muted: rgba(255, 255, 255, 0.92);
   --pc-brand-bubble-bg: rgba(255, 255, 255, 0.2);
 
+  /* The owner's "Dark" sidebar (UI1 #205): a navy panel in both themes, so it keeps its own
+     palette rather than following --ui-surface. Read only by app-shell.module.css. */
+  --pc-sidebar-dark-bg: #131c2e;
+  --pc-sidebar-dark-text: #e6edf7;
+  --pc-sidebar-dark-muted: #9aa8bd;
+  --pc-sidebar-dark-raised: #1b2639;
+  --pc-sidebar-dark-line: #26324a;
+  --pc-sidebar-dark-line-strong: #34425c;
+
   /* Button colors */
   --pc-btn-primary-text: var(--ui-accent-ink);
   --pc-btn-destructive-text: var(--ui-on-status);

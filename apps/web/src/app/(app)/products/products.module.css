@@ -888,7 +888,7 @@
   border: none;
   border-radius: 999px;
   background: var(--pc-primary);
-  color: var(--pc-btn-primary-text, #fff);
+  color: var(--pc-btn-primary-text);
   font-family: inherit;
   font-size: 0.82rem;
   font-weight: 600;
@@ -914,15 +914,15 @@
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
-  background: color-mix(in srgb, var(--pc-foreground) 35%, transparent);
-  color: #fff;
+  background: var(--pc-image-scrim);
+  color: var(--pc-brand-text);
 }
 
 .viewImageSpinner {
   width: 28px;
   height: 28px;
-  border: 3px solid rgba(255, 255, 255, 0.35);
-  border-top-color: #fff;
+  border: 3px solid color-mix(in srgb, var(--pc-brand-text) 35%, transparent);
+  border-top-color: var(--pc-brand-text);
   border-radius: 50%;
   animation: viewImageSpin 0.7s linear infinite;
 }
@@ -1027,7 +1027,7 @@
 }
 
 .viewHeaderBtnPrimary:hover {
-  background: color-mix(in srgb, var(--pc-primary) 88%, #000);
+  background: var(--pc-primary-hover);
 }
 
 .viewHeaderBtnMuted {
@@ -1669,7 +1669,7 @@
   border: none;
   border-radius: var(--pc-radius-sm);
   background: var(--pc-primary);
-  color: var(--pc-btn-primary-text, #fff);
+  color: var(--pc-btn-primary-text);
   font-family: inherit;
   font-size: 0.78rem;
   font-weight: 600;
@@ -2132,7 +2132,7 @@
   border: none;
   border-radius: var(--pc-radius-sm);
   background: var(--pc-primary);
-  color: var(--pc-btn-primary-text, #fff);
+  color: var(--pc-btn-primary-text);
   font-family: inherit;
   font-size: 0.82rem;
   font-weight: 600;
@@ -2251,7 +2251,7 @@
   border: none;
   border-radius: var(--pc-radius-sm);
   background: var(--pc-primary);
-  color: var(--pc-btn-primary-text, #fff);
+  color: var(--pc-btn-primary-text);
   font-family: inherit;
   font-size: 0.78rem;
   font-weight: 600;
@@ -3456,8 +3456,8 @@
 }
 
 .tagChipOn .tagChipCount {
-  background: rgba(255, 255, 255, 0.22);
-  color: #fff;
+  background: color-mix(in srgb, var(--pc-btn-primary-text) 22%, transparent);
+  color: var(--pc-btn-primary-text);
 }
 
 .tagPickerHint {

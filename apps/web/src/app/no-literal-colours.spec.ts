@@ -29,13 +29,9 @@ type Allowed = {
   /** Property, or "*" for every property. */
   property: string;
   reason: string;
-  /** Owned by a parallel PR; the entry goes once that file is swept. Not checked for staleness. */
-  todo?: boolean;
 };
 
 const CHART = "Chart series fill: text sits on a data colour, not on a themed surface.";
-const PARALLEL =
-  "TODO(#205): swept with the web shell / shared list PRs that own this file, then remove.";
 
 const ALLOWED: Allowed[] = [
   // Charts.
@@ -57,27 +53,6 @@ const ALLOWED: Allowed[] = [
     property: "color",
     reason: CHART,
   },
-
-  // Files other #205 Phase 1 PRs own; swept after they merge.
-  ...[
-    "components/app-shell/app-shell.module.css",
-    "components/app-shell/pos-fallback-banner.module.css",
-    "components/ui/page-header.module.css",
-    "components/ui/data-table.module.css",
-    "components/ui/filter-popover.module.css",
-    "components/ui/active-filter-banner.module.css",
-    "components/ui/row-menu.module.css",
-    "components/ui/tone-chip.module.css",
-    "app/(app)/products/products.module.css",
-    "app/(app)/products/product-detail.module.css",
-    "app/(app)/products/products-filter-panel.module.css",
-    "app/(app)/products/categories/categories.module.css",
-    "app/(app)/products/components/product-nmra-link.module.css",
-    "app/(app)/products/import/import.module.css",
-    "app/(app)/products/import/components/stock-draft.module.css",
-    "app/(app)/products/manage/manage.module.css",
-    "app/(app)/products/manage/sections/tags.module.css",
-  ].map((file) => ({ file, selector: "*", property: "*", reason: PARALLEL, todo: true })),
 ];
 
 const SKIPPED_PROPERTIES = new Set(["box-shadow", "text-shadow", "filter"]);
@@ -164,7 +139,7 @@ describe("CSS modules use colour tokens", () => {
   });
 
   it("has no stale allow-list entry", () => {
-    const stale = ALLOWED.filter((a) => !a.todo && !findings.some((f) => allows(a, f))).map(
+    const stale = ALLOWED.filter((a) => !findings.some((f) => allows(a, f))).map(
       (a) => `${a.file}  ${a.selector} { ${a.property} }`,
     );
     expect(stale).toEqual([]);

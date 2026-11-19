@@ -148,7 +148,7 @@ The frame around every back-office page ([`components/app-shell/`](../../../apps
 - **Full screen** moved from the top bar into the account menu. Ctrl+Shift+F still works.
 - **The page title appears once, in the page header.** The top bar no longer shows it, and the breadcrumb row under the top bar is gone. The shell works out the page's name (`PAGE_TITLES`, or a page's `setLastSegmentLabel`, e.g. a product's name or an invoice number) and passes it down through `PageTitleProvider`. `PageHeader` with `subtitleOnly` now shows it as the page's `<h1>`. A page that draws no `<h1>` of its own gets one from the shell, so every page has exactly one.
 - **Breadcrumb only for parents.** A nested page shows the pages above it, as links over its title ("Settings ›" over "Appearance"). A top-level page has no breadcrumb. A record id in the path is never shown as a name.
-- **Sidebar:** a group shows its heading only when it shows more than one item. Sales and Catalog have one item each, and Main shrinks to Dashboard where POS is hidden. A group with nothing visible is dropped. The sidebar has no nav badges today. If badges are added, they show only counts that need someone to act, never totals.
+- **Sidebar:** a group shows its heading only when it shows more than one item. Sales and Catalog have one item each, and Main shrinks to Dashboard where POS is hidden. A group with nothing visible is dropped. Badges show only counts that need someone to act, never totals (see Finishing Phase 1).
 - **Narrow screens:** search sits in its own slot between the branch switch and the icons, so it can't slide under them. At 390 px the branch name truncates and the page doesn't scroll sideways. Checked at 1440 × 900, 1366 × 768 and 390 × 844.
 - `components/pms-nav.tsx`, an old link row nothing used, is deleted.
 - Screenshots: `screenshots/pr-web-shell/` (Dashboard, Products, Settings › Appearance and Batch stock, before and after, light and dark).
@@ -164,11 +164,18 @@ Dates read the same on every screen and printout, whatever the computer's region
 - **Not changed:** times are shown in the computer's own time zone, as before.
 - Screenshots: `screenshots/pr-dates-currency/`, a US-English browser before and after (Sales, Audit Log, Purchasing, Password & Login).
 
+## Finishing Phase 1
 
-These items in #205's Phase 1 come in later PRs:
+- **Last literal colours.** The 32 left in `app-shell.module.css`, `products.module.css` and `product-detail.module.css` are tokens now: text on the brand gradient uses `--pc-brand-text` (and `--pc-brand-text-muted`), text on an accent fill drops its `#fff` fallback, the photo overlays use `--pc-image-scrim`, the primary hover uses `--pc-primary-hover`, and the dark sidebar's navy palette is named once in `globals.css` (`--pc-sidebar-dark-*`). The guard's 17 TODO entries are gone, so it now covers the shell and Products files; only the three chart entries remain.
+- **Status in words.** The stocktake approval checklist showed each step's state by dot colour alone; each step now ends with "Done", "To do" or "Not yet". The unread dot in notifications reads "Unread" to a screen reader. Every other coloured dot found sits beside its word already (status badges, work-queue chips, the desktop's connection and stock bands); chart legend dots name a series, not a status.
+- **Sidebar badges.** Inventory, Purchasing, Transfers and Stocktakes show how many things wait there at the selected branch: the dashboard work queue's own per-area counts (`GET /dashboard/work` `categories`), so a badge and the queue agree, and each source already leaves out what the person may not do. Neutral pill, "99+" above 99, "need action" for screen readers; it sits on the icon's corner when the sidebar is collapsed. Refreshed on branch change, on every page change, on focus and each minute. Returns (`/returns`) and counter work have no sidebar item, so no badge.
+- Screenshots: `screenshots/pr-phase1-finish/` (sidebar light, dark sidebar, dark theme, collapsed).
+
+## Not done yet
+
+These items in #205 come in later PRs:
 
 - **Inventory, Purchasing and the other list pages** moving onto the list pattern (Phase 4).
-- **Colours left in the files the shell and list PRs own.** 32 literals in `app-shell.module.css`, `products.module.css` and `product-detail.module.css` (white text on accent fills, a photo overlay, and the dark sidebar's hard-coded palette). Sweep them once those PRs merge and drop their TODO entries from the guard's allow-list.
 
 ## Screenshots
 
