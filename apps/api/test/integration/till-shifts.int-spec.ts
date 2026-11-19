@@ -577,3 +577,74 @@ describe("a manager closing an absent cashier's shift", () => {
     expect((await shiftRow(opened.shift.workSessionId)).closedAt).toBeNull();
   });
 });
+
+describe("a branch live on PharmaCeylon POS sells only at its counters (P1 #47, D-W1)", () => {
+  const HOUR = 3_600_000;
+  const setRollout = (data: Prisma.BranchUpdateManyMutationInput) =>
+    prisma.branch.updateMany({ where: { tenantId: fx.tenantId, id: fx.mainBranchId }, data });
+  const goLive = () => setRollout({ desktopPosRollout: "live", desktopPosLiveAt: new Date(), posFallbackStartedAt: null, posFallbackEndsAt: null });
+  const fallbackUntil = (endsAt: Date) => setRollout({ posFallbackStartedAt: new Date(Date.now() - HOUR), posFallbackEndsAt: endsAt });
+  afterEach(() => setRollout({ desktopPosRollout: "not_live", desktopPosLiveAt: null, posFallbackStartedAt: null, posFallbackEndsAt: null }));
+
+  const webSale = (who: RequestUser, key: string = randomUUID()) =>
+    sales.checkout(fx.tenantId, fx.mainBranchId, who.userId, [],
+      { items: [{ productId: fx.productId, batchId, qty: 1, unitPrice: "15.00" }] } as never, key);
+  const webVoid = (saleId: string) =>
+    sales.voidSale(fx.tenantId, fx.mainBranchId, owner.userId, [{ branchId: fx.mainBranchId, role: RoleName.owner }] as never, saleId, "Rang up twice");
+  const webRefund = (saleId: string) =>
+    sales.refundSale(fx.tenantId, fx.mainBranchId, owner.userId, { has: () => true } as never, saleId, {
+      reasonCode: "changed_mind",
+      items: [{ productId: fx.productId, batchId, qty: 1 }],
+    } as never);
+  const salesHere = () => prisma.sale.count({ where: { tenantId: fx.tenantId, branchId: fx.mainBranchId } });
+  const saleRow = (id: string) => prisma.sale.findFirstOrThrow({ where: { tenantId: fx.tenantId, id } });
+
+  it("refuses browser checkout, void and refund, owners included, and moves nothing; the counter still sells", async () => {
+    const counter = await enroll();
+    const session = await signIn(counter, clerk);
+    await open(clerk, session.workSessionId);
+    const earlier = await webSale(owner);
+    await goLive();
+
+    const before = await salesHere();
+    await expect(code(webSale(owner))).resolves.toBe("SALE_AT_COUNTER");
+    await expect(code(webSale(clerk))).resolves.toBe("SALE_AT_COUNTER");
+    expect(await salesHere()).toBe(before);
+
+    // Selling, voiding and refunding at the counter is the branch's way to sell now.
+    const atCounter = await sell(clerk, session.workSessionId);
+    expect((await saleRow(atCounter!.id)).shiftId).not.toBeNull();
+    expect(await salesHere()).toBe(before + 1);
+
+    // A sale made in the browser before go-live can't be voided or refunded there either.
+    for (const saleId of [earlier!.id, atCounter!.id]) {
+      await expect(code(webVoid(saleId))).resolves.toBe("SALE_AT_COUNTER");
+      await expect(code(webRefund(saleId))).resolves.toBe("SALE_AT_COUNTER");
+      expect((await saleRow(saleId)).status).toBe("posted");
+    }
+    expect(await prisma.goodsReturn.count({ where: { tenantId: fx.tenantId, saleId: { in: [earlier!.id, atCounter!.id] } } })).toBe(0);
+  });
+
+  it("replays a browser sale made before go-live instead of refusing its retry", async () => {
+    const key = randomUUID();
+    const first = await webSale(clerk, key);
+    await goLive();
+    const before = await salesHere();
+    const again = await webSale(clerk, key);
+    expect(again!.id).toBe(first!.id);
+    expect(await salesHere()).toBe(before);
+  });
+
+  it("lifts the denial while an owner's fallback runs, and restores it when the fallback ends", async () => {
+    await goLive();
+    await fallbackUntil(new Date(Date.now() + HOUR));
+    const sale = await webSale(clerk);
+    expect((await saleRow(sale!.id)).shiftId).toBeNull();
+    await webRefund(sale!.id);
+    expect((await saleRow(sale!.id)).status).toBe("refunded");
+
+    // The fallback ends on its own at the time the owner set.
+    await fallbackUntil(new Date(Date.now() - 1_000));
+    await expect(code(webSale(clerk))).resolves.toBe("SALE_AT_COUNTER");
+  });
+});

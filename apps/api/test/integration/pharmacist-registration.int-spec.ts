@@ -592,19 +592,25 @@ describe("controlled checkout co-sign (P1 #47 with P2 #93)", () => {
     const soldByPharmacist = () => prisma.sale.count({ where: { tenantId: fx.tenantId, soldBy: pharmacistId } });
     afterEach(() => rollout("not_live"));
 
-    const states = ["not_live", "live", "fallback"] as const;
+    // A live branch outside a fallback sells only at its counters (D-W1), so the browser sells
+    // before go-live and during a fallback.
+    const states = ["not_live", "fallback"] as const;
 
-    it("is checked at every branch, whatever its desktop POS state, and sells nothing without one", async () => {
+    it("is checked whenever the web POS is in use, and sells nothing without one", async () => {
       const before = await soldByPharmacist();
       for (const state of states) {
         await rollout(state);
         await expect(code(sellAlone())).resolves.toBe("SELLER_NOT_QUALIFIED");
       }
+      await rollout("live");
+      await expect(code(sellAlone())).resolves.toBe("SALE_AT_COUNTER");
       expect(await soldByPharmacist()).toBe(before);
     });
 
-    it("keeps the registration it relied on with the sale, in every desktop POS state", async () => {
+    it("keeps the registration it relied on with the sale, whenever the web POS is in use", async () => {
       const row = await record(pharmacistId, "PH-SA-1");
+      await rollout("live");
+      await expect(code(sellAlone())).resolves.toBe("SALE_AT_COUNTER");
       for (const state of states) {
         await rollout(state);
         const sale = await sellAlone();

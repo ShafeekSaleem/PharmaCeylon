@@ -24,9 +24,10 @@ describe("SalesService controlled checkout authority", () => {
   let txnEntered: boolean;
   let audit: AuditService;
   let tax: TaxService;
-  // Past the clinical check, the next thing checkout reads on its transaction is the tenant. The
-  // branch isn't read: whether the registration is checked doesn't depend on its desktop POS state.
+  // Past the clinical check, the next thing checkout reads on its transaction is the tenant.
+  // Whether the registration is checked doesn't depend on the branch's desktop POS state.
   const tx = {
+    branch: { findFirst: jest.fn().mockResolvedValue(null) }, // not live on PharmaCeylon POS
     tenant: {
       findUnique: jest.fn(async () => {
         throw new Error("stop-after-clinical");
