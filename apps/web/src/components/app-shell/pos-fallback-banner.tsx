@@ -1,12 +1,12 @@
 import { IconAlertTriangle } from "@/components/icons";
 import css from "./pos-fallback-banner.module.css";
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 
 /** "6:00 PM" today, "Wed, Oct 28, 6:00 PM" on another day — whichever reads as the end. */
 export function formatFallbackEnd(endsAt: string, now: Date = new Date()): string {
   const end = new Date(endsAt);
   const sameDay = end.toDateString() === now.toDateString();
-  return end.toLocaleString(
-    undefined,
+  return end.toLocaleString(DISPLAY_LOCALE,
     sameDay
       ? { hour: "numeric", minute: "2-digit" }
       : { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" },

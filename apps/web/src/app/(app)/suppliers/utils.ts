@@ -5,6 +5,7 @@ import type {
   SupplierStatus,
   SupplierType,
 } from "./types";
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 
 const WRITE_ROLES = new Set(["owner", "manager", "inventory_clerk"]);
 
@@ -26,7 +27,7 @@ export function formatDate(iso: string | null | undefined): string {
   if (!iso) return "—";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleDateString(undefined, {
+  return d.toLocaleDateString(DISPLAY_LOCALE, {
     year: "numeric",
     month: "short",
     day: "numeric",

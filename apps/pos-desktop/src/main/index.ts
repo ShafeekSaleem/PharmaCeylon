@@ -110,6 +110,7 @@ import {
 import { createMainWindow } from "./window";
 import { createCounterBrand } from "./brand";
 import { createCounterTheme } from "./theme";
+import { formatDisplayDate, formatDisplayTime } from "@pharmaceylon/shared";
 
 const smokeMode = process.argv.includes("--smoke-test");
 if (smokeMode) {
@@ -155,11 +156,7 @@ const backupLabel = ({ manifest }: StoreBackup) => {
   const counter = [manifest.counterLabel, manifest.branchName]
     .filter(Boolean)
     .join(", ");
-  const time = at.toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-  return `${at.toLocaleDateString()} ${time}${counter ? ` (${counter})` : ""}`;
+  return `${formatDisplayDate(at)} ${formatDisplayTime(at)}${counter ? ` (${counter})` : ""}`;
 };
 function chooseBackup(
   message: string,

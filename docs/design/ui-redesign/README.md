@@ -153,7 +153,17 @@ The frame around every back-office page ([`components/app-shell/`](../../../apps
 - `components/pms-nav.tsx`, an old link row nothing used, is deleted.
 - Screenshots: `screenshots/pr-web-shell/` (Dashboard, Products, Settings › Appearance and Batch stock, before and after, light and dark).
 
-## Not done yet
+## Dates and money
+
+Dates read the same on every screen and printout, whatever the computer's region is set to (rule 6).
+
+- **Where it lives:** `packages/shared/src/display-format.ts`. `DISPLAY_LOCALE` is `en-GB`; `formatDisplayDate` ("19 Nov 2026"), `formatDayMonth` ("19 Nov"), `formatDisplayTime` ("13:26", 24-hour), `formatDisplayDateTime` ("19 Nov 2026, 13:26"), `formatMonthYear` and `formatAmount` ("12,450.00").
+- **What changed:** about 60 date calls passed no locale, `undefined` or `"en-US"`, so a browser or Windows set to US English wrote 11/19/2026 and 1:27:35 PM. Counter receipts and X-reports did the same. Numbers that used `"en-IN"` (lakh grouping, 1,23,456) or the computer's region now group in thousands like the money helpers. Days are no longer zero-padded ("5 Nov", not "05 Nov").
+- **Currency:** the web says LKR everywhere; the customers page was the last one saying Rs. The desktop counter and its receipts say Rs.
+- **Guards:** `apps/web/src/lib/display-locale.spec.ts` and `apps/pos-desktop/src/display-locale.spec.ts` fail on any `toLocale*String` or `Intl.DateTimeFormat` / `NumberFormat` call that doesn't pass `DISPLAY_LOCALE`. `"en-CA"` is allowed for building YYYY-MM-DD keys that nobody reads.
+- **Not changed:** times are shown in the computer's own time zone, as before.
+- Screenshots: `screenshots/pr-dates-currency/`, a US-English browser before and after (Sales, Audit Log, Purchasing, Password & Login).
+
 
 These items in #205's Phase 1 come in later PRs:
 

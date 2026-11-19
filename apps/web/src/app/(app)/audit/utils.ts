@@ -12,9 +12,10 @@ import {
   type IconProps,
 } from "@/components/icons";
 import type { AuditDateRangeFilter, AuditEventRow } from "./types";
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 
 export function formatDateTime(iso: string): string {
-  return new Date(iso).toLocaleString("en-US", {
+  return new Date(iso).toLocaleString(DISPLAY_LOCALE, {
     year: "numeric",
     month: "short",
     day: "numeric",

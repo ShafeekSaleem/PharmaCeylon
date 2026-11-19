@@ -18,6 +18,7 @@ import {
   ReleaseDialog,
   type QuarantineTarget,
 } from "./quarantine-dialogs";
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 
 type Props = {
   productId: string | null;
@@ -129,27 +130,27 @@ export function ProductStockSheet({ productId, access, onClose, onAdjust }: Prop
             <div className={css.sheetTotals} role="group" aria-label="Stock totals">
               <div className={`${css.sheetTotal} ${css.sheetTotalPrimary}`}>
                 <span className={css.sheetTotalLabel}>Available</span>
-                <span className={css.sheetTotalValue}>{totals.available.toLocaleString()}</span>
+                <span className={css.sheetTotalValue}>{totals.available.toLocaleString(DISPLAY_LOCALE)}</span>
               </div>
               <div className={css.sheetTotal}>
                 <span className={css.sheetTotalLabel}>On hand</span>
-                <span className={css.sheetTotalValue}>{totals.onHand.toLocaleString()}</span>
+                <span className={css.sheetTotalValue}>{totals.onHand.toLocaleString(DISPLAY_LOCALE)}</span>
               </div>
               <div className={css.sheetTotal}>
                 <span className={css.sheetTotalLabel}>Quarantined</span>
-                <span className={css.sheetTotalValue}>{totals.quarantined.toLocaleString()}</span>
+                <span className={css.sheetTotalValue}>{totals.quarantined.toLocaleString(DISPLAY_LOCALE)}</span>
               </div>
               <div className={css.sheetTotal}>
                 <span className={css.sheetTotalLabel}>Reserved</span>
-                <span className={css.sheetTotalValue}>{totals.reserved.toLocaleString()}</span>
+                <span className={css.sheetTotalValue}>{totals.reserved.toLocaleString(DISPLAY_LOCALE)}</span>
               </div>
               <div className={css.sheetTotal}>
                 <span className={css.sheetTotalLabel}>Incoming</span>
-                <span className={css.sheetTotalValue}>{totals.incoming.toLocaleString()}</span>
+                <span className={css.sheetTotalValue}>{totals.incoming.toLocaleString(DISPLAY_LOCALE)}</span>
               </div>
               <div className={css.sheetTotal}>
                 <span className={css.sheetTotalLabel}>On order</span>
-                <span className={css.sheetTotalValue}>{totals.onOrder.toLocaleString()}</span>
+                <span className={css.sheetTotalValue}>{totals.onOrder.toLocaleString(DISPLAY_LOCALE)}</span>
               </div>
             </div>
 

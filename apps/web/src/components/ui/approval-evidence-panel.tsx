@@ -1,6 +1,7 @@
 import { Alert } from "@/components/alert";
 import { StatusBadge } from "./status-badge";
 import css from "./approval-evidence-panel.module.css";
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 
 /** One person's part in an approval: who, and when. `null` means nobody has done it yet. */
 export type ApprovalParty = { name: string; at?: string | null } | null;
@@ -29,7 +30,7 @@ export const STALE_APPROVAL_MESSAGE = "Changed since approval — needs fresh ap
 function formatWhen(iso: string): string | null {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return null;
-  return date.toLocaleString(undefined, {
+  return date.toLocaleString(DISPLAY_LOCALE, {
     year: "numeric",
     month: "short",
     day: "numeric",

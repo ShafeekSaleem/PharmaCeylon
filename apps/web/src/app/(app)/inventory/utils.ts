@@ -8,6 +8,7 @@ export function stockStatusLabel(status: StockStatus | null | undefined): string
 }
 
 import { formatMoney } from "@/lib/money";
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 
 export { formatMoney, formatCompactMoney } from "@/lib/money";
 
@@ -21,7 +22,7 @@ export function formatCostToSell(
 
 export function formatExpiry(iso: string): string {
   try {
-    return new Date(iso).toLocaleDateString(undefined, {
+    return new Date(iso).toLocaleDateString(DISPLAY_LOCALE, {
       year: "numeric",
       month: "short",
       day: "numeric",
@@ -48,12 +49,12 @@ export function formatRelativeTime(iso: string | null | undefined): string {
   if (mins < 60) return `${mins}m ago`;
   const hours = Math.floor(mins / 60);
   if (hours < 24) {
-    return d.toLocaleString(undefined, { hour: "numeric", minute: "2-digit" });
+    return d.toLocaleString(DISPLAY_LOCALE, { hour: "numeric", minute: "2-digit" });
   }
   const days = Math.floor(hours / 24);
   if (days === 1) return "Yesterday";
   if (days < 7) return `${days}d ago`;
-  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  return d.toLocaleDateString(DISPLAY_LOCALE, { month: "short", day: "numeric" });
 }
 
 export const QUARANTINE_REASON_OPTIONS: { value: QuarantineReasonCode; label: string }[] = [
@@ -83,5 +84,5 @@ export function movementSourceHref(row: Pick<MovementRow, "referenceType" | "ref
 }
 
 export function formatUnits(qty: number): string {
-  return `${qty.toLocaleString()} ${Math.abs(qty) === 1 ? "unit" : "units"}`;
+  return `${qty.toLocaleString(DISPLAY_LOCALE)} ${Math.abs(qty) === 1 ? "unit" : "units"}`;
 }

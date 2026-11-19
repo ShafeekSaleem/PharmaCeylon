@@ -529,8 +529,13 @@ try {
         .waitFor({ timeout: 5000 });
     }
     if (role === "owner") {
+      // The top-bar switch (#227) is named "Branch: <name>. Switch branch";
+      // its menu items are the bare branch names.
       await page
-        .getByRole("button", { name: "Colombo Central", exact: true })
+        .getByRole("button", {
+          name: "Branch: Colombo Central. Switch branch",
+          exact: true,
+        })
         .click();
       const changed = page.waitForResponse(
         (r) =>
@@ -546,7 +551,10 @@ try {
         ["PO-KANDY-ONLY"],
       );
       await page
-        .getByRole("button", { name: "Kandy Central", exact: true })
+        .getByRole("button", {
+          name: "Branch: Kandy Central. Switch branch",
+          exact: true,
+        })
         .click();
       const restored = page.waitForResponse(
         (r) =>

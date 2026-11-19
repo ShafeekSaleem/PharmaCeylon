@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 
 const SRI_LANKA_TZ = "Asia/Colombo";
 
 /** Dates and times the way the mockups write them: "Sun 1 Nov", "14:32", "Sunday, 1 November 2026". */
 function parts(date: Date, options: Intl.DateTimeFormatOptions) {
   const named: Partial<Record<Intl.DateTimeFormatPartTypes, string>> = {};
-  for (const part of new Intl.DateTimeFormat("en-GB", options).formatToParts(
+  for (const part of new Intl.DateTimeFormat(DISPLAY_LOCALE, options).formatToParts(
     date,
   ))
     named[part.type] = part.value;
@@ -14,7 +15,7 @@ function parts(date: Date, options: Intl.DateTimeFormatOptions) {
 
 function partsTz(date: Date, options: Intl.DateTimeFormatOptions, timeZone: string) {
   const named: Partial<Record<Intl.DateTimeFormatPartTypes, string>> = {};
-  for (const part of new Intl.DateTimeFormat("en-GB", { ...options, timeZone }).formatToParts(
+  for (const part of new Intl.DateTimeFormat(DISPLAY_LOCALE, { ...options, timeZone }).formatToParts(
     date,
   ))
     named[part.type] = part.value;

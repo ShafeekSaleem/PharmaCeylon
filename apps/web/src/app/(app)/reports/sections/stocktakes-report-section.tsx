@@ -11,6 +11,7 @@ import { fetchStocktakesReport } from "../lib/fetchers";
 import { formatMoney, formatPctTrend, pctChange } from "../lib/format";
 import type { ExportPayload, OnExportData, Scope, StocktakeDiscrepancyRow, StocktakesReportResponse } from "../lib/types";
 import css from "../reports.module.css";
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 
 type Props = { scope: Scope; isOwner: boolean; days: number; onExportData: OnExportData };
 
@@ -84,14 +85,14 @@ export function StocktakesReportSection({ scope, isOwner, days, onExportData }: 
       </>
     ) },
     { key: "branch", header: "Branch", width: "6rem", render: (r) => r.branchName },
-    { key: "expected", header: "Expected", align: "right", width: "4.2rem", sortable: true, getValue: (r) => r.expectedQty, render: (r) => r.expectedQty.toLocaleString("en-IN") },
-    { key: "counted", header: "Counted", align: "right", width: "4.2rem", sortable: true, getValue: (r) => r.countedQty, render: (r) => r.countedQty.toLocaleString("en-IN") },
-    { key: "variance", header: "Variance", align: "right", width: "4.5rem", sortable: true, getValue: (r) => r.varianceQty, render: (r) => <span className={r.varianceQty < 0 ? css.deltaDown : css.deltaUp}>{r.varianceQty > 0 ? "+" : ""}{r.varianceQty.toLocaleString("en-IN")}</span> },
+    { key: "expected", header: "Expected", align: "right", width: "4.2rem", sortable: true, getValue: (r) => r.expectedQty, render: (r) => r.expectedQty.toLocaleString(DISPLAY_LOCALE) },
+    { key: "counted", header: "Counted", align: "right", width: "4.2rem", sortable: true, getValue: (r) => r.countedQty, render: (r) => r.countedQty.toLocaleString(DISPLAY_LOCALE) },
+    { key: "variance", header: "Variance", align: "right", width: "4.5rem", sortable: true, getValue: (r) => r.varianceQty, render: (r) => <span className={r.varianceQty < 0 ? css.deltaDown : css.deltaUp}>{r.varianceQty > 0 ? "+" : ""}{r.varianceQty.toLocaleString(DISPLAY_LOCALE)}</span> },
     { key: "value", header: "Value", align: "right", width: "5rem", sortable: true, getValue: (r) => r.varianceValue, render: (r) => formatMoney(r.varianceValue) },
     { key: "date", header: "Stocktake", width: "6rem", render: (r) => (
       <>
         {r.stocktakeNumber}
-        <div className={css.mutedcell}>{new Date(r.stocktakeDate).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</div>
+        <div className={css.mutedcell}>{new Date(r.stocktakeDate).toLocaleDateString(DISPLAY_LOCALE, { month: "short", day: "numeric" })}</div>
       </>
     ) },
     { key: "flag", header: "Pattern", width: "4.5rem", render: (r) => (r.isRepeatDiscrepancy ? <span className={`${css.badge2} ${css.badge2Tight} ${css.atRisk}`} data-tooltip="Negative variance in 2+ recent stocktakes">Repeat</span> : <span className={css.mutedcell}>—</span>) },

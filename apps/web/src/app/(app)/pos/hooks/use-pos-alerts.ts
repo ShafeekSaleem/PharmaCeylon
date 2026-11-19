@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import type { Customer, PosAlert, Prescription, ResolvedCartLine } from "../types";
 import { nameSimilarity } from "../utils";
+import { formatDisplayDate } from "@pharmaceylon/shared";
 
 type Options = {
   lines: ResolvedCartLine[];
@@ -164,7 +165,7 @@ export function usePosAlerts({
           id: "rx-expired",
           severity: "danger",
           title: "Linked prescription has expired",
-          detail: `${prescription.rxNumber} expired on ${validUntil.toLocaleDateString()}`,
+          detail: `${prescription.rxNumber} expired on ${formatDisplayDate(validUntil)}`,
           count: 1,
           blocking: true,
         });

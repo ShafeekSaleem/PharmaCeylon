@@ -13,6 +13,7 @@ import { fetchPurchaseSummary } from "../lib/fetchers";
 import { formatCompactMoney, formatMoney, formatPctTrend, pctChange } from "../lib/format";
 import type { ExportPayload, OnExportData, PurchaseOrderRow, PurchaseSummaryResponse, Scope } from "../lib/types";
 import css from "../reports.module.css";
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 
 type Props = { scope: Scope; isOwner: boolean; days: number; onExportData: OnExportData };
 
@@ -110,7 +111,7 @@ export function PurchaseSummarySection({ scope, isOwner, days, onExportData }: P
     { key: "poNumber", header: "PO #", width: "6rem" },
     { key: "supplier", header: "Supplier", width: "7rem", render: (r) => r.supplierName },
     { key: "branch", header: "Branch", width: "6rem", render: (r) => r.branchName },
-    { key: "createdAt", header: "Ordered", width: "5rem", sortable: true, getValue: (r) => r.createdAt, render: (r) => new Date(r.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric" }) },
+    { key: "createdAt", header: "Ordered", width: "5rem", sortable: true, getValue: (r) => r.createdAt, render: (r) => new Date(r.createdAt).toLocaleDateString(DISPLAY_LOCALE, { month: "short", day: "numeric" }) },
     { key: "ordered", header: "Ordered Value", align: "right", width: "6.5rem", sortable: true, getValue: (r) => r.orderedValue, render: (r) => formatMoney(r.orderedValue) },
     { key: "received", header: "Received Value", align: "right", width: "6.5rem", sortable: true, getValue: (r) => r.receivedValue, render: (r) => formatMoney(r.receivedValue) },
     { key: "fill", header: "Fill %", align: "right", width: "3.5rem", sortable: true, getValue: (r) => r.fillPct ?? -1, render: (r) => (r.fillPct == null ? "—" : `${r.fillPct.toFixed(0)}%`) },
@@ -160,7 +161,7 @@ export function PurchaseSummarySection({ scope, isOwner, days, onExportData }: P
         />
         <StatCard size="sm" showMenu={false}
           title="POs Raised"
-          value={loading || !kpis ? "…" : kpis.posRaised.toLocaleString("en-IN")}
+          value={loading || !kpis ? "…" : kpis.posRaised.toLocaleString(DISPLAY_LOCALE)}
           subtitle="vs previous period"
           icon={<IconShoppingCart size={16} />}
           iconTone="primary"

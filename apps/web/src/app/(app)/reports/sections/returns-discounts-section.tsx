@@ -14,6 +14,7 @@ import { ActionsPanel, type ActionPanelItem } from "../components/actions-panel"
 import type { CategoryKey, ReportKey } from "../lib/nav-config";
 import type { ExportPayload, OnExportData, ReturnedProductRow, Scope } from "../lib/types";
 import css from "../reports.module.css";
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 
 type Props = { scope: Scope; isOwner: boolean; days: number; onNavigate: (c: CategoryKey, r?: ReportKey) => void; onExportData: OnExportData };
 
@@ -131,7 +132,7 @@ export function ReturnsDiscountsSection({ scope, isOwner, days, onNavigate, onEx
     { key: "name", header: "Product" },
     { key: "sku", header: "SKU", render: (r) => <span className={css.skucode}>{r.sku}</span> },
     { key: "reason", header: "Reason", render: (r) => r.reasons[0]?.reason ?? "—" },
-    { key: "qty", header: "Returned Qty", align: "right", sortable: true, getValue: (r) => r.qty, render: (r) => r.qty.toLocaleString("en-IN") },
+    { key: "qty", header: "Returned Qty", align: "right", sortable: true, getValue: (r) => r.qty, render: (r) => r.qty.toLocaleString(DISPLAY_LOCALE) },
     { key: "value", header: "Return Value", align: "right", sortable: true, getValue: (r) => r.value, render: (r) => formatMoney(r.value) },
     { key: "returnRatePct", header: "Refund Rate", align: "right", sortable: true, getValue: (r) => r.returnRatePct ?? 0, render: (r) => (r.returnRatePct == null ? "—" : <span className={r.returnRatePct >= 10 ? css.deltaDown : undefined}>{r.returnRatePct.toFixed(1)}%</span>) },
   ];
@@ -153,7 +154,7 @@ export function ReturnsDiscountsSection({ scope, isOwner, days, onNavigate, onEx
         <StatCard
           size="sm" showMenu={false}
           title="Returned Items"
-          value={loading || !current ? "…" : current.returnedItemCount.toLocaleString("en-IN")}
+          value={loading || !current ? "…" : current.returnedItemCount.toLocaleString(DISPLAY_LOCALE)}
           subtitle={`vs previous ${days} days`}
           icon={<IconArchive size={16} />}
           iconTone="warning"
@@ -171,7 +172,7 @@ export function ReturnsDiscountsSection({ scope, isOwner, days, onNavigate, onEx
         <StatCard
           size="sm" showMenu={false}
           title="High Return Rate Products"
-          value={loading || !current ? "…" : highReturnRate.length.toLocaleString("en-IN")}
+          value={loading || !current ? "…" : highReturnRate.length.toLocaleString(DISPLAY_LOCALE)}
           subtitle="10%+ of units sold returned"
           icon={<IconAlertTriangle size={16} />}
           iconTone="danger"

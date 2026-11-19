@@ -36,6 +36,7 @@ import { ReportSelect } from "../components/report-select";
 import type { CategoryKey, ReportKey } from "../lib/nav-config";
 import type { CommercialCategoryRow, ExportPayload, MarginRow, OnExportData, Scope } from "../lib/types";
 import css from "../reports.module.css";
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 
 type Props = { scope: Scope; isOwner: boolean; days: number; onNavigate: (c: CategoryKey, r?: ReportKey) => void; onExportData: OnExportData };
 
@@ -448,8 +449,8 @@ export function ProfitabilitySection({ scope, isOwner, days, onNavigate, onExpor
     { key: "costN", header: "COGS (LKR)", align: "right", sortable: true, getValue: (r) => r.costN, render: (r) => <span className={css.mutedcell}>{formatMoney(r.costN)}</span> },
     { key: "marginN", header: "Gross Profit (LKR)", align: "right", sortable: true, getValue: (r) => r.marginN, render: (r) => formatMoney(r.marginN) },
     { key: "marginPct", header: "Margin %", align: "right", sortable: true, getValue: (r) => r.marginPct, render: (r) => `${r.marginPct.toFixed(1)}%` },
-    { key: "unitsSold", header: "Units Sold", align: "right", sortable: true, getValue: (r) => r.unitsSold, render: (r) => r.unitsSold.toLocaleString("en-IN") },
-    { key: "stockOnHand", header: "Stock On Hand", align: "right", sortable: true, getValue: (r) => r.stockOnHand, render: (r) => r.stockOnHand.toLocaleString("en-IN") },
+    { key: "unitsSold", header: "Units Sold", align: "right", sortable: true, getValue: (r) => r.unitsSold, render: (r) => r.unitsSold.toLocaleString(DISPLAY_LOCALE) },
+    { key: "stockOnHand", header: "Stock On Hand", align: "right", sortable: true, getValue: (r) => r.stockOnHand, render: (r) => r.stockOnHand.toLocaleString(DISPLAY_LOCALE) },
     {
       key: "suggestedAction",
       header: "Suggested Action",
@@ -616,7 +617,7 @@ export function ProfitabilitySection({ scope, isOwner, days, onNavigate, onExpor
           extraColumns={[
             { key: "revenueN", header: "Revenue", align: "right", render: (r) => formatMoney(r.revenueN) },
             { key: "marginPct", header: "Margin %", align: "right", render: (r) => `${r.marginPct.toFixed(1)}%` },
-            { key: "unitsSold", header: "Units Sold", align: "right", render: (r) => r.unitsSold.toLocaleString("en-IN") },
+            { key: "unitsSold", header: "Units Sold", align: "right", render: (r) => r.unitsSold.toLocaleString(DISPLAY_LOCALE) },
           ]}
           loading={loading}
           emptyTitle="No products in this range"
