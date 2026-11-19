@@ -1,5 +1,6 @@
 import { CURRENCY } from "./constants";
 import type { CartLine, PosBatch, PosProduct, ResolvedCartLine } from "./types";
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 
 export function round2(value: number): number {
   return Math.round((value + Number.EPSILON) * 100) / 100;
@@ -29,7 +30,7 @@ export function nameSimilarity(a: string, b: string): number {
 export function formatMoney(value: number | string): string {
   const n = typeof value === "string" ? Number(value) : value;
   if (!Number.isFinite(n)) return `${CURRENCY} 0.00`;
-  return `${CURRENCY} ${n.toLocaleString("en-LK", {
+  return `${CURRENCY} ${n.toLocaleString(DISPLAY_LOCALE, {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`;
@@ -38,7 +39,7 @@ export function formatMoney(value: number | string): string {
 export function formatAmount(value: number | string): string {
   const n = typeof value === "string" ? Number(value) : value;
   if (!Number.isFinite(n)) return "0.00";
-  return n.toLocaleString("en-LK", {
+  return n.toLocaleString(DISPLAY_LOCALE, {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
@@ -53,13 +54,13 @@ export function formatExpiry(iso: string): string {
 export function formatDate(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" });
+  return d.toLocaleDateString(DISPLAY_LOCALE, { day: "numeric", month: "short", year: "numeric" });
 }
 
 export function formatTime(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+  return d.toLocaleTimeString(DISPLAY_LOCALE, { hour: "2-digit", minute: "2-digit" });
 }
 
 /** First-expiry-first-out: soonest expiry that can still cover `qty`. */

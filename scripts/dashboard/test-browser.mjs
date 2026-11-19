@@ -46,12 +46,6 @@ function start(args, cwd, name, extra = {}) {
   children.push(child);
   return child;
 }
-/** Post–#205 shell: branch choices sit in the header dropdown, not as bare top-bar buttons. */
-async function pickBranch(page, branchName) {
-  await page.getByRole("button", { name: /Switch branch/ }).click();
-  await page.getByRole("button", { name: branchName, exact: true }).click();
-}
-
 async function waitFor(url) {
   for (let n = 0; n < 120; n++) {
     try {
@@ -535,25 +529,41 @@ try {
         .waitFor({ timeout: 5000 });
     }
     if (role === "owner") {
-      await pickBranch(page, "Colombo Central");
+      // The top-bar switch (#227) is named "Branch: <name>. Switch branch";
+      // its menu items are the bare branch names.
+      await page
+        .getByRole("button", {
+          name: "Branch: Colombo Central. Switch branch",
+          exact: true,
+        })
+        .click();
       const changed = page.waitForResponse(
         (r) =>
           r.url().includes("/dashboard/work?") &&
           r.request().headers()["x-branch-id"] === fixture.other.id,
       );
-      await pickBranch(page, "Kandy Central");
+      await page
+        .getByRole("button", { name: "Kandy Central", exact: true })
+        .click();
       const otherWork = await (await changed).json();
       assert.deepEqual(
         otherWork.items.map((i) => i.reference),
         ["PO-KANDY-ONLY"],
       );
-      await pickBranch(page, "Kandy Central");
+      await page
+        .getByRole("button", {
+          name: "Branch: Kandy Central. Switch branch",
+          exact: true,
+        })
+        .click();
       const restored = page.waitForResponse(
         (r) =>
           r.url().includes("/dashboard/work?") &&
           r.request().headers()["x-branch-id"] === fixture.main.id,
       );
-      await pickBranch(page, "Colombo Central");
+      await page
+        .getByRole("button", { name: "Colombo Central", exact: true })
+        .click();
       await restored;
     }
     if (role === "cashier") {

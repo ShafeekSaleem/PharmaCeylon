@@ -1,3 +1,4 @@
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 export { formatMoney } from "@/app/(app)/inventory/utils";
 
 /** Compact currency for chart axes / dense KPI subtext, e.g. "LKR 220K", "LKR 1.2M". */
@@ -34,12 +35,12 @@ export function formatPpTrend(n: number | null): string {
 
 export function formatDate(iso: string | Date): string {
   const d = typeof iso === "string" ? new Date(iso) : iso;
-  return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+  return d.toLocaleDateString(DISPLAY_LOCALE, { day: "numeric", month: "short", year: "numeric" });
 }
 
 export function formatDateShort(iso: string | Date): string {
   const d = typeof iso === "string" ? new Date(iso) : iso;
-  return d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+  return d.toLocaleDateString(DISPLAY_LOCALE, { day: "numeric", month: "short" });
 }
 
 export function daysBetween(from: Date, to: Date): number {

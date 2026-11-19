@@ -18,6 +18,7 @@ import { ActiveFilterBanner, type FilterPill } from "@/components/ui";
 import type { CategoryKey, ReportKey } from "../lib/nav-config";
 import type { CategoryChildRow, CategoryGroupBy, CategoryRow, CategoryTrendPoint, ExportPayload, OnExportData, Scope } from "../lib/types";
 import css from "../reports.module.css";
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 
 /** Matches `CategoryMixCard`'s own default — rows past this rank fold into the donut's "Others"
  *  slice, which has no single stable color/id, so the child-breakdown hover only ever needs to
@@ -457,7 +458,7 @@ export function CategorySalesSection({ scope, isOwner, days, onNavigate, onExpor
       render: (r) => <InlineBarCell valueLabel={formatMoney(r.revenueN)} pct={(r.revenueN / maxRevenue) * 100} />,
     },
     { key: "share", header: "% of Total", align: "right", sortable: true, getValue: (r) => (tableTotalRevenue > 0 ? (r.revenueN / tableTotalRevenue) * 100 : 0), render: (r) => `${tableTotalRevenue > 0 ? ((r.revenueN / tableTotalRevenue) * 100).toFixed(1) : "0.0"}%` },
-    { key: "unitsSold", header: "Units Sold", align: "right", sortable: true, getValue: (r) => r.unitsSold, render: (r) => r.unitsSold.toLocaleString("en-IN") },
+    { key: "unitsSold", header: "Units Sold", align: "right", sortable: true, getValue: (r) => r.unitsSold, render: (r) => r.unitsSold.toLocaleString(DISPLAY_LOCALE) },
     { key: "growthPct", header: "Growth", align: "right", sortable: true, getValue: (r) => r.growthPct ?? 0, render: (r) => (r.growthPct == null ? "—" : <span className={r.growthPct >= 0 ? css.deltaUp : css.deltaDown}>{formatPctTrend(r.growthPct)}</span>) },
   ];
 

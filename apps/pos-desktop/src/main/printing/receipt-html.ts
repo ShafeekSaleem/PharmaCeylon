@@ -1,3 +1,4 @@
+import { formatDisplayDateTime } from "@pharmaceylon/shared";
 function escapeHtml(text: string): string {
   return text.replace(/[&<>"']/g, (char) => `&#${char.charCodeAt(0)};`);
 }
@@ -82,7 +83,7 @@ ${receiptHeader(place)}
 ${options.reprint ? `<p class="reprint">REPRINT</p>` : ""}
 <table>
 ${row("Invoice", sale.invoiceNo)}
-${row("Date", new Date(sale.soldAt).toLocaleString())}
+${row("Date", formatDisplayDateTime(sale.soldAt))}
 ${row("Served by", sale.sellerName)}
 ${sale.discountApproverName ? row("Discount approved by", sale.discountApproverName) : ""}
 </table>
@@ -147,7 +148,7 @@ ${row("Payout", payout.payoutNumber)}
 ${row("Payment", supplierPaymentReceiptLabel(payout))}
 ${row("Till cash out", payout.movementReason)}
 ${row("Amount", `Rs ${minorMoney(payout.amountMinor)}`)}
-${row("Paid at", new Date(payout.executedAt).toLocaleString())}
+${row("Paid at", formatDisplayDateTime(payout.executedAt))}
 </table>
 <hr>
 <p>Supplier cash payout</p>
@@ -177,7 +178,7 @@ export function renderTestReceiptHtml(input: { printerName: string; printedAt: D
 <hr>
 <table>
 ${row("Printer", input.printerName)}
-${row("Printed", input.printedAt.toLocaleString())}
+${row("Printed", formatDisplayDateTime(input.printedAt))}
 ${row("App version", input.appVersion)}
 </table>
 <hr>

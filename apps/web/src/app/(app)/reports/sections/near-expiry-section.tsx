@@ -26,6 +26,7 @@ import { ExpiryExposureBar, type ExposureSegment, type ExposureSegmentKey } from
 import { ActionsPanel, type ActionPanelItem } from "../components/actions-panel";
 import type { ExportPayload, ExpiryTier, NearExpiryItem, OnExportData, Scope } from "../lib/types";
 import css from "../reports.module.css";
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 
 type Props = {
   scope: Scope;
@@ -243,7 +244,7 @@ export function NearExpirySection({ scope, isOwner, days, categoryId, supplierId
     return Array.from({ length: MONTH_HORIZON }, (_, i) => {
       const d = new Date(start);
       d.setMonth(d.getMonth() + i);
-      return { year: d.getFullYear(), month: d.getMonth(), key: `${d.getFullYear()}-${d.getMonth()}`, label: d.toLocaleDateString("en-US", { month: "short", year: "numeric" }) };
+      return { year: d.getFullYear(), month: d.getMonth(), key: `${d.getFullYear()}-${d.getMonth()}`, label: d.toLocaleDateString(DISPLAY_LOCALE, { month: "short", year: "numeric" }) };
     });
   }, []);
 
@@ -510,7 +511,7 @@ export function NearExpirySection({ scope, isOwner, days, categoryId, supplierId
         />
         <StatCard size="sm" showMenu={false}
           title="Units Expiring Soon"
-          value={loading ? "…" : totalUnits.toLocaleString("en-IN")}
+          value={loading ? "…" : totalUnits.toLocaleString(DISPLAY_LOCALE)}
           subtitle={`vs previous ${days} days`}
           icon={<IconArchive size={16} />}
           iconTone="info"
@@ -553,7 +554,7 @@ export function NearExpirySection({ scope, isOwner, days, categoryId, supplierId
                   <div key={r.batchId} className={css.transferOppRow}>
                     <span className={css.transferOppText}>
                       {currentBranchName ? <><b>{currentBranchName}</b> has </> : "Has "}
-                      <b>{r.qtyOnHand.toLocaleString("en-IN")} units</b> of {r.product.name} expiring in {r.daysLeft}d, while{" "}
+                      <b>{r.qtyOnHand.toLocaleString(DISPLAY_LOCALE)} units</b> of {r.product.name} expiring in {r.daysLeft}d, while{" "}
                       <b>{r.transferOpportunity!.toBranchName}</b> sells ~{Math.round(r.transferOpportunity!.toBranchAvgDailySales * 7)} units/week.
                     </span>
                     <Link

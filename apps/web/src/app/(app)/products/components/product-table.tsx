@@ -19,6 +19,7 @@ import {
   stockCell,
 } from "../utils/list-cells";
 import cells from "./product-table.module.css";
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 
 /** Search Catalog's vocabulary, kept verbatim so the merged screen reads the same. */
 const MATCH_LABELS: Record<string, string> = {
@@ -387,7 +388,7 @@ export function StockCell({
       className={`${cells.stock}${tone ? ` ${tone}` : ""}`}
       title={info.description}
     >
-      <span className={cells.stockQty}>{info.qty.toLocaleString()}</span>
+      <span className={cells.stockQty}>{info.qty.toLocaleString(DISPLAY_LOCALE)}</span>
       {info.note ? <span className={cells.stockNote}>{info.note}</span> : null}
     </span>
   );

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { resolveBubbleCollisions } from "../lib/bubble-layout";
 import css from "../reports.module.css";
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 
 export type HealthMatrixZone = "deadSlow" | "reorderRisk" | "overstocked" | "monitor" | "healthy";
 
@@ -135,7 +136,7 @@ export function StockHealthMatrixChart({ points, formatValue, velocityReference,
               const left = (pos.x / size.width) * 100;
               const top = (pos.y / size.height) * 100;
               const bubbleSize = sizeOf(p.value);
-              const tooltip = `${p.label} (${p.categoryName}) — ${p.units.toLocaleString("en-IN")} units, ${formatValue(p.value)}, ${p.velocity.toFixed(2)}/day, ${p.daysOfCover == null ? "no cover (no recent sales)" : `${p.daysOfCover}d cover`}, last sale ${p.daysSinceLastSale == null ? "never" : `${p.daysSinceLastSale}d ago`} — ${ZONE_LABEL[p.zone]}`;
+              const tooltip = `${p.label} (${p.categoryName}) — ${p.units.toLocaleString(DISPLAY_LOCALE)} units, ${formatValue(p.value)}, ${p.velocity.toFixed(2)}/day, ${p.daysOfCover == null ? "no cover (no recent sales)" : `${p.daysOfCover}d cover`}, last sale ${p.daysSinceLastSale == null ? "never" : `${p.daysSinceLastSale}d ago`} — ${ZONE_LABEL[p.zone]}`;
               return (
                 <div
                   key={p.id}

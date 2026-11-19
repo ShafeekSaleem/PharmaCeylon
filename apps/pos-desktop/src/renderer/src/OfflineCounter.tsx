@@ -55,6 +55,7 @@ import signIn from "./SignIn.module.css";
 import { tillDisplayName } from "./this-counter-display";
 import ui from "./ui.module.css";
 import { cx, ErrorLine, useAction } from "./useAction";
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 
 /**
  * P4 #50: the branch's nominated counter while the server can't be reached. People sign in with
@@ -1179,7 +1180,7 @@ function OfflineReceipt({
       <div className={styles.rHead}>
         {branch && <b>{branch}</b>}
         <span>
-          {new Intl.DateTimeFormat("en-GB", {
+          {new Intl.DateTimeFormat(DISPLAY_LOCALE, {
             day: "numeric",
             month: "short",
             year: "numeric",

@@ -58,6 +58,26 @@ import {
   type ClinicalEvidence,
   PharmacistRegistrationService,
 } from "../clinical/pharmacist-registration.service";
+import { POS_ROLLOUT_SELECT, resolvePosRollout } from "../tenant/pos-rollout";
+
+/**
+ * D-W1 (P1 #47): a branch live on PharmaCeylon POS sells, voids and refunds at its enrolled
+ * counters, so the browser may not, owners included. A running fallback lifts this for that
+ * branch only, so it is never left unable to sell. Read on the caller's transaction.
+ */
+async function assertWebPosOpen(
+  tx: Prisma.TransactionClient,
+  tenantId: string,
+  branchId: string,
+  what: string,
+): Promise<void> {
+  const branch = await tx.branch.findFirst({ where: { id: branchId, tenantId }, select: POS_ROLLOUT_SELECT });
+  if (branch && resolvePosRollout(branch).state === "live")
+    throw new ForbiddenException({
+      code: "SALE_AT_COUNTER",
+      message: `This branch uses PharmaCeylon POS: ${what} at a counter.`,
+    });
+}
 
 function d(s: string): Prisma.Decimal {
   return new Prisma.Decimal(s);
@@ -620,6 +640,8 @@ export class SalesService {
           if (!this.shifts) throw new Error("Counter checkout needs the till shift service");
           const shiftId = await this.shifts.requireForSale(tx, { tenantId, branchId, tillId: session.tillId, userId });
           attribution = { terminalId: identity.terminalId, tillId: session.tillId, workSessionId: session.id, shiftId };
+        } else {
+          await assertWebPosOpen(tx, tenantId, branchId, "sell");
         }
         registration = dispense.clinical
           ? await this.assertDispenserQualified(tx, tenantId, branchId, dispense.clinical)
@@ -1018,6 +1040,7 @@ export class SalesService {
     }
 
     await this.prisma.$transaction(async (tx) => {
+      await assertWebPosOpen(tx, tenantId, branchId, "void a sale");
       // Same row lock as refunds, so a void and a refund can't both use the same units.
       await tx.$queryRaw`SELECT id FROM sale WHERE tenant_id = ${tenantId}::uuid AND branch_id = ${branchId}::uuid AND id = ${saleId}::uuid FOR UPDATE`;
       const sale = await tx.sale.findFirst({
@@ -1099,6 +1122,7 @@ export class SalesService {
     const reason = refundReason(dto);
 
     await this.prisma.$transaction(async (tx) => {
+      await assertWebPosOpen(tx, tenantId, branchId, "refund a sale");
       const sale = await this.lockSaleForRefund(tx, tenantId, branchId, saleId);
       if (this.needsControlledRefundGate(sale) && !access.has("sales.approve_controlled")) {
         throw new ForbiddenException(

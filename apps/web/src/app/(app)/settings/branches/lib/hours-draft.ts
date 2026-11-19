@@ -8,6 +8,7 @@ import {
   type HoursRange,
   type MandatoryWindow,
   type Weekday,
+  DISPLAY_LOCALE,
 } from "@pharmaceylon/shared";
 
 /**
@@ -111,7 +112,7 @@ export function timeInputValue(value: string): string {
 
 /** Offset of `timeZone` from UTC at `at`, in minutes (Colombo → +330). */
 function offsetMinutes(timeZone: string, at: Date): number {
-  const parts = new Intl.DateTimeFormat("en-US", {
+  const parts = new Intl.DateTimeFormat(DISPLAY_LOCALE, {
     timeZone,
     hourCycle: "h23",
     year: "numeric",
@@ -139,7 +140,7 @@ export function branchLocalToIso(local: string, timeZone: string): string | null
 }
 
 export function formatInBranchTime(iso: string, timeZone: string): string {
-  return new Intl.DateTimeFormat("en-GB", {
+  return new Intl.DateTimeFormat(DISPLAY_LOCALE, {
     timeZone,
     weekday: "short",
     day: "numeric",
@@ -161,7 +162,7 @@ export function branchToday(timeZone: string, at: Date = new Date()): string {
 }
 
 export function formatDate(date: string): string {
-  return new Intl.DateTimeFormat("en-GB", {
+  return new Intl.DateTimeFormat(DISPLAY_LOCALE, {
     timeZone: "UTC",
     weekday: "short",
     day: "numeric",

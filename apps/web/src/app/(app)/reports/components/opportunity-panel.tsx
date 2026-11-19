@@ -3,6 +3,7 @@
 import { IconSparkles } from "@/components/icons";
 import { formatMoney } from "../lib/format";
 import css from "../reports.module.css";
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 
 export type OpportunityRow = { key: string; name: string; marginPct: number; unitsSold: number; opportunity: number };
 
@@ -40,7 +41,7 @@ export function OpportunityPanel({ totalOpportunity, targetPct, rows, onViewAll 
             <div className={css.opportunityRow} key={r.key}>
               <span className={css.opportunityName}>{r.name}</span>
               <span className={css.opportunityMetaDanger}>{r.marginPct.toFixed(1)}%</span>
-              <span className={css.opportunityMeta}>{r.unitsSold.toLocaleString("en-IN")} units</span>
+              <span className={css.opportunityMeta}>{r.unitsSold.toLocaleString(DISPLAY_LOCALE)} units</span>
               <span className={css.opportunityValue}>{formatMoney(r.opportunity)}</span>
             </div>
           ))}

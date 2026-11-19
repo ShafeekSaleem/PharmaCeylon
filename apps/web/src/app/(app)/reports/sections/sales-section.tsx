@@ -20,11 +20,12 @@ import { ActionsPanel, type ActionPanelItem } from "../components/actions-panel"
 import type { CategoryKey, ReportKey } from "../lib/nav-config";
 import type { MarginRow, Scope, BranchTrendPoint, ExportPayload, OnExportData, SalesByHourResponse, SalesDailyRow } from "../lib/types";
 import css from "../reports.module.css";
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 
 type Props = { scope: Scope; isOwner: boolean; branchId: string | null; days: number; onNavigate: (c: CategoryKey, r?: ReportKey) => void; onExportData: OnExportData };
 
 function formatDayLabel(iso: string): string {
-  return new Date(`${iso}T12:00:00`).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", year: "numeric" });
+  return new Date(`${iso}T12:00:00`).toLocaleDateString(DISPLAY_LOCALE, { weekday: "short", day: "numeric", month: "short", year: "numeric" });
 }
 
 type EnrichedDailyRow = SalesDailyRow & { grossSalesN: number; discountsN: number; returnsN: number; netSalesN: number; growthPct: number | null };
@@ -195,7 +196,7 @@ export function SalesSection({ scope, isOwner, days, onNavigate, onExportData }:
         icon: <IconBox size={16} />,
         tone: "purple",
         title: `${topProduct.name} is the top-selling product`,
-        description: `${formatMoney(Number(topProduct.revenue))} · ${topProduct.unitsSold.toLocaleString("en-IN")} units in the last ${days} days.`,
+        description: `${formatMoney(Number(topProduct.revenue))} · ${topProduct.unitsSold.toLocaleString(DISPLAY_LOCALE)} units in the last ${days} days.`,
         count: topProduct.unitsSold,
         countLabel: topProduct.unitsSold === 1 ? "unit sold" : "units sold",
         onClick: () => onNavigate("sales", "product-sales"),
@@ -218,7 +219,7 @@ export function SalesSection({ scope, isOwner, days, onNavigate, onExportData }:
 
   const columns: Column<EnrichedDailyRow>[] = [
     { key: "date", header: "Date", render: (r) => formatDayLabel(r.date) },
-    { key: "transactions", header: "Transactions", align: "right", sortable: true, getValue: (r) => r.transactions, render: (r) => r.transactions.toLocaleString("en-IN") },
+    { key: "transactions", header: "Transactions", align: "right", sortable: true, getValue: (r) => r.transactions, render: (r) => r.transactions.toLocaleString(DISPLAY_LOCALE) },
     { key: "grossSalesN", header: "Gross Sales", align: "right", sortable: true, getValue: (r) => r.grossSalesN, render: (r) => formatMoney(r.grossSalesN) },
     { key: "discountsN", header: "Discounts", align: "right", sortable: true, getValue: (r) => r.discountsN, render: (r) => <span className={css.mutedcell}>{formatMoney(r.discountsN)}</span> },
     { key: "returnsN", header: "Returns", align: "right", sortable: true, getValue: (r) => r.returnsN, render: (r) => <span className={css.mutedcell}>{formatMoney(r.returnsN)}</span> },
@@ -247,7 +248,7 @@ export function SalesSection({ scope, isOwner, days, onNavigate, onExportData }:
         />
         <StatCard size="sm" showMenu={false}
           title="Transactions"
-          value={loading ? "…" : txnCount.toLocaleString("en-IN")}
+          value={loading ? "…" : txnCount.toLocaleString(DISPLAY_LOCALE)}
           subtitle={`vs previous ${days} days`}
           icon={<IconShoppingCart size={16} />}
           iconTone="success"
@@ -308,7 +309,7 @@ export function SalesSection({ scope, isOwner, days, onNavigate, onExportData }:
               <HeatmapGrid
                 grid={heatmapMetric === "revenue" ? hourData.grid : hourData.counts}
                 weekdayLabels={hourData.weekdayLabels}
-                formatValue={heatmapMetric === "revenue" ? formatMoney : (n) => n.toLocaleString("en-IN")}
+                formatValue={heatmapMetric === "revenue" ? formatMoney : (n) => n.toLocaleString(DISPLAY_LOCALE)}
               />
             ) : null}
           </div>
@@ -320,7 +321,7 @@ export function SalesSection({ scope, isOwner, days, onNavigate, onExportData }:
                   Peak <b>{peakSlot.dayLabel} {peakSlot.hourLabel}</b>
                 </span>
                 <span className={css.peakBadgeValue}>
-                  {heatmapMetric === "revenue" ? formatCompactMoney(peakSlot.value) : `${peakSlot.value.toLocaleString("en-IN")} txns`}
+                  {heatmapMetric === "revenue" ? formatCompactMoney(peakSlot.value) : `${peakSlot.value.toLocaleString(DISPLAY_LOCALE)} txns`}
                 </span>
               </div>
             </div>

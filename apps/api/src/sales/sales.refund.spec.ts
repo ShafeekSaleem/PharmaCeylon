@@ -84,6 +84,7 @@ describe("SalesService.refundSale", () => {
         const tx = {
           // The sale row lock every refund takes first.
           $queryRaw: jest.fn().mockResolvedValue([]),
+          branch: { findFirst: jest.fn().mockResolvedValue(null) }, // not live on PharmaCeylon POS
           sale: {
             findFirst: jest.fn().mockResolvedValue(saleRow),
             update: txState.saleUpdate,
@@ -195,6 +196,7 @@ describe("SalesService.refundSale", () => {
       async (fn: (tx: unknown) => Promise<unknown>) => {
         const tx = {
           $queryRaw: jest.fn().mockResolvedValue([]),
+          branch: { findFirst: jest.fn().mockResolvedValue(null) }, // not live on PharmaCeylon POS
           sale: {
             findFirst: jest.fn().mockResolvedValue({
               id: saleId,
@@ -260,6 +262,7 @@ describe("SalesService.refundSale", () => {
       async (fn: (tx: unknown) => Promise<unknown>) => {
         const tx = {
           $queryRaw: jest.fn().mockResolvedValue([]),
+          branch: { findFirst: jest.fn().mockResolvedValue(null) }, // not live on PharmaCeylon POS
           sale: {
             findFirst: jest.fn().mockResolvedValue({
               id: saleId,
@@ -310,6 +313,7 @@ describe("SalesService.refundSale", () => {
       async (fn: (tx: unknown) => Promise<unknown>) => {
         const tx = {
           $queryRaw: jest.fn().mockResolvedValue([]),
+          branch: { findFirst: jest.fn().mockResolvedValue(null) }, // not live on PharmaCeylon POS
           sale: {
             findFirst: jest.fn().mockResolvedValue({
               id: saleId,
@@ -451,6 +455,7 @@ describe("SalesService.refundSale", () => {
       async (fn: (tx: unknown) => Promise<unknown>) => {
         const tx = {
           $queryRaw: jest.fn().mockResolvedValue([]),
+          branch: { findFirst: jest.fn().mockResolvedValue(null) }, // not live on PharmaCeylon POS
           sale: {
             findFirst: jest.fn().mockResolvedValue({
               id: saleId,

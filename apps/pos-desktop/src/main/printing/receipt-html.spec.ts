@@ -28,6 +28,13 @@ const sale: ReceiptSale = {
 const place = { branchName: "Kollupitiya", counterLabel: "Counter 2" };
 
 describe("sale receipt", () => {
+  it("writes the date day-first and the time 24-hour, whatever Windows is set to", () => {
+    // Jest runs in UTC (jest.config.js); a US-English Windows printed 11/19/2026, 9:41:00 AM.
+    const html = renderSaleReceiptHtml(sale, place);
+    expect(html).toContain("19 Nov 2026, 09:41");
+    expect(html).not.toContain("11/19/2026");
+  });
+
   it("prints the original with no reprint mark", () => {
     expect(renderSaleReceiptHtml(sale, place)).not.toContain("REPRINT");
   });

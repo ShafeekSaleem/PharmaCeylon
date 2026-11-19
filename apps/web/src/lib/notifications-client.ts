@@ -1,4 +1,5 @@
 import { apiJson } from "./auth-client";
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 
 export type NotificationCategory =
   | "inventory"
@@ -99,7 +100,7 @@ export function relativeNotificationTime(value: string) {
   if (hours < 24) return `${hours}h ago`;
   const days = Math.floor(hours / 24);
   if (days < 7) return `${days}d ago`;
-  return new Intl.DateTimeFormat("en-LK", {
+  return new Intl.DateTimeFormat(DISPLAY_LOCALE, {
     day: "numeric",
     month: "short",
   }).format(new Date(value));

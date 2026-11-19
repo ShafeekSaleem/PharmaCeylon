@@ -14,6 +14,7 @@ import { useAuth } from "@/lib/use-auth";
 import css from "../settings.module.css";
 import { countersApi } from "./counters-api";
 import { CounterOfflineSales } from "./offline-sync";
+import { formatDisplayDate, formatDisplayDateTime, formatDisplayTime } from "@pharmaceylon/shared";
 
 const CODE_LIFETIMES = [
   { minutes: 30, label: "30 minutes" },
@@ -199,13 +200,13 @@ function Counters() {
                           {counter.terminal.label}
                           {counter.terminal.enrolledAt ? (
                             <div className={css.rowHint}>
-                              Enrolled {new Date(counter.terminal.enrolledAt).toLocaleDateString()}
+                              Enrolled {formatDisplayDate(counter.terminal.enrolledAt)}
                             </div>
                           ) : null}
                         </>
                       ) : code ? (
                         <span className={css.rowHint}>
-                          Code waiting, expires {new Date(code.expiresAt).toLocaleTimeString()}
+                          Code waiting, expires {formatDisplayTime(code.expiresAt)}
                         </span>
                       ) : (
                         <span className={css.rowHint}>—</span>
@@ -324,7 +325,7 @@ function Counters() {
             <div key={code.codeId} className={css.rowItem}>
               <span>{code.counterLabel}</span>
               <span className={css.rowHint}>
-                Expires {new Date(code.expiresAt).toLocaleString()}
+                Expires {formatDisplayDateTime(code.expiresAt)}
               </span>
               <ModalButton
                 variant="secondary"
@@ -561,7 +562,7 @@ function IssuedCodeModal({
           </p>
           <p className={css.rowHint}>
             For {issued.view.counterLabel}. Expires{" "}
-            {new Date(issued.view.expiresAt).toLocaleString()}. This code is shown only now;
+            {formatDisplayDateTime(issued.view.expiresAt)}. This code is shown only now;
             write it down or issue a new one later.
           </p>
         </>

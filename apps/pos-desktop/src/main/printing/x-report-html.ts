@@ -1,4 +1,5 @@
 import type { ShiftSummary } from "../../shared/ipc-contract";
+import { DISPLAY_LOCALE, formatDisplayDateTime } from "@pharmaceylon/shared";
 
 function escapeHtml(text: string): string {
   return text.replace(/[&<>"']/g, (char) => `&#${char.charCodeAt(0)};`);
@@ -7,7 +8,7 @@ function escapeHtml(text: string): string {
 const money = (minor: number) => {
   const sign = minor < 0 ? "-" : "";
   const abs = Math.abs(minor);
-  return `${sign}${Math.floor(abs / 100).toLocaleString("en-LK")}.${String(abs % 100).padStart(2, "0")}`;
+  return `${sign}${Math.floor(abs / 100).toLocaleString(DISPLAY_LOCALE)}.${String(abs % 100).padStart(2, "0")}`;
 };
 
 const METHOD: Record<string, string> = {
@@ -71,8 +72,8 @@ ${input.current ? "" : "<p>NOT YET SYNCED: LAST FIGURES THIS COUNTER HAD</p>"}
 <table>
 ${row("Shift", input.shiftNumber ?? "-")}
 ${row("Cashier", input.staffName)}
-${row("Opened", new Date(input.openedAt).toLocaleString())}
-${row("Printed", input.printedAt.toLocaleString())}
+${row("Opened", formatDisplayDateTime(input.openedAt))}
+${row("Printed", formatDisplayDateTime(input.printedAt))}
 ${row("Printed by", input.printedBy)}
 </table>
 <hr>
