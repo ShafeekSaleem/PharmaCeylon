@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { CardAttemptView, CardOutcomeInput, OfflineSaleView } from "../../shared/ipc-contract";
 import { time } from "./format";
+import { minor, money } from "./sell-model";
 import { Icon } from "./Icon";
 import { invoke } from "./invoke";
 import { KeyScope, useKeyBinding } from "./keymap";
@@ -32,18 +33,33 @@ const PILL = { warn: ui.warn, bad: ui.bad, ok: ui.ok, neutral: ui.neutral } as c
  * sales made while the counter was offline. Both are evidence for the back office; nothing here
  * changes a sale, stock, cash or a card payment, and nothing charges a card.
  */
-export function OfflineRecords({ active = true }: { active?: boolean } = {}) {
+export function OfflineRecords({
+  active = true,
+  focusAttemptId = null,
+  onFocusConsumed,
+}: {
+  active?: boolean;
+  /** Cash & shift's "View": scroll to this card payment and mark it, once it has loaded. */
+  focusAttemptId?: string | null;
+  onFocusConsumed?: () => void;
+} = {}) {
   const [sales, setSales] = useState<OfflineSaleView[] | null>(null);
   const [attempts, setAttempts] = useState<CardAttemptView[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [noting, setNoting] = useState<OfflineSaleView | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
 
+  const [highlighted, setHighlighted] = useState<string | null>(null);
+  // Reads can overlap (shown again quickly, or a payment just recorded): only the latest lands.
+  const latestLoad = useRef(0);
+
   const load = useCallback(async () => {
+    const n = ++latestLoad.current;
     const [s, a] = await Promise.all([
       invoke(() => window.pos.offlineSales()),
       invoke(() => window.pos.cardAttempts()),
     ]);
+    if (n !== latestLoad.current) return;
     setSales(s.ok ? s.value : []);
     setAttempts(a.ok ? a.value : []);
     setLoadError(!s.ok ? s.error.message : !a.ok ? a.error.message : null);
@@ -54,6 +70,21 @@ export function OfflineRecords({ active = true }: { active?: boolean } = {}) {
   useEffect(() => {
     if (active) void load();
   }, [active, load]);
+
+  // Once the payment View pointed at is in the list, bring it into view and mark it. The list on
+  // screen may still be the one from an earlier visit, so wait for the payment to appear; leaving
+  // the page drops the request and the mark.
+  useEffect(() => {
+    if (!active) {
+      setHighlighted(null);
+      if (focusAttemptId) onFocusConsumed?.();
+      return;
+    }
+    if (!focusAttemptId || !attempts?.some((a) => a.attemptId === focusAttemptId)) return;
+    setHighlighted(focusAttemptId);
+    document.getElementById(cardRowId(focusAttemptId))?.scrollIntoView?.({ block: "center" });
+    onFocusConsumed?.();
+  }, [active, focusAttemptId, attempts, onFocusConsumed]);
 
   const unsettled = (attempts ?? []).filter((a) => !a.settled);
   const settled = (attempts ?? []).filter((a) => a.settled).slice(0, 5);
@@ -93,6 +124,7 @@ export function OfflineRecords({ active = true }: { active?: boolean } = {}) {
               <CardRow
                 key={attempt.attemptId}
                 attempt={attempt}
+                highlighted={attempt.attemptId === highlighted}
                 sales={salesForCard(attempt, sales ?? [])}
                 onChanged={() => void load()}
               />
@@ -106,7 +138,7 @@ export function OfflineRecords({ active = true }: { active?: boolean } = {}) {
             {settled.map((attempt) => (
               <div key={attempt.attemptId} className={styles.row}>
                 <div>
-                  <b>Rs {attempt.amount}</b>
+                  <b>Rs {money(minor(attempt.amount))}</b>
                   <small>
                     {time(new Date(attempt.startedAt))} · {cardStage(attempt).title}
                   </small>
@@ -160,12 +192,17 @@ export function OfflineRecords({ active = true }: { active?: boolean } = {}) {
 }
 
 /** One card payment that still needs an answer, with the buttons that answer it. */
+const cardRowId = (attemptId: string) => `card-attempt-${attemptId}`;
+
 function CardRow({
   attempt,
+  highlighted = false,
   sales,
   onChanged,
 }: {
   attempt: CardAttemptView;
+  /** The payment Cash & shift's "View" opened this page on. */
+  highlighted?: boolean;
   sales: OfflineSaleView[];
   onChanged: () => void;
 }) {
@@ -209,10 +246,14 @@ function CardRow({
     stage.canSay.approved || stage.canSay.declined || stage.canSay.notSure || stage.canSay.neverCharged;
 
   return (
-    <div className={styles.card}>
+    <div
+      id={cardRowId(attempt.attemptId)}
+      className={cx(styles.card, highlighted && styles.cardFocus)}
+      aria-current={highlighted ? "true" : undefined}
+    >
       <div className={styles.cardH}>
         <div>
-          <b>Rs {attempt.amount}</b>
+          <b>Rs {money(minor(attempt.amount))}</b>
           <small>Started {time(new Date(attempt.startedAt))}</small>
         </div>
         <span className={cx(ui.pill, PILL[stage.tone], styles.right)}>{stage.title}</span>

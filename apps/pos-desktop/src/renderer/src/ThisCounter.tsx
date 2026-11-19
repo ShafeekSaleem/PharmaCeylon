@@ -656,6 +656,8 @@ export function ThisCounterPage({
   readiness,
   onCheck,
   active = true,
+  focusCardAttemptId = null,
+  onFocusCardAttemptConsumed,
 }: {
   state: DeviceState;
   info: AppInfo | null;
@@ -663,6 +665,9 @@ export function ThisCounterPage({
   onCheck: () => void;
   /** Whether the page is the one shown: offline records reload each time it is. */
   active?: boolean;
+  /** A card payment to open on (Cash & shift's "View"), then consumed. */
+  focusCardAttemptId?: string | null;
+  onFocusCardAttemptConsumed?: () => void;
 }) {
   const enrollment = state.enrollment!;
   const enrolledAtDate = enrollment.enrolledAt
@@ -760,7 +765,11 @@ export function ThisCounterPage({
         <Readiness readiness={readiness} onCheck={onCheck} />
         <div className={styles.side}>
           <PrinterTest />
-          <OfflineRecords active={active} />
+          <OfflineRecords
+            active={active}
+            focusAttemptId={focusCardAttemptId}
+            onFocusConsumed={onFocusCardAttemptConsumed}
+          />
           <OfflineCounterPanel
             branchName={enrollment.branchName}
             backup={readiness?.offlineBackup ?? null}

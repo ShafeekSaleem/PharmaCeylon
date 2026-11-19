@@ -288,3 +288,37 @@ describe("OfflineRecords: reloading", () => {
     await waitFor(() => expect(pos.cardAttempts).toHaveBeenCalledTimes(2));
   });
 });
+
+describe("OfflineRecords: opened from Cash & shift's View", () => {
+  it("marks the payment View pointed at once it has loaded, and says it is consumed", async () => {
+    const target = "00000000-0000-4000-8000-0000000000e2";
+    stubPos({
+      offlineSales: async () => ({ ok: true, value: [] }),
+      cardAttempts: async () => ({
+        ok: true,
+        value: [attempt(), attempt({ attemptId: target, amount: "4800.00" })],
+      }),
+    });
+    const consumed = jest.fn();
+    renderWithKeys(<OfflineRecords active focusAttemptId={target} onFocusConsumed={consumed} />);
+    await waitFor(() => expect(consumed).toHaveBeenCalledTimes(1));
+    const marked = document.querySelector('[aria-current="true"]');
+    expect(marked?.id).toBe(`card-attempt-${target}`);
+    expect(marked?.textContent).toContain("Rs 4,800.00");
+  });
+
+  it("drops the request when the page is left before the payment appears", async () => {
+    stubPos({
+      offlineSales: async () => ({ ok: true, value: [] }),
+      cardAttempts: async () => ({ ok: true, value: [attempt()] }),
+    });
+    const consumed = jest.fn();
+    const missing = "00000000-0000-4000-8000-0000000000e9";
+    const view = renderWithKeys(<OfflineRecords active focusAttemptId={missing} onFocusConsumed={consumed} />);
+    await screen.findByRole("region", { name: "Card payments to settle" });
+    expect(consumed).not.toHaveBeenCalled();
+    view.rerender(<OfflineRecords active={false} focusAttemptId={missing} onFocusConsumed={consumed} />);
+    expect(consumed).toHaveBeenCalledTimes(1);
+    expect(document.querySelector('[aria-current="true"]')).toBeNull();
+  });
+});

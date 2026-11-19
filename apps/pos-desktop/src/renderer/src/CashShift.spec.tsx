@@ -365,18 +365,18 @@ describe("card payments to sort out on Cash & shift (P2b #103)", () => {
         ],
       }),
     });
-    let viewed = 0;
+    const viewed: string[] = [];
     renderWithKeys(
       <CashShiftPage
         device={signedIn(ids.ana, "Ana Perera")}
         shift={state(shift())}
         onShift={() => undefined}
-        onOpenCardPayments={() => (viewed += 1)}
+        onOpenCardPayments={(attemptId) => viewed.push(attemptId)}
       />,
     );
     const list = await screen.findByRole("region", { name: "Card payments to sort out" });
     const text = list.textContent ?? "";
-    expect(text).toContain("Card payment to sort out · Rs 1250.00");
+    expect(text).toContain("Card payment to sort out · Rs 1,250.00");
     expect(text).toContain("approved, not matched to a sale yet");
     expect(text).toContain("Card payment to sort out · Rs 400.00");
     expect(text).toContain("not sure if it went through");
@@ -386,7 +386,7 @@ describe("card payments to sort out on Cash & shift (P2b #103)", () => {
     const views = screen.getAllByRole("button", { name: "View" });
     expect(views).toHaveLength(2);
     fireEvent.click(views[0]!);
-    expect(viewed).toBe(1);
+    expect(viewed).toEqual(["00000000-0000-4000-8000-0000000000b1"]);
   });
 
   it("shows nothing when every card payment is settled, or when they can't be read", async () => {
@@ -402,11 +402,23 @@ describe("card payments to sort out on Cash & shift (P2b #103)", () => {
     expect(screen.queryByRole("region", { name: "Card payments to sort out" })).toBeNull();
   });
 
+  it("keeps only the latest read when the page is shown again before the first answers", async () => {
+    let answer!: (value: { ok: true; value: CardAttemptView[] }) => void;
+    const first = new Promise<{ ok: true; value: CardAttemptView[] }>((resolve) => (answer = resolve));
+    const reads = [() => first, async () => ({ ok: true as const, value: [] as CardAttemptView[] })];
+    stubPos({ cardAttempts: () => reads.shift()!() });
+    const view = renderWithKeys(<CardPaymentsToSortOut active onView={() => undefined} />);
+    view.rerender(<CardPaymentsToSortOut active={false} onView={() => undefined} />);
+    view.rerender(<CardPaymentsToSortOut active onView={() => undefined} />);
+    await act(async () => answer({ ok: true, value: [card()] }));
+    expect(screen.queryByRole("region", { name: "Card payments to sort out" })).toBeNull();
+  });
+
   it("reads them only while the page is shown", async () => {
     const pos = stubPos({ cardAttempts: async () => ({ ok: true, value: [card()] }) });
     const view = renderWithKeys(<CardPaymentsToSortOut active={false} onView={() => undefined} />);
     expect(pos.cardAttempts).not.toHaveBeenCalled();
     view.rerender(<CardPaymentsToSortOut active onView={() => undefined} />);
-    expect(await screen.findByText("Card payment to sort out · Rs 1250.00")).toBeTruthy();
+    expect(await screen.findByText("Card payment to sort out · Rs 1,250.00")).toBeTruthy();
   });
 });

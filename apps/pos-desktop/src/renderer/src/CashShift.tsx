@@ -1008,13 +1008,25 @@ function WaitingToBePaidOut({
  * are settled on This counter → Offline sales and card payments, which View opens. Nothing here
  * changes a payment.
  */
-export function CardPaymentsToSortOut({ active, onView }: { active: boolean; onView: () => void }) {
+export function CardPaymentsToSortOut({
+  active,
+  onView,
+}: {
+  active: boolean;
+  /** Opens This counter on that payment. */
+  onView: (attemptId: string) => void;
+}) {
   const [rows, setRows] = useState<CardAttemptView[]>([]);
   useEffect(() => {
     if (!active) return;
+    // Shown, hidden and shown again quickly: only the latest read may land.
+    let current = true;
     void invoke(() => window.pos.cardAttempts()).then((result) => {
-      setRows(result.ok ? result.value.filter((attempt) => !attempt.settled) : []);
+      if (current) setRows(result.ok ? result.value.filter((attempt) => !attempt.settled) : []);
     });
+    return () => {
+      current = false;
+    };
   }, [active]);
   if (!rows.length) return null;
   return (
@@ -1023,13 +1035,17 @@ export function CardPaymentsToSortOut({ active, onView }: { active: boolean; onV
         <div key={attempt.attemptId} className={cx(ui.note, ui.noteWarn, styles.cardFollow)}>
           <Icon name="alert-triangle" />
           <div>
-            <b>Card payment to sort out · Rs {attempt.amount}</b>
+            <b>Card payment to sort out · Rs {money(minor(attempt.amount))}</b>
             <small>
               Started at {time(new Date(attempt.startedAt))} while offline: {cardStage(attempt).title.toLowerCase()}.
               Settle it on This counter before this customer is charged again.
             </small>
           </div>
-          <button type="button" className={cx(ui.btn, ui.outline, ui.sm)} onClick={onView}>
+          <button
+            type="button"
+            className={cx(ui.btn, ui.outline, ui.sm)}
+            onClick={() => onView(attempt.attemptId)}
+          >
             View
           </button>
         </div>
@@ -1104,8 +1120,8 @@ export function CashShiftPage({
   online?: boolean;
   focusPayoutId?: string | null;
   onFocusPayoutConsumed?: () => void;
-  /** "View" on a card payment to sort out: opens This counter, where it is settled. */
-  onOpenCardPayments?: () => void;
+  /** "View" on a card payment to sort out: opens This counter on that payment, where it is settled. */
+  onOpenCardPayments?: (attemptId: string) => void;
 }) {
   const [view, setView] = useState<"shift" | "payout" | "past">("shift");
   const [payoutBadge, setPayoutBadge] = useState(0);
