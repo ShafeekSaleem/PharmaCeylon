@@ -22,6 +22,7 @@ import {
 import {
   ActionButton,
   ActiveFilterBanner,
+  FilterChips,
   PageHeader,
   flattenCategoryTree,
   type SortDir,
@@ -36,7 +37,6 @@ import {
   DEFAULT_VISIBLE,
   PRODUCT_STAT_PILLS,
   REFERENCE_STAT_PILLS,
-  type KpiIconTone,
 } from "../constants";
 import {
   addReferenceProducts,
@@ -90,16 +90,6 @@ import { ConfirmDialog } from "./confirm-dialog";
 import { NmraImportModal, type ImportMode } from "./nmra-import-modal";
 import { ProductFormModal } from "./product-form-modal";
 import { ProductTable } from "./product-table";
-
-/** Same tone-pill mapping as the Catalog page's quick filter chips — keeps the "quick
- *  status" pill design consistent across pages instead of each page inventing its own. */
-const STAT_PILL_TONE_CLASS: Record<KpiIconTone, string> = {
-  primary: css.statusPillTeal,
-  success: css.statusPillEmerald,
-  info: css.statusPillSky,
-  warning: css.statusPillAmber,
-  danger: css.statusPillRose,
-};
 
 export function ProductsPageContent() {
   const router = useRouter();
@@ -547,6 +537,15 @@ export function ProductsPageContent() {
     setFilters(filters);
   };
 
+  const statCounts: Record<StatFilter, number | null> = {
+    all: list.totalAll,
+    active: list.summaryFacets ? list.activeCount : null,
+    inactive: list.summaryFacets ? list.inactiveCount : null,
+    controlled: list.summaryFacets ? list.controlledCount : null,
+    lowStock: hasBranch ? (list.lowStock ?? null) : null,
+    rx: list.summaryFacets ? list.rxCount : null,
+  };
+
   const toggleStatFilter = (filter: StatFilter) => {
     if (activePill === filter) {
       handleClearFilters();
@@ -728,34 +727,26 @@ export function ProductsPageContent() {
                 onChange={(e) => setSearch(e.target.value)}
               />
             </div>
-            <div
-              className={css.statusPills}
-              role="tablist"
-              aria-label="Quick status filters"
-            >
-              {(scope === "reference"
+            {/* Shared list pattern (#205): neutral chips with counts, only the applied one
+                filled. The counts are for the whole tab, not the current search. */}
+            <FilterChips<StatFilter>
+              label="Quick status filters"
+              chips={(scope === "reference"
                 ? REFERENCE_STAT_PILLS
                 : PRODUCT_STAT_PILLS
-              ).map((pill) => {
-                const disabled = pill.id === "lowStock" && !hasBranch;
-                const active = activePill === pill.id;
-                return (
-                  <button
-                    key={pill.id}
-                    type="button"
-                    role="tab"
-                    aria-selected={active}
-                    disabled={disabled}
-                    className={`${css.statusPill} ${STAT_PILL_TONE_CLASS[pill.iconTone]}${
-                      active ? ` ${css.statusPillActive}` : ""
-                    }`}
-                    onClick={() => toggleStatFilter(pill.id)}
-                  >
-                    {pill.label}
-                  </button>
-                );
-              })}
-            </div>
+              ).map((pill) => ({
+                id: pill.id,
+                label: pill.label,
+                count: statCounts[pill.id],
+                disabled: pill.id === "lowStock" && !hasBranch,
+                hint:
+                  pill.id === "lowStock" && !hasBranch
+                    ? "Select a branch to filter by stock"
+                    : undefined,
+              }))}
+              active={activePill}
+              onChange={toggleStatFilter}
+            />
           </div>
 
           <div className={css.toolbarActions}>

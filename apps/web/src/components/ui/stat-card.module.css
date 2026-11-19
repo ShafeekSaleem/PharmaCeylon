@@ -234,7 +234,7 @@
   padding: 0.3rem;
   border-radius: 8px;
   border: 1px solid color-mix(in srgb, var(--pc-primary) 22%, var(--pc-border));
-  background: var(--pc-card-bg, #fff);
+  background: var(--pc-card-bg);
   box-shadow:
     0 4px 6px -1px rgba(15, 23, 42, 0.08),
     0 12px 28px -6px rgba(15, 23, 42, 0.14),

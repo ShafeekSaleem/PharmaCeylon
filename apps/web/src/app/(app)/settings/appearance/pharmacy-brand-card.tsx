@@ -9,6 +9,7 @@ import {
   type PharmacyAppearance,
   type PharmacyAppearanceSettings,
   type SidebarStyle,
+  type ChartPalette,
   type StatusColourSet,
 } from "@pharmaceylon/shared";
 import { ActionButton, FormField, ToggleSwitch } from "@/components/ui";
@@ -29,6 +30,11 @@ const SIDEBAR_CHOICES: { value: SidebarStyle; label: string }[] = [
   { value: "light", label: "Light" },
   { value: "tinted", label: "Tinted" },
   { value: "dark", label: "Dark" },
+];
+
+const CHART_CHOICES: { value: ChartPalette; label: string; set: string }[] = [
+  { value: "accent", label: "Brand colours", set: "accent" },
+  { value: "distinct", label: "Distinct colours", set: "distinct" },
 ];
 
 const STATUS_CHOICES: { value: StatusColourSet; label: string }[] = [
@@ -269,6 +275,34 @@ export function PharmacyBrandCard({ user }: { user: AuthUser | null }) {
       <p className={css.rowHint}>
         Colour-blind safe uses status colours that stay distinct for people with
         red-green colour blindness.
+      </p>
+
+      <p className={css.subLabel}>Chart colours</p>
+      <div className={css.pillRow} role="group" aria-label="Chart colours">
+        {CHART_CHOICES.map((c) => (
+          <button
+            key={c.value}
+            type="button"
+            aria-pressed={draft?.chartPalette === c.value}
+            className={`${css.pill}${draft?.chartPalette === c.value ? ` ${css.pillSelected}` : ""}`}
+            onClick={() => change({ chartPalette: c.value })}
+            disabled={disabled}
+          >
+            <span className={css.chartStrip} aria-hidden="true">
+              {[1, 2, 3, 4, 5, 6].map((n) => (
+                <i
+                  key={n}
+                  style={{ background: `var(--ui-chart-${c.set}-${n})` }}
+                />
+              ))}
+            </span>
+            {c.label}
+          </button>
+        ))}
+      </div>
+      <p className={css.rowHint}>
+        Brand colours start from your accent. Distinct colours are the same for
+        every pharmacy and easier to tell apart when a chart has many series.
       </p>
 
       <p className={css.subLabel}>Counter app theme</p>

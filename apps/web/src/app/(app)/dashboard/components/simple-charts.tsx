@@ -62,9 +62,9 @@ function smoothPathThroughPoints(pts: PathPoint[]): string {
 export function SimpleLineChart({
   points,
   height = 160,
-  color = "var(--pc-primary)",
+  color = "var(--pc-chart-1)",
   secondaryPoints,
-  secondaryColor = "var(--pc-secondary-cyan)",
+  secondaryColor = "var(--pc-chart-2)",
   formatValue = (n) => String(Math.round(n)),
   aLabel,
   bLabel,
@@ -578,7 +578,7 @@ type SparklineProps = {
 
 export function MiniSparkline({
   values,
-  color = "var(--pc-primary)",
+  color = "var(--pc-chart-1)",
   width = 72,
   height = 28,
 }: SparklineProps) {
@@ -625,7 +625,7 @@ type BarChartProps = {
 export function SimpleBarChart({
   points,
   height = 160,
-  color = "var(--pc-primary)",
+  color = "var(--pc-chart-1)",
 }: BarChartProps) {
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
 

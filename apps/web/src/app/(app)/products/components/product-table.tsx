@@ -1,24 +1,24 @@
 "use client";
 
 import { useMemo } from "react";
-import {
-  IconAlertTriangle,
-  IconCheck,
-  IconPackage,
-  IconPlus,
-} from "@/components/icons";
+import { IconCheck, IconPackage, IconPlus } from "@/components/icons";
 import {
   DataTable,
-  StatusBadge,
+  rowMenuColumn,
   type Column,
   type SortDir,
 } from "@/components/ui";
 import { PAGE_SIZE, REFERENCE_HIDDEN_COLUMNS } from "../constants";
 import css from "../products.module.css";
 import type { ColumnKey, Product, ProductScope } from "../types";
-import { ProductActions } from "./product-actions";
-import { ProductStockBadge } from "./product-stock-badge";
-import { ProductThumb } from "./product-thumb";
+import {
+  distinctBrand,
+  distinctGeneric,
+  distinctSku,
+  scheduleBadge,
+  stockCell,
+} from "../utils/list-cells";
+import cells from "./product-table.module.css";
 
 /** Search Catalog's vocabulary, kept verbatim so the merged screen reads the same. */
 const MATCH_LABELS: Record<string, string> = {
@@ -38,7 +38,7 @@ type ProductTableProps = {
   visibleColumns: Set<ColumnKey>;
   canWrite: boolean;
   canDelete?: boolean;
-  /** Which tab the table is showing — changes the empty state and the Status column. */
+  /** Which tab the table is showing — changes the empty state and the actions column. */
   scope: ProductScope;
   selectedIds?: ReadonlySet<string>;
   onSelectionChange?: (ids: Set<string>) => void;
@@ -55,6 +55,17 @@ type ProductTableProps = {
   addingReferenceId?: string | null;
 };
 
+/**
+ * The Products list on the shared list pattern (#205, Products):
+ * - generic name on a muted second line under the product name;
+ * - one schedule badge (OTC / Rx · II B / Controlled · III) in place of the Rx tag, the
+ *   "Prescription required" chip and the plain Schedule column;
+ * - Brand left blank when it only repeats the name, SKU when it only repeats the reg. no.;
+ * - no placeholder thumbnail column;
+ * - stock as a number with a short note, only zero and low coloured;
+ * - Status shows only Inactive;
+ * - one row-actions menu, Delete behind a divider and never beside Edit.
+ */
 export function ProductTable({
   products,
   total,
@@ -80,162 +91,120 @@ export function ProductTable({
   const allColumnDefs: Column<Product>[] = useMemo(
     () => [
       {
-        key: "image",
-        header: "",
-        width: "48px",
-        render: (row) => <ProductThumb row={row} />,
-      },
-      {
         key: "name",
         header: "Product",
         sortable: true,
         getValue: (row) => row.name,
-        render: (row) => (
-          <div className={css.productCell}>
-            {!visibleColumns.has("image") ? <ProductThumb row={row} /> : null}
-            <div className={css.nameCell}>
-              <span className={css.productName}>
-                {row.name}
+        render: (row) => {
+          // Generic name on the muted second line. When the Brand column is hidden, a brand
+          // that differs from the name joins that line rather than disappearing.
+          const generic = distinctGeneric(row);
+          const brand = !visibleColumns.has("brandName")
+            ? distinctBrand(row)
+            : null;
+          const second = [generic, brand].filter(Boolean).join(" · ");
+          return (
+            <div className={cells.nameCell}>
+              <span className={cells.nameLine}>
+                <span className={cells.name}>{row.name}</span>
                 {(row.sameNameCount ?? 1) > 1 ? (
                   <span
-                    className={css.dupNameBadge}
+                    className={cells.quietTag}
                     title={`${row.sameNameCount} registrations share this display name`}
                   >
                     {row.sameNameCount} regs
                   </span>
                 ) : null}
-              </span>
-              {row.brandName && !visibleColumns.has("brandName") ? (
-                <span className={css.brandUnderTitle}>{row.brandName}</span>
-              ) : null}
-              {row.registrationNo && !visibleColumns.has("registrationNo") ? (
-                <span className={css.regNoHint}>Reg. {row.registrationNo}</span>
-              ) : null}
-              {row.genericName && row.genericName !== row.name ? (
-                <span className={css.genericName}>{row.genericName}</span>
-              ) : null}
-              <span className={css.tagRow}>
                 {/* Only ever present when a search term was given. Words, not a colour —
                     "why did this come back" has to be readable, not decoded. */}
-                {row.matchType && row.matchType !== "partial" && (
-                  <span className={css.matchChip}>
+                {row.matchType && row.matchType !== "partial" ? (
+                  <span className={cells.quietTag}>
                     {MATCH_LABELS[row.matchType]}
                   </span>
-                )}
-                {(row.requiresPrescription || row.isControlled) && (
-                  <span className={css.rxTag}>Rx</span>
-                )}
-                {row.schedule && !visibleColumns.has("schedule") ? (
-                  <span className={css.metaChip}>Schedule {row.schedule}</span>
                 ) : null}
-                {/* `row.categories` is COMMERCIAL-only (server-scoped) — no name-based
-                    filtering needed to keep Schedule/Dosage Form names out of this chip. */}
-                {(row.categories ?? [])
-                  .filter((c) => !c.name.includes("—") && c.name.length < 28)
-                  .slice(0, 1)
-                  .map((c) => (
-                    <span key={c.id} className={css.metaChip}>
-                      {c.name}
-                    </span>
-                  ))}
-                {(row.tags ?? [])
-                  .filter((t) =>
-                    /unbranded|prescription required|controlled medicine/i.test(
-                      t.name,
-                    ),
-                  )
-                  .slice(0, 1)
-                  .map((t) => (
-                    <span key={t.id} className={css.metaChip}>
-                      {t.name.includes("Unbranded") ? "Unbranded" : t.name}
-                    </span>
-                  ))}
               </span>
+              {second ? (
+                <span className={cells.secondLine}>{second}</span>
+              ) : null}
             </div>
-          </div>
-        ),
+          );
+        },
       },
       {
         key: "sku",
         header: "SKU",
         sortable: true,
-        width: "92px",
+        width: "96px",
         getValue: (row) => row.sku,
+        // Register imports use the registration number as the SKU. Printing it twice on every
+        // row is noise, so while Reg. no. is showing that copy is the one kept.
+        render: (row) => {
+          const sku = visibleColumns.has("registrationNo")
+            ? distinctSku(row)
+            : row.sku;
+          return sku ? <>{sku}</> : null;
+        },
       },
       {
         key: "brandName",
         header: "Brand",
-        width: "115px",
+        width: "120px",
         sortable: true,
         getValue: (row) => row.brandName ?? "",
-        render: (row) => <>{row.brandName ?? "—"}</>,
+        render: (row) => <>{distinctBrand(row) ?? ""}</>,
       },
       {
         key: "dosageForm",
         header: "Form / Strength",
-        width: "168px",
+        width: "160px",
         getValue: (row) => row.dosageForm ?? "",
-        render: (row) => (
-          <>
-            {row.dosageForm ?? "—"}
-            {row.strength ? ` · ${row.strength}` : ""}
-          </>
-        ),
+        // One line, cut with an ellipsis; the full wording is in the tooltip.
+        render: (row) => {
+          const text = [row.dosageForm, row.strength].filter(Boolean).join(" · ");
+          return text ? <span title={text}>{text}</span> : null;
+        },
       },
       {
         key: "manufacturer",
         header: "Manufacturer",
         width: "150px",
         getValue: (row) => row.manufacturer ?? "",
-        render: (row) => <>{row.manufacturer ?? "—"}</>,
+        render: (row) => <>{row.manufacturer ?? ""}</>,
       },
       {
         key: "unit",
         header: "Unit",
         width: "70px",
         getValue: (row) => row.unit ?? "",
-        render: (row) => <>{row.unit ?? "—"}</>,
+        render: (row) => <>{row.unit ?? ""}</>,
       },
       {
         key: "registrationNo",
         header: "Reg. no.",
-        width: "95px",
+        width: "100px",
         sortable: true,
         getValue: (row) => row.registrationNo ?? "",
-        render: (row) => <>{row.registrationNo ?? "—"}</>,
+        render: (row) => <>{row.registrationNo ?? ""}</>,
       },
       {
         key: "schedule",
         header: "Schedule",
-        width: "102px",
+        width: "132px",
         sortable: true,
         getValue: (row) => row.schedule ?? "",
-        render: (row) => <>{row.schedule ?? "—"}</>,
+        render: (row) => <ScheduleBadge row={row} />,
       },
       {
         key: "stock",
         header: "Stock",
-        align: "left",
-        width: "132px",
-        // A reference record isn't "out of stock" — the pharmacy never carried it. A red
-        // 0-units badge on every row would read as a shelf full of problems.
-        render: (row) =>
-          scope === "reference" ? (
-            <span className={css.notStockedCell}>Not stocked</span>
-          ) : (
-            <ProductStockBadge
-              qtyOnHand={row.qtyOnHand}
-              stockStatus={row.stockStatus}
-              reorderGap={row.reorderGap}
-              reorderLevel={row.reorderLevel}
-            />
-          ),
+        width: "128px",
+        render: (row) => <StockCell row={row} />,
       },
       {
         key: "reorderLevel",
-        header: "Reorder Lvl",
+        header: "Reorder level",
         align: "right",
-        width: "90px",
+        width: "104px",
         sortable: true,
         getValue: (row) => row.reorderLevel,
         render: (row) => <>{row.reorderLevel}</>,
@@ -243,74 +212,72 @@ export function ProductTable({
       {
         key: "status",
         header: "Status",
-        width: "118px",
-        render: (row) => (
-          <div className={css.statusCell}>
-            {/* On the reference tab every row is REFERENCE, so an "active/inactive" badge
-                would be answering a question nobody asked — say what the row actually is. */}
-            {scope === "reference" ? (
-              <span className={css.referenceTag}>Reference</span>
-            ) : (
-              <StatusBadge status={row.isActive ? "active" : "inactive"} dot />
-            )}
-            {row.isControlled ? (
-              <span className={css.controlledTag}>
-                <IconAlertTriangle size={11} />
-                Ctrl
-              </span>
-            ) : null}
-          </div>
-        ),
+        width: "92px",
+        // Active is the normal state, so it is not shown; only Inactive is (#205 rule 1).
+        render: (row) =>
+          row.isActive ? null : (
+            <span className={cells.inactive}>Inactive</span>
+          ),
       },
-      {
-        key: "actions",
-        header: "Actions",
-        width: scope === "reference" ? "132px" : "72px",
-        align: "right",
-        // A reference row is the regulator's record, not the shop's. Edit and delete on one
-        // would be editing the register, so the only action offered is the one that makes
-        // sense: start selling it. (Deleting a claimed reference row is also refused by the
-        // API's new foreign key, which would otherwise strand the link history.)
-        render: (row) => {
-          if (scope === "reference") {
-            if (!canWrite || !onAddReference) return null;
-            const added = addedReferenceIds?.has(row.id) ?? false;
-            if (added) {
+      scope === "reference"
+        ? {
+            key: "actions",
+            header: <span className={cells.srOnlyHeader}>Actions</span>,
+            mobileLabel: "",
+            width: "132px",
+            align: "right",
+            // A reference row is the regulator's record, not the shop's. Edit and delete on
+            // one would be editing the register, so the only action offered is the one that
+            // makes sense: start selling it. (Deleting a claimed reference row is also refused
+            // by the API's foreign key, which would otherwise strand the link history.)
+            render: (row) => {
+              if (!canWrite || !onAddReference) return null;
+              const added = addedReferenceIds?.has(row.id) ?? false;
+              if (added) {
+                return (
+                  <span className={css.referenceAddedChip}>
+                    <IconCheck size={11} aria-hidden />
+                    In my products
+                  </span>
+                );
+              }
+              const busy = addingReferenceId === row.id;
               return (
-                <span className={css.referenceAddedChip}>
-                  <IconCheck size={11} aria-hidden />
-                  In my products
-                </span>
+                <button
+                  type="button"
+                  className={css.referenceAddBtn}
+                  disabled={busy}
+                  aria-label={`Add ${row.name} to my products`}
+                  onClick={(e) => {
+                    // The row itself opens the detail page; the button must not do both.
+                    e.stopPropagation();
+                    onAddReference(row);
+                  }}
+                >
+                  <IconPlus size={12} aria-hidden />
+                  {busy ? "Adding…" : "Add"}
+                </button>
               );
-            }
-            const busy = addingReferenceId === row.id;
-            return (
-              <button
-                type="button"
-                className={css.referenceAddBtn}
-                disabled={busy}
-                aria-label={`Add ${row.name} to my products`}
-                onClick={(e) => {
-                  // The row itself opens the detail panel; the button must not do both.
-                  e.stopPropagation();
-                  onAddReference(row);
-                }}
-              >
-                <IconPlus size={12} aria-hidden />
-                {busy ? "Adding…" : "Add"}
-              </button>
-            );
+            },
           }
-          return canWrite ? (
-            <ProductActions
-              row={row}
-              canDelete={canDelete}
-              onEdit={onEdit}
-              onDelete={onDelete}
-            />
-          ) : null;
-        },
-      },
+        : rowMenuColumn<Product>(
+            (row) =>
+              canWrite
+                ? [
+                    { label: "Edit product", onClick: () => onEdit(row) },
+                    ...(canDelete
+                      ? [
+                          {
+                            label: "Delete product",
+                            danger: true,
+                            onClick: () => onDelete(row),
+                          },
+                        ]
+                      : []),
+                  ]
+                : [],
+            (row) => row.name,
+          ),
     ],
     [
       addedReferenceIds,
@@ -354,8 +321,9 @@ export function ProductTable({
       onRowClick={onRowClick}
       selectedKeys={selectedIds}
       onSelectionChange={onSelectionChange}
-      compact
+      variant="list"
       fixedLayout
+      minTableWidth="1180px"
       emptyTitle={
         scope === "reference"
           ? "No reference products found"
@@ -368,5 +336,59 @@ export function ProductTable({
       }
       emptyIcon={<IconPackage size={42} />}
     />
+  );
+}
+
+/** One badge for how the product may be sold: OTC, Rx · II B, Controlled · III. */
+export function ScheduleBadge({
+  row,
+}: {
+  row: Pick<Product, "isControlled" | "requiresPrescription" | "schedule">;
+}) {
+  const info = scheduleBadge(row);
+  const tone =
+    info.kind === "controlled"
+      ? cells.scheduleControlled
+      : info.kind === "rx"
+        ? cells.scheduleRx
+        : cells.scheduleOtc;
+  return (
+    <span className={`${cells.schedule} ${tone}`} title={info.description}>
+      {info.label}
+    </span>
+  );
+}
+
+/** Stock as a number with a short note. Only zero and low are coloured, and both say so in words. */
+export function StockCell({
+  row,
+}: {
+  row: Pick<
+    Product,
+    "qtyOnHand" | "stockStatus" | "reorderLevel" | "reorderGap"
+  >;
+}) {
+  const info = stockCell(row);
+  if (info.qty === null) {
+    return (
+      <span className={cells.muted} title={info.description}>
+        —
+      </span>
+    );
+  }
+  const tone =
+    info.tone === "out"
+      ? cells.stockOut
+      : info.tone === "low"
+        ? cells.stockLow
+        : "";
+  return (
+    <span
+      className={`${cells.stock}${tone ? ` ${tone}` : ""}`}
+      title={info.description}
+    >
+      <span className={cells.stockQty}>{info.qty.toLocaleString()}</span>
+      {info.note ? <span className={cells.stockNote}>{info.note}</span> : null}
+    </span>
   );
 }

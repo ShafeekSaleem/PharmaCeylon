@@ -39,6 +39,19 @@
   --ui-accent-ink: #ffffff;
   --ui-accent-soft: #e6f4f2;
   --ui-selected: #e6f4f2;
+  /* Chart series (UI1 #205): accent family, then the fixed colour-blind-friendly set. 3:1 on every surface. */
+  --ui-chart-accent-1: #0f766e;
+  --ui-chart-accent-2: #1c6ad9;
+  --ui-chart-accent-3: #149e37;
+  --ui-chart-accent-4: #cc1a63;
+  --ui-chart-accent-5: #7417b5;
+  --ui-chart-accent-6: #5c7a78;
+  --ui-chart-distinct-1: #0071b3;
+  --ui-chart-distinct-2: #d65d00;
+  --ui-chart-distinct-3: #009e74;
+  --ui-chart-distinct-4: #b94685;
+  --ui-chart-distinct-5: #a87300;
+  --ui-chart-distinct-6: #5a687c;
 
   /* Status: solid (icons, bars, dots), ink (text), soft (chip fill), line (chip border).
      Colour only the exception; a status chip always carries a word. */
@@ -81,6 +94,18 @@
     --ui-accent-ink: #04201c;
     --ui-accent-soft: #123a3a;
     --ui-selected: #123a3a;
+    --ui-chart-accent-1: #2dd4bf;
+    --ui-chart-accent-2: #7da9e8;
+    --ui-chart-accent-3: #5ae27d;
+    --ui-chart-accent-4: #e774a4;
+    --ui-chart-accent-5: #b36ce5;
+    --ui-chart-accent-6: #9cb4b2;
+    --ui-chart-distinct-1: #3ca2dd;
+    --ui-chart-distinct-2: #dd823c;
+    --ui-chart-distinct-3: #3cddb2;
+    --ui-chart-distinct-4: #c05991;
+    --ui-chart-distinct-5: #ddaa3c;
+    --ui-chart-distinct-6: #7a899f;
 
     --ui-ok: #34d399;
     --ui-ok-ink: #6ee7b7;
@@ -120,6 +145,19 @@
   --ui-accent-ink: #04201c;
   --ui-accent-soft: #123a3a;
   --ui-selected: #123a3a;
+  /* Chart series (UI1 #205): accent family, then the fixed colour-blind-friendly set. 3:1 on every surface. */
+  --ui-chart-accent-1: #2dd4bf;
+  --ui-chart-accent-2: #7da9e8;
+  --ui-chart-accent-3: #5ae27d;
+  --ui-chart-accent-4: #e774a4;
+  --ui-chart-accent-5: #b36ce5;
+  --ui-chart-accent-6: #9cb4b2;
+  --ui-chart-distinct-1: #3ca2dd;
+  --ui-chart-distinct-2: #dd823c;
+  --ui-chart-distinct-3: #3cddb2;
+  --ui-chart-distinct-4: #c05991;
+  --ui-chart-distinct-5: #ddaa3c;
+  --ui-chart-distinct-6: #7a899f;
 
   --ui-ok: #34d399;
   --ui-ok-ink: #6ee7b7;

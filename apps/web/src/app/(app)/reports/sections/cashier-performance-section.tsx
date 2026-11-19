@@ -37,7 +37,7 @@ type EnrichedCashier = CashierRow & { revenueN: number; avgBasketN: number; disc
 /** Same palette Branch Sales' own matrix/trend chart use — a cashier reads as one consistent
  *  color across the Cashier Comparison matrix and (were it ever reused elsewhere) any other chart
  *  on this page, the same "one entity, one color" convention the rest of this redesign follows. */
-const CASHIER_PALETTE = ["var(--pc-primary)", "var(--pc-secondary-cyan)", "var(--pc-tone-violet)", "var(--pc-tone-orange)", "var(--pc-tone-success)", "var(--pc-tone-orange-strong)", "var(--pc-muted-fg)"];
+const CASHIER_PALETTE = ["var(--pc-chart-1)", "var(--pc-chart-2)", "var(--pc-chart-3)", "var(--pc-chart-4)", "var(--pc-chart-5)", "var(--pc-chart-6)", "var(--pc-muted-fg)"];
 
 const SHIFT_ICONS: Record<string, ReactNode> = {
   morning: <IconSun size={18} />,

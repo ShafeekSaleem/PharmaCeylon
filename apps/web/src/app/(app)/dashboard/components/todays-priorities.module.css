@@ -6,7 +6,7 @@
   overflow: hidden;
   background: var(--pc-card-bg);
   border: 1px solid var(--pc-border);
-  border-radius: var(--pc-radius-lg, 20px);
+  border-radius: var(--pc-radius-lg);
   padding: 0.95rem 1rem 0.65rem;
   box-shadow: var(--pc-shadow-card, 0 18px 40px -28px rgba(15, 23, 42, 0.28));
   min-width: 0;
@@ -139,7 +139,7 @@
 }
 
 .typeUrgent {
-  background: var(--pc-alert-danger-bg, color-mix(in srgb, var(--pc-destructive) 12%, transparent));
+  background: var(--pc-alert-danger-bg);
   color: var(--pc-destructive);
 }
 

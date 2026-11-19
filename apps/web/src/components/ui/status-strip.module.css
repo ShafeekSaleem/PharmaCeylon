@@ -87,13 +87,13 @@
 .actions :global(.status-strip-primary) {
   border-color: var(--pc-primary);
   background: var(--pc-primary);
-  color: var(--pc-btn-primary-text, #fff);
+  color: var(--pc-btn-primary-text);
 }
 
 .actions :global(.status-strip-primary:hover) {
   border-color: var(--pc-primary-hover, var(--pc-primary));
   background: var(--pc-primary-hover, var(--pc-primary));
-  color: var(--pc-btn-primary-text, #fff);
+  color: var(--pc-btn-primary-text);
 }
 
 .dismiss {
