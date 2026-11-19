@@ -46,6 +46,12 @@ function start(args, cwd, name, extra = {}) {
   children.push(child);
   return child;
 }
+/** Post–#205 shell: branch choices sit in the header dropdown, not as bare top-bar buttons. */
+async function pickBranch(page, branchName) {
+  await page.getByRole("button", { name: /Switch branch/ }).click();
+  await page.getByRole("button", { name: branchName, exact: true }).click();
+}
+
 async function waitFor(url) {
   for (let n = 0; n < 120; n++) {
     try {
@@ -529,33 +535,25 @@ try {
         .waitFor({ timeout: 5000 });
     }
     if (role === "owner") {
-      await page
-        .getByRole("button", { name: "Colombo Central", exact: true })
-        .click();
+      await pickBranch(page, "Colombo Central");
       const changed = page.waitForResponse(
         (r) =>
           r.url().includes("/dashboard/work?") &&
           r.request().headers()["x-branch-id"] === fixture.other.id,
       );
-      await page
-        .getByRole("button", { name: "Kandy Central", exact: true })
-        .click();
+      await pickBranch(page, "Kandy Central");
       const otherWork = await (await changed).json();
       assert.deepEqual(
         otherWork.items.map((i) => i.reference),
         ["PO-KANDY-ONLY"],
       );
-      await page
-        .getByRole("button", { name: "Kandy Central", exact: true })
-        .click();
+      await pickBranch(page, "Kandy Central");
       const restored = page.waitForResponse(
         (r) =>
           r.url().includes("/dashboard/work?") &&
           r.request().headers()["x-branch-id"] === fixture.main.id,
       );
-      await page
-        .getByRole("button", { name: "Colombo Central", exact: true })
-        .click();
+      await pickBranch(page, "Colombo Central");
       await restored;
     }
     if (role === "cashier") {
