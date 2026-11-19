@@ -1,0 +1,139 @@
+.card {
+  background: var(--pc-card-bg);
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-lg);
+  padding: 1rem 1.25rem 1.1rem;
+  min-width: 0;
+}
+
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.titleBlock {
+  flex: 1 1 15rem;
+  min-width: 0;
+}
+
+.titleBlock h2 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.titleBlock p {
+  margin: 0.15rem 0 0;
+  font-size: 0.8125rem;
+  color: var(--pc-muted-fg);
+}
+
+.range {
+  display: inline-flex;
+  border: 1px solid var(--pc-border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.range button {
+  height: 2rem;
+  padding: 0 0.75rem;
+  border: 0;
+  background: var(--pc-card-bg);
+  font: inherit;
+  font-size: 0.8125rem;
+  color: var(--pc-muted-fg);
+  cursor: pointer;
+}
+
+.range button + button {
+  border-left: 1px solid var(--pc-border);
+}
+
+.range button:focus-visible {
+  outline: 2px solid var(--pc-focus-ring);
+  outline-offset: -2px;
+}
+
+.range .rangeOn {
+  background: var(--pc-foreground);
+  color: var(--pc-card-bg);
+  font-weight: 650;
+}
+
+.link {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--pc-primary);
+  text-decoration: none;
+}
+
+.link:hover {
+  text-decoration: underline;
+}
+
+.bars {
+  list-style: none;
+  margin: 1.1rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.day {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 0;
+}
+
+.plot {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0.35rem;
+  width: 100%;
+  height: 10rem;
+  border-bottom: 1px solid var(--pc-border);
+}
+
+.value {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--pc-foreground);
+  font-variant-numeric: tabular-nums;
+}
+
+.bar,
+.barZero {
+  width: 100%;
+  max-width: 4.5rem;
+  border-radius: 4px 4px 0 0;
+}
+
+.bar {
+  background: var(--pc-chart-1);
+}
+
+.barZero {
+  height: 2px;
+  background: var(--pc-border);
+}
+
+.dayLabel {
+  margin-top: 0.4rem;
+  min-height: 1rem;
+  font-size: 0.78rem;
+  color: var(--pc-muted-fg);
+  white-space: nowrap;
+}
+
+.empty {
+  margin: 1rem 0 0;
+  font-size: 0.875rem;
+  color: var(--pc-muted-fg);
+}

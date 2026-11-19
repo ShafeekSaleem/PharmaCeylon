@@ -3,13 +3,10 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DailyWorkItem } from "@pharmaceylon/shared";
-import productsCss from "@/app/(app)/products/products.module.css";
 import {
-  IconAlertTriangle,
   IconCheck,
   IconChevronLeft,
   IconChevronRight,
-  IconRefresh,
 } from "@/components/icons";
 import type { BatchRow, StockRow } from "@/app/(app)/inventory/types";
 import type { PurchaseOrderListItem } from "@/app/(app)/purchasing/types";
@@ -38,9 +35,8 @@ import {
 } from "../lib/priority-filters";
 import { dashboardHref, usePosHidden } from "../lib/pos-links";
 import { paginate } from "../lib/paginate";
-import { workAreaTag } from "../lib/work-area-tag";
+import { groupWorkItems, workLateness, type WorkLateness } from "../lib/work-groups";
 import { asOfLabel } from "../widgets/counter-waiting";
-import { workTiming } from "./daily-work-queue";
 import css from "./todays-priorities.module.css";
 
 type Props = {
@@ -51,24 +47,6 @@ type Props = {
   /** When the dashboard cannot reach the server, hide stale queue rows. */
   forceUnavailable?: boolean;
 };
-
-const CHIP_SELECTED_TONE: Record<PriorityFilterKey, string> = {
-  all: css.chipToneSlate,
-  approvals: css.chipToneSky,
-  counter: css.chipToneTeal,
-  overdue_deliveries: css.chipToneRose,
-  low_stock: css.chipToneAmber,
-  near_expiry: css.chipToneOrange,
-  controlled: css.chipToneViolet,
-  out_of_stock: css.chipToneDanger,
-};
-
-function workRowMeta(item: DailyWorkItem, timezone: string, asOf: string): string {
-  const timing = workTiming(item, timezone, asOf);
-  if (item.overdue) return "⚠ Overdue";
-  if (timing.startsWith("Due ") || timing.startsWith("Overdue")) return timing.replace(/^Overdue · /, "");
-  return item.detail.replace(/_/g, " ").slice(0, 40);
-}
 
 export function TodaysPriorities({
   data,
@@ -301,122 +279,109 @@ export function TodaysPriorities({
   }, [filter, forceUnavailable, purchaseOrdersFailed, stockLists.error, work.error]);
 
   const subtitle = work.data
-    ? `${work.data.branchName} · Relevant work, including carry-over · ${asOfLabel(work.data.asOf, work.data.timezone)}`
-    : data.branchName
-      ? `${data.branchName} · Relevant work, including carry-over`
-      : "Relevant work, including carry-over";
+    ? `${work.data.counts.all} open · ${work.data.counts.overdue} late · as of ${asOfLabel(work.data.asOf, work.data.timezone).replace(/^As of /, "")}`
+    : (data.branchName ?? "");
+
+  function rowView(opts: {
+    key: string;
+    title: string;
+    reference?: string;
+    detail?: string;
+    lateness?: WorkLateness;
+    href?: string | null;
+    action: string;
+  }) {
+    return (
+      <div key={opts.key} className={css.row}>
+        <div className={css.rowMain}>
+          <div className={css.title}>
+            {opts.title}
+            {opts.reference ? (
+              <span className={css.reference}>{opts.reference}</span>
+            ) : null}
+          </div>
+          {opts.detail ? <div className={css.detail}>{opts.detail}</div> : null}
+        </div>
+        {opts.lateness ? (
+          <span
+            className={
+              opts.lateness.tone === "late"
+                ? css.late
+                : opts.lateness.tone === "soon"
+                  ? css.soon
+                  : css.timing
+            }
+          >
+            {opts.lateness.text}
+          </span>
+        ) : null}
+        {opts.href ? (
+          <Link className={css.action} href={opts.href}>
+            {opts.action}
+          </Link>
+        ) : (
+          <span className={css.action}>{opts.action}</span>
+        )}
+      </div>
+    );
+  }
+
+  function renderWork(item: DailyWorkItem) {
+    return rowView({
+      key: item.id,
+      title: item.title,
+      reference: item.reference,
+      detail: item.detail,
+      lateness: work.data
+        ? workLateness(item, work.data.timezone, work.data.asOf)
+        : undefined,
+      href: dashboardHref(item.href, posHidden),
+      action: item.action,
+    });
+  }
 
   function renderRow(row: Row) {
-    if (row.kind === "work") {
-      const item = row.item;
-      const href = dashboardHref(item.href, posHidden);
-      const urgent = item.overdue || item.priority === 0;
-      return (
-        <div key={item.id} className={css.row}>
-          <span
-            className={`${css.typeIcon} ${urgent ? css.typeUrgent : ""}`}
-            aria-hidden
-          >
-            {item.overdue ? (
-              <IconAlertTriangle size={16} />
-            ) : item.approval ? (
-              "!"
-            ) : (
-              "•"
-            )}
-          </span>
-          <span className={css.title}>{item.title}</span>
-          <span className={css.areaTag}>{workAreaTag(item.kind)}</span>
-          <span className={item.overdue ? css.metaOverdue : css.meta}>
-            {work.data
-              ? workRowMeta(item, work.data.timezone, work.data.asOf)
-              : item.detail}
-          </span>
-          {href ? (
-            <Link className={css.action} href={href}>
-              {item.action}
-              <IconChevronRight size={13} />
-            </Link>
-          ) : (
-            <span className={css.action}>{item.action}</span>
-          )}
-        </div>
-      );
-    }
+    if (row.kind === "work") return renderWork(row.item);
     if (row.kind === "po") {
       const po = row.item;
-      return (
-        <div key={po.id} className={css.row}>
-          <span className={`${css.typeIcon} ${css.typeUrgent}`} aria-hidden>
-            <IconAlertTriangle size={16} />
-          </span>
-          <span className={css.title}>{po.poNumber}</span>
-          <span className={css.areaTag}>Purchasing</span>
-          <span className={css.metaOverdue}>⚠ Overdue</span>
-          <Link className={css.action} href={`/purchasing?po=${po.id}`}>
-            Review
-            <IconChevronRight size={13} />
-          </Link>
-        </div>
-      );
+      return rowView({
+        key: po.id,
+        title: "Delivery overdue",
+        reference: po.poNumber,
+        detail: po.supplier?.name,
+        lateness: { text: "Overdue", tone: "late" },
+        href: `/purchasing?po=${po.id}`,
+        action: "Review order",
+      });
     }
     const stock = row.item;
     if ("productId" in stock && "stockStatus" in stock) {
       const s = stock as StockRow;
-      return (
-        <div key={s.productId} className={css.row}>
-          <span className={css.typeIcon} aria-hidden>
-            •
-          </span>
-          <span className={css.title}>{s.product.name}</span>
-          <span className={css.areaTag}>Inventory</span>
-          <span className={css.meta}>
-            {s.availableQty} {s.product.unit ?? "units"} available
-          </span>
-          <Link className={css.action} href={`/inventory?product=${s.productId}`}>
-            Open
-            <IconChevronRight size={13} />
-          </Link>
-        </div>
-      );
+      return rowView({
+        key: s.productId,
+        title: s.product.name,
+        detail: `${s.availableQty} ${s.product.unit ?? "units"} available`,
+        href: `/inventory?product=${s.productId}`,
+        action: "Open",
+      });
     }
     const b = stock as BatchRow;
-    return (
-      <div key={b.id} className={css.row}>
-        <span className={css.typeIcon} aria-hidden>
-          •
-        </span>
-        <span className={css.title}>{b.product.name}</span>
-        <span className={css.areaTag}>Expiry</span>
-        <span className={css.meta}>
-          Batch {b.batchNo} · {b.daysToExpiry}d
-        </span>
-        <Link className={css.action} href={`/inventory/batches?batch=${b.id}`}>
-          Open
-          <IconChevronRight size={13} />
-        </Link>
-      </div>
-    );
+    return rowView({
+      key: b.id,
+      title: b.product.name,
+      reference: `Batch ${b.batchNo}`,
+      detail: `Expires in ${b.daysToExpiry} day${b.daysToExpiry === 1 ? "" : "s"}`,
+      href: `/inventory/batches?batch=${b.id}`,
+      action: "Open",
+    });
   }
 
   return (
     <section className={css.card} aria-labelledby="todays-priorities-title">
       <header className={css.header}>
-        <div className={css.headerTitle}>
-          <h2 id="todays-priorities-title">Today’s priorities</h2>
-          <p>{subtitle}</p>
-        </div>
-        <button
-          type="button"
-          className={css.refresh}
-          aria-label="Refresh work queue"
-          disabled={work.loading && !usingClientPager}
-          onClick={reload}
-        >
-          <IconRefresh size={16} />
-        </button>
+        <h2 id="todays-priorities-title">To do at this branch</h2>
+        <p>{subtitle}</p>
       </header>
-
       <div
         className={`${css.chipsWrap} ${chipsOverflow ? css.chipsWrapOverflow : ""}`}
       >
@@ -435,17 +400,9 @@ export function TodaysPriorities({
                 type="button"
                 role="tab"
                 aria-selected={selected}
-                className={[
-                  productsCss.statusPill,
-                  chip.toneClass,
-                  selected ? CHIP_SELECTED_TONE[chip.key] : "",
-                  selected ? productsCss.statusPillActive : "",
-                ]
-                  .filter(Boolean)
-                  .join(" ")}
+                className={`${css.tab} ${selected ? css.tabActive : ""}`}
                 onClick={() => selectFilter(chip.key)}
               >
-                {selected ? <IconCheck size={12} aria-hidden /> : null}
                 {chip.label}
                 <span className={css.chipCount}>
                   {chipCountForDisplay(
@@ -490,11 +447,14 @@ export function TodaysPriorities({
           </div>
         ) : null}
         {!loading && !error
-          ? (usingClientPager ? pageItems : workRows).map((row) =>
-              usingClientPager
-                ? renderRow(row as Row)
-                : renderRow({ kind: "work", item: row as DailyWorkItem }),
-            )
+          ? usingClientPager
+            ? pageItems.map((row) => renderRow(row as Row))
+            : groupWorkItems(workRows).map((group) => (
+                <div key={group.key} className={css.group}>
+                  <h3 className={css.groupTitle}>{group.title}</h3>
+                  {group.items.map(renderWork)}
+                </div>
+              ))
           : null}
       </div>
 

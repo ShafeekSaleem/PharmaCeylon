@@ -211,7 +211,15 @@ function readStoredOwnerScope(): OwnerAnalyticsScope {
   return "all_branches";
 }
 
-export function useDashboardData() {
+export type UseDashboardDataOptions = {
+  /** The dashboard (UI1 #205) always shows the branch chosen in the top bar, owners included; the
+   *  all-branches comparison lives in Reports. Insights keeps its own scope dropdown. */
+  followBranch?: boolean;
+};
+
+export function useDashboardData({
+  followBranch = false,
+}: UseDashboardDataOptions = {}) {
   const { branchId, user } = useAuth();
   const { userRoles } = useRoleAccess();
 
@@ -317,12 +325,15 @@ export function useDashboardData() {
   const isOwner = userRoles.includes("owner");
 
   /** Owner-only: default all branches; "this_branch" uses shell active branch. */
-  const [ownerScope, setOwnerScopeState] =
+  const [storedOwnerScope, setOwnerScopeState] =
     useState<OwnerAnalyticsScope>("all_branches");
+  const ownerScope: OwnerAnalyticsScope = followBranch
+    ? "this_branch"
+    : storedOwnerScope;
 
   useEffect(() => {
-    setOwnerScopeState(readStoredOwnerScope());
-  }, []);
+    if (!followBranch) setOwnerScopeState(readStoredOwnerScope());
+  }, [followBranch]);
 
   const setOwnerScope = useCallback((scope: OwnerAnalyticsScope) => {
     setOwnerScopeState(scope);

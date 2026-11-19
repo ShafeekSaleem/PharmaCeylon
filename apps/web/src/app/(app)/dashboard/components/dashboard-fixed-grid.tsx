@@ -7,6 +7,7 @@ import { isDashboardServerUnreachable, isFixedWidgetUnavailable } from "../lib/d
 import { FIXED_WIDGET_KEYS } from "../lib/fixed-layout";
 import { WIDGET_REGISTRY } from "../widgets/registry";
 import { FixedWidgetLoadError } from "./fixed-widget-load-error";
+import { SalesTrendCard } from "./sales-trend-card";
 import { TodaysPriorities } from "./todays-priorities";
 import css from "../dashboard.module.css";
 
@@ -28,11 +29,9 @@ export function DashboardFixedGrid({
   counterLive,
 }: Props) {
   const keys = FIXED_WIDGET_KEYS[role];
-  const [healthKey, secondaryKey, wideKey, sideKey] = keys;
+  const [healthKey, secondaryKey] = keys;
   const Health = widgetBody(healthKey);
   const Secondary = widgetBody(secondaryKey);
-  const Wide = widgetBody(wideKey);
-  const Side = widgetBody(sideKey);
   const serverUnreachable = isDashboardServerUnreachable(data);
   const titleFor = (key: string) =>
     WIDGET_REGISTRY.find((entry) => entry.key === key)?.title ?? "Widget";
@@ -53,36 +52,36 @@ export function DashboardFixedGrid({
     );
   }
 
+  // Queue on the left, stock health and one more card on the right, sales bars underneath.
+  // Every card is as tall as its content (UI1 #205): nothing scrolls inside a card.
   return (
-    <div className={css.dashGridV6}>
-      <TodaysPriorities
-        data={data}
-        refreshKey={refreshKey}
-        counterLive={counterLive}
-        showManagerStockChips={role === "manager"}
-        forceUnavailable={serverUnreachable}
-      />
-      <div className={css.dashGridRightStack}>
-        {Health ? (
-          <div className={css.dashGridPanel}>{renderWidget(healthKey, Health)}</div>
-        ) : null}
-        {Secondary ? (
-          <div className={css.dashGridPanel}>
-            {renderWidget(secondaryKey, Secondary)}
-          </div>
-        ) : null}
+    <>
+      <div className={css.dashGridV6}>
+        <div className={css.dashGridMain}>
+          <TodaysPriorities
+            data={data}
+            refreshKey={refreshKey}
+            counterLive={counterLive}
+            showManagerStockChips={role === "manager"}
+            forceUnavailable={serverUnreachable}
+          />
+        </div>
+        <div className={css.dashGridRightStack}>
+          {Health ? (
+            <div className={css.dashGridPanel}>{renderWidget(healthKey, Health)}</div>
+          ) : null}
+          {Secondary ? (
+            <div className={css.dashGridPanel}>
+              {renderWidget(secondaryKey, Secondary)}
+            </div>
+          ) : null}
+        </div>
       </div>
-      {Wide ? (
-        <div className={`${css.dashGridPanel} ${css.dashGridWide}`}>
-          {renderWidget(wideKey, Wide)}
-        </div>
-      ) : null}
-      {Side ? (
-        <div className={`${css.dashGridPanel} ${css.dashGridSide}`}>
-          {renderWidget(sideKey, Side)}
-        </div>
-      ) : null}
-    </div>
+      <SalesTrendCard
+        analyticsBranchId={data.analyticsBranchId}
+        fallback={data.salesTrend7d}
+      />
+    </>
   );
 }
 

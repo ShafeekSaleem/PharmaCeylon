@@ -54,7 +54,8 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
   {
     key: "counter.waiting",
     title: "Waiting at the Counter",
-    roles: ["owner", "manager", "pharmacist", "inventory_clerk"],
+    // Owners and managers see counter work as the "At the counter" group of their queue (#205).
+    roles: ["pharmacist", "inventory_clerk"],
     category: "Operations",
     width: "narrow",
     rows: 16,
@@ -121,7 +122,7 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
   },
   {
     key: "owner.branch-revenue-contribution",
-    title: "Branch Revenue Contribution",
+    title: "All branches · revenue",
     roles: ["owner"],
     category: "Overview",
     width: "narrow",

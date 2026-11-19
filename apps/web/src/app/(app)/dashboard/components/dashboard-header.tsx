@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 import {
   IconCheck,
-  IconEdit,
   IconPlus,
   IconRefresh,
   IconRotateCcw,
@@ -13,7 +13,6 @@ import { PageHeader } from "@/components/ui";
 import { formatRelativeTime } from "@/app/(app)/inventory/utils";
 import type { DashboardRole } from "../lib/dashboard-role";
 import { formatRoleLabel } from "../lib/dashboard-role";
-import type { OwnerAnalyticsScope } from "../hooks/use-dashboard-data";
 import type { QuickAction } from "./quick-actions-bar";
 import { DashboardShortcutsMenu } from "./dashboard-shortcuts-menu";
 import css from "../dashboard.module.css";
@@ -31,11 +30,10 @@ type CustomizeProps = {
 
 type Props = {
   role: DashboardRole;
+  /** The top-bar branch every card on the page follows. */
   branchLabel?: string | null;
-  branchHint?: string;
-  /** Owner overview scope control (All branches / This branch). */
-  ownerScope?: OwnerAnalyticsScope;
-  onOwnerScopeChange?: (scope: OwnerAnalyticsScope) => void;
+  /** The branch's timezone, so "today" in the title is the pharmacy's day. */
+  timeZone?: string;
   loading?: boolean;
   lastUpdatedAt?: string | null;
   onRefresh?: () => void;
@@ -43,20 +41,31 @@ type Props = {
   customize?: CustomizeProps;
 };
 
+/** "Thursday, 19 November": the page is about today, so the date is its title (UI1 #205). */
+export function dashboardDateTitle(now: Date, timeZone?: string): string {
+  return now.toLocaleDateString(DISPLAY_LOCALE, {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    ...(timeZone ? { timeZone } : {}),
+  });
+}
+
+/**
+ * The dashboard's header: the date as the title, the branch and role under it, and two controls,
+ * Refresh and Customise. The branch is chosen once, in the top bar, so nothing here can disagree
+ * with it.
+ */
 export function DashboardHeader({
   role,
   branchLabel,
-  branchHint,
-  ownerScope,
-  onOwnerScopeChange,
+  timeZone,
   loading,
   lastUpdatedAt,
   onRefresh,
   shortcuts,
   customize,
 }: Props) {
-  const showOwnerScope = role === "owner" && ownerScope && onOwnerScopeChange;
-
   // `formatRelativeTime` reads Date.now() at render time, so without something to force a
   // re-render the "Updated Xm ago" text just freezes at whatever it said on the last actual
   // data refresh — a dashboard left open for ten minutes would still read "Just now".
@@ -67,92 +76,36 @@ export function DashboardHeader({
     return () => clearInterval(id);
   }, [lastUpdatedAt]);
 
+  const updated = loading
+    ? "Updating…"
+    : lastUpdatedAt
+      ? `Updated ${formatRelativeTime(lastUpdatedAt).toLowerCase()}`
+      : null;
+  const description = [branchLabel, `${formatRoleLabel(role)} view`, updated]
+    .filter(Boolean)
+    .join(" · ");
+
   return (
     <PageHeader
-      subtitleOnly
+      title={dashboardDateTitle(new Date(), timeZone)}
+      description={description}
       className={css.pageHeader}
       actions={
         <div className={css.headerControls}>
           {onRefresh ? (
-            <span className={css.refreshStatus}>
-              <span
-                className={`${css.refreshDot} ${loading ? css.refreshDotBusy : ""}`}
-                aria-hidden
-              />
-              {loading
-                ? "Updating…"
-                : lastUpdatedAt
-                  ? `Updated ${formatRelativeTime(lastUpdatedAt)}`
-                  : null}
-              <button
-                type="button"
-                className={css.refreshBtn}
-                onClick={onRefresh}
-                disabled={loading}
-                aria-label="Refresh dashboard data"
-              >
-                <IconRefresh size={13} strokeWidth={2} aria-hidden />
-                Refresh
-              </button>
-            </span>
-          ) : null}
-          <span className={css.roleBadge}>Role: {formatRoleLabel(role)}</span>
-          {showOwnerScope ? (
-            <div
-              className={css.scopeToggle}
-              role="group"
-              aria-label="Overview scope"
-              data-tooltip={
-                ownerScope === "this_branch"
-                  ? (branchHint ??
-                    (branchLabel
-                      ? `Current branch: ${branchLabel}`
-                      : "Current branch"))
-                  : (branchHint ?? "Metrics across all branches")
-              }
+            <button
+              type="button"
+              className={css.headerQuietBtn}
+              onClick={onRefresh}
+              disabled={loading}
             >
-              <button
-                type="button"
-                className={`${css.scopeToggleBtn} ${
-                  ownerScope === "all_branches" ? css.scopeToggleBtnActive : ""
-                }`}
-                aria-pressed={ownerScope === "all_branches"}
-                data-tooltip="Show metrics across all branches"
-                onClick={() => onOwnerScopeChange("all_branches")}
-              >
-                All
-              </button>
-              <button
-                type="button"
-                className={`${css.scopeToggleBtn} ${
-                  ownerScope === "this_branch" ? css.scopeToggleBtnActive : ""
-                }`}
-                aria-pressed={ownerScope === "this_branch"}
-                data-tooltip={
-                  branchLabel
-                    ? `Show metrics for ${branchLabel}`
-                    : "Show metrics for the current branch"
-                }
-                onClick={() => onOwnerScopeChange("this_branch")}
-              >
-                Current
-              </button>
-            </div>
-          ) : branchLabel ? (
-            <span
-              className={css.branchChip}
-              data-tooltip={
-                branchHint ?? "Active branch — switch in the app header"
-              }
-            >
-              <span className={css.branchDot} aria-hidden />
-              {branchLabel}
-              <span className={css.branchChevron} aria-hidden>
-                ▾
-              </span>
-            </span>
+              <IconRefresh size={14} strokeWidth={2} aria-hidden />
+              Refresh
+            </button>
           ) : null}
-          {shortcuts?.length ? <DashboardShortcutsMenu actions={shortcuts} /> : null}
+          {shortcuts?.length ? (
+            <DashboardShortcutsMenu actions={shortcuts} />
+          ) : null}
           {customize ? (
             customize.isEditing ? (
               <div className={css.customizeBar}>
@@ -196,8 +149,7 @@ export function DashboardHeader({
                 className={css.customizeBtn}
                 onClick={customize.onToggleEdit}
               >
-                <IconEdit size={13} strokeWidth={1.75} aria-hidden />
-                Customize
+                Customise
               </button>
             )
           ) : null}

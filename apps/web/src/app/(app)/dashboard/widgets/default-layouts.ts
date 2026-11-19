@@ -36,8 +36,9 @@ function buildDefaultLayout(
 
 // Keep the default page focused. Additional supported widgets remain available through Customize.
 const DEFAULT_KEYS: Record<DashboardRole, string[]> = {
-  owner: ["counter.waiting", "owner.cash-flow", "owner.ai-insights"],
-  manager: ["counter.waiting", "manager.top-products-today", "manager.ai-insights"],
+  // Counter work is a queue group and payment mix is a fixed card, so neither repeats here (#205).
+  owner: ["owner.ai-insights", "owner.top-suppliers"],
+  manager: ["manager.top-products-today", "manager.ai-insights"],
   pharmacist: [
     "pharmacist.dispensing-throughput",
     "pharmacist.controlled-drug-activity",

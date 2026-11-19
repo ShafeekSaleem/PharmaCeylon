@@ -40,13 +40,11 @@ export default function DashboardPage() {
 
 function DashboardWorkspace() {
   const { userRoles } = useRoleAccess();
-  const data = useDashboardData();
+  const data = useDashboardData({ followBranch: true });
   const viewRole = useMemo(
     () => resolvePrimaryDashboardRole(userRoles),
     [userRoles],
   );
-  const isOwner = viewRole === "owner";
-  const ownerThisBranch = isOwner && data.ownerScope === "this_branch";
 
   // W9: at a live branch nothing here opens the web POS, and held-bill widgets leave the web.
   const rollout = useBranchRollout().rollout;
@@ -96,20 +94,14 @@ function DashboardWorkspace() {
       <div className={css.page}>
         <DashboardHeader
           role={viewRole}
-          ownerScope={isOwner ? data.ownerScope : undefined}
-          onOwnerScopeChange={isOwner ? data.setOwnerScope : undefined}
-          branchLabel={isOwner ? data.branchLabel : undefined}
+          branchLabel={data.branchName}
+          timeZone={data.salesMetrics?.timezone}
           loading={data.loading || data.refreshing}
           lastUpdatedAt={data.lastUpdatedAt}
           onRefresh={() => void data.reload()}
-          branchHint={
-            isOwner
-              ? ownerThisBranch
-                ? "Overview metrics are for the shell’s active branch. Switch branch in the app header."
-                : "Overview metrics cover every branch. Shell branch still applies to operational pages (POS, inventory)."
-              : "Active branch — switch in the app header"
+          shortcuts={
+            isV6DashboardRole(viewRole) ? undefined : (shortcuts ?? undefined)
           }
-          shortcuts={shortcuts ?? undefined}
           customize={{
             isEditing: layout.isEditing,
             onToggleEdit: () => layout.setIsEditing(true),

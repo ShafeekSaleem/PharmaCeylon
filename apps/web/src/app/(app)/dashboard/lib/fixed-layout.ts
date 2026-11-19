@@ -1,19 +1,14 @@
 import type { DashboardRole } from "./dashboard-role";
 
-/** Fixed v6 grid widgets — never draggable and not in the customise canvas. */
+/**
+ * The fixed cards beside the work queue, in order: stock health, then one more. Never draggable
+ * and not in the customise canvas. The business overview and branch comparison cards moved to
+ * Customise when the dashboard started following the top-bar branch (UI1 #205); the daily sales
+ * bars below the queue replace their sales trend.
+ */
 export const FIXED_WIDGET_KEYS: Record<DashboardRole, readonly string[]> = {
-  owner: [
-    "owner.inventory-health",
-    "owner.payment-mix",
-    "owner.business-overview",
-    "owner.branch-revenue-contribution",
-  ],
-  manager: [
-    "manager.inventory-health",
-    "manager.staff-productivity",
-    "manager.business-overview",
-    "manager.branch-sales-vs-target",
-  ],
+  owner: ["owner.inventory-health", "owner.payment-mix"],
+  manager: ["manager.inventory-health", "manager.staff-productivity"],
   pharmacist: [],
   cashier: [],
   inventory_clerk: [],

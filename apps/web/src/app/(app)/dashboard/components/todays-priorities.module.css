@@ -1,14 +1,9 @@
+/* "To do at this branch" (UI1 #205): sized by its rows, never scrolled inside; rows grouped by
+   what you do next; the lateness chip is the only colour on a row. */
 .card {
-  --pri-h: 540px;
-  height: var(--pri-h);
-  min-height: var(--pri-h);
-  max-height: var(--pri-h);
-  overflow: hidden;
   background: var(--pc-card-bg);
   border: 1px solid var(--pc-border);
   border-radius: var(--pc-radius-lg);
-  padding: 0.95rem 1rem 0.65rem;
-  box-shadow: var(--pc-shadow-card, 0 18px 40px -28px rgba(15, 23, 42, 0.28));
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -16,82 +11,38 @@
 
 .header {
   display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  margin-bottom: 0.35rem;
-  flex: none;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 0.75rem;
+  padding: 1rem 1.25rem 0;
 }
 
 .header h2 {
-  font-size: 1.05rem;
+  flex: 1 1 12rem;
+  font-size: 1rem;
   font-weight: 650;
   margin: 0;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.01em;
 }
 
 .header p {
   margin: 0;
-  font-size: 0.72rem;
+  font-size: 0.8125rem;
   color: var(--pc-muted-fg);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.headerTitle {
-  flex: 1;
-  min-width: 0;
-}
-
-.refresh {
-  display: grid;
-  place-items: center;
-  background: transparent;
-  border: 1px solid var(--pc-border);
-  border-radius: 0.5rem;
-  width: 2rem;
-  height: 2rem;
-  color: var(--pc-muted-fg);
-  cursor: pointer;
-  flex-shrink: 0;
-}
-
-.refresh:disabled {
-  opacity: 0.45;
-  cursor: default;
+  font-variant-numeric: tabular-nums;
 }
 
 .chipsWrap {
   position: relative;
-  flex: none;
-  margin: 0;
-  padding: 0 0 0.5rem;
+  padding: 0.6rem 1.25rem 0;
   border-bottom: 1px solid var(--pc-border);
-  min-height: 2rem;
-}
-
-.chipsWrapOverflow::after {
-  content: "";
-  position: absolute;
-  right: 0;
-  top: 0;
-  bottom: 0.5rem;
-  width: 1.75rem;
-  pointer-events: none;
-  background: linear-gradient(
-    90deg,
-    transparent,
-    var(--pc-card-bg)
-  );
 }
 
 .chips {
   display: flex;
   flex-wrap: nowrap;
-  align-items: center;
-  gap: 0.32rem;
-  margin: 0;
-  padding: 0;
+  align-items: flex-end;
+  gap: 0.25rem;
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none;
@@ -101,116 +52,188 @@
   display: none;
 }
 
+.chipsWrapOverflow::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 1px;
+  width: 1.75rem;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, var(--pc-card-bg));
+}
+
+.tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  height: 2.25rem;
+  padding: 0 0.7rem;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  background: transparent;
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--pc-muted-fg);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.tab:hover {
+  color: var(--pc-foreground);
+}
+
+.tab:focus-visible {
+  outline: 2px solid var(--pc-focus-ring);
+  outline-offset: -2px;
+}
+
+.tabActive {
+  font-weight: 650;
+  color: var(--pc-foreground);
+  border-bottom-color: var(--pc-primary);
+}
+
 .chipCount {
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   font-weight: 650;
   font-variant-numeric: tabular-nums;
-  opacity: 0.85;
+  padding: 0.05rem 0.45rem;
+  border-radius: 999px;
+  background: var(--pc-muted-bg);
+  color: var(--pc-muted-fg);
+}
+
+.tabActive .chipCount {
+  background: var(--pc-primary);
+  color: var(--pc-btn-primary-text);
 }
 
 .list {
   display: flex;
   flex-direction: column;
-  flex: 1;
-  min-height: 0;
-  overflow: hidden;
+  min-height: 12rem;
+}
+
+.group + .group {
+  border-top: 1px solid var(--pc-border);
+}
+
+.groupTitle {
+  margin: 0;
+  padding: 0.8rem 1.25rem 0.3rem;
+  font-size: 0.72rem;
+  font-weight: 650;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--pc-muted-fg);
 }
 
 .row {
-  display: grid;
-  grid-template-columns: 2rem minmax(0, 1fr) auto auto auto;
-  gap: 0.65rem;
-  height: 48px;
-  padding: 0 0.1rem;
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  flex: none;
+  gap: 0.4rem 1rem;
+  min-height: 3.25rem;
+  padding: 0.55rem 1.25rem;
   min-width: 0;
 }
 
-.typeIcon {
-  width: 2rem;
-  height: 2rem;
-  border-radius: 9px;
-  display: grid;
-  place-items: center;
-  background: var(--pc-muted-bg);
-  color: var(--pc-muted-fg);
-  flex: none;
+.row + .row {
+  border-top: 1px solid color-mix(in srgb, var(--pc-border) 60%, transparent);
 }
 
-.typeUrgent {
-  background: var(--pc-alert-danger-bg);
-  color: var(--pc-destructive);
+.rowMain {
+  flex: 1 1 16rem;
+  min-width: 0;
 }
 
 .title {
-  font-size: 0.86rem;
+  font-size: 0.875rem;
   font-weight: 600;
-  letter-spacing: -0.015em;
   color: var(--pc-foreground);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
-.areaTag {
-  display: inline-flex;
-  align-items: center;
-  height: 1.25rem;
-  padding: 0 0.5rem;
-  border-radius: 999px;
-  background: var(--pc-muted-bg);
+.reference {
+  margin-left: 0.4rem;
+  font-family: var(--pc-font-mono);
+  font-size: 0.8rem;
+  font-weight: 500;
   color: var(--pc-muted-fg);
-  font-size: 0.68rem;
-  font-weight: 600;
-  white-space: nowrap;
-  flex: none;
-  max-width: 8.25rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
-.meta {
-  font-size: 0.74rem;
+.detail {
+  margin-top: 0.1rem;
+  font-size: 0.8125rem;
   color: var(--pc-muted-fg);
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+}
+
+.timing,
+.late,
+.soon {
   flex: none;
+  font-size: 0.78rem;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
-.metaOverdue {
-  color: var(--pc-destructive);
+.timing {
+  color: var(--pc-muted-fg);
+}
+
+.late,
+.soon {
   font-weight: 650;
+  padding: 0.2rem 0.5rem;
+  border-radius: 6px;
+}
+
+.late {
+  color: var(--pc-alert-error-text);
+  background: var(--pc-alert-danger-bg);
+}
+
+.soon {
+  color: var(--pc-alert-warning-text);
+  background: var(--pc-alert-warning-bg);
 }
 
 .action {
+  flex: 0 0 8.5rem;
+  box-sizing: border-box;
   display: inline-flex;
   align-items: center;
-  gap: 0.15rem;
-  height: 1.85rem;
-  padding: 0 0.65rem 0 0.75rem;
+  justify-content: center;
+  height: 2.1rem;
+  padding: 0 0.75rem;
   border-radius: 8px;
   border: 1px solid var(--pc-border);
-  background: var(--pc-muted-bg);
-  font-size: 0.74rem;
-  font-weight: 650;
+  background: var(--pc-card-bg);
+  font-size: 0.8125rem;
+  font-weight: 600;
   color: var(--pc-primary);
   text-decoration: none;
   white-space: nowrap;
-  flex: none;
+}
+
+.action:hover {
+  border-color: var(--pc-primary);
+  background: var(--pc-primary-soft);
 }
 
 .footer {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 2rem;
-  padding: 0 0.1rem;
+  min-height: 2.75rem;
+  padding: 0 1.25rem;
   margin-top: auto;
-  flex: none;
   border-top: 1px solid var(--pc-border);
-  font-size: 0.72rem;
+  font-size: 0.8125rem;
   color: var(--pc-muted-fg);
 }
 
@@ -296,7 +319,8 @@
 }
 
 .skeletonRow {
-  height: 48px;
+  height: 52px;
+  margin: 0 1.25rem;
   border-radius: 8px;
   background: linear-gradient(
     90deg,
@@ -315,37 +339,4 @@
   100% {
     background-position: -100% 0;
   }
-}
-
-.chipToneTeal[aria-selected="true"] {
-  background: color-mix(in srgb, var(--pc-primary) 22%, var(--pc-card-bg));
-}
-
-.chipToneSky[aria-selected="true"] {
-  background: color-mix(in srgb, var(--pc-tone-info) 22%, var(--pc-card-bg));
-}
-
-.chipToneAmber[aria-selected="true"] {
-  background: color-mix(in srgb, var(--pc-tone-warning) 22%, var(--pc-card-bg));
-}
-
-.chipToneRose[aria-selected="true"] {
-  background: color-mix(in srgb, var(--pc-tone-rose) 18%, var(--pc-card-bg));
-}
-
-.chipToneSlate[aria-selected="true"] {
-  background: color-mix(in srgb, var(--pc-muted-fg) 20%, var(--pc-card-bg));
-  color: var(--pc-foreground);
-}
-
-.chipToneOrange[aria-selected="true"] {
-  background: color-mix(in srgb, var(--pc-tone-orange) 22%, var(--pc-card-bg));
-}
-
-.chipToneViolet[aria-selected="true"] {
-  background: color-mix(in srgb, var(--pc-tone-violet) 22%, var(--pc-card-bg));
-}
-
-.chipToneDanger[aria-selected="true"] {
-  background: color-mix(in srgb, var(--pc-tone-danger) 22%, var(--pc-card-bg));
 }

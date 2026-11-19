@@ -4,6 +4,7 @@ import { useDailyWork } from "../hooks/use-daily-work";
 import { usePriorityStock } from "../hooks/use-priority-stock";
 import { WORK_PAGE_SIZE } from "../lib/fixed-layout";
 import { PRIORITY_LIST_TAKE } from "../lib/priority-list-count";
+import type { DailyWorkItem } from "@pharmaceylon/shared";
 import type { DashboardData } from "../hooks/use-dashboard-data";
 import type { BatchRow, StockRow } from "@/app/(app)/inventory/types";
 import type { PurchaseOrderListItem } from "@/app/(app)/purchasing/types";
@@ -313,7 +314,7 @@ it("matches overdue chip count to filtered purchase order rows", () => {
   expect(screen.getByRole("status")).toHaveTextContent("1–2 of 2 orders");
 });
 
-it("renders horizontally scrolling filter chips with tone pills", () => {
+it("renders neutral filter tabs with only the selected one marked", () => {
   mockedWork.mockReturnValue({
     ...workBase,
     data: {
@@ -340,7 +341,8 @@ it("renders horizontally scrolling filter chips with tone pills", () => {
   expect(tablist.className).toMatch(/chips/);
   const selected = screen.getByRole("tab", { name: /All/i });
   expect(selected).toHaveAttribute("aria-selected", "true");
-  expect(container.querySelector('[class*="statusPillActive"]')).toBeTruthy();
+  expect(container.querySelectorAll('[class*="tabActive"]')).toHaveLength(1);
+  expect(selected.className).toMatch(/tabActive/);
 });
 
 it("shows empty-state copy from the v6 mockup", () => {
@@ -373,4 +375,74 @@ it("shows loading skeleton rows", () => {
   expect(
     screen.getByRole("status", { name: /Loading priorities/i }),
   ).toBeInTheDocument();
+});
+function workItem(patch: Partial<DailyWorkItem>): DailyWorkItem {
+  return {
+    id: patch.reference ?? "w",
+    kind: "purchase_order.receive",
+    where: "web",
+    category: "purchasing",
+    title: "Receive purchase order",
+    detail: "Sunshine Healthcare",
+    reference: "PO-1",
+    status: "issued",
+    href: "/purchasing?po=1",
+    action: "Open receiving",
+    createdAt: "2026-11-10T04:00:00Z",
+    dueAt: null,
+    owner: "Receiving team",
+    mine: false,
+    approval: false,
+    blocked: false,
+    overdue: false,
+    priority: 2,
+    ...patch,
+  };
+}
+
+it("groups the page's work by what you do next and names each document", () => {
+  mockedWork.mockReturnValue({
+    ...workBase,
+    data: {
+      ...workBase.data!,
+      total: 3,
+      counts: { all: 3, mine: 0, approvals: 1, overdue: 1, counter: 0 },
+      items: [
+        workItem({
+          reference: "PO-0398",
+          dueAt: "2026-11-12T18:29:59Z",
+          overdue: true,
+        }),
+        workItem({
+          reference: "PO-0412",
+          kind: "purchase_order.approve",
+          title: "Approve purchase order",
+          detail: "Hemas Pharmaceuticals",
+          approval: true,
+          action: "Review order",
+        }),
+        workItem({
+          reference: "B-77",
+          kind: "batch.expiry_review",
+          category: "inventory",
+          title: "Isolate expired stock",
+          detail: "HILIN 150 · 12 units",
+          action: "Review batch",
+        }),
+      ],
+    },
+  });
+  render(<TodaysPriorities data={dataBase} refreshKey={null} />);
+  const headings = screen
+    .getAllByRole("heading", { level: 3 })
+    .map((h) => h.textContent);
+  expect(headings).toEqual([
+    "Needs your decision",
+    "Stock safety",
+    "Receiving and dispatch",
+  ]);
+  expect(screen.getByText("PO-0412")).toBeInTheDocument();
+  expect(screen.getByText("Hemas Pharmaceuticals")).toBeInTheDocument();
+  expect(screen.getByText("4 days late")).toBeInTheDocument();
+  expect(screen.getByText(/3 open · 1 late/)).toBeInTheDocument();
 });

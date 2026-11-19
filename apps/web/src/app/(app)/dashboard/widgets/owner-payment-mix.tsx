@@ -1,62 +1,79 @@
 "use client";
 
-import { useMemo } from "react";
-import { IconCreditCard } from "@/components/icons";
 import { formatMoney } from "@/app/(app)/inventory/utils";
 import { DashboardPanel } from "../components/dashboard-panel";
-import { SimpleDonutChart } from "../components/simple-charts";
 import type { DashboardData } from "../hooks/use-dashboard-data";
-import css from "../dashboard.module.css";
+import dashCss from "../dashboard.module.css";
+import css from "./owner-payment-mix.module.css";
 
-/** Fixed-grid payment mix for owners (v6). */
+type Slice = { label: string; value: number; color: string };
+
+/** Share of each tender, rounded to one decimal; the slices keep the order they came in. */
+export function paymentMixShares(
+  slices: readonly Slice[],
+): Array<Slice & { pct: number }> {
+  const total = slices.reduce((s, p) => s + Math.max(0, p.value), 0);
+  return slices
+    .filter((p) => p.value > 0)
+    .map((p) => ({ ...p, pct: total > 0 ? (p.value / total) * 100 : 0 }));
+}
+
+/**
+ * How customers paid (UI1 #205): one stacked bar and a legend with the amount and share of each
+ * tender. A bar stays readable at any card width, and the period is printed on the card, so a
+ * "Today" in the centre can't sit beside a month's totals the way the old donut did.
+ */
 export function OwnerPaymentMixWidget({ data }: { data: DashboardData }) {
-  const { paymentMix, paymentMixIsPlaceholder, todaySalesTotal } = data;
-
-  const topPaymentMethod = useMemo(() => {
-    if (paymentMixIsPlaceholder || paymentMix.length === 0) return null;
-    const total = paymentMix.reduce((s, p) => s + p.value, 0);
-    const top = paymentMix.reduce((a, b) => (b.value > a.value ? b : a));
-    return { label: top.label, pct: total > 0 ? (top.value / total) * 100 : 0 };
-  }, [paymentMix, paymentMixIsPlaceholder]);
+  const { paymentMix, paymentMixIsPlaceholder, paymentMixLabel } = data;
+  const shares = paymentMixShares(paymentMix);
+  const description = shares
+    .map((p) => `${p.label} ${p.pct.toFixed(0)} percent`)
+    .join(", ");
 
   return (
     <DashboardPanel
-      title="Payment mix"
+      title="How customers paid"
       compact
       badge={
         paymentMixIsPlaceholder ? (
-          <span className={css.placeholderBadge}>Sample</span>
-        ) : undefined
-      }
-      footerHref="/reports?category=sales&report=payment-methods"
-      footerLabel="View reports →"
-      footerMeta={
-        topPaymentMethod ? (
-          <span className={css.footfallFooterMeta}>
-            <span className={css.footfallPeakPill}>
-              <IconCreditCard size={11} strokeWidth={2.5} aria-hidden />
-              {topPaymentMethod.label} leads
-            </span>
-            <span className={css.muted}>
-              {topPaymentMethod.pct.toFixed(0)}% of today&apos;s tenders
-            </span>
-          </span>
+          <span className={dashCss.placeholderBadge}>Sample</span>
         ) : (
-          <span className={css.muted}>
-            {formatMoney(todaySalesTotal)} today
-          </span>
+          <span className={css.period}>{paymentMixLabel}</span>
         )
       }
+      footerHref="/reports?category=sales&report=payment-methods"
+      footerLabel="Payment methods report"
     >
-      {paymentMix.length === 0 ? (
-        <p className={css.emptyState}>No tender data in today&apos;s sales yet.</p>
+      {shares.length === 0 ? (
+        <p className={dashCss.emptyState}>
+          No payments recorded {paymentMixLabel.toLowerCase()}.
+        </p>
       ) : (
-        <SimpleDonutChart
-          slices={paymentMix}
-          centerValue={formatMoney(todaySalesTotal)}
-          centerLabel="Today"
-          formatValue={(n) => formatMoney(n)}
-        />
+        <>
+          <div className={css.bar} role="img" aria-label={description}>
+            {shares.map((p) => (
+              <span
+                key={p.label}
+                className={css.segment}
+                style={{ flexGrow: p.pct, background: p.color }}
+              />
+            ))}
+          </div>
+          <ul className={css.legend}>
+            {shares.map((p) => (
+              <li key={p.label} className={css.legendRow}>
+                <span
+                  className={css.swatch}
+                  style={{ background: p.color }}
+                  aria-hidden
+                />
+                <span className={css.legendLabel}>{p.label}</span>
+                <span className={css.amount}>{formatMoney(p.value)}</span>
+                <span className={css.pct}>{p.pct.toFixed(1)}%</span>
+              </li>
+            ))}
+          </ul>
+        </>
       )}
     </DashboardPanel>
   );

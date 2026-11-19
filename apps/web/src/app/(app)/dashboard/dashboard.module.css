@@ -4751,73 +4751,64 @@ a.alertItem:hover {
 
 /* ---- v6 fixed dashboard grid (owner / manager) ---- */
 
+/* Owner/manager fixed grid (UI1 #205): the queue and a right column, each card sized by its
+   content. Flex-wrap rather than a fixed two-row grid, so the right column drops under the queue
+   when there is no room for both. */
 .dashGridV6 {
-  display: grid;
-  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
-  grid-template-rows: 540px auto;
+  display: flex;
+  flex-wrap: wrap;
   gap: 1rem;
-  align-items: stretch;
-  margin-bottom: 1rem;
+  align-items: flex-start;
 }
 
-.dashGridV6 > :first-child {
-  grid-column: 1 / 2;
-  grid-row: 1 / 2;
+.dashGridMain {
+  flex: 999 1 34rem;
+  min-width: 0;
 }
 
 .dashGridRightStack {
-  grid-column: 2 / 3;
-  grid-row: 1 / 2;
-  height: 540px;
-  min-height: 540px;
-  max-height: 540px;
+  flex: 1 1 20rem;
   display: flex;
   flex-direction: column;
   gap: 1rem;
   min-width: 0;
 }
 
-.dashGridRightStack > .dashGridPanel {
-  flex: 1 1 0;
-  min-height: 0;
-  overflow: hidden;
-}
-
 .dashGridPanel {
   min-width: 0;
 }
 
-.dashGridWide {
-  grid-column: 1 / 2;
-  grid-row: 2 / 3;
+.headerQuietBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  height: 2.1rem;
+  padding: 0 0.6rem;
+  border: 0;
+  border-radius: var(--pc-radius-sm, 8px);
+  background: transparent;
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--pc-foreground);
+  cursor: pointer;
 }
 
-.dashGridSide {
-  grid-column: 2 / 3;
-  grid-row: 2 / 3;
+.headerQuietBtn:hover:not(:disabled) {
+  background: var(--pc-muted-bg);
+}
+
+.headerQuietBtn:focus-visible {
+  outline: 2px solid var(--pc-focus-ring);
+  outline-offset: 2px;
+}
+
+.headerQuietBtn:disabled {
+  opacity: 0.55;
+  cursor: default;
 }
 
 .optionalWidgets {
   margin-top: 0.25rem;
 }
 
-@media (max-width: 1100px) {
-  .dashGridV6 {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto;
-  }
-
-  .dashGridV6 > :first-child,
-  .dashGridRightStack,
-  .dashGridWide,
-  .dashGridSide {
-    grid-column: 1 / -1;
-    grid-row: auto;
-    height: auto;
-    max-height: none;
-  }
-
-  .dashGridRightStack {
-    min-height: 0;
-  }
-}
