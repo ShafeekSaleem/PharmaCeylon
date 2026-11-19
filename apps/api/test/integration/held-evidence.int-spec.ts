@@ -359,8 +359,13 @@ describe("mandatory windows are never overridden", () => {
 
   it("rejects an acknowledgement reaching past the mandatory limit", async () => {
     const w = firstMandatory();
+    // Reach 15 minutes past the limit, but never past the grant's own expiry: a grant issued late
+    // in the evening expires before the next mandatory window closes, and then the window check
+    // is never reached (the grant check refuses first). Capping keeps this a window test at any hour.
+    const overshoot = Math.min(900_000, c.grant.expiresAt - w.endsAt - 60_000);
+    expect(overshoot).toBeGreaterThan(0);
     const held = await heldAcknowledgement(c, signIn(c, manager.userId), {
-      startsAt: Math.max(c.grant.issuedAt + 4_000, w.endsAt - 900_000), endsAt: w.endsAt + 900_000,
+      startsAt: Math.max(c.grant.issuedAt + 4_000, w.endsAt - 900_000), endsAt: w.endsAt + overshoot,
     });
     await expect(verifyAck(c.identity, held))
       .resolves.toMatchObject({ status: "rejected", reason: "mandatory_window_overridden" });
