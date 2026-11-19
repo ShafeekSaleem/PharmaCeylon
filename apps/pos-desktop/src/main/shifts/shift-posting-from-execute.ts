@@ -1,4 +1,7 @@
-import type { OnlineCommandReceipt, SignedPhysicalOperation } from "@pharmaceylon/shared";
+import type {
+  OnlineCommandReceipt,
+  SignedPhysicalOperation,
+} from "@pharmaceylon/shared";
 import type { ShiftService } from "./shift-service";
 
 export const PAYOUT_EXECUTE =
@@ -6,15 +9,9 @@ export const PAYOUT_EXECUTE =
 export const REFUND_EXECUTE =
   "POST /api/v1/sales/refund-requests/:id/execute" as const satisfies SignedPhysicalOperation;
 
-type PayoutExecuteResult = {
-  cashPayoutId: string;
-  amountMinor: number;
-};
-
-type RefundExecuteResult = {
-  amountMinor: number;
-  refundedTo: ReadonlyArray<Readonly<{ method: string; amountMinor: number }>>;
-};
+type RefundedTo = ReadonlyArray<
+  Readonly<{ method: string; amountMinor: number }>
+>;
 
 /** Direct counter execute: never book drawer cash when another counter already paid. */
 export function recordAfterDirectPayoutExecute(
@@ -30,44 +27,40 @@ export function recordAfterDirectPayoutExecute(
 
 export function recordAfterDirectRefundExecute(
   shifts: ShiftService,
-  requestNumber: string,
-  refundedTo: ReadonlyArray<Readonly<{ method: string; amountMinor: number }>>,
+  refundRequestId: string,
+  refundedTo: RefundedTo,
   executorId: string,
   alreadyApplied: boolean,
 ): void {
   if (alreadyApplied) return;
-  shifts.recordRefund(
-    requestNumber,
-    refundedTo.map((r) => ({ method: r.method, amountMinor: r.amountMinor })),
-    executorId,
-  );
+  shifts.recordRefund(refundRequestId, refundedTo, executorId);
 }
 
 /**
- * Lost-response retry on this counter: book drawer cash once from the command receipt this device
- * signed. Safe to call on every replay — posting ids are unique per payout / refund request.
+ * Lost-response retry on this counter: book drawer cash once from the command receipt this
+ * device signed. Everything it needs is in the receipt, so it works with no further network
+ * call. A receipt whose effect is "already_applied" means another command paid — this drawer
+ * did not, so nothing is booked. Safe to call on every replay: posting ids are unique per
+ * payout / refund request.
  */
 export function recordAfterCommandRetry(
   shifts: ShiftService,
   receipt: OnlineCommandReceipt,
   executorId: string,
-  refundRequestNumber?: string | null,
 ): void {
   if (receipt.operation === PAYOUT_EXECUTE) {
-    const result = receipt.result as PayoutExecuteResult & { type: string };
-    const postingId = `payout:${result.cashPayoutId}`;
-    if (shifts.hasPosting(postingId)) return;
-    shifts.recordSupplierPayout(result.cashPayoutId, result.amountMinor, executorId);
+    const { result } = receipt as OnlineCommandReceipt<typeof PAYOUT_EXECUTE>;
+    if (result.effect === "already_applied") return;
+    shifts.recordSupplierPayout(
+      result.cashPayoutId,
+      result.amountMinor,
+      executorId,
+    );
     return;
   }
-  if (receipt.operation === REFUND_EXECUTE && refundRequestNumber) {
-    const result = receipt.result as RefundExecuteResult & { type: string };
-    const postingId = `refund:${refundRequestNumber}`;
-    if (shifts.hasPosting(postingId)) return;
-    const refundedTo =
-      result.refundedTo.length > 0
-        ? result.refundedTo.map((r) => ({ method: r.method, amountMinor: r.amountMinor }))
-        : [{ method: "cash", amountMinor: result.amountMinor }];
-    shifts.recordRefund(refundRequestNumber, refundedTo, executorId);
+  if (receipt.operation === REFUND_EXECUTE) {
+    const { result } = receipt as OnlineCommandReceipt<typeof REFUND_EXECUTE>;
+    if (result.effect === "already_applied") return;
+    shifts.recordRefund(result.refundRequestId, result.refundedTo, executorId);
   }
 }

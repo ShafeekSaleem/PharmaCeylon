@@ -1,4 +1,5 @@
 import { describe, expect, it } from "@jest/globals";
+import { formatDisplayDateTime } from "@pharmaceylon/shared";
 import {
   renderSaleReceiptHtml,
   renderSupplierCashPayoutReceiptHtml,
@@ -77,7 +78,7 @@ describe("supplier cash payout receipt", () => {
   it("prints the supplier payment number and applied time", () => {
     const html = renderSupplierCashPayoutReceiptHtml(payout, place);
     expect(html).toContain("SP-0012");
-    expect(html).toContain("12:30:00");
+    expect(html).toContain(formatDisplayDateTime(payout.executedAt));
     expect(html).not.toContain("44444444-4444");
   });
 

@@ -43,7 +43,6 @@ import {
   recordAfterCommandRetry,
   recordAfterDirectPayoutExecute,
   recordAfterDirectRefundExecute,
-  REFUND_EXECUTE,
 } from "./shifts/shift-posting-from-execute";
 import { CheckoutService } from "./checkout/checkout-service";
 import { DispensingService } from "./checkout/dispensing";
@@ -747,7 +746,7 @@ function registerIpc(
           if (executor && shifts)
             recordAfterDirectRefundExecute(
               shifts,
-              executed.requestNumber,
+              executed.refundRequestId,
               executed.refundedTo,
               executor,
               executed.alreadyApplied,
@@ -883,7 +882,7 @@ function registerIpc(
           if (outcome.status === "refunded" && executor && shifts)
             recordAfterDirectRefundExecute(
               shifts,
-              outcome.refund.requestNumber,
+              outcome.refund.refundRequestId,
               outcome.refund.refundedTo,
               executor,
               outcome.refund.alreadyApplied,
@@ -900,16 +899,9 @@ function registerIpc(
             );
           const receipt = await commands.retry(commandId);
           const executor = terminal?.current()?.staff.staffUserId;
-          if (shifts && executor) {
-            let refundRequestNumber: string | null = null;
-            if (receipt.operation === REFUND_EXECUTE && counterWork) {
-              const refundRequestId = (receipt.result as { refundRequestId: string }).refundRequestId;
-              const ready = await counterWork.refundsReady();
-              refundRequestNumber =
-                ready.find((row) => row.refundRequestId === refundRequestId)?.requestNumber ?? null;
-            }
-            recordAfterCommandRetry(shifts, receipt, executor, refundRequestNumber);
-          }
+          // A lost-response payout or refund left this drawer when it went through; book it now,
+          // from the receipt alone — no lookup that could fail after the retry succeeded.
+          if (shifts && executor) recordAfterCommandRetry(shifts, receipt, executor);
           return { replayed: receipt.replayed };
         }),
       stockSearch: (input) =>

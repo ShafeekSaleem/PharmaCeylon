@@ -261,6 +261,7 @@ describe("Returns: refunding", () => {
     expect(outcome).toEqual({
       status: "refunded",
       refund: {
+        refundRequestId: requestId,
         requestNumber: "RFR-12",
         amountMinor: 485000,
         refundedTo: [{ method: "card", amountMinor: 485000 }],

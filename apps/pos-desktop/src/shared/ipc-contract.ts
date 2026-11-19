@@ -904,6 +904,7 @@ export const stockCaseResolvedSchema = z.object({
 export type StockCaseResolved = z.infer<typeof stockCaseResolvedSchema>;
 
 export const refundExecutedSchema = z.object({
+  refundRequestId: uuid,
   requestNumber: z.string(),
   amountMinor: z.number().int(),
   refundedTo: z.array(

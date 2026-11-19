@@ -248,6 +248,7 @@ export class CounterWorkService {
     );
     const { result } = receipt;
     return {
+      refundRequestId,
       requestNumber: ready.requestNumber,
       amountMinor: result.amountMinor,
       refundedTo: result.refundedTo.map((r) => ({

@@ -12,8 +12,10 @@ import type { TerminalService } from "../terminal/terminal-service";
 import type { OnlineCommandReceipt } from "@pharmaceylon/shared";
 import {
   PAYOUT_EXECUTE,
+  REFUND_EXECUTE,
   recordAfterCommandRetry,
   recordAfterDirectPayoutExecute,
+  recordAfterDirectRefundExecute,
 } from "./shift-posting-from-execute";
 import { ShiftService } from "./shift-service";
 
@@ -264,23 +266,29 @@ describe("the counter's own running expected cash", () => {
       | undefined;
     expect(row?.kind).toBe("payout");
   });
-
 });
 
 describe("shift posting from execute helpers", () => {
-  const payoutReceipt = (cashPayoutId: string, amountMinor: number): OnlineCommandReceipt<typeof PAYOUT_EXECUTE> =>
+  const envelope = {
+    contractVersion: 1,
+    kind: "online_command_receipt",
+    identity,
+    workSessionId: cashier.workSessionId,
+    requestDigest: "d".repeat(64),
+    actorUserId: cashier.staffUserId,
+    recordedAt: Date.now(),
+    replayed: true,
+  } as const;
+  const payoutReceipt = (
+    cashPayoutId: string,
+    amountMinor: number,
+    effect: "applied" | "already_applied" = "applied",
+  ) =>
     ({
-      contractVersion: 1,
-      kind: "online_command_receipt",
+      ...envelope,
       receiptId: randomUUID(),
       commandId: randomUUID(),
-      identity,
-      workSessionId: cashier.workSessionId,
       operation: PAYOUT_EXECUTE,
-      requestDigest: "d".repeat(64),
-      actorUserId: cashier.staffUserId,
-      recordedAt: Date.now(),
-      replayed: true,
       result: {
         type: "supplier_cash_payout.executed",
         cashPayoutId,
@@ -288,9 +296,30 @@ describe("shift posting from execute helpers", () => {
         supplierPaymentId: randomUUID(),
         supplierPaymentNo: "SP-0001",
         amountMinor,
-        effect: "applied",
+        effect,
       },
-    }) as OnlineCommandReceipt<typeof PAYOUT_EXECUTE>;
+    }) as unknown as OnlineCommandReceipt<typeof PAYOUT_EXECUTE>;
+  const refundReceipt = (
+    refundRequestId: string,
+    refundedTo: { method: string; amountMinor: number }[],
+    effect: "applied" | "already_applied" = "applied",
+  ) =>
+    ({
+      ...envelope,
+      receiptId: randomUUID(),
+      commandId: randomUUID(),
+      operation: REFUND_EXECUTE,
+      result: {
+        type: "sale_refund.executed",
+        refundRequestId,
+        approvalId: null,
+        goodsReturnId: randomUUID(),
+        amountMinor: refundedTo.reduce((sum, r) => sum + r.amountMinor, 0),
+        refundedTo,
+        effect,
+      },
+    }) as unknown as OnlineCommandReceipt<typeof REFUND_EXECUTE>;
+  const postings = () => local.db.prepare("SELECT COUNT(*) AS n FROM till_shift_posting").get();
 
   it("does not move expected cash when a direct execute returns already applied", async () => {
     const shifts = service();
@@ -301,15 +330,56 @@ describe("shift posting from execute helpers", () => {
     expect(shifts.hasPosting(`payout:${payoutId}`)).toBe(false);
   });
 
-  it("backfills a lost-response retry exactly once", async () => {
+  it("backfills a lost-response payout retry exactly once", async () => {
     const shifts = service();
     await shifts.open(PIN, FIVE_THOUSAND);
-    const payoutId = randomUUID();
-    const receipt = payoutReceipt(payoutId, 1_250_000);
+    const receipt = payoutReceipt(randomUUID(), 1_250_000);
     recordAfterCommandRetry(shifts, receipt, cashier.staffUserId);
     expect(shifts.state().current!.expectedCashMinor).toBe(500_000 - 1_250_000);
     recordAfterCommandRetry(shifts, receipt, cashier.staffUserId);
-    expect(local.db.prepare("SELECT COUNT(*) AS n FROM till_shift_posting").get()).toEqual({ n: 1 });
+    expect(postings()).toEqual({ n: 1 });
+  });
+
+  it("books nothing when the retried payout was paid by another counter", async () => {
+    const shifts = service();
+    await shifts.open(PIN, FIVE_THOUSAND);
+    recordAfterCommandRetry(shifts, payoutReceipt(randomUUID(), 1_250_000, "already_applied"), cashier.staffUserId);
+    expect(shifts.state().current!.expectedCashMinor).toBe(500_000);
+    expect(postings()).toEqual({ n: 0 });
+  });
+
+  it("backfills a lost-response refund retry from the receipt alone, cash only", async () => {
+    const shifts = service();
+    await shifts.open(PIN, FIVE_THOUSAND);
+    const refundRequestId = randomUUID();
+    const receipt = refundReceipt(refundRequestId, [
+      { method: "cash", amountMinor: 70_000 },
+      { method: "card", amountMinor: 30_000 },
+    ]);
+    recordAfterCommandRetry(shifts, receipt, cashier.staffUserId);
+    recordAfterCommandRetry(shifts, receipt, cashier.staffUserId);
+    expect(shifts.state().current!.expectedCashMinor).toBe(500_000 - 70_000);
+    expect(shifts.hasPosting(`refund:${refundRequestId}`)).toBe(true);
+    expect(postings()).toEqual({ n: 1 });
+  });
+
+  it("books nothing when the retried refund was executed elsewhere", async () => {
+    const shifts = service();
+    await shifts.open(PIN, FIVE_THOUSAND);
+    recordAfterCommandRetry(shifts, refundReceipt(randomUUID(), [], "already_applied"), cashier.staffUserId);
+    expect(shifts.state().current!.expectedCashMinor).toBe(500_000);
+    expect(postings()).toEqual({ n: 0 });
+  });
+
+  it("a retry after the direct path posted the refund does not count it twice", async () => {
+    const shifts = service();
+    await shifts.open(PIN, FIVE_THOUSAND);
+    const refundRequestId = randomUUID();
+    const refundedTo = [{ method: "cash", amountMinor: 70_000 }];
+    recordAfterDirectRefundExecute(shifts, refundRequestId, refundedTo, cashier.staffUserId, false);
+    recordAfterCommandRetry(shifts, refundReceipt(refundRequestId, refundedTo), cashier.staffUserId);
+    expect(shifts.state().current!.expectedCashMinor).toBe(500_000 - 70_000);
+    expect(postings()).toEqual({ n: 1 });
   });
 });
 

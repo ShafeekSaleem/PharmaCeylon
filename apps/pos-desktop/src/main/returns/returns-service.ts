@@ -277,6 +277,7 @@ export class ReturnsService {
     return {
       status: "refunded",
       refund: {
+        refundRequestId: request.id,
         requestNumber: request.requestNumber,
         amountMinor: result.amountMinor,
         refundedTo: result.refundedTo.map((r) => ({ method: r.method, amountMinor: r.amountMinor })),

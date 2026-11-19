@@ -69,7 +69,7 @@ beforeEach(() => {
     executeRefund: async () => ({
       ok: true,
       value: {
-        requestNumber: "RF-0031", amountMinor: 184000, refundedTo: [{ method: "card", amountMinor: 184000 }],
+        refundRequestId: id(3), requestNumber: "RF-0031", amountMinor: 184000, refundedTo: [{ method: "card", amountMinor: 184000 }],
         alreadyApplied: false, requestedBy: "Kasun Jayasinghe", approvedBy: "Dilini Fernando",
       },
     }),
