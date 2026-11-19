@@ -11,6 +11,9 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import bcrypt from "bcrypt";
 import { StockService } from "../../apps/api/dist/src/inventory/stock/stock.service.js";
 
+// Owner/manager queue (UI1 #205) and the other roles' daily-work card.
+const QUEUE_HEADING = /^(To do at this branch|Today’s priorities)$/;
+
 if (
   process.env.DASHBOARD_BROWSER_TEST_ACK !== "ephemeral-database" ||
   !process.env.DATABASE_URL
@@ -339,7 +342,7 @@ try {
     await page.getByLabel("Password", { exact: true }).fill(password);
     await page.getByRole("button", { name: "Sign in", exact: true }).click();
     await page
-      .getByRole("heading", { name: "Today’s priorities", exact: true })
+      .getByRole("heading", { name: QUEUE_HEADING })
       .waitFor({ timeout: 30000 });
     const v6Queue = role === "owner" || role === "manager";
     if (v6Queue) {
@@ -358,10 +361,7 @@ try {
     const queue = page
       .locator("section")
       .filter({
-        has: page.getByRole("heading", {
-          name: "Today’s priorities",
-          exact: true,
-        }),
+        has: page.getByRole("heading", { name: QUEUE_HEADING }),
       })
       .first();
     const workPageSize = v6Queue ? 8 : 6;
@@ -524,9 +524,15 @@ try {
       categoryTested = true;
     }
     if (v6Queue) {
+      // UI1 #205: the owner/manager toolbar is Refresh and Customise only.
       await page
-        .getByRole("button", { name: /^Shortcuts/ })
+        .getByRole("button", { name: "Customise", exact: true })
         .waitFor({ timeout: 5000 });
+      assert.equal(
+        await page.getByRole("button", { name: /^Shortcuts/ }).count(),
+        0,
+        role + " has no shortcuts menu",
+      );
     }
     if (role === "owner") {
       // The top-bar switch (#227) is named "Branch: <name>. Switch branch";
@@ -682,7 +688,7 @@ try {
       await approved;
       await page.goto("http://localhost:3000/dashboard");
       await page
-        .getByRole("heading", { name: "Today’s priorities", exact: true })
+        .getByRole("heading", { name: QUEUE_HEADING })
         .waitFor();
       const advanced = await queueData(page, "all", "purchasing");
       assert.equal(

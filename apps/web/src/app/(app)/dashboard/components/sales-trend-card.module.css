@@ -130,6 +130,8 @@
   font-size: 0.78rem;
   color: var(--pc-muted-fg);
   white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
 }
 
 .empty {
