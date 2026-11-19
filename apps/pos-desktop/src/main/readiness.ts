@@ -40,6 +40,8 @@ export type ReadinessFacts = {
   printers?: string[];
   /** Windows could not list its printers (the print spooler stopped, for example). */
   printerLookupFailed?: boolean;
+  /** The printer the last test receipt at this enrollment was confirmed on; absent when none. */
+  testReceiptPrinter?: string | null;
   /** Trusted time for offline decisions (P4 #50). Absent: not looked at (no store open). */
   trustedClock?: TrustedNow;
   /** Offline card payments and support records (P4 #50). Absent: not looked at (not enrolled). */
@@ -253,6 +255,9 @@ function printerRow(facts: ReadinessFacts): Row {
         ? `No receipt printer is installed in Windows on this computer: only ${printers.join(", ")}, which can't print receipts.`
         : "No printer is installed in Windows on this computer, so receipts can't print.",
     };
+  const tested = facts.testReceiptPrinter;
+  if (tested && paper.includes(tested))
+    return { status: "ok", detail: `${tested} · test receipt confirmed.` };
   const installed = paper.length === 1 ? `${paper[0]} is` : `${paper.length} printers are (${paper.join(", ")})`;
   return { status: "ok", detail: `${installed} installed in Windows. Print a test receipt below to check it.` };
 }

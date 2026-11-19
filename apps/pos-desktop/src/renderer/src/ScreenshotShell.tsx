@@ -60,6 +60,7 @@ const enrollment = {
   enrolledByName: "Dilini Fernando",
   offlineBackup: emptyEnrollmentOfflineBackup,
   enrollmentFactsLive: true,
+  lastTestReceipt: null,
   enrollmentStatusFetchedAt: null,
 };
 

@@ -8,6 +8,7 @@ import type {
   TerminalEnrollmentCodeChallenge,
   TerminalEnrollmentCommand,
   TerminalEnrollmentOfflineBackup,
+  TerminalTestReceiptFact,
   TerminalEnrollmentStatusView,
   TerminalIdentity,
   TerminalPinSessionCommand,
@@ -156,6 +157,7 @@ export class TerminalService {
   private enrollmentFromServer: {
     counterLabel: string | null;
     offlineBackup: TerminalEnrollmentOfflineBackup;
+    lastTestReceipt: TerminalTestReceiptFact | null;
   } | null = null;
   /** True after a live enrollment-status fetch this session; false when facts come from disk. */
   private enrollmentStatusLive = false;
@@ -169,6 +171,7 @@ export class TerminalService {
       this.enrollmentFromServer = {
         counterLabel: cached.counterLabel,
         offlineBackup: cached.offlineBackup,
+        lastTestReceipt: cached.lastTestReceipt,
       };
       this.enrollmentStatusFetchedAt = cached.fetchedAt;
     }
@@ -207,6 +210,7 @@ export class TerminalService {
             offlineBackup:
               this.enrollmentFromServer?.offlineBackup ??
               emptyEnrollmentOfflineBackup,
+            lastTestReceipt: this.enrollmentFromServer?.lastTestReceipt ?? null,
             enrollmentFactsLive: this.enrollmentStatusLive,
             enrollmentStatusFetchedAt: this.enrollmentStatusLive
               ? null
@@ -835,6 +839,7 @@ export class TerminalService {
     this.enrollmentFromServer = {
       counterLabel: status.counterLabel,
       offlineBackup: status.offlineBackup,
+      lastTestReceipt: status.lastTestReceipt ?? null,
     };
     this.enrollmentStatusLive = true;
     this.enrollmentStatusFetchedAt = fetchedAt;
@@ -842,6 +847,7 @@ export class TerminalService {
       fetchedAt,
       counterLabel: status.counterLabel,
       offlineBackup: status.offlineBackup,
+      lastTestReceipt: status.lastTestReceipt ?? null,
     });
     if (status.counterLabel)
       this.deps.store.patchEnrollmentDisplay({ counterLabel: status.counterLabel });
@@ -907,6 +913,14 @@ export class TerminalService {
     const confirmedAt = new Date(result.confirmedAt).toISOString();
     const operator = this.deps.api.user;
     const confirmedByName = operator?.fullName ?? staff.staffName;
+    const fact: TerminalTestReceiptFact = {
+      confirmedAt: result.confirmedAt,
+      confirmedByName,
+      printerName,
+    };
+    if (this.enrollmentFromServer)
+      this.enrollmentFromServer = { ...this.enrollmentFromServer, lastTestReceipt: fact };
+    this.deps.store.saveLastTestReceipt(device.identity.enrollmentId, fact);
     return {
       confirmedAt,
       confirmedByName,

@@ -511,6 +511,8 @@ function registerIpc(
             ...journalSyncFacts(enrollmentId),
             ...offlineCounterFacts(enrollmentId),
             ...printers,
+            testReceiptPrinter:
+              terminal?.state().enrollment?.lastTestReceipt?.printerName ?? null,
             ...disk,
             ...(storeBackups ? { storeBackups: storeBackups.status() } : {}),
           },

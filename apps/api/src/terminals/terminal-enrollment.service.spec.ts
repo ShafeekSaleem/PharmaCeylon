@@ -52,6 +52,7 @@ describe("TerminalEnrollmentService.enrollmentStatus offline backup lookup", () 
     } | null;
     outstandingByVersion?: ReadonlyMap<number, AuthSlice>;
     nominationAuthorization?: AuthSlice | null;
+    lastTestReceipt?: { confirmedAt: Date; confirmedBy: string; printerName: string } | null;
   }) {
     const outstandingByVersion = overrides.outstandingByVersion ?? new Map();
     const nominationAuthFind = jest.fn().mockResolvedValue(overrides.nominationAuthorization ?? null);
@@ -80,10 +81,49 @@ describe("TerminalEnrollmentService.enrollmentStatus offline backup lookup", () 
             return Promise.resolve(null);
           }),
       },
-      appUser: { findMany: jest.fn().mockResolvedValue([]) },
+      terminalTestReceipt: {
+        findFirst: jest.fn().mockResolvedValue(overrides.lastTestReceipt ?? null),
+      },
+      appUser: {
+        findMany: jest
+          .fn()
+          .mockImplementation((args: { where: { id: { in: string[] } } }) =>
+            Promise.resolve(
+              args.where.id.in
+                .filter((id) => id === "u-printer")
+                .map((id) => ({ id, fullName: "Dilini Fernando" })),
+            ),
+          ),
+      },
     };
     return { tx, nominationAuthFind };
   }
+
+  it("returns the last confirmed test receipt for this enrollment, with the confirmer's name", async () => {
+    const confirmedAt = new Date("2026-10-14T09:00:00.000Z");
+    const { tx } = mockTx({
+      nomination: null,
+      lastTestReceipt: { confirmedAt, confirmedBy: "u-printer", printerName: "EPSON TM-T82III" },
+    });
+    const status = await service(tx).enrollmentStatus(user, branchId, enrollmentId);
+    expect(tx.terminalTestReceipt.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { tenantId, branchId, enrollmentId },
+        orderBy: { confirmedAt: "desc" },
+      }),
+    );
+    expect(status.lastTestReceipt).toEqual({
+      confirmedAt: confirmedAt.getTime(),
+      confirmedByName: "Dilini Fernando",
+      printerName: "EPSON TM-T82III",
+    });
+  });
+
+  it("returns no test receipt when none was confirmed here", async () => {
+    const { tx } = mockTx({ nomination: null });
+    const status = await service(tx).enrollmentStatus(user, branchId, enrollmentId);
+    expect(status.lastTestReceipt).toBeNull();
+  });
 
   it("does not surface a stale outstanding authorization when nomination version moved on", async () => {
     const staleAt = new Date("2020-01-01T00:00:00.000Z");

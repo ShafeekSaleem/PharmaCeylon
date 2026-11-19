@@ -1359,6 +1359,17 @@ describe("go-live evidence from counters", () => {
       expect(
         await counterEvidence(prisma, fx.tenantId, fx.mainBranchId),
       ).toEqual({ preparedStaff: 1, testReceipts: 1 });
+      // The counter reads the confirmation back with its enrollment status, so it survives a restart.
+      const withReceipt = await enrollmentService.enrollmentStatus(
+        owner,
+        fx.mainBranchId,
+        identity.enrollmentId,
+      );
+      expect(withReceipt.lastTestReceipt).toEqual({
+        confirmedAt: expect.any(Number),
+        confirmedByName: expect.any(String),
+        printerName: "Receipt printer",
+      });
 
       // An admin PIN reset makes the preparation stale; a revoked counter's receipt stops counting.
       // tenant-scope: test fixture — simulating the admin reset's version bump.

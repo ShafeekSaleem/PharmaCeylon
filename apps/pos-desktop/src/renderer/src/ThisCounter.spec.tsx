@@ -28,6 +28,7 @@ const baseEnrollment = {
   enrolledByName: "Dilini Fernando",
   offlineBackup: emptyEnrollmentOfflineBackup,
   enrollmentFactsLive: true,
+  lastTestReceipt: null,
   enrollmentStatusFetchedAt: null,
 };
 
@@ -282,6 +283,7 @@ describe("cached enrollment facts", () => {
             counterLabel: "Counter 2",
             offlineBackup: backup,
             enrollmentFactsLive: false,
+            lastTestReceipt: null,
             enrollmentStatusFetchedAt: "2026-10-15T10:30:00.000Z",
           },
         })}
@@ -315,5 +317,47 @@ describe("offline backup activation control", () => {
         name: "Activate as the offline backup",
       }),
     ).toBeTruthy();
+  });
+});
+
+describe("This counter receipt printer", () => {
+  const epson = { name: "EPSON TM-T82III", displayName: "EPSON TM-T82III" };
+  const lastTestReceipt = {
+    confirmedAt: Date.UTC(2026, 9, 14, 9),
+    confirmedByName: "Dilini Fernando",
+    printerName: "EPSON TM-T82III",
+  };
+
+  function renderPrinter(printers: (typeof epson)[]) {
+    stubPos({
+      listPrinters: () => Promise.resolve(printers),
+      offlineCounter: () =>
+        Promise.resolve({ ok: true, value: offlineView(emptyEnrollmentOfflineBackup) }),
+    });
+    renderWithKeys(
+      <ThisCounterPage
+        state={deviceState({ enrollment: { ...baseEnrollment, counterLabel: "Counter 1", lastTestReceipt } })}
+        info={{ appVersion: "1.0.0", electronVersion: "44.7.0", schemaVersion: 30, packaged: false }}
+        readiness={null}
+        onCheck={() => undefined}
+      />,
+    );
+  }
+
+  it("shows the last confirmed test receipt from the server, not just this session's", async () => {
+    renderPrinter([epson]);
+    expect(
+      await screen.findByText(/Last confirmed 14 Oct 2026 by Dilini Fernando./),
+    ).toBeTruthy();
+    expect(screen.queryByText(/Shown for this session only/)).toBeNull();
+    expect(screen.getByText("Ready")).toBeTruthy();
+  });
+
+  it("says so when the confirmed printer is no longer installed", async () => {
+    renderPrinter([{ name: "Other", displayName: "Other" }]);
+    expect(
+      await screen.findByText(/on EPSON TM-T82III, which is not installed now/),
+    ).toBeTruthy();
+    expect(screen.getByText("Test receipt not confirmed")).toBeTruthy();
   });
 });

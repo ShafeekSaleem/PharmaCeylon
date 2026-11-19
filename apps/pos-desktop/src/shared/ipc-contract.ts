@@ -36,6 +36,14 @@ export type EnrollmentOfflineBackup = z.infer<
   typeof enrollmentOfflineBackupSchema
 >;
 
+/** The last test receipt confirmed at this enrollment (go-live evidence); epoch ms. */
+export const testReceiptFactSchema = z.object({
+  confirmedAt: z.number(),
+  confirmedByName: z.string().nullable(),
+  printerName: z.string(),
+});
+export type TestReceiptFact = z.infer<typeof testReceiptFactSchema>;
+
 export const emptyEnrollmentOfflineBackup: EnrollmentOfflineBackup = {
   authorizedAt: null,
   authorizedByUserId: null,
@@ -474,6 +482,8 @@ export const deviceStateSchema = z.object({
       /** Enroller display name when stored or backfilled; null when unknown. */
       enrolledByName: z.string().nullable(),
       offlineBackup: enrollmentOfflineBackupSchema,
+      /** The last test receipt confirmed here, from the server (cached for offline restarts). */
+      lastTestReceipt: testReceiptFactSchema.nullable(),
       /** False when till name and offline-backup facts come from the local enrollment-status cache. */
       enrollmentFactsLive: z.boolean(),
       /** When `enrollmentFactsLive` is false, when those facts were last fetched from the server. */

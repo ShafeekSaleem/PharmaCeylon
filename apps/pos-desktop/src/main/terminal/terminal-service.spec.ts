@@ -95,6 +95,11 @@ class FakeServer {
     activatedByUserId: null as string | null,
     activatedByFullName: null as string | null,
   };
+  lastTestReceipt: {
+    confirmedAt: number;
+    confirmedByName: string | null;
+    printerName: string;
+  } | null = null;
   failFinishEnrollment: ApiError | null = null;
   pin: string | null = null;
   nominatedEnrollment: string | null = null;
@@ -273,6 +278,7 @@ class FakeServer {
         counterLabel: "Counter 1",
         status: this.enrollmentStatus,
         offlineBackup: this.enrollmentOfflineBackup,
+        lastTestReceipt: this.lastTestReceipt,
       };
     if (path === "/terminals/sessions/challenge") {
       this.challenge = {
@@ -1187,6 +1193,38 @@ describe("TerminalService test receipt confirmation", () => {
     expect(
       server.calls.some((c) => c.startsWith("POST /terminals/sessions/") && c.includes("/test-receipt")),
     ).toBe(true);
+  });
+
+  it("shows the confirmation at once and keeps it after a restart", async () => {
+    const terminal = service();
+    await enrolled(terminal);
+    await terminal.signIn(manager.email, "password");
+    await terminal.refreshStatus();
+    expect(terminal.state().enrollment?.lastTestReceipt).toBeNull();
+    const result = await terminal.confirmTestReceipt("EPSON TM-T88");
+    const expected = {
+      confirmedAt: Date.parse(result.confirmedAt),
+      confirmedByName: manager.fullName,
+      printerName: "EPSON TM-T88",
+    };
+    expect(terminal.state().enrollment?.lastTestReceipt).toEqual(expected);
+    expect(service().state().enrollment?.lastTestReceipt).toEqual(expected);
+  });
+
+  it("takes the last confirmation from the server's enrollment status and caches it", async () => {
+    const terminal = service();
+    await enrolled(terminal);
+    server.lastTestReceipt = {
+      confirmedAt: Date.UTC(2026, 9, 14, 9),
+      confirmedByName: "Dilini Fernando",
+      printerName: "EPSON TM-T82III",
+    };
+    await terminal.signIn(manager.email, "password");
+    const live = await terminal.refreshStatus();
+    expect(live.enrollment?.lastTestReceipt).toEqual(server.lastTestReceipt);
+    const restarted = service().state().enrollment;
+    expect(restarted?.enrollmentFactsLive).toBe(false);
+    expect(restarted?.lastTestReceipt).toEqual(server.lastTestReceipt);
   });
 
   it("patchEnrollmentDisplay does not persist an empty branch code", async () => {

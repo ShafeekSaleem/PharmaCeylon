@@ -420,6 +420,11 @@ describe("P2 #48 pre-outage readiness rows", () => {
     });
     expect(buildReadinessReport({ ...healthy, printers: builtIn }, now).ready).toBe(false);
     expect(check({ ...healthy, printers: [...builtIn, "EPSON TM-T82III"] }, "printer").detail).toMatch(/^EPSON TM-T82III is installed/);
+    // A test receipt confirmed at this counter on a printer that is still installed.
+    expect(check({ ...healthy, testReceiptPrinter: "EPSON TM-T82III" }, "printer")).toMatchObject({
+      status: "ok", detail: "EPSON TM-T82III · test receipt confirmed.",
+    });
+    expect(check({ ...healthy, testReceiptPrinter: "Old printer" }, "printer").detail).toMatch(/^EPSON TM-T82III is installed/);
     expect(check({ ...healthy, printers: undefined, printerLookupFailed: true }, "printer")).toMatchObject({
       status: "not_ready", detail: expect.stringContaining("Windows could not list its printers"),
     });

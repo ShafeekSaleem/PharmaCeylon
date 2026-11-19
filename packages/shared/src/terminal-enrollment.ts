@@ -180,6 +180,15 @@ export type TerminalEnrollmentStatusView = Readonly<{
   counterLabel: string | null;
   status: "active" | "revoked" | "retired";
   offlineBackup: TerminalEnrollmentOfflineBackup;
+  /** The last test receipt confirmed at this enrollment (go-live evidence); null when none. */
+  lastTestReceipt: TerminalTestReceiptFact | null;
+}>;
+
+/** A confirmed test receipt: when (epoch ms), who, and on which Windows printer. */
+export type TerminalTestReceiptFact = Readonly<{
+  confirmedAt: number;
+  confirmedByName: string | null;
+  printerName: string;
 }>;
 
 /** D-W5: GET `/terminals/sessions/:workSessionId/credential` (and the PIN set/prepare results).

@@ -1,7 +1,9 @@
 import type { TerminalIdentity } from "@pharmaceylon/shared";
 import {
   enrollmentOfflineBackupSchema,
+  testReceiptFactSchema,
   type EnrollmentOfflineBackup,
+  type TestReceiptFact,
 } from "../../shared/ipc-contract";
 import type { PosDatabase } from "../db/database";
 import { DeviceKey } from "./device-key";
@@ -10,6 +12,7 @@ export type EnrollmentStatusCache = {
   fetchedAt: string;
   counterLabel: string | null;
   offlineBackup: EnrollmentOfflineBackup;
+  lastTestReceipt: TestReceiptFact | null;
 };
 
 export type EnrollmentStatus = "pending" | "active" | "revoked" | "retired";
@@ -59,6 +62,16 @@ type Row = {
   enrollment_status_counter_label: string | null;
   enrollment_offline_backup_json: string | null;
   enrollment_status_enrollment_id: string | null;
+  enrollment_last_test_receipt_json: string | null;
+};
+
+const parseTestReceipt = (json: string | null): TestReceiptFact | null => {
+  if (!json) return null;
+  try {
+    return testReceiptFactSchema.parse(JSON.parse(json));
+  } catch {
+    return null;
+  }
 };
 
 const toIdentity = (row: Row): DeviceIdentity => ({
@@ -231,6 +244,7 @@ export class DeviceStore {
       fetchedAt: row.enrollment_status_fetched_at,
       counterLabel: row.enrollment_status_counter_label,
       offlineBackup,
+      lastTestReceipt: parseTestReceipt(row.enrollment_last_test_receipt_json),
     };
   }
 
@@ -244,7 +258,8 @@ export class DeviceStore {
            enrollment_status_fetched_at = ?,
            enrollment_status_counter_label = ?,
            enrollment_offline_backup_json = ?,
-           enrollment_status_enrollment_id = ?
+           enrollment_status_enrollment_id = ?,
+           enrollment_last_test_receipt_json = ?
          WHERE id = 1 AND enrollment_id = ?`,
       )
       .run(
@@ -252,8 +267,19 @@ export class DeviceStore {
         input.counterLabel,
         JSON.stringify(input.offlineBackup),
         enrollmentId,
+        input.lastTestReceipt ? JSON.stringify(input.lastTestReceipt) : null,
         enrollmentId,
       );
+  }
+
+  /** A test receipt just confirmed here: kept even before the next status fetch. */
+  saveLastTestReceipt(enrollmentId: string, fact: TestReceiptFact): void {
+    this.db
+      .prepare(
+        `UPDATE device_identity SET enrollment_last_test_receipt_json = ?
+         WHERE id = 1 AND enrollment_id = ?`,
+      )
+      .run(JSON.stringify(fact), enrollmentId);
   }
 
   clearEnrollmentStatusCache(): void {
@@ -263,7 +289,8 @@ export class DeviceStore {
            enrollment_status_fetched_at = NULL,
            enrollment_status_counter_label = NULL,
            enrollment_offline_backup_json = NULL,
-           enrollment_status_enrollment_id = NULL
+           enrollment_status_enrollment_id = NULL,
+           enrollment_last_test_receipt_json = NULL
          WHERE id = 1`,
       )
       .run();

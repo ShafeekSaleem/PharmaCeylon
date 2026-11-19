@@ -10,6 +10,7 @@ import type {
   Printer,
   ReadinessCheck,
   ReadinessReport,
+  TestReceiptFact,
 } from "../../shared/ipc-contract";
 import { dayMonthYear, relativeTime, time } from "./format";
 import {
@@ -152,7 +153,9 @@ function Readiness({
   );
 }
 
-function PrinterTest() {
+/** The last confirmation comes from the server (cached for offline restarts), so it survives a
+ * restart; a confirmation made here shows at once, before the next status fetch. */
+function PrinterTest({ last }: { last: TestReceiptFact | null }) {
   const [printers, setPrinters] = useState<Printer[] | null>(null);
   const [selected, setSelected] = useState("");
   const [printing, setPrinting] = useState(false);
@@ -161,10 +164,20 @@ function PrinterTest() {
     null,
   );
   const [printed, setPrinted] = useState<string | null>(null);
-  const [confirmed, setConfirmed] = useState<{
+  const [justConfirmed, setJustConfirmed] = useState<{
     at: string;
     byName: string | null;
+    printerName: string;
   } | null>(null);
+  const confirmed =
+    justConfirmed ??
+    (last
+      ? {
+          at: new Date(last.confirmedAt).toISOString(),
+          byName: last.confirmedByName,
+          printerName: last.printerName,
+        }
+      : null);
 
   useEffect(() => {
     window.pos
@@ -179,7 +192,6 @@ function PrinterTest() {
   async function print() {
     setPrinting(true);
     setMessage(null);
-    setConfirmed(null);
     try {
       const result = await window.pos.printTestReceipt({
         printerName: selected,
@@ -208,9 +220,10 @@ function PrinterTest() {
         .confirmTestReceipt({ printerName: printed })
         .catch(() => null);
       if (result?.ok) {
-        setConfirmed({
+        setJustConfirmed({
           at: result.value.confirmedAt,
           byName: result.value.confirmedByName,
+          printerName: printed,
         });
         setPrinted(null);
         setMessage(null);
@@ -231,7 +244,10 @@ function PrinterTest() {
   const asking = Boolean(printed) && !printing && !confirming;
   useKeyBinding("Ctrl+Enter", () => void confirm(), { enabled: asking });
 
-  const pill = confirmed && !printed ? (
+  const confirmedHere =
+    confirmed !== null &&
+    (printers ?? []).some((p) => p.name === confirmed.printerName);
+  const pill = confirmedHere && !printed ? (
     <span className={cx(ui.pill, ui.ok, styles.right)}>
       <Icon name="check" />
       Ready
@@ -336,8 +352,9 @@ function PrinterTest() {
         {confirmed && !printed && (
           <div className={styles.footN}>
             Last confirmed {dayMonthYear(new Date(confirmed.at))}
-            {confirmed.byName ? ` by ${confirmed.byName}` : ""}. Recorded for
-            the branch go-live checklist. Shown for this session only.
+            {confirmed.byName ? ` by ${confirmed.byName}` : ""}
+            {confirmedHere ? "" : ` on ${confirmed.printerName}, which is not installed now`}.
+            Recorded for the branch go-live checklist.
           </div>
         )}
       </div>
@@ -764,7 +781,7 @@ export function ThisCounterPage({
       <div className={styles.body}>
         <Readiness readiness={readiness} onCheck={onCheck} />
         <div className={styles.side}>
-          <PrinterTest />
+          <PrinterTest last={enrollment.lastTestReceipt} />
           <OfflineRecords
             active={active}
             focusAttemptId={focusCardAttemptId}
