@@ -918,3 +918,22 @@ span.gateIcon {
 .warnAmt {
   color: var(--pos-warn-ink);
 }
+
+/* Card payments to sort out: one warning strip per payment, View on the right (mockup .follow). */
+.cardFollowList {
+  display: grid;
+  gap: 8px;
+}
+
+.cardFollow {
+  align-items: center;
+}
+
+.cardFollow > div {
+  flex: 1;
+}
+
+.cardFollow small {
+  display: block;
+  margin-top: 2px;
+}
