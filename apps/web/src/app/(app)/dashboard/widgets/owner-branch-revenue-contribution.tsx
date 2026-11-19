@@ -9,8 +9,9 @@ import { formatYearMonth } from "../lib/branch-status";
 import css from "../dashboard.module.css";
 
 export function OwnerBranchRevenueContributionWidget({ data }: { data: DashboardData }) {
-  const { scopedBranchPerformance, branchPerformance, branchPerfYearMonth } = data;
-  const teamRows = scopedBranchPerformance ?? branchPerformance;
+  // Always every branch: this is the one card on the dashboard that compares branches, and its
+  // title says so; the rest of the page follows the top-bar branch (UI1 #205).
+  const { branchPerformance: teamRows, branchPerfYearMonth } = data;
   const yearMonth =
     branchPerfYearMonth ??
     `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}`;
@@ -32,7 +33,7 @@ export function OwnerBranchRevenueContributionWidget({ data }: { data: Dashboard
 
   return (
     <DashboardPanel
-      title="Branch Revenue Contribution"
+      title="All branches · revenue"
       subtitle={`Share of ${formatYearMonth(yearMonth)} sales`}
       icon={<IconUsers size={15} />}
       compact

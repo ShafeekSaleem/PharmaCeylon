@@ -3,7 +3,8 @@
 import { formatMoney } from "@/app/(app)/inventory/utils";
 import { DashboardCanvas } from "../components/dashboard-canvas";
 import { DashboardFixedGrid } from "../components/dashboard-fixed-grid";
-import { HeroBand } from "../components/hero-band";
+import { KeyFigures } from "../components/key-figures";
+import { useSalesZeroNote } from "../lib/sales-zero";
 import {
   isDashboardServerUnreachable,
   isMetricUnavailable,
@@ -31,14 +32,10 @@ export function ManagerDashboard({
   const {
     loading,
     todaySalesTotal,
-    salesTrendLabel,
-    salesTrendPositive,
     todaySalesCount,
-    salesTrend7d,
     currentBranchPerf,
     dispensedToday,
     dispensedTrendLabel,
-    dispensedTrendPositive,
     failedSections,
   } = data;
 
@@ -54,62 +51,53 @@ export function ManagerDashboard({
     ["Branch Performance", "Sales overview"],
   );
 
+  const salesZero = !loading && !salesUnavailable && todaySalesTotal === 0;
+  const zeroNote = useSalesZeroNote(
+    data.branchId,
+    salesZero,
+    data.canViewReports,
+    refreshKey,
+  );
+
   return (
     <>
-      <HeroBand
-        label="Today's Sales"
-        value={formatMoney(todaySalesTotal)}
-        scope="This branch · vs yesterday"
-        meta={`${todaySalesCount} transaction${todaySalesCount === 1 ? "" : "s"} today`}
+      <KeyFigures
         loading={loading}
-        unavailable={salesUnavailable}
-        sparkline={salesUnavailable ? undefined : salesTrend7d}
-        trend={
-          salesUnavailable || !salesTrendLabel
-            ? undefined
-            : {
-                label: salesTrendLabel,
-                direction: salesTrendPositive ? "up" : "down",
-              }
-        }
-        secondary={[
+        figures={[
+          {
+            key: "sales",
+            label: "Sales today",
+            value: formatMoney(todaySalesTotal),
+            unavailable: salesUnavailable,
+            note: salesZero
+              ? zeroNote.text
+              : `${todaySalesCount} sale${todaySalesCount === 1 ? "" : "s"} so far`,
+            noteWarning: salesZero && zeroNote.warning,
+          },
           {
             key: "target",
-            label: "Target Achievement",
+            label: "Target this month",
             value:
               currentBranchPerf?.achievementPct != null
                 ? `${currentBranchPerf.achievementPct.toFixed(0)}%`
                 : "—",
             unavailable: branchPerfUnavailable,
-            meta:
+            note:
               currentBranchPerf?.targetAmount != null
-                ? `MTD ${formatMoney(currentBranchPerf.monthSales)} / ${formatMoney(currentBranchPerf.targetAmount)}`
-                : "Assigned by owner",
+                ? `${formatMoney(currentBranchPerf.monthSales)} of ${formatMoney(currentBranchPerf.targetAmount)}`
+                : "No target set by the owner",
             href: "/reports?category=sales&report=branch-sales",
-            linkLabel: "View reports",
-          },
-          {
-            key: "approvals",
-            label: "Transactions Today",
-            value: todaySalesCount,
-            unavailable: salesUnavailable,
-            meta: "All operators · this branch",
+            linkLabel: "Branch sales",
           },
           {
             key: "units",
-            label: "Units Sold Today",
+            label: "Units sold today",
             value: dispensedToday,
             unavailable: salesUnavailable,
-            meta: "This branch",
-            trend:
-              salesUnavailable || !dispensedTrendLabel
-                ? undefined
-                : {
-                    label: dispensedTrendLabel,
-                    direction: dispensedTrendPositive ? "up" : "down",
-                  },
-            href: "/reports?category=sales&report=sales-summary",
-            linkLabel: "View reports",
+            note:
+              dispensedToday > 0 && dispensedTrendLabel
+                ? `${dispensedTrendLabel} on yesterday`
+                : undefined,
           },
         ]}
       />

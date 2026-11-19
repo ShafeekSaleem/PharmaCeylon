@@ -128,9 +128,12 @@ describe("dashboard /pos links (W9 #71)", () => {
     expect(container.querySelector('a[href^="/pos?panel=holds"]')).toBeNull();
   });
 
-  it("offers the waiting-at-the-counter widget to managers and owners", () => {
-    expect(catalogForRole("manager").map((w) => w.key)).toContain("counter.waiting");
-    expect(catalogForRole("owner").map((w) => w.key)).toContain("counter.waiting");
+  it("offers the waiting-at-the-counter widget where the queue doesn't already show it", () => {
+    // Owners and managers see counter work as the queue's "At the counter" group (UI1 #205).
+    expect(catalogForRole("pharmacist").map((w) => w.key)).toContain("counter.waiting");
+    expect(catalogForRole("inventory_clerk").map((w) => w.key)).toContain("counter.waiting");
+    expect(catalogForRole("manager").map((w) => w.key)).not.toContain("counter.waiting");
+    expect(catalogForRole("owner").map((w) => w.key)).not.toContain("counter.waiting");
     expect(catalogForRole("cashier").map((w) => w.key)).not.toContain("counter.waiting");
   });
 });

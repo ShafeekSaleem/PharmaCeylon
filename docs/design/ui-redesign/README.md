@@ -171,12 +171,29 @@ Dates read the same on every screen and printout, whatever the computer's region
 - **Sidebar badges.** Inventory, Purchasing, Transfers and Stocktakes show how many things wait there at the selected branch: the dashboard work queue's own per-area counts (`GET /dashboard/work` `categories`), so a badge and the queue agree, and each source already leaves out what the person may not do. Neutral pill, "99+" above 99, "need action" for screen readers; it sits on the icon's corner when the sidebar is collapsed. Counts belong to the branch they were read for, so switching branch clears them at once. They refresh on branch change, page change, focus and each minute, but a page change or focus within 10 s of the last read reuses it, because each read runs the whole work-queue query. Returns (`/returns`) and counter work have no sidebar item, so no badge.
 - Screenshots: `screenshots/pr-phase1-finish/` (sidebar light, dark sidebar, dark theme, collapsed; the product page's uploading overlay before and after, light and dark, which look the same).
 
+## Dashboard
+
+Owner and manager dashboards (Phase 2). The other three roles keep their layout for now.
+
+- **One scope.** Every card follows the branch chosen in the top bar. The owner's All/Current toggle is gone. Comparing branches is done in Reports, or on the optional "All branches · revenue" card in Customise, whose title says it covers every branch. Insights keeps its own scope dropdown.
+- **Header.** The date is the title, with the branch, role and last update under it. The only controls are Refresh and Customise. The role badge and the shortcuts menu are gone for these two roles.
+- **Key figures.** One strip of plain numbers, each with one line of explanation. When Sales today is zero, it says why: a counter that hasn't sent sales since the branch's day began, or one whose upload has stopped, is named. This is read from the counters' sync freshness, the same read Reports uses (`lib/sales-zero.ts`).
+- **Work queue.** "To do at this branch" groups the page's rows by what you do next: Needs your decision, Stock safety, Receiving and dispatch, Counts and returns, At the counter, Other work (`lib/work-groups.ts`). Each row shows the step, the document number and the source's detail line. Lateness is counted in the branch's days, and it is the only thing on the row in colour. The filter tabs are neutral. The items, their order, the counts and the permissions are unchanged (W11 #145).
+- **Waiting at the counter** is no longer a card for owners and managers. Those rows are the queue's "At the counter" group.
+- **How customers paid** is one stacked bar with a legend giving the amount and share of each payment type. The period is shown on the card. The second payment-mix donut (Cash flow) is no longer on the default layout.
+- **Sales trend.** Daily bars for 7, 14 or 30 days, so a day with no sales shows as zero. A run of empty days ends in "No sales recorded since…".
+- **Sizing.** The fixed cards are as tall as their content and wrap under the queue when there is no room beside it. Cards in the Customise canvas keep their fixed grid rows for now.
+
 ## Not done yet
 
 These items in #205 come in later PRs:
 
 - **Inventory, Purchasing and the other list pages** moving onto the list pattern (Phase 4).
+- **Pharmacist, cashier and inventory clerk dashboards** getting the grouped queue and the same header.
+- **Customise canvas cards** sizing to their content instead of fixed grid rows.
 
 ## Screenshots
 
 `screenshots/pr1-tokens/` holds before and after captures for the token PR. Web pages are at 1440 × 900 (before and after) and 1366 × 768 (after), signed in as the seed owner. Desktop pages are at 1366 × 768 and 1024 × 640, from the screenshot fixture. Each is in light and dark. The changes are deliberately small: muted text and links get darker on light, muted text gets lighter on dark, and the default teal is one step deeper.
+
+`screenshots/pr-dashboard/` holds the owner dashboard before and after, in light and dark, at 1440 × 900 and 1366 × 768 (full page), plus the manager dashboard in light at 1440 × 900. All are signed in as the seed users at Colombo — Main.

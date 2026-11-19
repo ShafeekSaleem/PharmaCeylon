@@ -1,0 +1,58 @@
+.period {
+  font-size: 0.8125rem;
+  color: var(--pc-muted-fg);
+}
+
+.bar {
+  display: flex;
+  gap: 2px;
+  height: 0.75rem;
+  margin-top: 0.25rem;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.segment {
+  flex-basis: 0;
+  min-width: 3px;
+}
+
+.legend {
+  list-style: none;
+  margin: 0.85rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.legendRow {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+}
+
+.swatch {
+  width: 0.625rem;
+  height: 0.625rem;
+  border-radius: 2px;
+  flex: none;
+}
+
+.legendLabel {
+  flex: 1;
+  min-width: 0;
+}
+
+.amount {
+  color: var(--pc-muted-fg);
+  font-variant-numeric: tabular-nums;
+}
+
+.pct {
+  width: 3.25rem;
+  text-align: right;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
