@@ -107,7 +107,8 @@ Rules for a page moving onto it:
 
 ### Products
 
-- About 15 rows show at 1440 × 900 (25 per page; the rest scroll).
+- 13 rows show at 1440 × 900 and 9 at 1366 × 768 (25 per page; the rest scroll). Before, it was 5 and 2, because each row was about 107px tall. The other two rows of the "about 15" target sit in the page chrome above the list (top bar, breadcrumb, page header), which the web shell PR reworks.
+- Every value is one line, cut with an ellipsis (Form / Strength has the full text as a tooltip). The product cell is the one with two lines.
 - The product name has the generic name under it on a muted line. When the Brand column is hidden, a brand that differs from the name joins that line.
 - One schedule badge: **OTC** (plain muted text), **Rx · II B** (outlined), **Controlled · III** (outlined on the sunken fill). It replaces the Rx tag, the "Prescription required" chip and the plain Schedule column. None of the three is coloured, because a prescription medicine isn't an exception in a pharmacy.
 - Brand is blank when it only repeats the name; SKU is blank when it only repeats the registration number (register imports).
@@ -116,7 +117,8 @@ Rules for a page moving onto it:
 - Status shows only **Inactive**.
 - Actions: one menu with Edit product, then Delete product behind a divider.
 - Not yet in the stock note: batches, nearest expiry and last sold. The list endpoint doesn't return them, and this PR changes no data.
-- Screenshots: `screenshots/pr-list-pattern/`.
+- An OTC product shows plain "OTC" even when it has a schedule; the schedule is in the tooltip.
+- Screenshots: `screenshots/pr-list-pattern/`, before and after, light and dark, at 1440 × 900, 1366 × 768 and 390 × 844. No page scroll sideways at any of them; at 390 px the table scrolls inside its box.
 
 ## Not done yet
 
