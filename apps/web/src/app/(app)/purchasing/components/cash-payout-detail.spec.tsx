@@ -1,5 +1,6 @@
 /** @jest-environment jsdom */
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import type { RenderResult } from "@testing-library/react";
 import type { SupplierCashPayoutView } from "@pharmaceylon/shared";
 import { apiJson } from "@/lib/auth-client";
 import { usePermissions } from "@/lib/permissions";
@@ -92,7 +93,7 @@ describe("CashPayoutDetail", () => {
     render(
       <CashPayoutDetail payout={payout} branchName="Kollupitiya" invoiceNumbers={new Map()} onChanged={() => undefined} />,
     );
-    expect(screen.getByText(/prepared and approved in one step/)).toBeTruthy();
+    expect(screen.getByText(/Prepared and approved in one step by Kasun Jayasinghe/)).toBeTruthy();
   });
 
   it("hides approve and cancel when the user cannot pay", () => {
@@ -127,7 +128,13 @@ describe("CashPayoutDetail", () => {
     const dialog = await screen.findByRole("dialog");
     fireEvent.click(within(dialog).getByRole("button", { name: "Approve payout" }));
     await waitFor(() => expect(apiJson).toHaveBeenCalledTimes(1));
-    expect(JSON.parse(String(jest.mocked(apiJson).mock.calls[0]?.[1]?.body)).approvalId).toBe(
+    expect(apiJson).toHaveBeenCalledWith(
+      "/purchasing/cash-payouts/11111111-1111-4111-8111-111111111111/approve",
+      expect.objectContaining({ method: "POST" }),
+    );
+    const firstBody = JSON.parse(String(jest.mocked(apiJson).mock.calls[0]?.[1]?.body));
+    expect(firstBody).toMatchObject({ expectedVersion: 1, expectedDigest: "digest-1" });
+    expect(firstBody.approvalId).toBe(
       "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
     );
     expect(screen.getByText(/Network error/)).toBeTruthy();
@@ -141,12 +148,15 @@ describe("CashPayoutDetail", () => {
   });
 
   it("issues a new approvalId when the payout approval version changes", async () => {
-    const randomUUID = jest.fn().mockReturnValue("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb");
+    const randomUUID = jest
+      .fn()
+      .mockReturnValueOnce("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
+      .mockReturnValueOnce("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb");
     Object.defineProperty(globalThis, "crypto", { value: { randomUUID }, configurable: true });
     jest.mocked(apiJson).mockResolvedValue({ status: "approved" });
-    render(
+    const view: RenderResult = render(
       <CashPayoutDetail
-        payout={{ ...basePayout(), approvalVersion: 2 }}
+        payout={basePayout()}
         branchName="Kollupitiya"
         invoiceNumbers={new Map()}
         onChanged={() => undefined}
@@ -154,8 +164,22 @@ describe("CashPayoutDetail", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "Approve" }));
     fireEvent.click(await screen.findByRole("button", { name: "Approve payout" }));
-    await waitFor(() => expect(apiJson).toHaveBeenCalled());
+    await waitFor(() => expect(apiJson).toHaveBeenCalledTimes(1));
     expect(JSON.parse(String(jest.mocked(apiJson).mock.calls[0]?.[1]?.body)).approvalId).toBe(
+      "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    );
+    view.rerender(
+      <CashPayoutDetail
+        payout={{ ...basePayout(), approvalVersion: 2, approvalReview: { expectedVersion: 2, expectedDigest: "digest-2" } }}
+        branchName="Kollupitiya"
+        invoiceNumbers={new Map()}
+        onChanged={() => undefined}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Approve payout" }));
+    await waitFor(() => expect(apiJson).toHaveBeenCalledTimes(2));
+    expect(JSON.parse(String(jest.mocked(apiJson).mock.calls[1]?.[1]?.body)).approvalId).toBe(
       "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
     );
   });

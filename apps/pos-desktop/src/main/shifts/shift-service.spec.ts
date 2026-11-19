@@ -9,6 +9,12 @@ import type { DeviceStore } from "../device/device-store";
 import { openLocalStore, type LocalStore } from "../local-store";
 import type { Logger } from "../logging/logger";
 import type { TerminalService } from "../terminal/terminal-service";
+import type { OnlineCommandReceipt } from "@pharmaceylon/shared";
+import {
+  PAYOUT_EXECUTE,
+  recordAfterCommandRetry,
+  recordAfterDirectPayoutExecute,
+} from "./shift-posting-from-execute";
 import { ShiftService } from "./shift-service";
 
 const protector: SecretProtector = {
@@ -259,51 +265,50 @@ describe("the counter's own running expected cash", () => {
     expect(row?.kind).toBe("payout");
   });
 
-  it("records cash payout execute on first apply", async () => {
+});
+
+describe("shift posting from execute helpers", () => {
+  const payoutReceipt = (cashPayoutId: string, amountMinor: number): OnlineCommandReceipt<typeof PAYOUT_EXECUTE> =>
+    ({
+      contractVersion: 1,
+      kind: "online_command_receipt",
+      receiptId: randomUUID(),
+      commandId: randomUUID(),
+      identity,
+      workSessionId: cashier.workSessionId,
+      operation: PAYOUT_EXECUTE,
+      requestDigest: "d".repeat(64),
+      actorUserId: cashier.staffUserId,
+      recordedAt: Date.now(),
+      replayed: true,
+      result: {
+        type: "supplier_cash_payout.executed",
+        cashPayoutId,
+        approvalId: randomUUID(),
+        supplierPaymentId: randomUUID(),
+        supplierPaymentNo: "SP-0001",
+        amountMinor,
+        effect: "applied",
+      },
+    }) as OnlineCommandReceipt<typeof PAYOUT_EXECUTE>;
+
+  it("does not move expected cash when a direct execute returns already applied", async () => {
     const shifts = service();
     await shifts.open(PIN, FIVE_THOUSAND);
     const payoutId = randomUUID();
-    shifts.recordCashPayoutAfterExecute(payoutId, 1_250_000, cashier.staffUserId, false);
-    expect(shifts.state().current!.expectedCashMinor).toBe(500_000 - 1_250_000);
-    expect(shifts.hasPosting(`payout:${payoutId}`)).toBe(true);
+    recordAfterDirectPayoutExecute(shifts, payoutId, 1_250_000, cashier.staffUserId, true);
+    expect(shifts.state().current!.expectedCashMinor).toBe(500_000);
+    expect(shifts.hasPosting(`payout:${payoutId}`)).toBe(false);
   });
 
-  it("backfills a lost-response retry when the posting is missing", async () => {
+  it("backfills a lost-response retry exactly once", async () => {
     const shifts = service();
     await shifts.open(PIN, FIVE_THOUSAND);
     const payoutId = randomUUID();
-    shifts.recordCashPayoutAfterExecute(payoutId, 1_250_000, cashier.staffUserId, true);
+    const receipt = payoutReceipt(payoutId, 1_250_000);
+    recordAfterCommandRetry(shifts, receipt, cashier.staffUserId);
     expect(shifts.state().current!.expectedCashMinor).toBe(500_000 - 1_250_000);
-    expect(local.db.prepare("SELECT COUNT(*) AS n FROM till_shift_posting").get()).toEqual({ n: 1 });
-  });
-
-  it("does not double-post when the payout posting already exists", async () => {
-    const shifts = service();
-    await shifts.open(PIN, FIVE_THOUSAND);
-    const payoutId = randomUUID();
-    shifts.recordCashPayoutAfterExecute(payoutId, 1_250_000, cashier.staffUserId, false);
-    shifts.recordCashPayoutAfterExecute(payoutId, 1_250_000, cashier.staffUserId, true);
-    expect(shifts.state().current!.expectedCashMinor).toBe(500_000 - 1_250_000);
-    expect(local.db.prepare("SELECT COUNT(*) AS n FROM till_shift_posting").get()).toEqual({ n: 1 });
-  });
-
-  it("backfills refund execute retries without double posting", async () => {
-    const shifts = service();
-    await shifts.open(PIN, FIVE_THOUSAND);
-    const requestNumber = "RF-0099";
-    shifts.recordRefundAfterExecute(
-      requestNumber,
-      [{ method: "cash", amountMinor: 700 }],
-      cashier.staffUserId,
-      false,
-    );
-    shifts.recordRefundAfterExecute(
-      requestNumber,
-      [{ method: "cash", amountMinor: 700 }],
-      cashier.staffUserId,
-      true,
-    );
-    expect(shifts.state().current!.expectedCashMinor).toBe(500_000 - 700);
+    recordAfterCommandRetry(shifts, receipt, cashier.staffUserId);
     expect(local.db.prepare("SELECT COUNT(*) AS n FROM till_shift_posting").get()).toEqual({ n: 1 });
   });
 });

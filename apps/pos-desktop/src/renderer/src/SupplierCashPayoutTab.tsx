@@ -388,9 +388,9 @@ export function SupplierCashPayoutTab({
                   <div className={cx(ui.note, styles.inset)} role="status">
                     <Icon name="check-circle" />
                     <div>
-                      <b>{done.alreadyApplied ? "Already paid out" : "Paid out"}</b>
+                      <b>{done.alreadyApplied ? "Already paid out elsewhere" : "Paid out"}</b>
                       <div>
-                        Receipt <code>supplier_cash_payout.executed</code>.                         Payment{" "}
+                        Receipt <code>supplier_cash_payout.executed</code>. Payment{" "}
                         <code>
                           {done.supplierPaymentNo?.trim() || done.supplierPaymentId.slice(0, 8)}
                         </code>{" "}

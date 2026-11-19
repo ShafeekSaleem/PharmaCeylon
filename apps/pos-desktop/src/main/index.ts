@@ -39,6 +39,12 @@ import {
   renderSupplierCashPayoutReceiptHtml,
 } from "./printing/receipt-html";
 import { renderXReportHtml } from "./printing/x-report-html";
+import {
+  recordAfterCommandRetry,
+  recordAfterDirectPayoutExecute,
+  recordAfterDirectRefundExecute,
+  REFUND_EXECUTE,
+} from "./shifts/shift-posting-from-execute";
 import { CheckoutService } from "./checkout/checkout-service";
 import { DispensingService } from "./checkout/dispensing";
 import { CounterWorkService } from "./terminal/counter-work";
@@ -741,8 +747,9 @@ function registerIpc(
             );
           const executed = await counterWork.executeRefund(refundRequestId);
           const executor = terminal?.current()?.staff.staffUserId;
-          if (executor)
-            shifts?.recordRefundAfterExecute(
+          if (executor && shifts)
+            recordAfterDirectRefundExecute(
+              shifts,
               executed.requestNumber,
               executed.refundedTo,
               executor,
@@ -769,8 +776,9 @@ function registerIpc(
           const executed = await counterWork.executeCashPayout(cashPayoutId);
           const executor = terminal?.current()?.staff.staffUserId;
           let expectedCashMinorAfter: number | null = null;
-          if (executor) {
-            shifts?.recordCashPayoutAfterExecute(
+          if (executor && shifts) {
+            recordAfterDirectPayoutExecute(
+              shifts,
               cashPayoutId,
               executed.amountMinor,
               executor,
@@ -875,8 +883,9 @@ function registerIpc(
           const outcome = await returns.submit(input);
           // A cash refund done here leaves the open shift's drawer: the counter's own figure too.
           const executor = terminal?.current()?.staff.staffUserId;
-          if (outcome.status === "refunded" && executor)
-            shifts?.recordRefundAfterExecute(
+          if (outcome.status === "refunded" && executor && shifts)
+            recordAfterDirectRefundExecute(
+              shifts,
               outcome.refund.requestNumber,
               outcome.refund.refundedTo,
               executor,
@@ -892,7 +901,19 @@ function registerIpc(
               "NOT_READY",
               "The counter is still starting.",
             );
-          return { replayed: (await commands.retry(commandId)).replayed };
+          const receipt = await commands.retry(commandId);
+          const executor = terminal?.current()?.staff.staffUserId;
+          if (shifts && executor) {
+            let refundRequestNumber: string | null = null;
+            if (receipt.operation === REFUND_EXECUTE && counterWork) {
+              const refundRequestId = (receipt.result as { refundRequestId: string }).refundRequestId;
+              const ready = await counterWork.refundsReady();
+              refundRequestNumber =
+                ready.find((row) => row.refundRequestId === refundRequestId)?.requestNumber ?? null;
+            }
+            recordAfterCommandRetry(shifts, receipt, executor, refundRequestNumber);
+          }
+          return { replayed: receipt.replayed };
         }),
       stockSearch: (input) =>
         act(logger, "stockSearch", () => {

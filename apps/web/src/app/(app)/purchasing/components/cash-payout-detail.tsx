@@ -133,8 +133,8 @@ export function CashPayoutDetail({ payout, branchName, invoiceNumbers, onChanged
 
       {selfApproved && (
         <Alert variant="info">
-          Your role can self-approve supplier payments, so this payout was prepared and approved in one
-          step. Someone at the counter can pay it out from the drawer.
+          Prepared and approved in one step by {payout.requester?.fullName ?? "the requester"}. Someone at
+          the counter can pay it out from the drawer.
         </Alert>
       )}
 
