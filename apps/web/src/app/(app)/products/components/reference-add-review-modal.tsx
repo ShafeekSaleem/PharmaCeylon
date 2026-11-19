@@ -4,6 +4,7 @@ import { IconAlertTriangle } from "@/components/icons";
 import { Modal, ModalButton, ModalFooter } from "@/components/ui";
 import type { ReferenceAddPreview } from "../api/catalog-tasks";
 import css from "../products.module.css";
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 
 /**
  * The lightweight review before adding register rows that would collide with something the
@@ -58,7 +59,7 @@ export function ReferenceAddReviewModal({
           >
             {applying
               ? "Adding…"
-              : `Add ${preview.addable.toLocaleString()} product${preview.addable === 1 ? "" : "s"}`}
+              : `Add ${preview.addable.toLocaleString(DISPLAY_LOCALE)} product${preview.addable === 1 ? "" : "s"}`}
           </ModalButton>
         </ModalFooter>
       }
@@ -66,13 +67,13 @@ export function ReferenceAddReviewModal({
       <p>
         {clean > 0 && (
           <>
-            {clean.toLocaleString()} product{clean === 1 ? "" : "s"} will be
+            {clean.toLocaleString(DISPLAY_LOCALE)} product{clean === 1 ? "" : "s"} will be
             added without question.{" "}
           </>
         )}
         {flagged.length > 0 && (
           <>
-            {flagged.length.toLocaleString()} need
+            {flagged.length.toLocaleString(DISPLAY_LOCALE)} need
             {flagged.length === 1 ? "s" : ""} a look first.
           </>
         )}
@@ -98,7 +99,7 @@ export function ReferenceAddReviewModal({
       {blocked.length > 0 && (
         <>
           <p className={css.reviewItemWarning}>
-            {blocked.length.toLocaleString()} cannot be added and will be
+            {blocked.length.toLocaleString(DISPLAY_LOCALE)} cannot be added and will be
             skipped:
           </p>
           <ul className={css.reviewList}>

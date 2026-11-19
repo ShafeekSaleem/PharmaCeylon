@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { resolveBubbleCollisions } from "../lib/bubble-layout";
 import css from "../reports.module.css";
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 
 export type CashierMatrixPoint = { id: string; label: string; transactions: number; avgBasket: number; revenue: number };
 
@@ -104,7 +105,7 @@ export function CashierThroughputMatrix({ points, formatValue, colorFor, onBubbl
               const left = (pos.x / size.width) * 100;
               const top = (pos.y / size.height) * 100;
               const bubbleSize = sizeOf(p.revenue);
-              const tooltip = `${p.label} — ${p.transactions.toLocaleString("en-IN")} transactions, ${formatValue(p.avgBasket)} avg. basket, ${formatValue(p.revenue)} revenue`;
+              const tooltip = `${p.label} — ${p.transactions.toLocaleString(DISPLAY_LOCALE)} transactions, ${formatValue(p.avgBasket)} avg. basket, ${formatValue(p.revenue)} revenue`;
               return (
                 <div
                   key={p.id}

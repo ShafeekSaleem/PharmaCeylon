@@ -19,6 +19,7 @@ import {
 } from "../../tags/components/tag-form-modal";
 import manageCss from "../manage.module.css";
 import css from "./tags.module.css";
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 
 /**
  * Tags the pharmacy creates and applies itself.
@@ -155,7 +156,7 @@ export function TagsSection({
                 type="search"
                 placeholder={
                   tagCount > 0
-                    ? `Search ${tagCount.toLocaleString()} tag${tagCount === 1 ? "" : "s"}…`
+                    ? `Search ${tagCount.toLocaleString(DISPLAY_LOCALE)} tag${tagCount === 1 ? "" : "s"}…`
                     : "Search tags…"
                 }
                 aria-label="Search tags"
@@ -206,9 +207,9 @@ export function TagsSection({
                 ) : (
                   <span
                     className={css.tagCount}
-                    aria-label={`${used.toLocaleString()} product${used === 1 ? "" : "s"}`}
+                    aria-label={`${used.toLocaleString(DISPLAY_LOCALE)} product${used === 1 ? "" : "s"}`}
                   >
-                    {used.toLocaleString()}
+                    {used.toLocaleString(DISPLAY_LOCALE)}
                   </span>
                 )}
                 {(canWrite || canDelete) && (
@@ -239,7 +240,7 @@ export function TagsSection({
                                 },
                                 hint:
                                   used > 0
-                                    ? `Removes it from ${used.toLocaleString()} product${used === 1 ? "" : "s"}`
+                                    ? `Removes it from ${used.toLocaleString(DISPLAY_LOCALE)} product${used === 1 ? "" : "s"}`
                                     : undefined,
                               },
                             ]
@@ -274,7 +275,7 @@ export function TagsSection({
                 <li key={tag.id} className={css.systemAttr}>
                   {tag.name}
                   <span className={css.systemAttrCount}>
-                    {(tag.rangedCount ?? 0).toLocaleString()}
+                    {(tag.rangedCount ?? 0).toLocaleString(DISPLAY_LOCALE)}
                   </span>
                 </li>
               ))}

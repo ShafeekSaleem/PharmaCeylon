@@ -25,6 +25,7 @@ import type {
 import { PosSaleCard, type SaleCardActions } from "./pos-sale-card";
 import { formatAmount, formatMoney, round2 } from "../utils";
 import tcss from "../till.module.css";
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 
 export type TenderMode = PaymentMethod | "split";
 
@@ -315,7 +316,7 @@ export function PosPayPanel({
                   className={`${tcss.smallBtn}${Math.abs(paid - amount) < 0.005 ? ` ${tcss.smallBtnOn}` : ""}`}
                   onClick={() => onAmountPaidChange(amount.toFixed(2))}
                 >
-                  {amount.toLocaleString("en-LK")}
+                  {amount.toLocaleString(DISPLAY_LOCALE)}
                 </button>
               ))}
             </div>

@@ -29,6 +29,7 @@ import { ShiftPerformanceCard, type ShiftDatum, type ShiftIconTone, type ShiftMe
 import type { CategoryKey, ReportKey } from "../lib/nav-config";
 import type { CashierRow, ExportPayload, OnExportData, Scope, ShiftRow } from "../lib/types";
 import css from "../reports.module.css";
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 
 type Props = { scope: Scope; isOwner: boolean; days: number; onNavigate: (c: CategoryKey, r?: ReportKey) => void; onExportData: OnExportData };
 
@@ -325,7 +326,7 @@ export function CashierPerformanceSection({ scope, isOwner, days, onExportData }
         getValue: (r) => r.revenueN,
         render: (r) => <InlineBarCell valueLabel={formatMoney(r.revenueN)} pct={(r.revenueN / maxRevenue) * 100} />,
       },
-      { key: "transactions", header: "Transactions", align: "right", sortable: true, getValue: (r) => r.transactions, render: (r) => r.transactions.toLocaleString("en-IN") },
+      { key: "transactions", header: "Transactions", align: "right", sortable: true, getValue: (r) => r.transactions, render: (r) => r.transactions.toLocaleString(DISPLAY_LOCALE) },
       { key: "avgBasketN", header: "Avg Basket", align: "right", sortable: true, getValue: (r) => r.avgBasketN, render: (r) => formatMoney(r.avgBasketN) },
       {
         key: "discountRateN",

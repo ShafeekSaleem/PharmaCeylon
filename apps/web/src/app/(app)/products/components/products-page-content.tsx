@@ -90,6 +90,7 @@ import { ConfirmDialog } from "./confirm-dialog";
 import { NmraImportModal, type ImportMode } from "./nmra-import-modal";
 import { ProductFormModal } from "./product-form-modal";
 import { ProductTable } from "./product-table";
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 
 export function ProductsPageContent() {
   const router = useRouter();
@@ -356,11 +357,11 @@ export function ProductsPageContent() {
       );
       setAddedIds((prev) => new Set([...prev, ...result.added]));
       const parts = [
-        `${result.added.length.toLocaleString()} product${result.added.length === 1 ? "" : "s"} added to your range`,
+        `${result.added.length.toLocaleString(DISPLAY_LOCALE)} product${result.added.length === 1 ? "" : "s"} added to your range`,
       ];
       if (result.held.length > 0) {
         parts.push(
-          `${result.held.length.toLocaleString()} skipped — ${result.held[0].reason}`,
+          `${result.held.length.toLocaleString(DISPLAY_LOCALE)} skipped — ${result.held[0].reason}`,
         );
       }
       setReferenceNotice(parts.join(". "));
@@ -392,14 +393,14 @@ export function ProductsPageContent() {
       const parts: string[] = [];
       if (result.unranged.length > 0) {
         parts.push(
-          `${result.unranged.length.toLocaleString()} moved back to the reference catalog`,
+          `${result.unranged.length.toLocaleString(DISPLAY_LOCALE)} moved back to the reference catalog`,
         );
       }
       if (result.deactivated.length > 0) {
-        parts.push(`${result.deactivated.length.toLocaleString()} deactivated`);
+        parts.push(`${result.deactivated.length.toLocaleString(DISPLAY_LOCALE)} deactivated`);
       }
       if (result.blocked.length > 0) {
-        parts.push(`${result.blocked.length.toLocaleString()} left alone`);
+        parts.push(`${result.blocked.length.toLocaleString(DISPLAY_LOCALE)} left alone`);
       }
       setReferenceNotice(
         [
@@ -670,7 +671,7 @@ export function ProductsPageContent() {
                 className={css.manageCatalogBtn}
                 aria-label={
                   openTaskCount > 0
-                    ? `Manage catalog, ${openTaskCount.toLocaleString()} tasks need review`
+                    ? `Manage catalog, ${openTaskCount.toLocaleString(DISPLAY_LOCALE)} tasks need review`
                     : "Manage catalog"
                 }
               >
@@ -678,7 +679,7 @@ export function ProductsPageContent() {
                 Manage catalog
                 {openTaskCount > 0 && (
                   <span className={css.manageCatalogBadge} aria-hidden>
-                    {openTaskCount.toLocaleString()}
+                    {openTaskCount.toLocaleString(DISPLAY_LOCALE)}
                   </span>
                 )}
               </Link>
@@ -872,7 +873,7 @@ export function ProductsPageContent() {
                       Export all matching
                     </span>
                     <span className={css.exportMenuItemHint}>
-                      All filtered results ({list.total.toLocaleString()}{" "}
+                      All filtered results ({list.total.toLocaleString(DISPLAY_LOCALE)}{" "}
                       product
                       {list.total === 1 ? "" : "s"})
                     </span>
@@ -983,7 +984,7 @@ export function ProductsPageContent() {
           >
             <div className={css.selectionMain}>
               <span className={css.selectionSummary}>
-                {selectedIds.size.toLocaleString()} product
+                {selectedIds.size.toLocaleString(DISPLAY_LOCALE)} product
                 {selectedIds.size === 1 ? "" : "s"} selected
               </span>
               {/* Only offered for the register tab. "Deactivate all 4,000 matching" is not an
@@ -996,7 +997,7 @@ export function ProductsPageContent() {
                   disabled={bulk.running !== null}
                   onClick={() => runBulkOnAllMatching("range")}
                 >
-                  Add all {list.total.toLocaleString()} matching instead
+                  Add all {list.total.toLocaleString(DISPLAY_LOCALE)} matching instead
                 </button>
               )}
             </div>
@@ -1079,7 +1080,7 @@ export function ProductsPageContent() {
           active={filtersActive || Boolean(importScopeId)}
           summary={
             importScopeId
-              ? `Products from one import · ${list.total.toLocaleString()} product${list.total === 1 ? "" : "s"}`
+              ? `Products from one import · ${list.total.toLocaleString(DISPLAY_LOCALE)} product${list.total === 1 ? "" : "s"}`
               : `Filtered products · ${list.total} product${list.total === 1 ? "" : "s"}`
           }
           pills={activeFilterPills}

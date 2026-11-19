@@ -62,6 +62,7 @@ import {
   showSystemQty,
 } from "../utils";
 import scss from "../stocktakes.module.css";
+import { formatDisplayTime } from "@pharmaceylon/shared";
 
 type TabKey = "count" | "review" | "activity" | "details";
 
@@ -260,7 +261,7 @@ export default function StocktakeDetailPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ lines: payload }),
       });
-      setLastSavedLabel(new Date().toLocaleTimeString());
+      setLastSavedLabel(formatDisplayTime(new Date()));
       // Keep any edits typed after this save started.
       const stillDirty = new Set(
         dirtyLinesRef.current
@@ -365,7 +366,7 @@ export default function StocktakeDetailPage() {
         },
       );
       applyServerDetail(updated);
-      setLastSavedLabel(new Date().toLocaleTimeString());
+      setLastSavedLabel(formatDisplayTime(new Date()));
       return updated;
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Failed to save review");

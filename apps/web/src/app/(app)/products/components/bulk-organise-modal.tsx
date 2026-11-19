@@ -13,6 +13,7 @@ import type {
   ProductTag,
 } from "../types";
 import css from "../products.module.css";
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 
 export type BulkOrganiseMode = "category" | "tags";
 
@@ -192,7 +193,7 @@ export function BulkOrganiseModal({
       onClose={onClose}
       canDismiss={!running}
       title={mode === "category" ? "File under a category" : "Add or remove tags"}
-      description={`${selectionCount.toLocaleString()} product${
+      description={`${selectionCount.toLocaleString(DISPLAY_LOCALE)} product${
         selectionCount === 1 ? "" : "s"
       } selected.`}
       footer={
@@ -344,13 +345,13 @@ export function BulkOrganiseModal({
         ) : (
           <>
             <p className={css.bulkPreviewLead}>
-              <strong>{preview.willChange.toLocaleString()}</strong> of{" "}
-              {preview.matched.toLocaleString()} product
+              <strong>{preview.willChange.toLocaleString(DISPLAY_LOCALE)}</strong> of{" "}
+              {preview.matched.toLocaleString(DISPLAY_LOCALE)} product
               {preview.matched === 1 ? "" : "s"} would change.
               {preview.alreadyOnTarget > 0 && (
                 <>
                   {" "}
-                  {preview.alreadyOnTarget.toLocaleString()}{" "}
+                  {preview.alreadyOnTarget.toLocaleString(DISPLAY_LOCALE)}{" "}
                   {preview.alreadyOnTarget === 1 ? "is" : "are"} already{" "}
                   {mode === "category" ? "filed there" : "tagged"}.
                 </>
@@ -361,13 +362,13 @@ export function BulkOrganiseModal({
               <div className={css.bulkWarn}>
                 <IconAlertTriangle size={15} />
                 <span>
-                  <strong>{preview.replacingExisting.toLocaleString()}</strong> already
+                  <strong>{preview.replacingExisting.toLocaleString(DISPLAY_LOCALE)}</strong> already
                   {preview.replacingExisting === 1 ? " has" : " have"} a different category,
                   which this replaces
                   {preview.replacingManual > 0 && (
                     <>
                       {" "}
-                      — <strong>{preview.replacingManual.toLocaleString()}</strong> of those
+                      — <strong>{preview.replacingManual.toLocaleString(DISPLAY_LOCALE)}</strong> of those
                       {preview.replacingManual === 1 ? " was" : " were"} chosen by hand
                     </>
                   )}
@@ -397,7 +398,7 @@ function applyLabel(
   if (!preview || preview.willChange === 0) {
     return mode === "category" ? "Apply" : verb;
   }
-  return `${verb} ${preview.willChange.toLocaleString()} product${
+  return `${verb} ${preview.willChange.toLocaleString(DISPLAY_LOCALE)} product${
     preview.willChange === 1 ? "" : "s"
   }`;
 }

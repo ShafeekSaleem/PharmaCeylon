@@ -12,6 +12,7 @@ import { fetchSupplierSpend } from "../lib/fetchers";
 import { formatMoney, formatPctTrend, pctChange } from "../lib/format";
 import type { ExportPayload, OnExportData, Scope, SupplierSpendResponse, SupplierSpendRow } from "../lib/types";
 import css from "../reports.module.css";
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 
 type Props = { scope: Scope; isOwner: boolean; days: number; onExportData: OnExportData };
 
@@ -94,9 +95,9 @@ export function SupplierSpendSection({ scope, isOwner, days, onExportData }: Pro
     { key: "supplier", header: "Supplier", width: "8rem", render: (r) => r.supplierName },
     { key: "spend", header: "Spend", align: "right", width: "5.5rem", sortable: true, getValue: (r) => r.spend, render: (r) => formatMoney(r.spend) },
     { key: "share", header: "Share %", align: "right", width: "4.5rem", sortable: true, getValue: (r) => r.sharePct, render: (r) => `${r.sharePct.toFixed(1)}%` },
-    { key: "pos", header: "POs", align: "right", width: "3.5rem", sortable: true, getValue: (r) => r.poCount, render: (r) => r.poCount.toLocaleString("en-IN") },
+    { key: "pos", header: "POs", align: "right", width: "3.5rem", sortable: true, getValue: (r) => r.poCount, render: (r) => r.poCount.toLocaleString(DISPLAY_LOCALE) },
     { key: "avgPo", header: "Avg PO", align: "right", width: "5rem", sortable: true, getValue: (r) => r.avgPoValue, render: (r) => formatMoney(r.avgPoValue) },
-    { key: "categories", header: "Categories", align: "right", width: "4.5rem", sortable: true, getValue: (r) => r.categoriesSupplied, render: (r) => r.categoriesSupplied.toLocaleString("en-IN") },
+    { key: "categories", header: "Categories", align: "right", width: "4.5rem", sortable: true, getValue: (r) => r.categoriesSupplied, render: (r) => r.categoriesSupplied.toLocaleString(DISPLAY_LOCALE) },
     { key: "status", header: "Status", width: "4.5rem", render: (r) => <span className={`${css.badge2} ${css.badge2Tight} ${css[STATUS_TONE[r.status] ?? "healthy"]}`}>{STATUS_LABEL[r.status] ?? r.status}</span> },
   ];
 
@@ -131,7 +132,7 @@ export function SupplierSpendSection({ scope, isOwner, days, onExportData }: Pro
         />
         <StatCard size="sm" showMenu={false}
           title="Active Suppliers"
-          value={loading || !kpis ? "…" : kpis.activeSuppliers.toLocaleString("en-IN")}
+          value={loading || !kpis ? "…" : kpis.activeSuppliers.toLocaleString(DISPLAY_LOCALE)}
           subtitle="With spend this period"
           icon={<IconUsers size={16} />}
           iconTone="primary"

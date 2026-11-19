@@ -36,6 +36,8 @@ export default defineConfig({
   },
   renderer: {
     root: resolve(__dirname, "src/renderer"),
+    // UI1 #205: the renderer formats dates with DISPLAY_LOCALE from the shared package.
+    resolve: { alias: shared },
     plugins: [react()],
     build: {
       outDir: resolve(__dirname, "dist/renderer"),

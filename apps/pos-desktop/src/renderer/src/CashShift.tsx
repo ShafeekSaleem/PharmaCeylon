@@ -30,6 +30,7 @@ import { Avatar } from "./Shell";
 import { ROLE_LABELS } from "./SignIn";
 import ui from "./ui.module.css";
 import { cx, ErrorLine, useAction } from "./useAction";
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 
 const TONE: Record<string, string> = {
   violet: "var(--pos-t-violet)",
@@ -925,7 +926,7 @@ function PastShifts({ active }: { active: boolean }) {
 
 const dayTime = (iso: string) => {
   const date = new Date(iso);
-  return `${date.toLocaleDateString("en-GB", { day: "numeric", month: "short" })} · ${time(date)}`;
+  return `${date.toLocaleDateString(DISPLAY_LOCALE, { day: "numeric", month: "short" })} · ${time(date)}`;
 };
 
 const payoutMinor = (amount: string) => minor(amount);

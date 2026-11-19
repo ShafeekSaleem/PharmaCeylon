@@ -1,6 +1,7 @@
 /** Display helpers for product pages (LKR default for pharmacy pricing). */
 
 import type { ProductDetailTab, StockStatus } from "../types";
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 
 const CURRENCY = "LKR";
 
@@ -8,7 +9,7 @@ export function formatCurrency(value: string | number | null | undefined): strin
   if (value === null || value === undefined || value === "") return "—";
   const num = typeof value === "string" ? Number(value) : value;
   if (Number.isNaN(num)) return String(value);
-  return new Intl.NumberFormat("en-LK", {
+  return new Intl.NumberFormat(DISPLAY_LOCALE, {
     style: "currency",
     currency: CURRENCY,
     minimumFractionDigits: 2,
@@ -29,14 +30,14 @@ export function formatDate(value: string | null | undefined): string {
   if (!value) return "—";
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+  return d.toLocaleDateString(DISPLAY_LOCALE, { year: "numeric", month: "short", day: "numeric" });
 }
 
 export function formatDateTime(value: string | null | undefined): string {
   if (!value) return "—";
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleString(undefined, {
+  return d.toLocaleString(DISPLAY_LOCALE, {
     year: "numeric",
     month: "short",
     day: "numeric",
@@ -109,12 +110,12 @@ export function formatRelativeTime(iso: string | null | undefined): string {
   if (mins < 60) return `${mins}m ago`;
   const hours = Math.floor(mins / 60);
   if (hours < 24) {
-    return d.toLocaleString(undefined, { hour: "numeric", minute: "2-digit" });
+    return d.toLocaleString(DISPLAY_LOCALE, { hour: "numeric", minute: "2-digit" });
   }
   const days = Math.floor(hours / 24);
   if (days === 1) return "Yesterday";
   if (days < 7) return `${days}d ago`;
-  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  return d.toLocaleDateString(DISPLAY_LOCALE, { month: "short", day: "numeric" });
 }
 
 export function formatMovementType(type: string): string {
@@ -158,10 +159,10 @@ export function formatMovementDateTime(iso: string | null | undefined): string {
     d.getFullYear() === yesterday.getFullYear() &&
     d.getMonth() === yesterday.getMonth() &&
     d.getDate() === yesterday.getDate();
-  const time = d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  const time = d.toLocaleTimeString(DISPLAY_LOCALE, { hour: "numeric", minute: "2-digit" });
   if (sameDay) return `Today, ${time}`;
   if (isYesterday) return `Yesterday, ${time}`;
-  return d.toLocaleString(undefined, {
+  return d.toLocaleString(DISPLAY_LOCALE, {
     month: "short",
     day: "numeric",
     hour: "numeric",

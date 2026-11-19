@@ -36,6 +36,7 @@ import {
 import { useProductMeta } from "../../hooks/use-product-meta";
 import { ProductNmraLinkModal } from "../../components/product-nmra-link-modal";
 import css from "../manage.module.css";
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 
 const PAGE_SIZE = 50;
 
@@ -400,11 +401,11 @@ export function WorkQueueSection({
     try {
       const result = await applySafeCatalogTasks(query, safeCount);
       const parts = [
-        `${result.applied.toLocaleString()} change${result.applied === 1 ? "" : "s"} applied`,
+        `${result.applied.toLocaleString(DISPLAY_LOCALE)} change${result.applied === 1 ? "" : "s"} applied`,
       ];
       if (result.failed.length > 0) {
         parts.push(
-          `${result.failed.length.toLocaleString()} couldn't be applied — ${result.failed[0].reason}`,
+          `${result.failed.length.toLocaleString(DISPLAY_LOCALE)} couldn't be applied — ${result.failed[0].reason}`,
         );
       }
       setNotice(parts.join(". "));
@@ -763,7 +764,7 @@ export function WorkQueueSection({
             >
               {applyingSafe
                 ? "Applying…"
-                : `Apply ${safeCount.toLocaleString()} safe change${safeCount === 1 ? "" : "s"}`}
+                : `Apply ${safeCount.toLocaleString(DISPLAY_LOCALE)} safe change${safeCount === 1 ? "" : "s"}`}
             </ActionButton>
           </div>
         )}
@@ -815,7 +816,7 @@ export function WorkQueueSection({
 
       <ActiveFilterBanner
         active={filtersActive}
-        summary={`Filtered tasks · ${total.toLocaleString()} task${
+        summary={`Filtered tasks · ${total.toLocaleString(DISPLAY_LOCALE)} task${
           total === 1 ? "" : "s"
         }`}
         pills={filterPills}
@@ -916,7 +917,7 @@ function FilterChip({
       {tone && <span className={css.chipDot} aria-hidden />}
       {label}
       {count !== null && (
-        <span className={css.chipCount}>{count.toLocaleString()}</span>
+        <span className={css.chipCount}>{count.toLocaleString(DISPLAY_LOCALE)}</span>
       )}
     </button>
   );

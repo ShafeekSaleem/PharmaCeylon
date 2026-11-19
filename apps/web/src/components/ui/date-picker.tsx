@@ -18,6 +18,7 @@ import {
   IconChevronRight,
 } from "@/components/icons";
 import css from "./date-picker.module.css";
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 
 /**
  * The app's one calendar.
@@ -95,7 +96,7 @@ const same = (a: Ymd | null, b: Ymd | null) =>
 export function formatPickerDate(value: string): string {
   const day = parseIso(value);
   if (!day) return "";
-  return asDate(day).toLocaleDateString("en-US", {
+  return asDate(day).toLocaleDateString(DISPLAY_LOCALE, {
     month: "short",
     day: "numeric",
     year: "numeric",
@@ -276,7 +277,7 @@ export function DatePicker({
   };
 
   const today = todayYmd();
-  const monthLabel = asDate(focusDay).toLocaleDateString("en-US", {
+  const monthLabel = asDate(focusDay).toLocaleDateString(DISPLAY_LOCALE, {
     month: "long",
     year: "numeric",
   });
@@ -336,7 +337,7 @@ export function DatePicker({
                   tabIndex={isFocus ? 0 : -1}
                   disabled={disabledDay}
                   aria-selected={isSelected}
-                  aria-label={asDate(day).toLocaleDateString("en-US", {
+                  aria-label={asDate(day).toLocaleDateString(DISPLAY_LOCALE, {
                     weekday: "long",
                     day: "numeric",
                     month: "long",

@@ -1,3 +1,4 @@
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 const dayKey = (at: number | Date, timeZone: string) =>
   new Date(at).toLocaleDateString("en-CA", { timeZone });
 
@@ -12,8 +13,8 @@ export function branchTime(
 ): string {
   const clock = { hour: "2-digit", minute: "2-digit", timeZone } as const;
   return dayKey(at, timeZone) === dayKey(now, timeZone)
-    ? new Date(at).toLocaleTimeString("en-GB", clock)
-    : new Date(at).toLocaleString("en-GB", {
+    ? new Date(at).toLocaleTimeString(DISPLAY_LOCALE, clock)
+    : new Date(at).toLocaleString(DISPLAY_LOCALE, {
         day: "numeric",
         month: "short",
         ...clock,

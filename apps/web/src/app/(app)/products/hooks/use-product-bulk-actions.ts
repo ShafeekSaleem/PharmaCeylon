@@ -7,6 +7,7 @@ import type {
   BulkProductPreview,
   BulkProductResult,
 } from "../types";
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 
 export type BulkTarget =
   | { kind: "ids"; productIds: string[] }
@@ -76,7 +77,7 @@ export function useProductBulkActions(onDone: () => void) {
         setNotice(
           result.updated === 0
             ? "Nothing to change — those products were already in that state."
-            : `${result.updated.toLocaleString()} ${noun} ${ACTION_PAST_TENSE[action]}.`,
+            : `${result.updated.toLocaleString(DISPLAY_LOCALE)} ${noun} ${ACTION_PAST_TENSE[action]}.`,
         );
         onDone();
         return result;

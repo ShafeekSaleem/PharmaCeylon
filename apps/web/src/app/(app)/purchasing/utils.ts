@@ -6,6 +6,7 @@ import {
   type PurchaseOrderListItem,
 } from "./types";
 import type { SummaryPeriod } from "./types";
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 
 export function resolveSummaryPeriod(period: SummaryPeriod): {
   from: Date;
@@ -31,7 +32,7 @@ export function resolveSummaryPeriod(period: SummaryPeriod): {
       return {
         from: start,
         to: end,
-        label: start.toLocaleString(undefined, { month: "long", year: "numeric" }),
+        label: start.toLocaleString(DISPLAY_LOCALE, { month: "long", year: "numeric" }),
       };
     }
     case "this_quarter": {
@@ -49,7 +50,7 @@ export function resolveSummaryPeriod(period: SummaryPeriod): {
       return {
         from: start,
         to,
-        label: start.toLocaleString(undefined, { month: "long", year: "numeric" }),
+        label: start.toLocaleString(DISPLAY_LOCALE, { month: "long", year: "numeric" }),
       };
     }
   }
@@ -88,14 +89,14 @@ export function formatDate(iso: string | null | undefined): string {
     ? parseDateOnlyLocal(trimmed)
     : new Date(trimmed);
   if (!d || Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+  return d.toLocaleDateString(DISPLAY_LOCALE, { year: "numeric", month: "short", day: "numeric" });
 }
 
 export function formatDateTime(iso: string | null | undefined): string {
   if (!iso) return "—";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleString(undefined, {
+  return d.toLocaleString(DISPLAY_LOCALE, {
     year: "numeric",
     month: "short",
     day: "numeric",

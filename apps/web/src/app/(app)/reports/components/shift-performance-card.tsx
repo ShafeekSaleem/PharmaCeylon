@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 import { formatMoney } from "../lib/format";
 import css from "../reports.module.css";
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 
 export type ShiftMetric = "revenue" | "transactions" | "avgBasket" | "revenuePerCashier";
 
@@ -104,7 +105,7 @@ export function ShiftPerformanceCard({ id, shifts, metric, onMetricChange, foote
 
             <div className={css.shiftMetrics}>
               <ShiftMetricCell label="Revenue" value={formatMoney(s.revenue)} isPrimary={metric === "revenue"} barPct={(s.revenue / maxValue) * 100} />
-              <ShiftMetricCell label="Transactions" value={s.transactions.toLocaleString("en-IN")} isPrimary={metric === "transactions"} barPct={(s.transactions / maxValue) * 100} />
+              <ShiftMetricCell label="Transactions" value={s.transactions.toLocaleString(DISPLAY_LOCALE)} isPrimary={metric === "transactions"} barPct={(s.transactions / maxValue) * 100} />
               <ShiftMetricCell label="Avg Basket" value={formatMoney(s.avgBasket)} isPrimary={metric === "avgBasket"} barPct={(s.avgBasket / maxValue) * 100} />
               <ShiftMetricCell label="Revenue / Cashier" value={formatMoney(s.revenuePerCashier)} isPrimary={metric === "revenuePerCashier"} barPct={(s.revenuePerCashier / maxValue) * 100} />
             </div>
