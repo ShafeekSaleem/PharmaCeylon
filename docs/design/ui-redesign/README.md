@@ -86,12 +86,25 @@ One appearance for everyone at the pharmacy, set by an owner on Settings › App
 - **Desktop soft fills** (`--pos-primary-soft`, `-soft-2`) now mix from the accent instead of a fixed teal. The other literal teals in the desktop CSS wait for the colour sweep below.
 - Screenshots: `screenshots/pr3-brand-settings/` (web) and `screenshots/pr4-desktop-brand/` (counter and receipt). The counter shots stand in a fake bridge for main. The appearance endpoint was stubbed in the browser for these, because the shared dev database is behind on migrations.
 
+## Web shell
+
+The frame around every back-office page ([`components/app-shell/`](../../../apps/web/src/components/app-shell)).
+
+- **Top bar, left to right:** sidebar button, branch switch, search, theme switch, notifications, account. The branch switch is the only scope control in the shell. It stays off Settings pages, as before, because those say their own scope. The top bar has no New sale slot (decision 1). The New Sale button and its Ctrl+Shift+P shortcut are unchanged, because hiding web selling is W2 #64's job.
+- **Full screen** moved from the top bar into the account menu. Ctrl+Shift+F still works.
+- **The page title appears once, in the page header.** The top bar no longer shows it, and the breadcrumb row under the top bar is gone. The shell works out the page's name (`PAGE_TITLES`, or a page's `setLastSegmentLabel`, e.g. a product's name or an invoice number) and passes it down through `PageTitleProvider`. `PageHeader` with `subtitleOnly` now shows it as the page's `<h1>`. A page that draws no `<h1>` of its own gets one from the shell, so every page has exactly one.
+- **Breadcrumb only for parents.** A nested page shows the pages above it, as links over its title ("Settings ›" over "Appearance"). A top-level page has no breadcrumb. A record id in the path is never shown as a name.
+- **Sidebar:** a group shows its heading only when it shows more than one item. Sales and Catalog have one item each, and Main shrinks to Dashboard where POS is hidden. A group with nothing visible is dropped. The sidebar has no nav badges today. If badges are added, they show only counts that need someone to act, never totals.
+- **Narrow screens:** search sits in its own slot between the branch switch and the icons, so it can't slide under them. At 390 px the branch name truncates and the page doesn't scroll sideways. Checked at 1440 × 900, 1366 × 768 and 390 × 844.
+- `components/pms-nav.tsx`, an old link row nothing used, is deleted.
+- Screenshots: `screenshots/pr-web-shell/` (Dashboard, Products, Settings › Appearance and Batch stock, before and after, light and dark).
+
 ## Not done yet
 
 These items in #205's Phase 1 come in later PRs:
 
 - **Chart palette:** an owner control once the dashboard charts read it.
-- **Web shell and the shared list pattern.**
+- **Shared list pattern.**
 - **Sweep of the remaining hard-coded colours.** About 70 literal `#fff` values in web CSS modules, many of them white text on an accent fill that fails in dark. Eight `--pc-*` names that are referenced but never defined (`--pc-surface-2`, `--pc-rule`, `--pc-border-subtle`, `--pc-radius`, `--pc-radius-lg`, `--pc-shadow-sm`, `--pc-font-mono`, `--pc-alert-danger-bg`), which always fall back to their literal. About 115 literals in the desktop renderer, left until the P4 desktop work settles.
 
 ## Screenshots
