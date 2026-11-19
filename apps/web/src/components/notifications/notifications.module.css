@@ -160,6 +160,8 @@
   font-size: 0.65rem;
 }
 .unreadDot {
+  /* Anchors the hidden "Unread" text to the dot. */
+  position: relative;
   width: 7px;
   height: 7px;
   flex: 0 0 7px;
