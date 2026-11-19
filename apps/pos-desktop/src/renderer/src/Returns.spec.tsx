@@ -81,7 +81,7 @@ beforeEach(() => {
       value: {
         status: "refunded",
         refund: {
-          requestNumber: "RFR-13", amountMinor: 630000, refundedTo: [{ method: "card", amountMinor: 630000 }],
+          refundRequestId: id(40), requestNumber: "RFR-13", amountMinor: 630000, refundedTo: [{ method: "card", amountMinor: 630000 }],
           alreadyApplied: false, requestedBy: "Sachini R.", approvedBy: "Dilini Fernando",
         },
       },
@@ -91,7 +91,7 @@ beforeEach(() => {
       value: {
         status: "refunded",
         refund: {
-          requestNumber: "RFR-12", amountMinor: 485000, refundedTo: [{ method: "card", amountMinor: 485000 }],
+          refundRequestId: id(41), requestNumber: "RFR-12", amountMinor: 485000, refundedTo: [{ method: "card", amountMinor: 485000 }],
           alreadyApplied: false, requestedBy: "Sachini R.", approvedBy: null,
         },
       },
@@ -99,7 +99,7 @@ beforeEach(() => {
     executeRefund: async () => ({
       ok: true,
       value: {
-        requestNumber: "RF-0031", amountMinor: 184000, refundedTo: [{ method: "card", amountMinor: 184000 }],
+        refundRequestId: id(31), requestNumber: "RF-0031", amountMinor: 184000, refundedTo: [{ method: "card", amountMinor: 184000 }],
         alreadyApplied: false, requestedBy: "Nimal P.", approvedBy: "Dilini F.",
       },
     }),
@@ -384,7 +384,7 @@ describe("Returns: a manager co-signs over the limit", () => {
       value: {
         status: "refunded",
         refund: {
-          requestNumber: "RFR-13", amountMinor: 630000, refundedTo: [{ method: "card", amountMinor: 630000 }],
+          refundRequestId: id(40), requestNumber: "RFR-13", amountMinor: 630000, refundedTo: [{ method: "card", amountMinor: 630000 }],
           alreadyApplied: false, requestedBy: "Sachini R.", approvedBy: "Dilini Fernando",
         },
       },

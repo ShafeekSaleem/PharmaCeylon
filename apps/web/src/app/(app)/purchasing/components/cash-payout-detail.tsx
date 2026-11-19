@@ -42,6 +42,11 @@ export function CashPayoutDetail({ payout, branchName, invoiceNumbers, onChanged
   const open = payout.status === "prepared" || payout.status === "approved";
   const showApprove = access.canPay && payout.status === "prepared" && !!payout.approvalReview;
   const showCancel = access.canPay && open;
+  const selfApproved =
+    payout.status === "approved" &&
+    payout.requester &&
+    payout.approver &&
+    payout.requester.id === payout.approver.id;
 
   const invoices = useInvoices(
     { supplierId: payout.supplier?.id, status: "outstanding" },
@@ -123,6 +128,13 @@ export function CashPayoutDetail({ payout, branchName, invoiceNumbers, onChanged
           This payout is on the Cash &amp; shift &ldquo;Pay out&rdquo; list at {branchName}. The
           browser cannot execute it (terminal only). Prepare bank or card payments on the ordinary
           payment path instead.
+        </Alert>
+      )}
+
+      {selfApproved && (
+        <Alert variant="info">
+          Prepared and approved in one step by {payout.requester?.fullName ?? "the requester"}. Someone at
+          the counter can pay it out from the drawer.
         </Alert>
       )}
 

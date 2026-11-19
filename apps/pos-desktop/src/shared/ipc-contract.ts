@@ -736,6 +736,8 @@ export const cashPayoutExecutedSchema = z.object({
   payoutNumber: z.string(),
   amountMinor: z.number().int(),
   supplierPaymentId: uuid,
+  supplierPaymentNo: z.string().nullable(),
+  executedAt: z.string(),
   alreadyApplied: z.boolean(),
   requestedBy: z.string().nullable(),
   approvedBy: z.string().nullable(),
@@ -902,6 +904,7 @@ export const stockCaseResolvedSchema = z.object({
 export type StockCaseResolved = z.infer<typeof stockCaseResolvedSchema>;
 
 export const refundExecutedSchema = z.object({
+  refundRequestId: uuid,
   requestNumber: z.string(),
   amountMinor: z.number().int(),
   refundedTo: z.array(
@@ -1616,6 +1619,7 @@ export const ipcContract = {
       payoutNumber: z.string(),
       amountMinor: z.number().int(),
       supplierPaymentId: uuid,
+      supplierPaymentNo: z.string().nullable().optional(),
       supplierName: z.string().nullable(),
       movementReason: z.string(),
       executedAt: z.string(),

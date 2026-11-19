@@ -110,10 +110,17 @@ export type SupplierCashPayoutReceipt = {
   payoutNumber: string;
   amountMinor: number;
   supplierPaymentId: string;
+  supplierPaymentNo?: string | null;
   supplierName: string | null;
   movementReason: string;
   executedAt: string;
 };
+
+function supplierPaymentReceiptLabel(payout: SupplierCashPayoutReceipt): string {
+  const no = payout.supplierPaymentNo?.trim();
+  if (no) return no;
+  return payout.supplierPaymentId.slice(0, 8);
+}
 
 function minorMoney(minor: number): string {
   return (minor / 100).toFixed(2);
@@ -138,7 +145,7 @@ ${receiptHeader(place)}
 ${row("Receipt", "supplier_cash_payout.executed")}
 ${row("Supplier", payout.supplierName ?? "Supplier")}
 ${row("Payout", payout.payoutNumber)}
-${row("Payment id", payout.supplierPaymentId)}
+${row("Payment", supplierPaymentReceiptLabel(payout))}
 ${row("Till cash out", payout.movementReason)}
 ${row("Amount", `Rs ${minorMoney(payout.amountMinor)}`)}
 ${row("Paid at", formatDisplayDateTime(payout.executedAt))}

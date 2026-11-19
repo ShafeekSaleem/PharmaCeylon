@@ -211,6 +211,7 @@ describe("supplier cash payouts at the counter", () => {
         executed.push(args);
         if (executeError) throw executeError;
         return {
+          recordedAt: Date.parse("2026-11-14T12:30:00.000Z"),
           result: {
             type: "supplier_cash_payout.executed",
             cashPayoutId,
@@ -252,6 +253,7 @@ describe("supplier cash payouts at the counter", () => {
       supplierPaymentId: paymentId,
       supplierName: "Hemas Pharmaceuticals",
       movementReason: "Supplier payout · SCP-0042",
+      executedAt: "2026-11-14T12:30:00.000Z",
     });
   });
 

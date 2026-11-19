@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { CashPayoutAtCounter, CashPayoutExecuted, DeviceState, LocalShift } from "../../shared/ipc-contract";
+import type {
+  CashPayoutAtCounter,
+  CashPayoutExecuted,
+  DeviceState,
+  LocalShift,
+  Printer,
+} from "../../shared/ipc-contract";
 import d from "./Dispensing.module.css";
 import styles from "./CashShift.module.css";
 import { shortName } from "./format";
@@ -33,6 +39,7 @@ export function SupplierCashPayoutTab({
   device,
   shift,
   online,
+  printer,
   focusPayoutId,
   onFocusConsumed,
   onExecuted,
@@ -40,6 +47,8 @@ export function SupplierCashPayoutTab({
   device: DeviceState;
   shift: LocalShift | null;
   online: boolean;
+  /** Configured receipt printer for this counter (same source as sale receipts / X report). */
+  printer?: Printer | null;
   focusPayoutId?: string | null;
   onFocusConsumed?: () => void;
   onExecuted?: () => void;
@@ -157,25 +166,20 @@ export function SupplierCashPayoutTab({
 
   async function printReceipt() {
     if (!done || !sheetPayout) return;
-    let printer = "";
-    try {
-      const printers = await window.pos.listPrinters();
-      printer = printers[0]?.name ?? "";
-    } catch {
-      printer = "";
-    }
-    if (!printer) {
+    const printerName = printer?.name ?? "";
+    if (!printerName) {
       setPrintMessage("No receipt printer is set up on this counter.");
       return;
     }
     const result = await window.pos.printSupplierCashPayoutReceipt({
-      printerName: printer,
+      printerName,
       payoutNumber: done.payoutNumber,
       amountMinor: done.amountMinor,
       supplierPaymentId: done.supplierPaymentId,
+      supplierPaymentNo: done.supplierPaymentNo,
       supplierName: done.supplierName ?? sheetPayout.supplierName,
       movementReason: done.movementReason,
-      executedAt: new Date().toISOString(),
+      executedAt: done.executedAt,
     });
     setPrintMessage(
       result.ok ? "Receipt sent to the printer." : (result.error ?? "The receipt did not print."),
@@ -384,10 +388,13 @@ export function SupplierCashPayoutTab({
                   <div className={cx(ui.note, styles.inset)} role="status">
                     <Icon name="check-circle" />
                     <div>
-                      <b>{done.alreadyApplied ? "Already paid out" : "Paid out"}</b>
+                      <b>{done.alreadyApplied ? "Already paid out elsewhere" : "Paid out"}</b>
                       <div>
                         Receipt <code>supplier_cash_payout.executed</code>. Payment{" "}
-                        <code>{done.supplierPaymentId.slice(0, 8)}</code> ·{" "}
+                        <code>
+                          {done.supplierPaymentNo?.trim() || done.supplierPaymentId.slice(0, 8)}
+                        </code>{" "}
+                        ·{" "}
                         <code>amountMinor</code> {done.amountMinor} (Rs {money(done.amountMinor)}). Till cash
                         out: {done.movementReason}.
                       </div>

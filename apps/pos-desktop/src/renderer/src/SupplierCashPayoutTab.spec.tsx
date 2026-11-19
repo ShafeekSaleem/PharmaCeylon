@@ -124,6 +124,8 @@ describe("SupplierCashPayoutTab", () => {
       payoutNumber: "SCP-0042",
       amountMinor: 1_250_000,
       supplierPaymentId: "44444444-4444-4444-8444-444444444444",
+      supplierPaymentNo: "SP-0012",
+      executedAt: "2026-11-14T12:30:00.000Z",
       alreadyApplied: false,
       requestedBy: "Kasun",
       approvedBy: "Dilini",
@@ -131,12 +133,19 @@ describe("SupplierCashPayoutTab", () => {
       supplierName: "Hemas Pharmaceuticals",
       expectedCashMinorAfter: 1_235_000,
     };
+    const printSupplierCashPayoutReceipt = jest.fn(async () => ({ ok: true as const }));
     stubPos({
       cashPayoutsReady,
       executeCashPayout: async () => ({ ok: true, value: executed }),
+      printSupplierCashPayoutReceipt,
     });
     render(
-      <SupplierCashPayoutTab device={signedInDevice()} shift={shift()} online />,
+      <SupplierCashPayoutTab
+        device={signedInDevice()}
+        shift={shift()}
+        online
+        printer={{ name: "EPSON-TM", displayName: "EPSON TM-T20" }}
+      />,
     );
     await waitFor(() => expect(screen.getAllByText(/SCP-0042/).length).toBeGreaterThan(0));
     fireEvent.click(screen.getAllByRole("button", { name: /^Pay out/ })[0]!);
@@ -144,8 +153,19 @@ describe("SupplierCashPayoutTab", () => {
     fireEvent.click(within(dialog).getByRole("checkbox"));
     fireEvent.click(within(dialog).getByRole("button", { name: /^Pay out/ }));
     await waitFor(() => expect(screen.getByText("Payout complete")).toBeTruthy());
+    expect(screen.getByText(/SP-0012/)).toBeTruthy();
     expect(screen.getByText(/Expected drawer now/)).toBeTruthy();
     expect(screen.getByText(/Rs 12,350.00/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Print receipt" }));
+    await waitFor(() => expect(printSupplierCashPayoutReceipt).toHaveBeenCalled());
+    const printCall = jest.mocked(printSupplierCashPayoutReceipt).mock.calls[0] as
+      | [{ printerName: string; supplierPaymentNo?: string; executedAt: string }]
+      | undefined;
+    expect(printCall?.[0]).toMatchObject({
+      printerName: "EPSON-TM",
+      supplierPaymentNo: "SP-0012",
+      executedAt: "2026-11-14T12:30:00.000Z",
+    });
     expect(cashPayoutsReady).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByRole("button", { name: "Done" }));
     await waitFor(() => expect(cashPayoutsReady).toHaveBeenCalledTimes(2));

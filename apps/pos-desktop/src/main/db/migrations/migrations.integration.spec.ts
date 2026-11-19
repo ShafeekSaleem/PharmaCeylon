@@ -199,4 +199,62 @@ describe("offline journal migrations with PR #136", () => {
     expect(ddl?.sql).toMatch(/'payout'/);
     second.db.close();
   });
+
+  it("upgrades through v20 without altering existing sale and refund postings", () => {
+    const first = openLocalStore(dir, protector, migrations.filter((m) => m.version <= 19));
+    const workSessionId = "ws-migration-20";
+    first.db
+      .prepare(
+        `INSERT INTO till_shift (
+          work_session_id, shift_number, enrollment_id, branch_id, staff_user_id, staff_name,
+          opened_at, opening_cash_minor, opening_count_json, state, expected_cash_minor, sync, updated_at
+        ) VALUES (?, 'S-1', 'enroll-1', 'branch-1', 'staff-1', 'Staff One', '2026-11-01T00:00:00.000Z',
+          500000, '[]', 'open', 500000, 'synced', '2026-11-01T00:00:00.000Z')`,
+      )
+      .run(workSessionId);
+    const postings = [
+      {
+        id: "sale-1",
+        kind: "sale",
+        cash_in_minor: 2000,
+        change_minor: 500,
+        cash_out_minor: 0,
+        at: "2026-11-01T10:00:00.000Z",
+      },
+      {
+        id: "refund:RF-88",
+        kind: "refund",
+        cash_in_minor: 0,
+        change_minor: 0,
+        cash_out_minor: 700,
+        at: "2026-11-01T11:00:00.000Z",
+      },
+    ] as const;
+    for (const row of postings) {
+      first.db
+        .prepare(
+          `INSERT INTO till_shift_posting (id, work_session_id, kind, cash_in_minor, change_minor, cash_out_minor, at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(row.id, workSessionId, row.kind, row.cash_in_minor, row.change_minor, row.cash_out_minor, row.at);
+    }
+    first.db.close();
+
+    const second = openLocalStore(dir, protector, migrations);
+    expect(second.schemaVersion).toBe(migrations.length);
+    for (const row of postings) {
+      expect(
+        second.db.prepare("SELECT * FROM till_shift_posting WHERE id = ?").get(row.id),
+      ).toEqual({
+        id: row.id,
+        work_session_id: workSessionId,
+        kind: row.kind,
+        cash_in_minor: row.cash_in_minor,
+        change_minor: row.change_minor,
+        cash_out_minor: row.cash_out_minor,
+        at: row.at,
+      });
+    }
+    second.db.close();
+  });
 });

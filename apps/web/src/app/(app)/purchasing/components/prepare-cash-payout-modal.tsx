@@ -28,8 +28,6 @@ export function PrepareCashPayoutModal({ open, onClose, onPrepared }: Props) {
   const [allocations, setAllocations] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [selfApproveNote, setSelfApproveNote] = useState(false);
-
   const invoices = useInvoices(
     { supplierId: supplierId || undefined, status: "outstanding" },
     open && !!supplierId,
@@ -44,7 +42,6 @@ export function PrepareCashPayoutModal({ open, onClose, onPrepared }: Props) {
     setNotes("");
     setAllocations({});
     setError(null);
-    setSelfApproveNote(false);
   }, [open]);
 
   const owed = useMemo(
@@ -72,7 +69,7 @@ export function PrepareCashPayoutModal({ open, onClose, onPrepared }: Props) {
     setError(null);
     try {
       const parts = paymentAllocations(invoices.rows, amount, allocations);
-      const created = await apiJson<{ status: string }>("/purchasing/cash-payouts", {
+      await apiJson<{ status: string }>("/purchasing/cash-payouts", {
         method: "POST",
         body: JSON.stringify({
           supplierId,
@@ -83,7 +80,6 @@ export function PrepareCashPayoutModal({ open, onClose, onPrepared }: Props) {
           allocations: parts,
         }),
       });
-      if (created.status === "approved") setSelfApproveNote(true);
       onPrepared();
       onClose();
     } catch (err) {
@@ -97,12 +93,6 @@ export function PrepareCashPayoutModal({ open, onClose, onPrepared }: Props) {
   return (
     <Modal open={open} onClose={onClose} title="Prepare cash payout" size="xl">
       {error && <Alert variant="error">{error}</Alert>}
-      {selfApproveNote && (
-        <Alert variant="info">
-          Your role can self-approve supplier payments, so this payout was prepared and approved in
-          one step. Someone at the counter can pay it out from the drawer.
-        </Alert>
-      )}
       {!amount.trim() && <Alert variant="warning">Enter the amount to pay out</Alert>}
       {allocationMismatch && <Alert variant="error">{allocationMismatch}</Alert>}
       <div className={css.formGrid}>
