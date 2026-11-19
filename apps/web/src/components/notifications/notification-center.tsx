@@ -204,7 +204,11 @@ export function NotificationCenter() {
                         {relativeNotificationTime(item.updatedAt)}
                       </span>
                     </span>
-                    {!item.readAt ? <span className={css.unreadDot} /> : null}
+                    {!item.readAt ? (
+                      <span className={css.unreadDot}>
+                        <span className="pc-sr-only">Unread</span>
+                      </span>
+                    ) : null}
                   </button>
                 ))
               : null}

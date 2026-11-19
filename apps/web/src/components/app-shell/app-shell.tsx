@@ -7,6 +7,7 @@ import { usePageChrome } from "@/lib/page-chrome-context";
 import { useAuth } from "@/lib/use-auth";
 import { hasPermission, usePermissions } from "@/lib/permissions";
 import { useBranchRollout, webPosHidden } from "@/lib/branch-rollout";
+import { navBadgeText, useNavBadges } from "@/lib/nav-badges";
 import { fetchSetupReadiness, SETUP_JOURNEY_CHANGED_EVENT } from "@/lib/setup-readiness-client";
 import { useFullscreen } from "@/lib/use-fullscreen";
 import {
@@ -379,6 +380,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     isPersonalAccountPath(pathname) ||
     (accessResolved && mayOpenWebPath(pathname, backOfficeAccess, scopeRollout));
   const { extraCrumbs, lastSegmentLabel, chromeHidden } = usePageChrome();
+  // Counts of work waiting in each area, from the dashboard's own queue (#205).
+  const navBadges = useNavBadges(branchId, isAuthenticated && !webScopeRestricted, pathname);
   const { isFullscreen, toggle: toggleFullscreen } = useFullscreen();
 
   const [collapsed, setCollapsed] = useState(false);
@@ -681,6 +684,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                       >
                         <span className={styles.navItemIcon}>{item.icon}</span>
                         <span className={styles.navItemLabel}>{item.label}</span>
+                        {navBadges[item.href] ? (
+                          <span className={styles.navBadge}>
+                            {navBadgeText(navBadges[item.href])}
+                            <span className="pc-sr-only"> need action</span>
+                          </span>
+                        ) : null}
                       </Link>
                     );
                   })}

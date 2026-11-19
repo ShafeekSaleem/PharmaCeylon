@@ -409,6 +409,22 @@ describe("#205 web shell: one title, one scope control, quiet sidebar", () => {
     expect(within(nav).getAllByText("Sales")).toHaveLength(1);
   });
 
+  it("badges a sidebar link with the work waiting there", async () => {
+    mockKeys = ["purchasing.view", "inventory.view"];
+    request.mockImplementation(async (path: string) => {
+      if (path === "/tenant/context") return contextResponse() as never;
+      if (path.startsWith("/dashboard/work?"))
+        return { categories: { purchasing: 3, inventory: 0 } } as never;
+      return { groups: [] } as never;
+    });
+    await renderShell();
+    const nav = screen.getByRole("navigation", { name: "Main" });
+    expect(
+      await within(nav).findByRole("link", { name: "Purchasing 3 need action" }),
+    ).toBeInTheDocument();
+    expect(within(nav).getByRole("link", { name: "Inventory" })).toBeInTheDocument();
+  });
+
   it("drops a group's heading once its other items are hidden", async () => {
     rollout = LIVE;
     await renderShell();

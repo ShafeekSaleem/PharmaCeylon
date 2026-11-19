@@ -86,44 +86,22 @@ export function StocktakeReviewSidebar({
       <div className={scss.sideCard}>
         <h3 className={scss.sideCardTitle}>Approval checklist</h3>
         <ul className={scss.checklist}>
-          <li>
-            <span
-              className={
-                resolved >= varianceLines.length ? scss.checkDotOk : scss.checkDotWarn
-              }
-            />
+          <CheckItem state={resolved >= varianceLines.length ? "done" : "todo"}>
             {varianceLines.length === 0
               ? "No variance lines — approve when ready"
               : `Review variance lines (${resolved}/${varianceLines.length})`}
-          </li>
-          <li>
-            <span
-              className={
-                resolved >= varianceLines.length
-                  ? scss.checkDotOk
-                  : scss.checkDotWarn
-              }
-            />
+          </CheckItem>
+          <CheckItem state={resolved >= varianceLines.length ? "done" : "todo"}>
             {varianceLines.length === 0
               ? "Matched lines need no reason"
               : `Pick a reason (${resolved}/${varianceLines.length})`}
-          </li>
-          <li>
-            <span
-              className={
-                needApproval === 0 ? scss.checkDotOk : scss.checkDotWarn
-              }
-            />
+          </CheckItem>
+          <CheckItem state={needApproval === 0 ? "done" : "todo"}>
             Resolve or request recount
-          </li>
-          <li>
-            <span
-              className={
-                stocktake.status === "completed" ? scss.checkDotOk : scss.checkDotMuted
-              }
-            />
+          </CheckItem>
+          <CheckItem state={stocktake.status === "completed" ? "done" : "later"}>
             Approve — adjusts stock to the count and closes it
-          </li>
+          </CheckItem>
         </ul>
       </div>
 
@@ -145,5 +123,29 @@ export function StocktakeReviewSidebar({
         </button>
       </div>
     </div>
+  );
+}
+
+const CHECK_STATE = {
+  done: { word: "Done", dot: scss.checkDotOk, ink: scss.checkStateOk },
+  todo: { word: "To do", dot: scss.checkDotWarn, ink: scss.checkStateWarn },
+  later: { word: "Not yet", dot: scss.checkDotMuted, ink: scss.checkStateMuted },
+} as const;
+
+/** One approval step: the dot's colour is repeated in words, so it never stands alone (#205). */
+function CheckItem({
+  state,
+  children,
+}: {
+  state: keyof typeof CHECK_STATE;
+  children: React.ReactNode;
+}) {
+  const s = CHECK_STATE[state];
+  return (
+    <li>
+      <span className={s.dot} aria-hidden />
+      <span className={scss.checkText}>{children}</span>
+      <span className={s.ink}>{s.word}</span>
+    </li>
   );
 }
