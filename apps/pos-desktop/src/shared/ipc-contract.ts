@@ -1,3 +1,4 @@
+import type { TerminalTestReceiptFact } from "@pharmaceylon/shared";
 import { z } from "zod";
 
 /**
@@ -36,12 +37,16 @@ export type EnrollmentOfflineBackup = z.infer<
   typeof enrollmentOfflineBackupSchema
 >;
 
-/** The last test receipt confirmed at this enrollment (go-live evidence); epoch ms. */
+/**
+ * The last test receipt confirmed at this enrollment (go-live evidence); epoch ms. Checked against
+ * the server's `TerminalTestReceiptFact`, so a change there fails to compile here rather than
+ * silently dropping the cached copy.
+ */
 export const testReceiptFactSchema = z.object({
   confirmedAt: z.number(),
   confirmedByName: z.string().nullable(),
   printerName: z.string(),
-});
+}) satisfies z.ZodType<TerminalTestReceiptFact>;
 export type TestReceiptFact = z.infer<typeof testReceiptFactSchema>;
 
 export const emptyEnrollmentOfflineBackup: EnrollmentOfflineBackup = {

@@ -157,8 +157,13 @@ export class TerminalService {
   private enrollmentFromServer: {
     counterLabel: string | null;
     offlineBackup: TerminalEnrollmentOfflineBackup;
-    lastTestReceipt: TerminalTestReceiptFact | null;
   } | null = null;
+  /**
+   * The last test receipt confirmed at this enrollment (P2b #103): the newer of one confirmed here
+   * and the server's. Kept apart from the status cache, so a confirmation made before the first
+   * status fetch is shown and survives a restart too.
+   */
+  private testReceipt: TerminalTestReceiptFact | null = null;
   /** True after a live enrollment-status fetch this session; false when facts come from disk. */
   private enrollmentStatusLive = false;
   private enrollmentStatusFetchedAt: string | null = null;
@@ -171,16 +176,34 @@ export class TerminalService {
       this.enrollmentFromServer = {
         counterLabel: cached.counterLabel,
         offlineBackup: cached.offlineBackup,
-        lastTestReceipt: cached.lastTestReceipt,
       };
       this.enrollmentStatusFetchedAt = cached.fetchedAt;
     }
+    this.testReceipt = this.deps.store.readLastTestReceipt();
   }
 
   private clearEnrollmentStatusMemory(): void {
     this.enrollmentFromServer = null;
+    this.testReceipt = null;
     this.enrollmentStatusLive = false;
     this.enrollmentStatusFetchedAt = null;
+  }
+
+  /** The last test receipt confirmed at this enrollment, for the readiness checks. */
+  lastTestReceipt(): TerminalTestReceiptFact | null {
+    return this.testReceipt;
+  }
+
+  /** Keeps the newer confirmation, so an older status reply never hides one just made here. */
+  private keepTestReceipt(
+    enrollmentId: string,
+    candidate: TerminalTestReceiptFact | null,
+  ): void {
+    if (!candidate) return;
+    if (this.testReceipt && this.testReceipt.confirmedAt >= candidate.confirmedAt)
+      return;
+    this.testReceipt = candidate;
+    this.deps.store.saveLastTestReceipt(enrollmentId, candidate);
   }
 
   state(): DeviceState {
@@ -210,7 +233,7 @@ export class TerminalService {
             offlineBackup:
               this.enrollmentFromServer?.offlineBackup ??
               emptyEnrollmentOfflineBackup,
-            lastTestReceipt: this.enrollmentFromServer?.lastTestReceipt ?? null,
+            lastTestReceipt: this.testReceipt,
             enrollmentFactsLive: this.enrollmentStatusLive,
             enrollmentStatusFetchedAt: this.enrollmentStatusLive
               ? null
@@ -839,7 +862,6 @@ export class TerminalService {
     this.enrollmentFromServer = {
       counterLabel: status.counterLabel,
       offlineBackup: status.offlineBackup,
-      lastTestReceipt: status.lastTestReceipt ?? null,
     };
     this.enrollmentStatusLive = true;
     this.enrollmentStatusFetchedAt = fetchedAt;
@@ -847,8 +869,8 @@ export class TerminalService {
       fetchedAt,
       counterLabel: status.counterLabel,
       offlineBackup: status.offlineBackup,
-      lastTestReceipt: status.lastTestReceipt ?? null,
     });
+    this.keepTestReceipt(device.identity.enrollmentId, status.lastTestReceipt ?? null);
     if (status.counterLabel)
       this.deps.store.patchEnrollmentDisplay({ counterLabel: status.counterLabel });
   }
@@ -913,14 +935,11 @@ export class TerminalService {
     const confirmedAt = new Date(result.confirmedAt).toISOString();
     const operator = this.deps.api.user;
     const confirmedByName = operator?.fullName ?? staff.staffName;
-    const fact: TerminalTestReceiptFact = {
+    this.keepTestReceipt(device.identity.enrollmentId, {
       confirmedAt: result.confirmedAt,
       confirmedByName,
       printerName,
-    };
-    if (this.enrollmentFromServer)
-      this.enrollmentFromServer = { ...this.enrollmentFromServer, lastTestReceipt: fact };
-    this.deps.store.saveLastTestReceipt(device.identity.enrollmentId, fact);
+    });
     return {
       confirmedAt,
       confirmedByName,

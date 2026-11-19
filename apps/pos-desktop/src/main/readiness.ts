@@ -40,7 +40,10 @@ export type ReadinessFacts = {
   printers?: string[];
   /** Windows could not list its printers (the print spooler stopped, for example). */
   printerLookupFailed?: boolean;
-  /** The printer the last test receipt at this enrollment was confirmed on; absent when none. */
+  /**
+   * Display name (as in `printers`) of the installed printer the last test receipt at this
+   * enrollment was confirmed on; null or absent when none, or when it is no longer installed.
+   */
   testReceiptPrinter?: string | null;
   /** Trusted time for offline decisions (P4 #50). Absent: not looked at (no store open). */
   trustedClock?: TrustedNow;
@@ -236,6 +239,22 @@ function receiptRow(facts: ReadinessFacts, grant: Row): Row {
  */
 export function isVirtualPrinter(name: string): boolean {
   return /\b(pdf|xps|onenote|fax)\b/i.test(name) || /^(microsoft print to|send to )/i.test(name);
+}
+
+/**
+ * The printer facts from what Windows lists. A confirmed test receipt records the printer's
+ * Windows name, which differs from its display name for a shared or network printer, so it is
+ * matched by name here and reported by display name, as `printers` is.
+ */
+export function printerReadiness(
+  installed: readonly { name: string; displayName: string }[],
+  testReceiptPrinterName: string | null,
+): Pick<ReadinessFacts, "printers" | "testReceiptPrinter"> {
+  const tested = installed.find((printer) => printer.name === testReceiptPrinterName);
+  return {
+    printers: installed.map((printer) => printer.displayName),
+    testReceiptPrinter: tested?.displayName ?? null,
+  };
 }
 
 /** The receipt printer: what Windows has installed. The printer itself is chosen at each sale. */

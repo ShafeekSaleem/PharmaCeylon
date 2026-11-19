@@ -10,6 +10,7 @@ import {
   explainRefreshFailure,
   isVirtualPrinter,
   offlineManagerNames,
+  printerReadiness,
 } from "./readiness";
 import { isAppUrl, resolveRendererFile } from "./renderer-path";
 import type { CheckoutSyncPause } from "./terminal/reconnect-drain";
@@ -427,6 +428,20 @@ describe("P2 #48 pre-outage readiness rows", () => {
     expect(check({ ...healthy, testReceiptPrinter: "Old printer" }, "printer").detail).toMatch(/^EPSON TM-T82III is installed/);
     expect(check({ ...healthy, printers: undefined, printerLookupFailed: true }, "printer")).toMatchObject({
       status: "not_ready", detail: expect.stringContaining("Windows could not list its printers"),
+    });
+  });
+
+  it("matches the confirmed printer by its Windows name and reports its display name", () => {
+    const shared = { name: "\\\\SHOP-PC\\EPSON", displayName: "EPSON TM-T82III on SHOP-PC" };
+    const installed = [{ name: "POS-80C", displayName: "POS-80C" }, shared];
+    expect(printerReadiness(installed, shared.name)).toEqual({
+      printers: ["POS-80C", "EPSON TM-T82III on SHOP-PC"],
+      testReceiptPrinter: "EPSON TM-T82III on SHOP-PC",
+    });
+    expect(printerReadiness(installed, shared.displayName).testReceiptPrinter).toBeNull();
+    expect(printerReadiness(installed, null).testReceiptPrinter).toBeNull();
+    expect(check({ ...healthy, ...printerReadiness(installed, shared.name) }, "printer")).toMatchObject({
+      detail: expect.stringContaining("EPSON TM-T82III on SHOP-PC · test receipt confirmed"),
     });
   });
 

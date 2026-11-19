@@ -12,7 +12,6 @@ export type EnrollmentStatusCache = {
   fetchedAt: string;
   counterLabel: string | null;
   offlineBackup: EnrollmentOfflineBackup;
-  lastTestReceipt: TestReceiptFact | null;
 };
 
 export type EnrollmentStatus = "pending" | "active" | "revoked" | "retired";
@@ -244,7 +243,6 @@ export class DeviceStore {
       fetchedAt: row.enrollment_status_fetched_at,
       counterLabel: row.enrollment_status_counter_label,
       offlineBackup,
-      lastTestReceipt: parseTestReceipt(row.enrollment_last_test_receipt_json),
     };
   }
 
@@ -258,8 +256,7 @@ export class DeviceStore {
            enrollment_status_fetched_at = ?,
            enrollment_status_counter_label = ?,
            enrollment_offline_backup_json = ?,
-           enrollment_status_enrollment_id = ?,
-           enrollment_last_test_receipt_json = ?
+           enrollment_status_enrollment_id = ?
          WHERE id = 1 AND enrollment_id = ?`,
       )
       .run(
@@ -267,12 +264,19 @@ export class DeviceStore {
         input.counterLabel,
         JSON.stringify(input.offlineBackup),
         enrollmentId,
-        input.lastTestReceipt ? JSON.stringify(input.lastTestReceipt) : null,
         enrollmentId,
       );
   }
 
-  /** A test receipt just confirmed here: kept even before the next status fetch. */
+  /**
+   * The last test receipt confirmed at this enrollment, confirmed here or reported by the server.
+   * The row is this enrollment's (a new enrollment replaces it), so no status fetch is needed.
+   */
+  readLastTestReceipt(): TestReceiptFact | null {
+    return parseTestReceipt(this.row()?.enrollment_last_test_receipt_json ?? null);
+  }
+
+  /** Records the last test receipt confirmed at this enrollment. */
   saveLastTestReceipt(enrollmentId: string, fact: TestReceiptFact): void {
     this.db
       .prepare(

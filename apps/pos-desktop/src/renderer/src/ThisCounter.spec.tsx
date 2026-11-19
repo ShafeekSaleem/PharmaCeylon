@@ -1,6 +1,6 @@
 /** @jest-environment jsdom */
 import { afterEach, describe, expect, it } from "@jest/globals";
-import { cleanup, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import type { EnrollmentOfflineBackup } from "../../shared/ipc-contract";
 import {
   deviceState,
@@ -328,11 +328,15 @@ describe("This counter receipt printer", () => {
     printerName: "EPSON TM-T82III",
   };
 
-  function renderPrinter(printers: (typeof epson)[]) {
+  function renderPrinter(
+    printers: (typeof epson)[],
+    more: Parameters<typeof stubPos>[0] = {},
+  ) {
     stubPos({
       listPrinters: () => Promise.resolve(printers),
       offlineCounter: () =>
         Promise.resolve({ ok: true, value: offlineView(emptyEnrollmentOfflineBackup) }),
+      ...more,
     });
     renderWithKeys(
       <ThisCounterPage
@@ -359,5 +363,34 @@ describe("This counter receipt printer", () => {
       await screen.findByText(/on EPSON TM-T82III, which is not installed now/),
     ).toBeTruthy();
     expect(screen.getByText("Test receipt not confirmed")).toBeTruthy();
+  });
+
+  it("does not call the confirmed printer missing while Windows is still listing printers", async () => {
+    renderPrinter([], { listPrinters: () => new Promise(() => undefined) });
+    expect(await screen.findByText(/Looking for printers/)).toBeTruthy();
+    expect(screen.getByText(/Last confirmed 14 Oct 2026 by Dilini Fernando./)).toBeTruthy();
+    expect(screen.queryByText(/not installed now/)).toBeNull();
+  });
+
+  it("says Windows could not list printers instead of calling the confirmed one missing", async () => {
+    renderPrinter([], { listPrinters: () => Promise.reject(new Error("spooler stopped")) });
+    expect(await screen.findByText("Printers unavailable")).toBeTruthy();
+    expect(screen.getByText(/Windows could not list its printers/)).toBeTruthy();
+    expect(screen.queryByText(/not installed now/)).toBeNull();
+    expect(screen.queryByText("Ready")).toBeNull();
+  });
+
+  it("does not show Ready while a re-test is printing or after it failed", async () => {
+    let finish: (result: { ok: boolean; error: string | null }) => void = () => undefined;
+    renderPrinter([epson], {
+      printTestReceipt: () => new Promise((resolve) => (finish = resolve)),
+    });
+    expect(await screen.findByText("Ready")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Print test receipt/ }));
+    expect((await screen.findAllByText("Printing…")).length).toBeGreaterThan(0);
+    expect(screen.queryByText("Ready")).toBeNull();
+    await act(async () => finish({ ok: false, error: "Printer is offline." }));
+    expect(await screen.findByText("Did not print")).toBeTruthy();
+    expect(screen.queryByText("Ready")).toBeNull();
   });
 });

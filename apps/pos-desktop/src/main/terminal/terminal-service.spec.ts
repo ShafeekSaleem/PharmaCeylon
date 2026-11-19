@@ -1211,6 +1211,40 @@ describe("TerminalService test receipt confirmation", () => {
     expect(service().state().enrollment?.lastTestReceipt).toEqual(expected);
   });
 
+  it("keeps a confirmation made before the first status fetch, across a restart", async () => {
+    const terminal = service();
+    await enrolled(terminal);
+    await terminal.signIn(manager.email, "password");
+    const result = await terminal.confirmTestReceipt("EPSON TM-T88");
+    const expected = {
+      confirmedAt: Date.parse(result.confirmedAt),
+      confirmedByName: manager.fullName,
+      printerName: "EPSON TM-T88",
+    };
+    expect(terminal.state().enrollment?.lastTestReceipt).toEqual(expected);
+    expect(terminal.lastTestReceipt()).toEqual(expected);
+    expect(service().lastTestReceipt()).toEqual(expected);
+  });
+
+  it("does not let an older status reply replace a newer local confirmation", async () => {
+    const terminal = service();
+    await enrolled(terminal);
+    await terminal.signIn(manager.email, "password");
+    const result = await terminal.confirmTestReceipt("EPSON TM-T88");
+    const confirmedAt = Date.parse(result.confirmedAt);
+    server.lastTestReceipt = null;
+    await terminal.refreshStatus();
+    expect(terminal.lastTestReceipt()?.confirmedAt).toBe(confirmedAt);
+    server.lastTestReceipt = {
+      confirmedAt: confirmedAt - 60_000,
+      confirmedByName: "Dilini Fernando",
+      printerName: "Old printer",
+    };
+    await terminal.refreshStatus();
+    expect(terminal.lastTestReceipt()).toMatchObject({ confirmedAt, printerName: "EPSON TM-T88" });
+    expect(service().lastTestReceipt()).toMatchObject({ confirmedAt, printerName: "EPSON TM-T88" });
+  });
+
   it("takes the last confirmation from the server's enrollment status and caches it", async () => {
     const terminal = service();
     await enrolled(terminal);

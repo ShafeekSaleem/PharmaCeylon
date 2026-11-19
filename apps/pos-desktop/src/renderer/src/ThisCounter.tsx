@@ -153,8 +153,8 @@ function Readiness({
   );
 }
 
-/** The last confirmation comes from the server (cached for offline restarts), so it survives a
- * restart; a confirmation made here shows at once, before the next status fetch. */
+/** The last confirmation comes from the counter's state (the newer of one made here and the
+ * server's, kept on this computer), so it survives a restart; one made here shows at once. */
 function PrinterTest({ last }: { last: TestReceiptFact | null }) {
   const [printers, setPrinters] = useState<Printer[] | null>(null);
   const [selected, setSelected] = useState("");
@@ -179,6 +179,8 @@ function PrinterTest({ last }: { last: TestReceiptFact | null }) {
         }
       : null);
 
+  const [lookupFailed, setLookupFailed] = useState(false);
+
   useEffect(() => {
     window.pos
       .listPrinters()
@@ -186,7 +188,10 @@ function PrinterTest({ last }: { last: TestReceiptFact | null }) {
         setPrinters(list);
         setSelected(list[0]?.name ?? "");
       })
-      .catch(() => setPrinters([]));
+      .catch(() => {
+        setLookupFailed(true);
+        setPrinters([]);
+      });
   }, []);
 
   async function print() {
@@ -244,13 +249,26 @@ function PrinterTest({ last }: { last: TestReceiptFact | null }) {
   const asking = Boolean(printed) && !printing && !confirming;
   useKeyBinding("Ctrl+Enter", () => void confirm(), { enabled: asking });
 
-  const confirmedHere =
-    confirmed !== null &&
-    (printers ?? []).some((p) => p.name === confirmed.printerName);
-  const pill = confirmedHere && !printed ? (
+  // Whether the confirmed printer is installed: unknown (null) until Windows has listed its
+  // printers, and when it could not, so the panel never claims it is gone.
+  const confirmedInstalled =
+    confirmed === null || printers === null || lookupFailed
+      ? null
+      : printers.some((p) => p.name === confirmed.printerName);
+  const confirmedHere = confirmedInstalled === true;
+  const printFailed = message !== null && !message.ok;
+  const pill = printing ? (
+    <span className={cx(ui.pill, ui.neutral, styles.right)}>Printing…</span>
+  ) : printFailed ? (
+    <span className={cx(ui.pill, ui.warn, styles.right)}>Did not print</span>
+  ) : confirmedHere && !printed ? (
     <span className={cx(ui.pill, ui.ok, styles.right)}>
       <Icon name="check" />
       Ready
+    </span>
+  ) : lookupFailed ? (
+    <span className={cx(ui.pill, ui.warn, styles.right)}>
+      Printers unavailable
     </span>
   ) : printers?.length === 0 ? (
     <span className={cx(ui.pill, ui.warn, styles.right)}>No printer</span>
@@ -272,7 +290,11 @@ function PrinterTest({ last }: { last: TestReceiptFact | null }) {
         ) : printers.length === 0 ? (
           <div className={cx(ui.note, ui.noteWarn)}>
             <Icon name="alert-triangle" />
-            <div>No printers are installed in Windows on this computer.</div>
+            <div>
+              {lookupFailed
+                ? "Windows could not list its printers. Restart the computer; contact support if this stays."
+                : "No printers are installed in Windows on this computer."}
+            </div>
           </div>
         ) : (
           <>
@@ -353,7 +375,10 @@ function PrinterTest({ last }: { last: TestReceiptFact | null }) {
           <div className={styles.footN}>
             Last confirmed {dayMonthYear(new Date(confirmed.at))}
             {confirmed.byName ? ` by ${confirmed.byName}` : ""}
-            {confirmedHere ? "" : ` on ${confirmed.printerName}, which is not installed now`}.
+            {confirmedInstalled === false
+              ? ` on ${confirmed.printerName}, which is not installed now`
+              : ""}
+            .
             Recorded for the branch go-live checklist.
           </div>
         )}

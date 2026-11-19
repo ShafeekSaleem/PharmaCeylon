@@ -91,7 +91,12 @@ import { ShiftService } from "./shifts/shift-service";
 import { OfflineSupportService } from "./terminal/offline-support-service";
 import { StockLookupService } from "./terminal/stock-lookup";
 import type { CompletedSale } from "../shared/ipc-contract";
-import { buildReadinessReport, offlineManagerNames, type ReadinessFacts } from "./readiness";
+import {
+  buildReadinessReport,
+  offlineManagerNames,
+  printerReadiness,
+  type ReadinessFacts,
+} from "./readiness";
 import { isAppUrl } from "./renderer-path";
 import {
   hardenSession,
@@ -458,13 +463,20 @@ async function installedPrinters(): Promise<
   }));
 }
 
-/** The installed printers' names for the readiness checks, or why they could not be read. */
-async function printerFacts(): Promise<
-  Pick<ReadinessFacts, "printers" | "printerLookupFailed">
+/**
+ * The installed printers' names for the readiness checks, or why they could not be read, and the
+ * display name of the printer the last test receipt was confirmed on while it is still installed.
+ * A confirmation records the Windows printer name, which differs from the display name for a
+ * shared or network printer, so the two are matched here, by name.
+ */
+async function printerFacts(
+  testReceiptPrinterName: string | null,
+): Promise<
+  Pick<ReadinessFacts, "printers" | "printerLookupFailed" | "testReceiptPrinter">
 > {
   try {
     const printers = await installedPrinters();
-    return printers ? { printers: printers.map((p) => p.displayName) } : {};
+    return printers ? printerReadiness(printers, testReceiptPrinterName) : {};
   } catch {
     return { printerLookupFailed: true };
   }
@@ -486,7 +498,10 @@ function registerIpc(
         packaged: app.isPackaged,
       }),
       getReadiness: async () => {
-        const [printers, disk] = await Promise.all([printerFacts(), diskFacts()]);
+        const [printers, disk] = await Promise.all([
+          printerFacts(terminal?.lastTestReceipt()?.printerName ?? null),
+          diskFacts(),
+        ]);
         // Read once, after the wait: every fact below is about this one enrollment.
         const device = store ? new DeviceStore(store.db).read() : null;
         const enrollmentId = device?.identity.enrollmentId;
@@ -511,8 +526,6 @@ function registerIpc(
             ...journalSyncFacts(enrollmentId),
             ...offlineCounterFacts(enrollmentId),
             ...printers,
-            testReceiptPrinter:
-              terminal?.state().enrollment?.lastTestReceipt?.printerName ?? null,
             ...disk,
             ...(storeBackups ? { storeBackups: storeBackups.status() } : {}),
           },
