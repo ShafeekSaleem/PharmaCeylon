@@ -2882,6 +2882,18 @@
   margin-top: -0.75rem;
   margin-bottom: -0.3rem;
   border-bottom: 1px solid var(--pc-border);
+  /* On a phone the two tabs are a few pixels wider than the screen; they scroll here
+     rather than widening the page (#205: no horizontal page scroll). */
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+@media (max-width: 480px) {
+  .scopeTabs .scopeTab {
+    padding-left: 0.6rem;
+    padding-right: 0.6rem;
+  }
 }
 
 .scopeTab {

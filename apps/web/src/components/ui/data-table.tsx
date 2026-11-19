@@ -2,6 +2,7 @@
 
 import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
 import styles from "./data-table.module.css";
+import { RowMenu, type RowMenuAction } from "./row-menu";
 
 export type SortDir = "asc" | "desc";
 
@@ -19,6 +20,8 @@ export type Column<T> = {
    * unlabelled, as an actions column is.
    */
   mobileLabel?: string;
+  /** Extra class for this column's header and cells. */
+  cellClassName?: string;
 };
 
 /** The label a cell carries into the phone card layout. */
@@ -46,6 +49,18 @@ export type DataTableProps<T> = {
   onRowClick?: (row: T) => void;
   /** Extra class(es) applied to a row's `<tr>`, e.g. to flag a critical/flagged row. */
   rowClassName?: (row: T, index: number) => string | undefined;
+  /**
+   * `"list"` is the shared list pattern from #205: 44px rows (about 36px when the person picks
+   * compact density), `--ui-*` colours, and on narrow screens the table scrolls sideways inside
+   * its box rather than becoming cards. Pair it with `rowMenuColumn` and `FilterChips`.
+   * `"default"` keeps the original look for pages not yet moved over.
+   */
+  variant?: "default" | "list";
+  /**
+   * List variant: the narrowest the table may get before its box scrolls sideways, so columns
+   * are never squeezed into unreadable slivers on a phone.
+   */
+  minTableWidth?: string;
   compact?: boolean;
   /**
    * Column widths come from the `width` on each column rather than from what happens to be in
@@ -98,6 +113,8 @@ export function DataTable<T>({
   onPageChange,
   onRowClick,
   rowClassName,
+  variant = "default",
+  minTableWidth,
   compact = false,
   fixedLayout = false,
   className,
@@ -209,8 +226,12 @@ export function DataTable<T>({
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const showPagination = total > pageSize;
 
+  const isList = variant === "list";
+  const wrapCls = `${styles.wrap}${isList ? ` ${styles.listWrap}` : ""}`;
+  const tableStyle = isList && minTableWidth ? { minWidth: minTableWidth } : undefined;
   const tableCls = [
     styles.table,
+    isList ? styles.list : styles.phoneCards,
     fixedLayout ? styles.fixedLayout : "",
     compact ? styles.compact : "",
     stickyHeader ? styles.stickyHeader : "",
@@ -220,13 +241,17 @@ export function DataTable<T>({
 
   if (loading) {
     return (
-      <div className={styles.wrap}>
-        <table className={tableCls}>
+      <div className={wrapCls}>
+        <table className={tableCls} style={tableStyle} aria-busy="true">
           <thead>
             <tr>
               {selectable && <th className={styles.selectCell} />}
               {columns.map((col) => (
-                <th key={col.key} style={{ width: col.width, textAlign: col.align }}>
+                <th
+                  key={col.key}
+                  className={col.cellClassName}
+                  style={{ width: col.width, textAlign: col.align }}
+                >
                   {col.header}
                 </th>
               ))}
@@ -264,13 +289,17 @@ export function DataTable<T>({
   }
 
   return (
-    <div className={styles.wrap}>
+    <div className={wrapCls}>
       <div
-        className={`${styles.scrollArea}${
-          noHorizontalScroll ? ` ${styles.noHorizontalScroll}` : ""
-        }`}
+        className={[
+          styles.scrollArea,
+          isList ? "" : styles.phoneScroll,
+          noHorizontalScroll && !isList ? styles.noHorizontalScroll : "",
+        ]
+          .filter(Boolean)
+          .join(" ")}
       >
-        <table className={tableCls}>
+        <table className={tableCls} style={tableStyle}>
           <thead>
             <tr>
               {selectable && (
@@ -296,7 +325,20 @@ export function DataTable<T>({
                   <th
                     key={col.key}
                     style={{ width: col.width, textAlign: col.align }}
-                    className={col.sortable ? styles.sortable : undefined}
+                    className={
+                      [col.sortable ? styles.sortable : "", col.cellClassName ?? ""]
+                        .filter(Boolean)
+                        .join(" ") || undefined
+                    }
+                    aria-sort={
+                      col.sortable
+                        ? active
+                          ? sortDir === "desc"
+                            ? "descending"
+                            : "ascending"
+                          : "none"
+                        : undefined
+                    }
                     onClick={col.sortable ? () => handleSort(col.key) : undefined}
                   >
                     <span className={styles.thInner}>
@@ -358,7 +400,12 @@ export function DataTable<T>({
                   </td>
                 )}
                 {columns.map((col) => (
-                  <td key={col.key} style={{ textAlign: col.align }} data-label={cellLabel(col)}>
+                  <td
+                    key={col.key}
+                    className={col.cellClassName}
+                    style={{ textAlign: col.align }}
+                    data-label={cellLabel(col)}
+                  >
                     {col.render
                       ? col.render(row, i)
                       : String((row as Record<string, unknown>)[col.key] ?? "—")}
@@ -398,6 +445,35 @@ export function DataTable<T>({
       )}
     </div>
   );
+}
+
+/**
+ * The one row-actions column of the shared list pattern: a single "⋮" menu per row, flush right.
+ * Destructive actions are ordered last behind a divider by `RowMenu`, so they never sit beside
+ * Edit. A row with no actions gets an empty cell rather than a dead trigger.
+ */
+export function rowMenuColumn<T>(
+  getActions: (row: T) => RowMenuAction[],
+  rowLabel: (row: T) => string,
+): Column<T> {
+  return {
+    key: "actions",
+    header: <span className={styles.srOnly}>Actions</span>,
+    width: "48px",
+    align: "right",
+    mobileLabel: "",
+    cellClassName: styles.actionsCell,
+    render: (row) => {
+      const actions = getActions(row);
+      if (actions.length === 0) return null;
+      return (
+        // The row itself is usually clickable; using the menu must not also open the row.
+        <span onClick={(e) => e.stopPropagation()}>
+          <RowMenu label={rowLabel(row)} actions={actions} />
+        </span>
+      );
+    },
+  };
 }
 
 function renderPageNumbers(
