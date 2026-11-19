@@ -5,6 +5,7 @@ import { StatusBadge, type BadgeVariant } from "@/components/ui/status-badge";
 import { PaymentMethodIcon } from "./payment-method-icon";
 import { formatMoney, formatPctTrend } from "../lib/format";
 import css from "../reports.module.css";
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 
 export type ComparisonStatus = { label: string; tone: BadgeVariant };
 
@@ -30,7 +31,7 @@ type Props = {
 export function PaymentMethodComparisonTable({ rows, loading }: Props) {
   const columns: Column<ComparisonRow>[] = [
     { key: "method", header: "Method", render: (r) => <PaymentMethodIcon method={r.method} /> },
-    { key: "transactions", header: "Transactions", align: "right", sortable: true, getValue: (r) => r.transactions, render: (r) => r.transactions.toLocaleString("en-IN") },
+    { key: "transactions", header: "Transactions", align: "right", sortable: true, getValue: (r) => r.transactions, render: (r) => r.transactions.toLocaleString(DISPLAY_LOCALE) },
     { key: "netRevenue", header: "Net Revenue", align: "right", sortable: true, getValue: (r) => r.netRevenue, render: (r) => formatMoney(r.netRevenue) },
     { key: "avgTicket", header: "Avg Ticket", align: "right", sortable: true, getValue: (r) => r.avgTicket, render: (r) => formatMoney(r.avgTicket) },
     { key: "refunds", header: "Refunds", align: "right", sortable: true, getValue: (r) => r.refunds, render: (r) => <span className={css.mutedcell}>{formatMoney(r.refunds)}</span> },

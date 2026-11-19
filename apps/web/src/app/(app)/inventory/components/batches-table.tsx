@@ -26,6 +26,7 @@ import {
   ReleaseDialog,
   type QuarantineTarget,
 } from "./quarantine-dialogs";
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 
 type BatchesTableProps = {
   rows: BatchRow[];
@@ -262,7 +263,7 @@ export function BatchesTable({
         getValue: (row) => row.availableQty,
         render: (row) => (
           <span className={css.qtyStack}>
-            <span className={css.qtyPrimary}>{row.availableQty.toLocaleString()}</span>
+            <span className={css.qtyPrimary}>{row.availableQty.toLocaleString(DISPLAY_LOCALE)}</span>
             <span className={css.qtySecondary}>of {formatUnits(row.qtyOnHand)} on hand</span>
           </span>
         ),

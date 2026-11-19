@@ -24,3 +24,4 @@ export * from "./offline-counter-restore";
 export * from "./counter-work";
 export * from "./supplier-cash-payout";
 export * from "./pharmacy-appearance";
+export * from "./display-format";

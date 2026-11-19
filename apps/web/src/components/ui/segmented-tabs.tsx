@@ -2,6 +2,7 @@
 
 import { useCallback, useRef, type ReactNode } from "react";
 import styles from "./segmented-tabs.module.css";
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 
 export type SegmentedTabItem<T extends string> = {
   id: T;
@@ -72,7 +73,7 @@ export function SegmentedTabs<T extends string>({
         const selected = item.id === active;
         const countText =
           item.count != null
-            ? `, ${item.count.toLocaleString()}${item.countLabel ? ` ${item.countLabel}` : ""}`
+            ? `, ${item.count.toLocaleString(DISPLAY_LOCALE)}${item.countLabel ? ` ${item.countLabel}` : ""}`
             : "";
         return (
           <button
@@ -98,7 +99,7 @@ export function SegmentedTabs<T extends string>({
                 aria-hidden
                 className={`${styles.count}${item.attention ? ` ${styles.countAttention}` : ""}`}
               >
-                {item.count.toLocaleString()}
+                {item.count.toLocaleString(DISPLAY_LOCALE)}
               </span>
             )}
           </button>

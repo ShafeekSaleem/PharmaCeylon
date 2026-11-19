@@ -1,20 +1,16 @@
-/** Sri Lanka is the only supported locale/currency today — see
- *  `common/currency.constants.ts` on the API for why. */
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
+import { formatMoney as formatAppMoney } from "@/lib/money";
+/** LKR, like every other web screen (UI1 #205); the desktop counter says Rs. */
 export function formatMoney(value: string | number): string {
-  const n = typeof value === "string" ? Number(value) : value;
-  if (!Number.isFinite(n)) return "—";
-  return `Rs ${n.toLocaleString("en-LK", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
+  return formatAppMoney(value);
 }
 
 export function formatDate(value: string | Date | null): string {
   if (!value) return "—";
   const d = typeof value === "string" ? new Date(value) : value;
   if (Number.isNaN(d.getTime())) return "—";
-  return new Intl.DateTimeFormat("en-LK", {
-    day: "2-digit",
+  return new Intl.DateTimeFormat(DISPLAY_LOCALE, {
+    day: "numeric",
     month: "short",
     year: "numeric",
   }).format(d);

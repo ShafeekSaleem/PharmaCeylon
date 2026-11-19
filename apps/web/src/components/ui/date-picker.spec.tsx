@@ -25,9 +25,9 @@ function Harness(props: { initial?: string; min?: string; max?: string; required
 
 const popover = () => screen.queryByRole("dialog", { name: /choose a date/ });
 
-it("shows the chosen date the way the app's tables write dates", () => {
+it("shows the chosen date day first, the way the app writes dates", () => {
   render(<Harness initial="2027-06-30" />);
-  expect(screen.getByRole("button", { name: "Expiry date: Jun 30, 2027" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Expiry date: 30 Jun 2027" })).toBeInTheDocument();
 });
 
 it("hands back the same YYYY-MM-DD string a native date input did", () => {
@@ -52,9 +52,9 @@ it("can be driven from the keyboard", () => {
 it("won't offer days outside min and max", () => {
   render(<Harness initial="2027-06-15" min="2027-06-10" max="2027-06-20" />);
   fireEvent.click(screen.getByRole("button", { name: /Expiry date/ }));
-  expect(within(popover()!).getByRole("gridcell", { name: "Wednesday, June 9, 2027" })).toBeDisabled();
-  expect(within(popover()!).getByRole("gridcell", { name: "Thursday, June 10, 2027" })).toBeEnabled();
-  expect(within(popover()!).getByRole("gridcell", { name: "Monday, June 21, 2027" })).toBeDisabled();
+  expect(within(popover()!).getByRole("gridcell", { name: "Wednesday, 9 June 2027" })).toBeDisabled();
+  expect(within(popover()!).getByRole("gridcell", { name: "Thursday, 10 June 2027" })).toBeEnabled();
+  expect(within(popover()!).getByRole("gridcell", { name: "Monday, 21 June 2027" })).toBeDisabled();
 });
 
 it("clears when clearing is allowed, and doesn't offer it when the date is required", () => {

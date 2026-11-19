@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import css from "../reports.module.css";
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 
 export type DivergingBarPoint = { key: string; label: string; inboundUnits: number; outboundUnits: number };
 
@@ -82,12 +83,12 @@ export function MovementDivergingBarChart({ points, height = 220 }: Props) {
               />
               {isHover ? (
                 <text x={cx} y={midY - inH - 6} textAnchor="middle" className={css.mapAxisTick} fontWeight={700}>
-                  +{p.inboundUnits.toLocaleString("en-IN")}
+                  +{p.inboundUnits.toLocaleString(DISPLAY_LOCALE)}
                 </text>
               ) : null}
               {isHover ? (
                 <text x={cx} y={midY + outH + 14} textAnchor="middle" className={css.mapAxisTick} fontWeight={700}>
-                  −{p.outboundUnits.toLocaleString("en-IN")}
+                  −{p.outboundUnits.toLocaleString(DISPLAY_LOCALE)}
                 </text>
               ) : null}
               {showLabel ? (

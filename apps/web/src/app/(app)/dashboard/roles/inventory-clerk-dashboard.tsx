@@ -27,6 +27,7 @@ import type { DashboardData } from "../hooks/use-dashboard-data";
 import type { UseDashboardLayoutResult } from "../hooks/use-dashboard-layout";
 import { useStockValueTrend } from "../hooks/use-stock-value-trend";
 import type { WidgetDef } from "../widgets/types";
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 
 type Props = {
   data: DashboardData;
@@ -180,12 +181,12 @@ export function InventoryClerkDashboard({ data, catalog, layout }: Props) {
           inventory
             ? inventory.stockValue != null
               ? formatMoney(inventory.stockValue)
-              : inventory.availableUnits.toLocaleString()
+              : inventory.availableUnits.toLocaleString(DISPLAY_LOCALE)
             : "—"
         }
         scope={
           inventory
-            ? `${inventory.totalUnits.toLocaleString()} units on hand`
+            ? `${inventory.totalUnits.toLocaleString(DISPLAY_LOCALE)} units on hand`
             : undefined
         }
         sparkline={

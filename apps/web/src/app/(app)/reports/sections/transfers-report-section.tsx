@@ -12,6 +12,7 @@ import { fetchTransfersReport } from "../lib/fetchers";
 import { formatMoney, formatPctTrend, pctChange } from "../lib/format";
 import type { ExportPayload, OnExportData, TransferActivityRow, TransfersReportResponse } from "../lib/types";
 import css from "../reports.module.css";
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 
 type Props = { days: number; onExportData: OnExportData };
 
@@ -72,7 +73,7 @@ export function TransfersReportSection({ days, onExportData }: Props) {
         label: `${f.fromBranchName} → ${f.toBranchName}`,
         sublabel: `${f.transferCount} transfer${f.transferCount === 1 ? "" : "s"}`,
         value: f.units,
-        valueLabel: `${f.units.toLocaleString("en-IN")} units`,
+        valueLabel: `${f.units.toLocaleString(DISPLAY_LOCALE)} units`,
         subValue: formatMoney(f.value),
       })),
     [data],
@@ -106,10 +107,10 @@ export function TransfersReportSection({ days, onExportData }: Props) {
     { key: "from", header: "From", width: "6.5rem", render: (r) => r.fromBranchName },
     { key: "to", header: "To", width: "6.5rem", render: (r) => r.toBranchName },
     { key: "status", header: "Status", width: "5rem", render: (r) => <span className={`${css.badge2} ${css.badge2Tight} ${css[STATUS_TONE[r.status] ?? "monitor"]}`}>{STATUS_LABEL[r.status] ?? r.status}</span> },
-    { key: "items", header: "Items", align: "right", width: "3.5rem", sortable: true, getValue: (r) => r.itemCount, render: (r) => r.itemCount.toLocaleString("en-IN") },
-    { key: "units", header: "Units", align: "right", width: "4rem", sortable: true, getValue: (r) => r.units, render: (r) => r.units.toLocaleString("en-IN") },
+    { key: "items", header: "Items", align: "right", width: "3.5rem", sortable: true, getValue: (r) => r.itemCount, render: (r) => r.itemCount.toLocaleString(DISPLAY_LOCALE) },
+    { key: "units", header: "Units", align: "right", width: "4rem", sortable: true, getValue: (r) => r.units, render: (r) => r.units.toLocaleString(DISPLAY_LOCALE) },
     { key: "value", header: "Value", align: "right", width: "5.5rem", sortable: true, getValue: (r) => r.value, render: (r) => formatMoney(r.value) },
-    { key: "createdAt", header: "Requested", width: "5rem", sortable: true, getValue: (r) => r.createdAt, render: (r) => new Date(r.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric" }) },
+    { key: "createdAt", header: "Requested", width: "5rem", sortable: true, getValue: (r) => r.createdAt, render: (r) => new Date(r.createdAt).toLocaleDateString(DISPLAY_LOCALE, { month: "short", day: "numeric" }) },
     {
       key: "action",
       header: "",
@@ -161,7 +162,7 @@ export function TransfersReportSection({ days, onExportData }: Props) {
       <StatGrid columns={4} dense className={css.heroGrid}>
         <StatCard size="sm" showMenu={false}
           title="Transfers"
-          value={loading || !kpis ? "…" : kpis.transferCount.toLocaleString("en-IN")}
+          value={loading || !kpis ? "…" : kpis.transferCount.toLocaleString(DISPLAY_LOCALE)}
           subtitle={`vs previous ${days} days`}
           icon={<IconTruck size={16} />}
           iconTone="primary"

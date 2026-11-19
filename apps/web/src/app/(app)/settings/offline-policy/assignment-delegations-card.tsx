@@ -19,6 +19,7 @@ import type { AdminUser } from "../../users/types";
 import { delegationsApi, eligibleManagers } from "./delegations-api";
 import css from "../settings.module.css";
 import styles from "./assignment-delegations-card.module.css";
+import { formatDisplayDateTime } from "@pharmaceylon/shared";
 
 const message = (error: unknown) =>
   error instanceof Error
@@ -185,11 +186,11 @@ function Delegations({ branchId }: { branchId: string }) {
                   <div className={css.rowLabel}>{name(d.managerUserId)}</div>
                   <div className={css.rowHint}>
                     Granted by {name(d.delegatedByOwnerUserId)} on{" "}
-                    {new Date(d.createdAt).toLocaleString()}
+                    {formatDisplayDateTime(d.createdAt)}
                   </div>
                   {d.revokedAt !== null ? (
                     <div className={css.rowHint}>
-                      Revoked on {new Date(d.revokedAt).toLocaleString()}
+                      Revoked on {formatDisplayDateTime(d.revokedAt)}
                     </div>
                   ) : !data.eligible.some((p) => p.id === d.managerUserId) ? (
                     <div className={css.rowHint}>

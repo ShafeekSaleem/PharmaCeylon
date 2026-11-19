@@ -18,6 +18,7 @@ import {
 } from "@/components/icons";
 import { useFullscreen } from "@/lib/use-fullscreen";
 import tcss from "../till.module.css";
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 
 export type TillMode = "sale" | "returns";
 
@@ -104,8 +105,8 @@ export function PosTillBar({
     };
   }, [menuOpen]);
 
-  const day = now.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
-  const time = now.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+  const day = now.toLocaleDateString(DISPLAY_LOCALE, { weekday: "short", day: "numeric", month: "short" });
+  const time = now.toLocaleTimeString(DISPLAY_LOCALE, { hour: "2-digit", minute: "2-digit" });
   const run = (fn: () => void) => () => {
     setMenuOpen(false);
     fn();

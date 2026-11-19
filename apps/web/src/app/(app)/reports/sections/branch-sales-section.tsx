@@ -14,6 +14,7 @@ import { ReportSelect } from "../components/report-select";
 import type { CategoryKey, ReportKey } from "../lib/nav-config";
 import type { BranchSalesTrendPoint, BranchTrendPoint, ExportPayload, OnExportData } from "../lib/types";
 import css from "../reports.module.css";
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 
 type Props = { days: number; cityFilter?: string; onNavigate: (c: CategoryKey, r?: ReportKey) => void; onExportData: OnExportData };
 
@@ -208,7 +209,7 @@ export function BranchSalesSection({ days, cityFilter, onNavigate, onExportData 
         count: 1,
         countLabel: "branch",
         onClick: scrollToTable,
-        examples: [{ label: opportunityBranch.name, badge: `${opportunityBranch.transactions.toLocaleString("en-IN")} txns`, tone: "neutral" }],
+        examples: [{ label: opportunityBranch.name, badge: `${opportunityBranch.transactions.toLocaleString(DISPLAY_LOCALE)} txns`, tone: "neutral" }],
       });
     }
     if (best) {
@@ -290,7 +291,7 @@ export function BranchSalesSection({ days, cityFilter, onNavigate, onExportData 
         <StatCard
           size="sm" showMenu={false}
           title="Network Transactions"
-          value={loading ? "…" : networkTransactions.toLocaleString("en-IN")}
+          value={loading ? "…" : networkTransactions.toLocaleString(DISPLAY_LOCALE)}
           subtitle={best ? `Top: ${best.name}` : ""}
           icon={<IconActivity size={16} />}
           iconTone="info"
@@ -337,7 +338,7 @@ export function BranchSalesSection({ days, cityFilter, onNavigate, onExportData 
           barValue={(r) => r.revenue}
           barLabel={(r) => formatMoney(r.revenue)}
           extraColumns={[
-            { key: "transactions", header: "Transactions", align: "right", render: (r) => r.transactions.toLocaleString("en-IN") },
+            { key: "transactions", header: "Transactions", align: "right", render: (r) => r.transactions.toLocaleString(DISPLAY_LOCALE) },
             { key: "revenueGrowthPct", header: "Growth", align: "right", render: (r) => formatPctTrend(r.revenueGrowthPct) },
           ]}
           loading={loading}

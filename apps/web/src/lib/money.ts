@@ -1,3 +1,4 @@
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 /**
  * Money formatting for the whole app.
  *
@@ -9,7 +10,7 @@
 const DASH = "—";
 
 export type MoneyOptions = {
-  /** Currency prefix. The app says "LKR"; a few older screens say "Rs". */
+  /** Currency prefix. The web always says "LKR" (UI1 #205); only the desktop counter says "Rs". */
   currency?: string;
   /** What to print when there is no number. Defaults to a dash. */
   fallback?: string;
@@ -22,7 +23,7 @@ export function formatMoney(
   if (value === null || value === undefined || value === "") return fallback;
   const n = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(n)) return fallback;
-  return `${currency} ${n.toLocaleString(undefined, {
+  return `${currency} ${n.toLocaleString(DISPLAY_LOCALE, {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`;
@@ -36,7 +37,7 @@ export function formatCompactMoney(
   if (value === null || value === undefined || value === "") return fallback;
   const n = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(n)) return fallback;
-  return `${currency} ${new Intl.NumberFormat(undefined, {
+  return `${currency} ${new Intl.NumberFormat(DISPLAY_LOCALE, {
     notation: "compact",
     maximumFractionDigits: 1,
   }).format(n)}`;

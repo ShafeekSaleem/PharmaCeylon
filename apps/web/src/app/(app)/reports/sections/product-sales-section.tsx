@@ -19,6 +19,7 @@ import { ActionsPanel, type ActionPanelItem } from "../components/actions-panel"
 import type { CategoryKey, ReportKey } from "../lib/nav-config";
 import type { CommercialCategoryRow, ExportPayload, MarginRow, OnExportData, Scope } from "../lib/types";
 import css from "../reports.module.css";
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 
 type Props = { scope: Scope; isOwner: boolean; days: number; onNavigate: (c: CategoryKey, r?: ReportKey) => void; onExportData: OnExportData };
 
@@ -236,7 +237,7 @@ export function ProductSalesSection({ scope, isOwner, days, onNavigate, onExport
             count: highVolumeLowPrice.length,
             countLabel: highVolumeLowPrice.length === 1 ? "product" : "products",
             onClick: () => focusInsight("penetration"),
-            examples: highVolumeLowPrice.slice(0, 3).map((r) => ({ label: r.name, badge: `${r.unitsSold.toLocaleString("en-IN")} units`, tone: "neutral" as const, href: `/inventory?productId=${r.productId}` })),
+            examples: highVolumeLowPrice.slice(0, 3).map((r) => ({ label: r.name, badge: `${r.unitsSold.toLocaleString(DISPLAY_LOCALE)} units`, tone: "neutral" as const, href: `/inventory?productId=${r.productId}` })),
           }]
         : []),
       ...(topByRevenue
@@ -311,7 +312,7 @@ export function ProductSalesSection({ scope, isOwner, days, onNavigate, onExport
     { key: "name", header: "Product" },
     { key: "sku", header: "SKU", render: (r) => <span className={css.skucode}>{r.sku}</span> },
     { key: "category", header: "Category" },
-    { key: "unitsSold", header: "Units Sold", align: "right", sortable: true, getValue: (r) => r.unitsSold, render: (r) => r.unitsSold.toLocaleString("en-IN") },
+    { key: "unitsSold", header: "Units Sold", align: "right", sortable: true, getValue: (r) => r.unitsSold, render: (r) => r.unitsSold.toLocaleString(DISPLAY_LOCALE) },
     { key: "revenueN", header: "Revenue", align: "right", sortable: true, getValue: (r) => r.revenueN, render: (r) => formatMoney(r.revenueN) },
     {
       key: "growthPct",
@@ -321,7 +322,7 @@ export function ProductSalesSection({ scope, isOwner, days, onNavigate, onExport
       getValue: (r) => r.growthPct ?? 0,
       render: (r) => (r.growthPct == null ? "—" : <span className={r.growthPct >= 0 ? css.deltaUp : css.deltaDown}>{formatPctTrend(r.growthPct)}</span>),
     },
-    { key: "stockOnHand", header: "Stock on Hand", align: "right", sortable: true, getValue: (r) => r.stockOnHand, render: (r) => r.stockOnHand.toLocaleString("en-IN") },
+    { key: "stockOnHand", header: "Stock on Hand", align: "right", sortable: true, getValue: (r) => r.stockOnHand, render: (r) => r.stockOnHand.toLocaleString(DISPLAY_LOCALE) },
     {
       key: "actions",
       header: "Actions",
@@ -353,7 +354,7 @@ export function ProductSalesSection({ scope, isOwner, days, onNavigate, onExport
         />
         <StatCard size="sm" showMenu={false}
           title="Units Sold"
-          value={loading ? "…" : totalUnits.toLocaleString("en-IN")}
+          value={loading ? "…" : totalUnits.toLocaleString(DISPLAY_LOCALE)}
           subtitle={`vs previous ${days} days`}
           icon={<IconArchive size={16} />}
           iconTone="success"
@@ -368,8 +369,8 @@ export function ProductSalesSection({ scope, isOwner, days, onNavigate, onExport
         />
         <StatCard size="sm" showMenu={false}
           title="Products Growing"
-          value={loading ? "…" : growingCount.toLocaleString("en-IN")}
-          subtitle={`${decliningCount.toLocaleString("en-IN")} declining`}
+          value={loading ? "…" : growingCount.toLocaleString(DISPLAY_LOCALE)}
+          subtitle={`${decliningCount.toLocaleString(DISPLAY_LOCALE)} declining`}
           icon={<IconArchive size={16} />}
           iconTone="warning"
         />
@@ -389,7 +390,7 @@ export function ProductSalesSection({ scope, isOwner, days, onNavigate, onExport
           barLabel={(r) => formatMoney(r.revenueN)}
           pageSize={10}
           extraColumns={[
-            { key: "unitsSold", header: "Units Sold", align: "right", render: (r) => r.unitsSold.toLocaleString("en-IN") },
+            { key: "unitsSold", header: "Units Sold", align: "right", render: (r) => r.unitsSold.toLocaleString(DISPLAY_LOCALE) },
             { key: "growth", header: "Growth", align: "right", render: (r) => (r.growthPct == null ? "—" : <span className={r.growthPct >= 0 ? css.deltaUp : css.deltaDown}>{formatPctTrend(r.growthPct)}</span>) },
           ]}
           loading={loading}

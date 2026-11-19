@@ -8,6 +8,7 @@ import { formatAllowedRoles, type RoleName } from "@/lib/role-access";
 import css from "../settings.module.css";
 import { fetchMyProfile, removeMyAvatar, saveMyProfile } from "./api";
 import type { MyProfile } from "./types";
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 
 function splitName(fullName: string): { first: string; last: string } {
   const trimmed = fullName.trim();
@@ -153,7 +154,7 @@ export default function MyProfilePage() {
         <div className={css.infoRow}>
           <span className={css.infoLabel}>Member since</span>
           <span className={css.infoValue}>
-            {profile ? new Date(profile.createdAt).toLocaleDateString(undefined, { year: "numeric", month: "short" }) : "—"}
+            {profile ? new Date(profile.createdAt).toLocaleDateString(DISPLAY_LOCALE, { year: "numeric", month: "short" }) : "—"}
           </span>
         </div>
 

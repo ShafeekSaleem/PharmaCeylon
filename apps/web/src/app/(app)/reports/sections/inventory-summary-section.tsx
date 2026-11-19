@@ -26,6 +26,7 @@ import { InventorySalesDumbbellChart, type DumbbellRow } from "../components/inv
 import { ActionsPanel, type ActionPanelItem } from "../components/actions-panel";
 import type { ExportPayload, OnExportData, Scope, StockValueItem, StockValueSnapshotItem, StockValueTrendPoint } from "../lib/types";
 import css from "../reports.module.css";
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 
 export type ValuationBasis = "cost" | "retail";
 
@@ -456,7 +457,7 @@ export function InventorySummarySection({ scope, isOwner, categoryId, supplierId
       </span>
     ) },
     { key: "value", header: "Stock Value", width: "6.5rem", align: "right", sortable: true, getValue: (r) => val(r.value, r.retailValue), render: (r) => formatMoney(val(r.value, r.retailValue)) },
-    { key: "qty", header: "Units", width: "3.5rem", align: "right", sortable: true, getValue: (r) => r.qtyOnHand, render: (r) => r.qtyOnHand.toLocaleString("en-IN") },
+    { key: "qty", header: "Units", width: "3.5rem", align: "right", sortable: true, getValue: (r) => r.qtyOnHand, render: (r) => r.qtyOnHand.toLocaleString(DISPLAY_LOCALE) },
     { key: "cover", header: "Cover", width: "4rem", align: "right", sortable: true, getValue: (r) => r.daysOfCover ?? -1, render: (r) => (r.daysOfCover == null ? "—" : `${r.daysOfCover}d`) },
     {
       key: "status",
@@ -609,7 +610,7 @@ export function InventorySummarySection({ scope, isOwner, categoryId, supplierId
         <StatCard size="sm" showMenu={false}
           title="Stock Availability"
           value={loading ? "…" : `${stockAvailabilityPct.toFixed(1)}%`}
-          subtitle={loading ? "" : `${outOfStockCount.toLocaleString("en-IN")} SKU${outOfStockCount === 1 ? "" : "s"} out of stock`}
+          subtitle={loading ? "" : `${outOfStockCount.toLocaleString(DISPLAY_LOCALE)} SKU${outOfStockCount === 1 ? "" : "s"} out of stock`}
           icon={<IconCheckCircle size={16} />}
           iconTone="success"
           trend={!loading && prevStockAvailabilityPct > 0 ? { value: formatPctTrend(pctChange(stockAvailabilityPct, prevStockAvailabilityPct)), direction: stockAvailabilityPct >= prevStockAvailabilityPct ? "up" : "down", tone: stockAvailabilityPct >= prevStockAvailabilityPct ? "positive" : "danger" } : undefined}
@@ -690,7 +691,7 @@ export function InventorySummarySection({ scope, isOwner, categoryId, supplierId
             <div className={css.activeFilterSlot}>
               <ActiveFilterBanner
                 active
-                summary={`Filtered by category · ${topItemsRows.length.toLocaleString("en-IN")} item${topItemsRows.length === 1 ? "" : "s"}`}
+                summary={`Filtered by category · ${topItemsRows.length.toLocaleString(DISPLAY_LOCALE)} item${topItemsRows.length === 1 ? "" : "s"}`}
                 pills={activeFilterPills}
                 onClear={() => setDrilldownDeptId(null)}
                 clearTooltip="Show all categories"
@@ -715,7 +716,7 @@ export function InventorySummarySection({ scope, isOwner, categoryId, supplierId
             <div className={css.activeFilterSlot}>
               <ActiveFilterBanner
                 active
-                summary={`Filtered by category · ${breakdownRows.length.toLocaleString("en-IN")} categor${breakdownRows.length === 1 ? "y" : "ies"}`}
+                summary={`Filtered by category · ${breakdownRows.length.toLocaleString(DISPLAY_LOCALE)} categor${breakdownRows.length === 1 ? "y" : "ies"}`}
                 pills={activeFilterPills}
                 onClear={() => setDrilldownDeptId(null)}
                 clearTooltip="Show all categories"

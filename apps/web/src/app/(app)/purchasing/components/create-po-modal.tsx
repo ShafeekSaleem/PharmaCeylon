@@ -33,6 +33,7 @@ import {
   todayIsoDate,
 } from "../utils";
 import { PurchasingSelect } from "./purchasing-select";
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 
 type Props = {
   open: boolean;
@@ -677,7 +678,7 @@ export function CreatePoModal({
                       {line.orderMode === "packs" && line.unitsPerPack > 1 && (
                         <div className={css.packHint}>
                           {line.packLabel ?? `Pack of ${line.unitsPerPack}`} ={" "}
-                          {poLineUnits(line).toLocaleString()} units in total
+                          {poLineUnits(line).toLocaleString(DISPLAY_LOCALE)} units in total
                         </div>
                       )}
                       {lineErr?.orderedQty && (

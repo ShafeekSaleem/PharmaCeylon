@@ -20,6 +20,7 @@ import { useRoles } from "../hooks/use-roles";
 import type { AdminUser, SecurityInfo } from "../types";
 import { formatDate, roleDisplayName } from "../utils";
 import css from "../users.module.css";
+import { formatDisplayTime } from "@pharmaceylon/shared";
 
 /**
  * D-W5: the PIN is set and changed on the desktop, never here. Each counter keeps its own
@@ -31,7 +32,7 @@ export function PinStatus({ security }: { security: SecurityInfo }) {
   const state = pin.switchedOff
     ? "Switched off after too many wrong PINs"
     : pin.isLocked
-      ? `Locked until ${new Date(pin.lockedUntil!).toLocaleTimeString()}`
+      ? `Locked until ${formatDisplayTime(pin.lockedUntil!)}`
       : pin.isSet
         ? "Set"
         : "Not set";

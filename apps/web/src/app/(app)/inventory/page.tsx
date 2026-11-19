@@ -42,6 +42,7 @@ import { useInventoryStock, useInventorySummary } from "./hooks/use-inventory-st
 import css from "./inventory.module.css";
 import type { StockAttention, StockRow, StockView } from "./types";
 import { formatCompactMoney, stockStatusLabel } from "./utils";
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 
 /** "Show" filter: the attention buckets plus products with no batches at this branch. */
 type ShowFilter = "all" | StockAttention | "no_batches";
@@ -328,7 +329,7 @@ function StockOverviewContent() {
       {stock.hasBranch && summary && summary.expired > 0 && (
         <Alert variant="warning">
           <strong>{summary.expired}</strong> {summary.expired === 1 ? "batch is" : "batches are"} past
-          expiry with {summary.expiredUnits.toLocaleString()} units still counted as sellable.{" "}
+          expiry with {summary.expiredUnits.toLocaleString(DISPLAY_LOCALE)} units still counted as sellable.{" "}
           <Link href="/inventory/batches?expired=1">Review expired batches</Link>
         </Alert>
       )}
@@ -346,10 +347,10 @@ function StockOverviewContent() {
           <StatCard
             size="sm"
             title="Available"
-            value={summary ? summary.availableUnits.toLocaleString() : "—"}
+            value={summary ? summary.availableUnits.toLocaleString(DISPLAY_LOCALE) : "—"}
             subtitle={
               summary
-                ? `${summary.totalUnits.toLocaleString()} on hand${
+                ? `${summary.totalUnits.toLocaleString(DISPLAY_LOCALE)} on hand${
                     summary.stockValue != null ? ` · ${formatCompactMoney(summary.stockValue)} at cost` : ""
                   }`
                 : undefined
@@ -396,7 +397,7 @@ function StockOverviewContent() {
           <StatCard
             size="sm"
             title="Held back"
-            value={summary ? heldUnits.toLocaleString() : "—"}
+            value={summary ? heldUnits.toLocaleString(DISPLAY_LOCALE) : "—"}
             subtitle={
               summary
                 ? `${summary.quarantinedUnits} quarantined · ${summary.reservedUnits} reserved`

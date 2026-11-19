@@ -13,6 +13,7 @@ import type { DashboardRole } from "../lib/dashboard-role";
 import { dashboardHref, usePosHidden } from "../lib/pos-links";
 import { asOfLabel } from "../widgets/counter-waiting";
 import css from "./daily-work.module.css";
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 
 const ROLE_COPY: Record<
   DashboardRole,
@@ -96,9 +97,9 @@ export function workTiming(
         : minutes < 60
           ? `${minutes} min waiting`
           : `${Math.floor(minutes / 60)}h ${minutes % 60}m waiting`;
-    return `Opened ${new Date(item.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: timezone })}`;
+    return `Opened ${new Date(item.createdAt).toLocaleDateString(DISPLAY_LOCALE, { day: "numeric", month: "short", timeZone: timezone })}`;
   }
-  return `${item.overdue ? "Overdue · " : "Due "}${new Date(item.dueAt).toLocaleString("en-GB", { day: "numeric", month: "short", ...(item.category === "stocktakes" ? ({ hour: "2-digit", minute: "2-digit" } as const) : {}), timeZone: timezone })}`;
+  return `${item.overdue ? "Overdue · " : "Due "}${new Date(item.dueAt).toLocaleString(DISPLAY_LOCALE, { day: "numeric", month: "short", ...(item.category === "stocktakes" ? ({ hour: "2-digit", minute: "2-digit" } as const) : {}), timeZone: timezone })}`;
 }
 
 export function DailyWorkQueue({
@@ -125,7 +126,7 @@ export function DailyWorkQueue({
   >;
   const total = categories.reduce((sum, [, count]) => sum + count, 0);
   const first = data?.items.find((item) => !item.blocked);
-  const date = new Date(data?.asOf ?? Date.now()).toLocaleDateString("en-GB", {
+  const date = new Date(data?.asOf ?? Date.now()).toLocaleDateString(DISPLAY_LOCALE, {
     weekday: "long",
     day: "numeric",
     month: "long",

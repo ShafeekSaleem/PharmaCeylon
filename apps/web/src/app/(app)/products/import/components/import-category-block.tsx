@@ -11,6 +11,7 @@ import type {
   ImportCategoryPlanEntry,
 } from "../types";
 import css from "../import.module.css";
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 
 /** Rows shown before the "show all" toggle — a messy file can carry hundreds of values. */
 const COLLAPSED_ROWS = 12;
@@ -146,14 +147,14 @@ export function ImportCategoryBlock({
       <p className={css.dim}>
         {placedRows > 0 ? (
           <>
-            <strong>{placedRows.toLocaleString()}</strong> row
+            <strong>{placedRows.toLocaleString(DISPLAY_LOCALE)}</strong> row
             {placedRows === 1 ? "" : "s"} will be filed from your Category
             column
             {matchedRows > 0 ? (
               <>
                 {" "}
-                — but only the {createdRows.toLocaleString()} this import{" "}
-                <em>creates</em>. The {matchedRows.toLocaleString()} matched to
+                — but only the {createdRows.toLocaleString(DISPLAY_LOCALE)} this import{" "}
+                <em>creates</em>. The {matchedRows.toLocaleString(DISPLAY_LOCALE)} matched to
                 products you already have keep the category they already have
               </>
             ) : null}
@@ -162,7 +163,7 @@ export function ImportCategoryBlock({
         ) : null}
         {plan.blankRows > 0 ? (
           <>
-            <strong>{plan.blankRows.toLocaleString()}</strong> row
+            <strong>{plan.blankRows.toLocaleString(DISPLAY_LOCALE)}</strong> row
             {plan.blankRows === 1 ? " has" : "s have"} no category — those are
             sorted automatically, or land in Unclassified.
           </>
@@ -211,7 +212,7 @@ export function ImportCategoryBlock({
                     )}
                   </td>
                   <td className={css.numCol}>
-                    {entry.rowCount.toLocaleString()}
+                    {entry.rowCount.toLocaleString(DISPLAY_LOCALE)}
                   </td>
                   <td>
                     <SelectField
@@ -257,7 +258,7 @@ export function ImportCategoryBlock({
           className={css.secondaryBtn}
           onClick={() => setExpanded(true)}
         >
-          Show {hidden.toLocaleString()} more
+          Show {hidden.toLocaleString(DISPLAY_LOCALE)} more
         </button>
       )}
 

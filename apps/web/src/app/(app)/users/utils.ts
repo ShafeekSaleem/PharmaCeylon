@@ -1,5 +1,6 @@
 import { ROLE_LABELS } from "./constants";
 import type { BranchRoleMapping } from "./types";
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 
 /** Custom-role mappings carry their live name via `roleRef`; built-ins use the static label. */
 export function roleDisplayName(mapping: BranchRoleMapping): string {
@@ -17,7 +18,7 @@ export function formatDate(iso: string | null | undefined): string {
   if (!iso) return "—";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleDateString(undefined, {
+  return d.toLocaleDateString(DISPLAY_LOCALE, {
     year: "numeric",
     month: "short",
     day: "numeric",

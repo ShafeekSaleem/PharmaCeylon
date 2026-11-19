@@ -6,6 +6,7 @@ import { ActionButton } from "@/components/ui";
 import { apiJson } from "@/lib/auth-client";
 import { ApiError } from "@/lib/api-error";
 import css from "./stock-draft.module.css";
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 
 export type StockDraftRow = {
   rowNumber: number;
@@ -213,7 +214,7 @@ export function StockDraftEditor({
             {view.rows
               .filter((row) => !row.postedBatchId)
               .reduce((sum, row) => sum + row.qty, 0)
-              .toLocaleString()}{" "}
+              .toLocaleString(DISPLAY_LOCALE)}{" "}
             units waiting at the counter.
           </p>
           {view.postedAt ? (

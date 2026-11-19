@@ -6,6 +6,7 @@ import { MetricCell, pctChange } from "../components/metric-cell";
 import { SimpleBarChart } from "../components/simple-charts";
 import type { DashboardData } from "../hooks/use-dashboard-data";
 import css from "../dashboard.module.css";
+import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 
 export function PharmacistDispensingThroughputWidget({
   data,
@@ -52,7 +53,7 @@ export function PharmacistDispensingThroughputWidget({
       >
         <MetricCell
           label="Units sold"
-          value={loading ? "…" : `${dispensedToday.toLocaleString()} units`}
+          value={loading ? "…" : `${dispensedToday.toLocaleString(DISPLAY_LOCALE)} units`}
           icon={<IconPackage size={16} strokeWidth={1.75} />}
           iconTone="bills"
           trend={

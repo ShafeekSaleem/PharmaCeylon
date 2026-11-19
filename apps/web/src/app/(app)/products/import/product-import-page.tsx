@@ -39,6 +39,7 @@ import {
 import { ImportCategoryBlock } from "./components/import-category-block";
 import { useProductMeta } from "../hooks/use-product-meta";
 import { useProductImport } from "./use-product-import";
+import { DISPLAY_LOCALE, formatDisplayDateTime } from "@pharmaceylon/shared";
 
 const STEPS: Array<{ id: ImportStep; label: string }> = [
   { id: "upload", label: "Upload" },
@@ -143,7 +144,7 @@ function IssueTable({ issues }: { issues: ImportRowIssue[] }) {
         <div className={css.pager}>
           <span className={css.dim}>
             {start + 1}–{Math.min(start + ISSUES_PER_PAGE, issues.length)} of{" "}
-            {issues.length.toLocaleString()}
+            {issues.length.toLocaleString(DISPLAY_LOCALE)}
           </span>
           <div className={css.pagerBtns}>
             <button
@@ -376,7 +377,7 @@ function ProductImportContent({ branchId }: { branchId: string | null }) {
             <div>
               <h2 className={css.cardTitle}>Match your columns</h2>
               <p className={css.dim}>
-                {io.file?.name} · {io.analysis.totalRows.toLocaleString()} row
+                {io.file?.name} · {io.analysis.totalRows.toLocaleString(DISPLAY_LOCALE)} row
                 {io.analysis.totalRows === 1 ? "" : "s"} · we&apos;ve guessed
                 these from your headers, change anything that looks wrong.
               </p>
@@ -459,7 +460,7 @@ function ProductImportContent({ branchId }: { branchId: string | null }) {
               <p className={css.dim}>
                 Nothing has been changed yet.
                 {attentionCount > 0
-                  ? ` ${attentionCount.toLocaleString()} thing${attentionCount === 1 ? "" : "s"} below need${attentionCount === 1 ? "s" : ""} a decision — everything else is handled.`
+                  ? ` ${attentionCount.toLocaleString(DISPLAY_LOCALE)} thing${attentionCount === 1 ? "" : "s"} below need${attentionCount === 1 ? "s" : ""} a decision — everything else is handled.`
                   : " Nothing needs a decision — everything matched cleanly."}
               </p>
             </div>
@@ -483,7 +484,7 @@ function ProductImportContent({ branchId }: { branchId: string | null }) {
                 />
                 <Stat
                   label="Units of stock"
-                  value={io.preview.unitsToPost.toLocaleString()}
+                  value={io.preview.unitsToPost.toLocaleString(DISPLAY_LOCALE)}
                 />
               </>
             )}
@@ -597,7 +598,7 @@ function ProductImportContent({ branchId }: { branchId: string | null }) {
               <summary className={css.autoDecisionsSummary}>
                 View automatic decisions
                 <span className={css.optional}>
-                  {io.preview.update.toLocaleString()} matched without needing
+                  {io.preview.update.toLocaleString(DISPLAY_LOCALE)} matched without needing
                   you
                 </span>
               </summary>
@@ -645,7 +646,7 @@ function ProductImportContent({ branchId }: { branchId: string | null }) {
               disabled={io.busy || io.preview.create + io.preview.update === 0}
               onClick={() => void io.runImport()}
             >
-              Import {(io.preview.create + io.preview.update).toLocaleString()}{" "}
+              Import {(io.preview.create + io.preview.update).toLocaleString(DISPLAY_LOCALE)}{" "}
               product
               {io.preview.create + io.preview.update === 1 ? "" : "s"}
               {pendingUnconfirmed > 0
@@ -681,7 +682,7 @@ function ProductImportContent({ branchId }: { branchId: string | null }) {
           </div>
           <p className={css.dim}>
             {io.progress
-              ? `${io.progress.processed.toLocaleString()} of ${io.progress.total.toLocaleString()} · ${io.progress.productsCreated} created, ${io.progress.productsUpdated} updated, ${io.progress.batchesCreated} batches`
+              ? `${io.progress.processed.toLocaleString(DISPLAY_LOCALE)} of ${io.progress.total.toLocaleString(DISPLAY_LOCALE)} · ${io.progress.productsCreated} created, ${io.progress.productsUpdated} updated, ${io.progress.batchesCreated} batches`
               : "Starting…"}
           </p>
           <p className={css.dim}>
@@ -726,7 +727,7 @@ function ProductImportContent({ branchId }: { branchId: string | null }) {
             )}
             {(io.result.unitsStaged ?? 0) > 0 && (
               <p className={css.dim}>
-                {io.result.unitsStaged!.toLocaleString()} units staged — post
+                {io.result.unitsStaged!.toLocaleString(DISPLAY_LOCALE)} units staged — post
                 opening stock at the counter in PharmaCeylon POS. Available
                 stock has not changed.
               </p>
@@ -734,7 +735,7 @@ function ProductImportContent({ branchId }: { branchId: string | null }) {
             <Stat label="Batches created" value={io.result.batchesCreated} />
             <Stat
               label="Units posted"
-              value={io.result.unitsPosted.toLocaleString()}
+              value={io.result.unitsPosted.toLocaleString(DISPLAY_LOCALE)}
             />
             {io.result.rowsFailed > 0 && (
               <Stat
@@ -748,16 +749,16 @@ function ProductImportContent({ branchId }: { branchId: string | null }) {
           {io.result.productsCreated > 0 && (
             <p className={css.dim}>
               Filed under a category:{" "}
-              <strong>{io.result.categorizedFromFile.toLocaleString()}</strong>{" "}
+              <strong>{io.result.categorizedFromFile.toLocaleString(DISPLAY_LOCALE)}</strong>{" "}
               from your file,{" "}
               <strong>
-                {io.result.categorizedByClassifier.toLocaleString()}
+                {io.result.categorizedByClassifier.toLocaleString(DISPLAY_LOCALE)}
               </strong>{" "}
               sorted automatically
               {io.result.leftUnclassified > 0 ? (
                 <>
                   ,{" "}
-                  <strong>{io.result.leftUnclassified.toLocaleString()}</strong>{" "}
+                  <strong>{io.result.leftUnclassified.toLocaleString(DISPLAY_LOCALE)}</strong>{" "}
                   left in Unclassified
                 </>
               ) : null}
@@ -798,18 +799,18 @@ function ProductImportContent({ branchId }: { branchId: string | null }) {
               <IconClipboardList size={16} aria-hidden />
               <span>
                 This import left{" "}
-                <strong>{io.result.catalogTasks.total.toLocaleString()}</strong>{" "}
+                <strong>{io.result.catalogTasks.total.toLocaleString(DISPLAY_LOCALE)}</strong>{" "}
                 catalog task
                 {io.result.catalogTasks.total === 1 ? "" : "s"}:{" "}
                 {[
                   io.result.catalogTasks.needsCategory > 0
-                    ? `${io.result.catalogTasks.needsCategory.toLocaleString()} needing a category`
+                    ? `${io.result.catalogTasks.needsCategory.toLocaleString(DISPLAY_LOCALE)} needing a category`
                     : null,
                   io.result.catalogTasks.nmraMatch > 0
-                    ? `${io.result.catalogTasks.nmraMatch.toLocaleString()} possible register match${io.result.catalogTasks.nmraMatch === 1 ? "" : "es"}`
+                    ? `${io.result.catalogTasks.nmraMatch.toLocaleString(DISPLAY_LOCALE)} possible register match${io.result.catalogTasks.nmraMatch === 1 ? "" : "es"}`
                     : null,
                   io.result.catalogTasks.ambiguous > 0
-                    ? `${io.result.catalogTasks.ambiguous.toLocaleString()} ambiguous`
+                    ? `${io.result.catalogTasks.ambiguous.toLocaleString(DISPLAY_LOCALE)} ambiguous`
                     : null,
                 ]
                   .filter(Boolean)
@@ -819,7 +820,7 @@ function ProductImportContent({ branchId }: { branchId: string | null }) {
                   <>
                     {" "}
                     <strong>
-                      {io.result.catalogTasks.complianceReview.toLocaleString()}
+                      {io.result.catalogTasks.complianceReview.toLocaleString(DISPLAY_LOCALE)}
                     </strong>{" "}
                     would change a compliance flag and need individual review.
                   </>
@@ -882,7 +883,7 @@ function ProductImportContent({ branchId }: { branchId: string | null }) {
                 className={css.primaryBtn}
               >
                 <IconClipboardList size={15} />
-                Review {io.result.catalogTasks.total.toLocaleString()} catalog
+                Review {io.result.catalogTasks.total.toLocaleString(DISPLAY_LOCALE)} catalog
                 task
                 {io.result.catalogTasks.total === 1 ? "" : "s"}
               </Link>
@@ -925,7 +926,7 @@ function ProductImportContent({ branchId }: { branchId: string | null }) {
                     )}
                   </td>
                   <td className={css.dim}>
-                    {new Date(h.createdAt).toLocaleString()}
+                    {formatDisplayDateTime(h.createdAt)}
                   </td>
                   <td>
                     {h.status === "undone" ? (

@@ -16,6 +16,7 @@ import {
 import { ChangePasswordModal } from "./components/change-password-modal";
 import { apiJson } from "@/lib/auth-client";
 import { useAuth } from "@/lib/use-auth";
+import { formatDisplayDate, formatDisplayDateTime } from "@pharmaceylon/shared";
 
 type UserSession = {
   id: string;
@@ -114,12 +115,12 @@ export default function PasswordLoginPage() {
     {
       key: "activity",
       header: "Last activity",
-      render: (session) => new Date(session.lastUsedAt ?? session.createdAt).toLocaleString(),
+      render: (session) => formatDisplayDateTime(session.lastUsedAt ?? session.createdAt),
     },
     {
       key: "expiresAt",
       header: "Expires",
-      render: (session) => new Date(session.expiresAt).toLocaleDateString(),
+      render: (session) => formatDisplayDate(session.expiresAt),
     },
     {
       key: "actions",
