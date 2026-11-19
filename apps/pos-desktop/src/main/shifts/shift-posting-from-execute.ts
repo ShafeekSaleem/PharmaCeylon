@@ -2,6 +2,7 @@ import type {
   OnlineCommandReceipt,
   SignedPhysicalOperation,
 } from "@pharmaceylon/shared";
+import type { ReturnOutcome } from "../../shared/ipc-contract";
 import type { ShiftService } from "./shift-service";
 
 export const PAYOUT_EXECUTE =
@@ -34,6 +35,25 @@ export function recordAfterDirectRefundExecute(
 ): void {
   if (alreadyApplied) return;
   shifts.recordRefund(refundRequestId, refundedTo, executorId);
+}
+
+/**
+ * A Returns outcome — from submitting a return, or from a manager's co-sign that let it execute.
+ * Only a refund that executed here moves the drawer; one still waiting for approval moves nothing.
+ */
+export function recordAfterReturnOutcome(
+  shifts: ShiftService,
+  outcome: ReturnOutcome,
+  executorId: string,
+): void {
+  if (outcome.status !== "refunded") return;
+  recordAfterDirectRefundExecute(
+    shifts,
+    outcome.refund.refundRequestId,
+    outcome.refund.refundedTo,
+    executorId,
+    outcome.refund.alreadyApplied,
+  );
 }
 
 /**
