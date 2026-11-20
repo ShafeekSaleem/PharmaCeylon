@@ -11,6 +11,8 @@ import CountersSettingsPage from "./page";
 
 jest.mock("@/lib/auth-client", () => ({ apiJson: jest.fn() }));
 jest.mock("@/lib/use-auth", () => ({ useAuth: () => ({ branchId: "branch-1" }) }));
+// The tenant-wide counter defaults card has its own tests; this file covers the counters.
+jest.mock("./counter-defaults-card", () => ({ CounterDefaultsCard: () => null }));
 
 const empty: TerminalCounterView = {
   registerId: "11111111-1111-4111-8111-111111111111",

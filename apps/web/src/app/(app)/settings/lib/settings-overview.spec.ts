@@ -5,6 +5,8 @@ const settings = {
   passwordMinLength: 1,
   receiptPaperSize: "a4",
   posMaxDiscountPercent: 0,
+  posAutoPrintReceipt: false,
+  posDefaultPaymentMethod: "split",
   vatRatePercent: null,
   lowStockThresholdUnits: 1,
   expiryWarningDays: 30,
@@ -21,11 +23,25 @@ describe("settings home values (UI1 #205)", () => {
       appearance: { theme: "dark", density: "compact", fontSize: "large" },
       branchCount: 1,
       counterCount: 2,
+      counterPolicy: {
+        schemaVersion: 2,
+        onlinePaymentMethods: ["card", "mobile_wallet", "credit"],
+        offlineEnabled: false,
+        offlineExternalCardEnabled: false,
+        externalCardMerchants: [],
+        registerNumbering: [],
+      },
     });
     expect(values["/settings/password-login"]).toBe(
       "Pharmacy rule: passwords at least 1 character",
     );
-    expect(values["/settings/main"]).toBe("A4 receipts · discounts up to 0% without approval");
+    expect(values["/settings/receipts"]).toBe("A4 receipts · printed on request");
+    expect(values["/settings/payments"]).toBe(
+      "Cash, card, mobile wallet and customer credit at this branch · sales start on split",
+    );
+    expect(values["/settings/offline-selling"]).toBe("Off at this branch");
+    // The old "Counters & receipts" page is a redirect now, so it has no card of its own.
+    expect(values["/settings/main"]).toBeUndefined();
     expect(values["/settings/catalog"]).toBe("VAT at the standard rate");
     expect(values["/settings/operations"]).toBe("Low stock at 1 unit · expiry warning 30 days");
     expect(values["/settings/approval-rules"]).toBe("2 of 5 rules on");
@@ -50,14 +66,16 @@ describe("settings home values (UI1 #205)", () => {
       systemEnabled: false,
     };
     expect(
-      settingsValues({ notifications, notificationKeys: ["expiryEnabled", "purchasingEnabled"] })[
-        "/settings/notifications"
-      ],
+      settingsValues({
+        notifications,
+        notificationKeys: ["expiryEnabled", "purchasingEnabled"],
+      })["/settings/notifications"],
     ).toBe("All alerts on");
     expect(
-      settingsValues({ notifications, notificationKeys: ["inventoryEnabled", "systemEnabled"] })[
-        "/settings/notifications"
-      ],
+      settingsValues({
+        notifications,
+        notificationKeys: ["inventoryEnabled", "systemEnabled"],
+      })["/settings/notifications"],
     ).toBe("2 alert types turned off");
   });
 

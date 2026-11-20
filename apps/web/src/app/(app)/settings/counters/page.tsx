@@ -13,6 +13,7 @@ import { FormField, Modal, ModalButton, ModalFooter, PageHeader, StatusBadge } f
 import { useAuth } from "@/lib/use-auth";
 import css from "../settings.module.css";
 import { countersApi } from "./counters-api";
+import { CounterDefaultsCard } from "./counter-defaults-card";
 import { CounterOfflineSales } from "./offline-sync";
 import { formatDisplayDate, formatDisplayDateTime, formatDisplayTime } from "@pharmaceylon/shared";
 
@@ -67,10 +68,13 @@ export default function CountersSettingsPage() {
   return (
     <div>
       <PageHeader
-        title="Counters & devices"
+        title="Counters"
         description="The checkout counters at this branch, the computer enrolled on each, and codes for enrolling a new one."
       />
-      <div className={css.panel}>{branchId ? <Counters key={branchId} /> : null}</div>
+      <div className={css.panel}>
+        {branchId ? <Counters key={branchId} /> : null}
+        <CounterDefaultsCard />
+      </div>
     </div>
   );
 }
@@ -309,7 +313,7 @@ function Counters() {
           </p>
         ) : null}
         <p className={css.rowHint}>
-          Offline selling is set in <Link href="/settings/offline-policy">Offline policy</Link>.
+          Offline selling is set in <Link href="/settings/offline-selling">Offline selling</Link>.
           Staff PINs and which counters each person has prepared are under each person in{" "}
           <Link href="/users">Users</Link>.
         </p>

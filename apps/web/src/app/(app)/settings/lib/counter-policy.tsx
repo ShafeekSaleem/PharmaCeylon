@@ -8,6 +8,11 @@ import { apiJson } from "@/lib/auth-client";
 import { useAuth } from "@/lib/use-auth";
 import css from "../settings.module.css";
 
+/** One branch's counter policy document, read-only (the settings home's card values). */
+export function fetchCounterPolicy(branchId: string): Promise<CounterPolicyView> {
+  return apiJson<CounterPolicyView>(`/tenant/branches/${branchId}/counter-policy`);
+}
+
 export type CounterPolicyEditor = {
   view: CounterPolicyView;
   disabled: boolean;

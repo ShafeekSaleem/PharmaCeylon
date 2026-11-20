@@ -37,7 +37,10 @@ describe("settings menu (UI1 #205)", () => {
     expect(self.every((item) => !item.adminOnly)).toBe(true);
     expect(groupSettingsItems(self).map((g) => g.group.key)).toEqual(["you"]);
 
-    const restricted = visibleSettingsItems({ isAdmin: true, personalOnly: true });
+    const restricted = visibleSettingsItems({
+      isAdmin: true,
+      personalOnly: true,
+    });
     expect(restricted.map((i) => i.href)).toEqual([
       "/settings/my-profile",
       "/settings/password-login",
@@ -74,5 +77,26 @@ describe("settings menu (UI1 #205)", () => {
     // Profitability folded into Catalog and redirects there.
     expect(settingsItemFor("/settings/profitability")?.label).toBe("Catalog");
     expect(settingsItemFor("/settings/alerts-recipients")?.label).toBe("Recipients & Channels");
+    expect(settingsItemFor("/settings/insights-reports")?.label).toBe("Insights & Reports");
+  });
+
+  it("splits the counter pages into Counters, Receipts, Payments and Offline selling", () => {
+    const counter = SETTINGS_ITEMS.filter((item) => item.group === "counter");
+    expect(counter.map((item) => [item.label, item.href])).toEqual([
+      ["Counters", "/settings/counters"],
+      ["Receipts", "/settings/receipts"],
+      ["Payments", "/settings/payments"],
+      ["Offline selling", "/settings/offline-selling"],
+    ]);
+    // The old routes redirect, and the menu marks the page they land on.
+    expect(settingsItemFor("/settings/main")?.label).toBe("Counters");
+    expect(settingsItemFor("/settings/offline-policy")?.label).toBe("Offline selling");
+    // Search finds each setting where it lives now.
+    expect(searchSettings(ALL, "receipt prefix")[0]?.item.label).toBe("Receipts");
+    expect(searchSettings(ALL, "auto-print")[0]?.item.label).toBe("Receipts");
+    expect(searchSettings(ALL, "default payment method")[0]?.item.label).toBe("Payments");
+    expect(searchSettings(ALL, "max discount")[0]?.item.label).toBe("Counters");
+    expect(searchSettings(ALL, "journal recovery")[0]?.item.label).toBe("Offline selling");
+    expect(SETTINGS_ITEMS.some((item) => /Counters &/.test(item.label))).toBe(false);
   });
 });

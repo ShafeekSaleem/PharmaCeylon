@@ -279,7 +279,7 @@ Object.assign(PAGE_TITLES, {
   "/settings/insights-reports": "Insights & Reports",
 } satisfies Record<string, string>);
 // Settings pages take their display names from the settings menu, so the breadcrumb, the page
-// title and the menu say the same thing ("Counters & devices", never "counters").
+// title and the menu say the same thing ("Counters", never "counters").
 for (const item of SETTINGS_ITEMS) PAGE_TITLES[item.href] = item.label;
 
 /** Where "Back to app" returns to from Settings: the last page you had open outside it. */
