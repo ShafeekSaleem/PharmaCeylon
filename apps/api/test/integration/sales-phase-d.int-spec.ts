@@ -255,7 +255,7 @@ describe("sales phase D queues (Postgres)", () => {
 });
 
 describe("sales history sync-state filters (Postgres)", () => {
-  const fxOwner: RequestUser = {
+  const fxOwner = (): RequestUser => ({
     userId: fx.ownerId,
     tenantId: fx.tenantId,
     tokenVersion: 0,
@@ -266,7 +266,7 @@ describe("sales history sync-state filters (Postgres)", () => {
       { branchId: fx.mainBranchId, role: RoleName.owner },
       { branchId: fx.otherBranchId, role: RoleName.owner },
     ],
-  };
+  });
 
   it("filters accepted and pending_stock_posting and excludes online sales", async () => {
     const online = await localPrisma.sale.create({
@@ -291,10 +291,10 @@ describe("sales history sync-state filters (Postgres)", () => {
         payments: { create: { tenantId: fx.tenantId, method: PaymentMethod.cash, amount: "9" } },
       },
     });
-    const accepted = await reads.history(fxOwner, fx.mainBranchId, { offlineSyncState: "accepted" });
+    const accepted = await reads.history(fxOwner(), fx.mainBranchId, { offlineSyncState: "accepted" });
     expect(accepted.items.some((row) => row.id === offlineOnFx)).toBe(true);
     expect(accepted.items.some((row) => row.id === online.id)).toBe(false);
-    const pending = await reads.history(fxOwner, fx.mainBranchId, {
+    const pending = await reads.history(fxOwner(), fx.mainBranchId, {
       offlineSyncState: "pending_stock_posting",
     });
     expect(pending.items.some((row) => row.id === pendingOnFx)).toBe(true);
