@@ -1,5 +1,5 @@
-import { Injectable } from "@nestjs/common";
-import { GoodsReturnStatus, type Prisma } from "@prisma/client";
+import { ConflictException, Injectable } from "@nestjs/common";
+import { GoodsReturnStatus, Prisma } from "@prisma/client";
 import type {
   CounterUndoableImport,
   CounterWorkDetail,
@@ -14,6 +14,7 @@ import type {
   CounterWorkTransferLine,
 } from "@pharmaceylon/shared";
 import { PrismaService } from "../prisma/prisma.service";
+import { normalizeUnitsPerPack, resolveQuantity, unitCostFromPack } from "../purchasing/pack-math";
 import type { StagedStockRow } from "../product-import/import-stock.service";
 import { ProductImportService } from "../product-import/product-import.service";
 import { AccessService } from "../security/access.service";
@@ -25,8 +26,19 @@ import { CounterWorkService, type CounterWorkItem, type DeliveryLine, deliveryLi
 const day = (value: Date | string | null | undefined) =>
   value == null ? null : (typeof value === "string" ? value : value.toISOString()).slice(0, 10);
 const money = (value: number) => value.toFixed(2);
+/** A unit cost as posting stores it: up to 4dp from a pack price, never fewer than 2. */
+const unitMoney = (value: Prisma.Decimal) => {
+  const v = value.toDecimalPlaces(4);
+  return v.toFixed(Math.max(2, v.decimalPlaces()));
+};
 
-type ProductInfo = { id: string; name: string; packLabel: string | null; unitsPerPack: number };
+/** What a delivery line falls back to when the line itself is silent, as posting does. */
+export type ReceiptContext = {
+  poItems: Map<string, { unitsPerPack: number; unitCost: Prisma.Decimal }>;
+  supplierPrices: Map<string, { unitsPerPack: number; unitCost: Prisma.Decimal }>;
+};
+
+export type ProductInfo = { id: string; name: string; packLabel: string | null; unitsPerPack: number };
 
 /**
  * P6 #52, counter reads: the lines behind one Counter work item, so the counter can show the
@@ -52,9 +64,26 @@ export class CounterWorkDetailService {
     asOf = new Date().toISOString(),
   ): Promise<CounterWorkDetail> {
     const access = await this.access.resolve(user, branchId);
-    const item = await this.work.one(user, branchId, kind, id, access, asOf);
     const costs = access.has("costs.view");
-    const { tenantId } = user;
+    // The header and the lines are separate reads. Versions only go up, so the same version
+    // before (`one`) and after the lines means nothing changed in between: a v3 "matches" header
+    // is never paired with v4 lines. One retry, then the counter is asked to open it again.
+    for (let attempt = 0; ; attempt++) {
+      const item = await this.work.one(user, branchId, kind, id, access, asOf);
+      const detail = await this.build(user.tenantId, branchId, kind, item, access, costs);
+      if ((await this.version(user.tenantId, kind, id)) === item.approval.currentVersion) return detail;
+      if (attempt >= 1) throw new ConflictException("This changed while it was being read. Open it again.");
+    }
+  }
+
+  private build(
+    tenantId: string,
+    branchId: string,
+    kind: CounterWorkDetailKind,
+    item: CounterWorkItem,
+    access: Parameters<StocktakesService["getOne"]>[3],
+    costs: boolean,
+  ): Promise<CounterWorkDetail> {
     switch (kind) {
       case "prepared_receipt":
         return this.preparedReceipt(tenantId, item, costs);
@@ -72,6 +101,27 @@ export class CounterWorkDetailService {
     }
   }
 
+  /** The version `CounterWorkService` reports as `approval.currentVersion` for this kind. */
+  private async version(tenantId: string, kind: CounterWorkDetailKind, id: string): Promise<number | null> {
+    const where = { tenantId, id };
+    const select = { approvalVersion: true } as const;
+    switch (kind) {
+      case "prepared_receipt":
+        return (await this.prisma.preparedReceipt.findFirst({ where, select }))?.approvalVersion ?? null;
+      case "held_delivery":
+        return (await this.prisma.heldDelivery.findFirst({ where, select }))?.approvalVersion ?? null;
+      case "transfer_ship":
+      case "transfer_receive":
+        return (await this.prisma.transfer.findFirst({ where, select }))?.approvalVersion ?? null;
+      case "stocktake":
+        return (await this.prisma.stocktake.findFirst({ where, select }))?.approvalVersion ?? null;
+      case "supplier_return":
+        return (await this.prisma.goodsReturn.findFirst({ where, select }))?.approvalVersion ?? null;
+      case "import_stock":
+        return (await this.prisma.productImport.findFirst({ where, select: { stockVersion: true } }))?.stockVersion ?? null;
+    }
+  }
+
   /** Decision 5: imports this counter may still undo. `products.import` at the branch. */
   async undoableImports(user: RequestUser, branchId: string): Promise<CounterUndoableImport[]> {
     const access = await this.access.resolve(user, branchId);
@@ -82,8 +132,10 @@ export class CounterWorkDetailService {
       importId: row.id,
       filename: row.filename,
       uploaded: { name: names.get(row.createdBy) ?? null, at: row.createdAt.toISOString() },
+      stopped: row.status === "failed",
       productsCreated: row.productsCreated,
       productsUpdated: row.productsUpdated,
+      createdProducts: row.createdProducts.map((p) => ({ productId: p.id, productName: p.name })),
       batches: row.lines.length,
       units: row.lines.reduce((sum, line) => sum + line.qty, 0),
       lines: row.lines.map((line) => ({
@@ -102,8 +154,12 @@ export class CounterWorkDetailService {
   private async preparedReceipt(tenantId: string, item: CounterWorkItem, costs: boolean): Promise<CounterWorkDetail> {
     const row = await this.prisma.preparedReceipt.findFirstOrThrow({
       where: { tenantId, id: item.id },
-      select: { payload: true, notes: true, preparedBy: true, preparedAt: true },
+      select: {
+        payload: true, notes: true, preparedBy: true, preparedAt: true,
+        purchaseOrderId: true, purchaseOrder: { select: { supplierId: true } },
+      },
     });
+    const lines = deliveryLines(row.payload);
     const notes = await this.notes(tenantId, [
       { label: "Note from the person who prepared it", text: row.notes, by: row.preparedBy, at: row.preparedAt },
     ]);
@@ -112,7 +168,8 @@ export class CounterWorkDetailService {
       notes,
       supplierDeliveryNote: deliveryNote(row.payload),
       amount: item.amount,
-      lines: await this.receiptLines(tenantId, deliveryLines(row.payload), costs),
+      lines: await this.receiptLines(tenantId, lines, costs,
+        await this.receiptContext(tenantId, row.purchaseOrderId, row.purchaseOrder.supplierId, lines)),
     };
   }
 
@@ -122,9 +179,11 @@ export class CounterWorkDetailService {
       select: {
         payload: true, preparedPayload: true, reasons: true, detail: true, decisionNote: true, corrected: true,
         requestedBy: true, requestedAt: true, decidedBy: true, decidedAt: true,
+        purchaseOrderId: true, purchaseOrder: { select: { supplierId: true } },
       },
     });
     const payload = row.preparedPayload ?? row.payload;
+    const lines = deliveryLines(payload);
     const flags = (payload ?? {}) as { acceptOverDelivery?: boolean; acceptPriceVariance?: boolean };
     const notes = await this.notes(tenantId, [
       { label: "Why it was held", text: row.detail, by: row.requestedBy, at: row.requestedAt },
@@ -142,7 +201,8 @@ export class CounterWorkDetailService {
         acceptPriceVariance: flags.acceptPriceVariance === true,
         corrected: row.corrected,
       },
-      lines: await this.receiptLines(tenantId, deliveryLines(payload), costs),
+      lines: await this.receiptLines(tenantId, lines, costs,
+        await this.receiptContext(tenantId, row.purchaseOrderId, row.purchaseOrder.supplierId, lines)),
     };
   }
 
@@ -251,7 +311,7 @@ export class CounterWorkDetailService {
         status: { in: [GoodsReturnStatus.awaiting_logistics, GoodsReturnStatus.in_review] },
       },
       select: {
-        reason: true, notes: true, requestedBy: true, createdAt: true,
+        reason: true, notes: true,
         items: {
           where: { tenantId },
           orderBy: { id: "asc" },
@@ -275,8 +335,9 @@ export class CounterWorkDetailService {
       unitPrice: costs ? money(Number(line.unitPrice)) : null,
     }));
     const notes = await this.notes(tenantId, [
-      { label: "Reason", text: row.reason, by: row.requestedBy, at: row.createdAt },
-      { label: "Note", text: row.notes, by: row.requestedBy, at: row.createdAt },
+      // Edits can change both and nothing records who edited, so they are not signed.
+      { label: "Reason", text: row.reason, by: null, at: null },
+      { label: "Note", text: row.notes, by: null, at: null },
     ]);
     return { ...base(item, "supplier_return"), notes, amount: item.amount, lines };
   }
@@ -310,34 +371,40 @@ export class CounterWorkDetailService {
 
   // ── Helpers ─────────────────────────────────────────────────────────────────────────────
 
-  private async receiptLines(tenantId: string, lines: DeliveryLine[], costs: boolean): Promise<CounterWorkReceiptLine[]> {
+  /** The order's lines and the supplier's price list: one read each, as posting reads them. */
+  private async receiptContext(
+    tenantId: string,
+    purchaseOrderId: string,
+    supplierId: string | null,
+    lines: DeliveryLine[],
+  ): Promise<ReceiptContext> {
+    const productIds = [...new Set(lines.map((line) => line.productId).filter((id): id is string => !!id))];
+    const [items, prices] = await Promise.all([
+      this.prisma.purchaseOrderItem.findMany({
+        where: { tenantId, purchaseOrderId, productId: { in: productIds } },
+        select: { productId: true, unitsPerPack: true, unitCost: true },
+      }),
+      supplierId
+        ? this.prisma.supplierProductPrice.findMany({
+            where: { tenantId, supplierId, productId: { in: productIds } },
+            select: { productId: true, unitsPerPack: true, unitCost: true },
+          })
+        : Promise.resolve([]),
+    ]);
+    return {
+      poItems: new Map(items.map((i) => [i.productId, i])),
+      supplierPrices: new Map(prices.map((p) => [p.productId, p])),
+    };
+  }
+
+  private async receiptLines(
+    tenantId: string,
+    lines: DeliveryLine[],
+    costs: boolean,
+    context: ReceiptContext,
+  ): Promise<CounterWorkReceiptLine[]> {
     const products = await this.products(tenantId, lines.map((line) => line.productId ?? ""));
-    return lines.map((line, index) => {
-      const info = products.get(line.productId ?? "");
-      const unitsPerPack = line.unitsPerPack ?? info?.unitsPerPack ?? 1;
-      const receivedQty = line.receivedQty ?? (line.packs != null ? line.packs * unitsPerPack : 0);
-      const freeQty = line.freeQty ?? 0;
-      const unitCost =
-        line.costPrice ?? (line.packCost != null ? String(Number(line.packCost) / unitsPerPack) : null);
-      return {
-        productId: line.productId ?? "",
-        productName: info?.name ?? "Unknown product",
-        packLabel: info?.packLabel ?? null,
-        unitsPerPack,
-        batchId: null,
-        batchNo: line.batchNo ?? null,
-        expiryDate: day(line.expiryDate),
-        index,
-        packs: line.packs ?? null,
-        receivedQty,
-        freeQty,
-        damagedQty: line.rejectedQty ?? 0,
-        damagedReason: line.rejectedReason ?? null,
-        unitsToStock: receivedQty + freeQty,
-        packCost: costs && line.packCost != null ? money(Number(line.packCost)) : null,
-        unitCost: costs && unitCost != null ? money(Number(unitCost)) : null,
-      };
-    });
+    return lines.map((line, index) => receiptLine(line, index, products.get(line.productId ?? ""), context, costs));
   }
 
   private async products(tenantId: string, ids: string[]) {
@@ -391,6 +458,56 @@ function base<K extends CounterWorkDetailKind>(item: CounterWorkItem, kind: K) {
 
 function product(p: ProductInfo): CounterWorkLineProduct {
   return { productId: p.id, productName: p.name, packLabel: p.packLabel, unitsPerPack: p.unitsPerPack };
+}
+
+/**
+ * One approved delivery line, resolved exactly as `PurchasingService` posts it, so the counter
+ * confirms what posts:
+ * - units per pack: the line, then the order line, then the supplier's price, then the product;
+ * - quantity: packs win over units when both are present (`resolveQuantity`);
+ * - unit cost: the line's, then its pack price per unit, then the order line's, then the
+ *   supplier's.
+ */
+export function receiptLine(
+  line: DeliveryLine,
+  index: number,
+  info: ProductInfo | undefined,
+  context: ReceiptContext,
+  costs: boolean,
+): CounterWorkReceiptLine {
+  const productId = line.productId ?? "";
+  const poItem = context.poItems.get(productId);
+  const priceRow = context.supplierPrices.get(productId);
+  const unitsPerPack = normalizeUnitsPerPack(
+    line.unitsPerPack ?? poItem?.unitsPerPack ?? priceRow?.unitsPerPack ?? info?.unitsPerPack,
+  );
+  const paid = resolveQuantity({ unitsPerPack, packs: line.packs ?? null, units: line.receivedQty ?? null });
+  const freeQty = Math.max(0, Math.floor(line.freeQty ?? 0));
+  const damagedQty = Math.max(0, Math.floor(line.rejectedQty ?? 0));
+  const packCost = line.packCost?.trim() ? new Prisma.Decimal(line.packCost) : null;
+  const unitCost = line.costPrice?.trim()
+    ? new Prisma.Decimal(line.costPrice)
+    : packCost
+      ? unitCostFromPack(packCost, unitsPerPack)
+      : (poItem?.unitCost ?? priceRow?.unitCost ?? null);
+  return {
+    productId,
+    productName: info?.name ?? "Unknown product",
+    packLabel: info?.packLabel ?? null,
+    unitsPerPack,
+    batchId: null,
+    batchNo: line.batchNo?.trim() || null,
+    expiryDate: day(line.expiryDate),
+    index,
+    packs: paid.packs,
+    receivedQty: paid.units,
+    freeQty,
+    damagedQty,
+    damagedReason: line.rejectedReason?.trim() || null,
+    unitsToStock: paid.units + freeQty,
+    packCost: costs && packCost ? money(packCost.toNumber()) : null,
+    unitCost: costs && unitCost ? unitMoney(new Prisma.Decimal(unitCost)) : null,
+  };
 }
 
 function deliveryNote(payload: Prisma.JsonValue): string | null {

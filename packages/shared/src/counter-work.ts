@@ -549,8 +549,12 @@ export type CounterUndoableImport = Readonly<{
   importId: string;
   filename: string;
   uploaded: CounterWorkPerson;
+  /** The import was stopped part-way (status `failed`); undo removes what it did post. */
+  stopped: boolean;
   productsCreated: number;
   productsUpdated: number;
+  /** The catalogue entries undo removes, including ones the import gave no stock. */
+  createdProducts: ReadonlyArray<Readonly<{ productId: string; productName: string }>>;
   batches: number;
   units: number;
   lines: ReadonlyArray<CounterUndoableImportLine>;

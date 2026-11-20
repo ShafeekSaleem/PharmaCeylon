@@ -674,6 +674,10 @@ export class ProductImportService {
 
     return Promise.all(
       rows.map(async (r) => {
+        // From the ledger, as undo decides it: a stopped import posts stock but never writes
+        // `batchesCreated`.
+        const hasStock =
+          (await this.importBatchIds(tenantId, r.id)).length > 0;
         let blocked =
           r.status !== "completed" && r.status !== "failed"
             ? r.status === "undone"
@@ -683,13 +687,9 @@ export class ProductImportService {
         if (!blocked && r.stockPostedAt)
           blocked =
             "Opening stock was posted. Correct it with an adjustment at the counter.";
-        if (
-          !blocked &&
-          r.batchesCreated &&
-          r.branch?.desktopPosRollout === "live"
-        )
+        if (!blocked && hasStock && r.branch?.desktopPosRollout === "live")
           blocked = "Undo posted stock at the counter.";
-        if (!blocked && r.batchesCreated && r.branchId !== selectedBranchId)
+        if (!blocked && hasStock && r.branchId !== selectedBranchId)
           blocked = "Switch to this import's branch before undoing its stock.";
         return {
           id: r.id,
@@ -715,7 +715,7 @@ export class ProductImportService {
                 .filter((row) => !row.postedBatchId)
                 .reduce((n, row) => n + row.qty, 0)
             : 0,
-          stockUndo: r.batchesCreated > 0,
+          stockUndo: hasStock,
           rowsFailed: r.rowsFailed,
           expiryReviewCount: r.expiryReviewCount,
           actorName: r.actor?.fullName ?? null,
@@ -727,25 +727,33 @@ export class ProductImportService {
   }
 
   /**
-   * P6 #52 decision 5: imports this branch's counter can still undo — uploaded here with their
-   * stock, not posted from staging, and passing the same checks `undo` makes. An import drops out
-   * of the list the moment anything from it sells or moves. Each line is a batch the import
-   * posted, with the units it put there.
+   * P6 #52 decision 5: imports this branch's counter can still undo. That is every import the
+   * web hands to the counter: completed or stopped (`undo` accepts both), with stock posted at
+   * upload (from the ledger, since a stopped import never writes `batchesCreated`), not posted
+   * from staging, and passing the same checks `undo` makes. An import drops out of the list the
+   * moment anything from it sells or moves. Each line is a batch the import posted, with the
+   * units it put there; `createdProducts` are the catalogue entries undo removes.
    */
-  async counterUndoable(tenantId: string, branchId: string) {
+  async counterUndoable(tenantId: string, branchId: string, limit = 50) {
+    // Imports with stock at this branch, found from the ledger in one grouped read.
+    const withStock = await this.prisma.stockLedger.groupBy({
+      by: ["referenceId"],
+      where: { tenantId, branchId, referenceType: "product_import" },
+    });
+    if (!withStock.length) return [];
     const rows = await this.prisma.productImport.findMany({
       where: {
         tenantId,
         branchId,
-        status: "completed",
-        batchesCreated: { gt: 0 },
+        id: { in: withStock.map((r) => r.referenceId) },
+        status: { in: ["completed", "failed"] },
         stockPostedAt: null,
       },
       orderBy: { createdAt: "desc" },
-      take: 50,
       select: {
         id: true,
         filename: true,
+        status: true,
         createdBy: true,
         createdAt: true,
         productsCreated: true,
@@ -753,7 +761,9 @@ export class ProductImportService {
       },
     });
     const result = [];
+    // The limit applies after the undo checks, so blocked imports never hide undoable ones.
     for (const row of rows) {
+      if (result.length >= limit) break;
       if (await this.undoBlockedReason(tenantId, row.id)) continue;
       const ledger = await this.prisma.stockLedger.groupBy({
         by: ["batchId", "productId"],
@@ -809,7 +819,12 @@ export class ProductImportService {
             a.product.name.localeCompare(b.product.name) ||
             (a.batchNo ?? "").localeCompare(b.batchNo ?? ""),
         );
-      result.push({ ...row, lines });
+      const createdProducts = await this.prisma.product.findMany({
+        where: { tenantId, importId: row.id },
+        select: { id: true, name: true },
+        orderBy: { name: "asc" },
+      });
+      result.push({ ...row, lines, createdProducts });
     }
     return result;
   }

@@ -80,8 +80,19 @@ Types: `CounterWorkDetail` in `packages/shared/src/counter-work.ts`; service:
   rows are. Posting a category sends its `categoryName`.
 
 `GET /counter-work/imports` lists imports uploaded at this branch with their stock that still
-pass the undo checks (`completed`, batches created, not posted from staging, nothing from it sold
-or moved). It is empty without `products.import`.
+pass the undo checks: completed or stopped (`failed`, which `undo` accepts), with
+`product_import` rows in the stock ledger (not `batchesCreated`, which a stopped run never
+writes), not posted from staging, and nothing from them sold or moved. `stopped` marks a stopped
+run, and `createdProducts` lists the catalogue entries undo removes, including any the import
+gave no stock. The web's import list decides "has stock" the same way, so every import it sends
+to the counter is listed here. At most 50, counted after the undo checks. It is empty without
+`products.import`.
+
+The header and the lines are separate reads, so the detail re-reads the document's version
+after building the lines and retries once if it moved (409 if it moves again): a header for one
+approved version is never paired with another version's lines. Receipt lines resolve units per
+pack, quantity and unit cost exactly as receiving posts them (`purchasing/pack-math.ts`, then
+the order line and the supplier's price).
 
 ## Signed evidence pinning
 
