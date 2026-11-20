@@ -60,7 +60,7 @@ describe("routes a PIN-opened counter login may call", () => {
     [CustomersController, ["search", "getOne"]],
     [PrescriptionsController, ["search", "getOne"]],
     [TerminalCommandsController, ["prepare", "execute", "cosign"]],
-    [CounterWorkController, ["list"]],
+    [CounterWorkController, ["list", "imports", "detail"]],
     [DashboardController, ["getCounterAttention"]],
     [TenantController, ["myPermissions"]],
     // UI1 #205: the pharmacy brand (accent, counter theme default and lock). Reading only.

@@ -727,6 +727,94 @@ export class ProductImportService {
   }
 
   /**
+   * P6 #52 decision 5: imports this branch's counter can still undo — uploaded here with their
+   * stock, not posted from staging, and passing the same checks `undo` makes. An import drops out
+   * of the list the moment anything from it sells or moves. Each line is a batch the import
+   * posted, with the units it put there.
+   */
+  async counterUndoable(tenantId: string, branchId: string) {
+    const rows = await this.prisma.productImport.findMany({
+      where: {
+        tenantId,
+        branchId,
+        status: "completed",
+        batchesCreated: { gt: 0 },
+        stockPostedAt: null,
+      },
+      orderBy: { createdAt: "desc" },
+      take: 50,
+      select: {
+        id: true,
+        filename: true,
+        createdBy: true,
+        createdAt: true,
+        productsCreated: true,
+        productsUpdated: true,
+      },
+    });
+    const result = [];
+    for (const row of rows) {
+      if (await this.undoBlockedReason(tenantId, row.id)) continue;
+      const ledger = await this.prisma.stockLedger.groupBy({
+        by: ["batchId", "productId"],
+        where: {
+          tenantId,
+          referenceType: "product_import",
+          referenceId: row.id,
+        },
+        _sum: { qtyDelta: true },
+      });
+      const batchIds = ledger
+        .map((l) => l.batchId)
+        .filter((id): id is string => !!id);
+      const [batches, products] = await Promise.all([
+        this.prisma.batch.findMany({
+          where: { tenantId, id: { in: batchIds } },
+          select: { id: true, batchNo: true, expiryDate: true },
+        }),
+        this.prisma.product.findMany({
+          where: { tenantId, id: { in: ledger.map((l) => l.productId) } },
+          select: {
+            id: true,
+            name: true,
+            packLabel: true,
+            unitsPerPack: true,
+            importId: true,
+          },
+        }),
+      ]);
+      const batchById = new Map(batches.map((b) => [b.id, b]));
+      const productById = new Map(products.map((p) => [p.id, p]));
+      const lines = ledger
+        .filter((l) => (l._sum.qtyDelta ?? 0) !== 0)
+        .map((l) => {
+          const p = productById.get(l.productId);
+          const b = l.batchId ? batchById.get(l.batchId) : undefined;
+          return {
+            product: {
+              id: l.productId,
+              name: p?.name ?? "Unknown product",
+              packLabel: p?.packLabel ?? null,
+              unitsPerPack: p?.unitsPerPack ?? 1,
+            },
+            batchId: l.batchId,
+            batchNo: b?.batchNo ?? null,
+            expiryDate: b?.expiryDate ?? null,
+            qty: l._sum.qtyDelta ?? 0,
+            newProduct: p?.importId === row.id,
+          };
+        })
+        .sort(
+          (a, b) =>
+            a.product.name.localeCompare(b.product.name) ||
+            (a.batchNo ?? "").localeCompare(b.batchNo ?? ""),
+        );
+      result.push({ ...row, lines });
+    }
+    return result;
+  }
+
+  /**
    * Undo is only offered while the import is still untouched — the moment stock has moved for
    * any other reason, reversing it would be rewriting history rather than cancelling a mistake.
    */

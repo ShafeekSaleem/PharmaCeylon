@@ -37,7 +37,7 @@ These use signed commands but are not web-approved queue rows on this endpoint:
 
 | Flow | W11 kind (if any) | Signed operation | P6 destination | Notes |
 | --- | --- | --- | --- | --- |
-| Import undo (non-live branch) | — | `POST …/import/:importId/undo-stock` | `import_undo` | Not a counter-work list kind |
+| Import undo | — | `POST …/import/:importId/undo-stock` | `import_undo` | Not a counter-work list kind; listed by `GET /counter-work/imports` (P6 decision 5) |
 | Quarantine / release | `batch.expiry_review` (daily work) | `POST …/batches/:id/quarantine`, `release-quarantine` | `quarantine`, `release_quarantine` | #173 contract; daily work browser route unchanged |
 | Direct adjustment / write-off | — | `POST …/inventory/adjustments` | Stock (ad hoc) | Held over-limit uses `held_adjustment` row above |
 
@@ -47,12 +47,41 @@ These use signed commands but are not web-approved queue rows on this endpoint:
 | --- | --- |
 | Web Daily work | Discovery and approval; `where: counter` for kinds above |
 | `GET /counter-work` | Executable documents plus read-only held write-offs (`awaiting_approval`; `rejected` for `COUNTER_REJECTED_HELD_WRITE_OFF_VISIBLE_DAYS`) |
+| `GET /counter-work/:kind/:id` | P6 counter read: one item's lines, trail and notes (see below) |
+| `GET /counter-work/imports` | P6 decision 5: imports this counter can still undo, with the stock each posted |
 | `GET /dashboard/counter-attention` | Counter route only: `batch.expiry_review` rows with `counterExecution` (signed quarantine, `reasonCode: expired`) |
 | `GET /tenant/my-permissions` | Effective permission keys at the branch for counter UI hints (`@CounterRoute()`) |
 | P6 desktop | Physical execution screens mapped by `task.destination` |
 
 Permissions match #122: each kind is listed only when the caller holds that operation's permission
 at the branch (`terminal.execute` gates the route).
+
+## Counter reads (P6 #52)
+
+The document detail routes are web routes and refuse a PIN-opened counter login, so the
+operation screens read the document they are about to confirm from `GET /counter-work/:kind/:id`.
+Types: `CounterWorkDetail` in `packages/shared/src/counter-work.ts`; service:
+`terminal-commands/counter-work-detail.service.ts`.
+
+- **Kinds:** `prepared_receipt`, `held_delivery`, `transfer_ship`, `transfer_receive`,
+  `stocktake`, `supplier_return`, `import_stock` (`COUNTER_WORK_DETAIL_KINDS`). Refunds and
+  offline stock cases already have counter reads of their own; held write-offs and cash payouts
+  carry everything on the list row. Any other kind is a 400.
+- **Same gate as the list.** The read goes through `CounterWorkService.one`, which fetches with
+  the list's own query plus the id. 403 without the kind's execute permission at the branch;
+  404 once the document has left this branch's queue (posted, cancelled, another branch). The
+  header (`approval`, `task`, people) is exactly what the list reports for that item.
+- **Costs** (`unitCost`, `packCost`, `amount`, `valueAtCost`, `unitPrice`) are null without
+  `costs.view`.
+- **Stocktake** lines are in decision 3's terms: `onHandAtCount` (snapshot + movements before
+  the count), `difference` (counted − on hand at count), `now` (+ movements after the count),
+  `afterPost` (now + difference). Uncounted lines have a null difference and post nothing.
+- **Opening stock** returns rows and per-category totals; a category is `posted` once all its
+  rows are. Posting a category sends its `categoryName`.
+
+`GET /counter-work/imports` lists imports uploaded at this branch with their stock that still
+pass the undo checks (`completed`, batches created, not posted from staging, nothing from it sold
+or moved). It is empty without `products.import`.
 
 ## Signed evidence pinning
 

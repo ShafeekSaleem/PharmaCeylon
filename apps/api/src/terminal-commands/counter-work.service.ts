@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import {
   GoodsReturnStatus,
   GoodsReturnType,
@@ -10,6 +10,7 @@ import {
   TransferStatus,
 } from "@prisma/client";
 import {
+  type CounterWorkDetailKind,
   type CounterWorkKind,
   type CounterWorkTask,
   type HeldAdjustmentCounterStatus,
@@ -19,7 +20,7 @@ import {
 } from "@pharmaceylon/shared";
 import { PrismaService } from "../prisma/prisma.service";
 import { RefundRequestsService } from "../sales/refund-requests.service";
-import { AccessService } from "../security/access.service";
+import { AccessService, type ActorAccess } from "../security/access.service";
 import { approvalMaterialDigest } from "../security/approval-material-digest";
 import { heldAdjustmentMaterial, heldDeliveryMaterial } from "../security/held-approval-material";
 import type { RequestUser } from "../security/interfaces/authenticated-request.interface";
@@ -167,7 +168,44 @@ export class CounterWorkService {
       may("stock_case") && this.stockCases ? this.stockCasePlans(tenantId, branchId) : [],
       may("supplier_cash_payout") ? this.supplierCashPayouts(tenantId, branchId) : [],
     ]);
-    const rows = parts.flat();
+    const items = await this.project(tenantId, parts.flat(), asOf);
+    return items.sort((a, b) => b.readyAt.localeCompare(a.readyAt));
+  }
+
+  /**
+   * P6 #52: one document exactly as `list` shows it, or 404 when it is not waiting in this
+   * branch's Counter work. The counter reads the lines it is about to confirm only while the
+   * document is still there, with the same approval check and task the list carries.
+   */
+  async one(
+    user: RequestUser,
+    branchId: string,
+    kind: CounterWorkDetailKind,
+    id: string,
+    access: ActorAccess,
+    asOf = new Date().toISOString(),
+  ): Promise<CounterWorkItem> {
+    if (!access.has(EXECUTE_PERMISSION[kind]))
+      throw new ForbiddenException(`You need ${EXECUTE_PERMISSION[kind]} at this branch to open this.`);
+    const costs = access.has("costs.view");
+    const { tenantId } = user;
+    const rows = await (() => {
+      switch (kind) {
+        case "prepared_receipt": return this.preparedReceipts(tenantId, branchId, costs, id);
+        case "held_delivery": return this.heldDeliveries(tenantId, branchId, costs, id);
+        case "transfer_ship": return this.transfersOut(tenantId, branchId, id);
+        case "transfer_receive": return this.transfersIn(tenantId, branchId, id);
+        case "stocktake": return this.stocktakes(tenantId, branchId, id);
+        case "supplier_return": return this.supplierReturns(tenantId, branchId, costs, id);
+        case "import_stock": return this.stagedImports(tenantId, branchId, id);
+      }
+    })();
+    const [item] = await this.project(tenantId, rows, asOf);
+    if (!item) throw new NotFoundException("This is not waiting in this branch's Counter work.");
+    return item;
+  }
+
+  private async project(tenantId: string, rows: CounterWorkItemCore[], asOf: string): Promise<CounterWorkItem[]> {
     await this.name(tenantId, rows);
     const items: CounterWorkItem[] = [];
     for (const row of rows) {
@@ -187,7 +225,7 @@ export class CounterWorkService {
         ...(row.heldAdjustmentStatus ? { heldAdjustmentStatus: row.heldAdjustmentStatus } : {}),
       });
     }
-    return items.sort((a, b) => b.readyAt.localeCompare(a.readyAt));
+    return items;
   }
 
   /** Fills in people's names in one read; until then `name` carries the user id. */
@@ -222,10 +260,11 @@ export class CounterWorkService {
     return fallbackId ? { name: fallbackId, at: iso(fallbackAt) } : null;
   }
 
-  private async preparedReceipts(tenantId: string, branchId: string, costs: boolean) {
+  private async preparedReceipts(tenantId: string, branchId: string, costs: boolean, only?: string) {
     const rows = await this.prisma.preparedReceipt.findMany({
       where: {
         tenantId, branchId, status: PreparedReceiptStatus.approved, executionApprovalId: { not: null },
+        ...(only ? { id: only } : {}),
         purchaseOrder: { status: { in: [...RECEIVABLE_PO] } },
       },
       include: {
@@ -256,10 +295,11 @@ export class CounterWorkService {
     });
   }
 
-  private async heldDeliveries(tenantId: string, branchId: string, costs: boolean) {
+  private async heldDeliveries(tenantId: string, branchId: string, costs: boolean, only?: string) {
     const rows = await this.prisma.heldDelivery.findMany({
       where: {
         tenantId, branchId, status: HeldDeliveryStatus.approved, executionApprovalId: { not: null },
+        ...(only ? { id: only } : {}),
         purchaseOrder: { status: { in: [...RECEIVABLE_PO] } },
       },
       include: { purchaseOrder: { include: { supplier: { select: { name: true } } } } },
@@ -287,7 +327,7 @@ export class CounterWorkService {
   }
 
   /** Approved to leave this branch: with its approval, or with approval waived by tenant policy. */
-  private async transfersOut(tenantId: string, branchId: string) {
+  private async transfersOut(tenantId: string, branchId: string, only?: string) {
     const settings = await this.prisma.tenantSettings.findUnique({
       where: { tenantId },
       select: { approvalRequiredForBranchTransfers: true },
@@ -296,6 +336,7 @@ export class CounterWorkService {
     const rows = await this.prisma.transfer.findMany({
       where: {
         tenantId, fromBranchId: branchId, status: TransferStatus.approved,
+        ...(only ? { id: only } : {}),
         ...(approvalRequired ? { executionApprovalId: { not: null } } : {}),
       },
       include: { toBranch: { select: { name: true } }, items: { where: { tenantId }, orderBy: { id: "asc" } } },
@@ -322,10 +363,11 @@ export class CounterWorkService {
   }
 
   /** On the way here. The dispatch approval was the source branch's; nothing changes it now. */
-  private async transfersIn(tenantId: string, branchId: string) {
+  private async transfersIn(tenantId: string, branchId: string, only?: string) {
     const rows = await this.prisma.transfer.findMany({
       where: {
         tenantId, toBranchId: branchId,
+        ...(only ? { id: only } : {}),
         status: { in: [TransferStatus.in_transit, TransferStatus.partially_received] },
       },
       include: { fromBranch: { select: { name: true } }, items: { where: { tenantId } } },
@@ -413,9 +455,12 @@ export class CounterWorkService {
     });
   }
 
-  private async stocktakes(tenantId: string, branchId: string) {
+  private async stocktakes(tenantId: string, branchId: string, only?: string) {
     const rows = await this.prisma.stocktake.findMany({
-      where: { tenantId, branchId, status: StocktakeStatus.approved, executionApprovalId: { not: null } },
+      where: {
+        tenantId, branchId, status: StocktakeStatus.approved, executionApprovalId: { not: null },
+        ...(only ? { id: only } : {}),
+      },
       include: { lines: true, snapshotLines: true, countEntries: true },
     });
     const evidence = await this.evidence(tenantId, branchId, rows.map((r) => r.executionApprovalId));
@@ -501,10 +546,11 @@ export class CounterWorkService {
   }
 
   /** Approved supplier returns waiting to go out; the latest approval is the one completion uses. */
-  private async supplierReturns(tenantId: string, branchId: string, costs: boolean) {
+  private async supplierReturns(tenantId: string, branchId: string, costs: boolean, only?: string) {
     const rows = await this.prisma.goodsReturn.findMany({
       where: {
         tenantId, branchId, type: GoodsReturnType.supplier,
+        ...(only ? { id: only } : {}),
         status: { in: [GoodsReturnStatus.awaiting_logistics, GoodsReturnStatus.in_review] },
       },
       include: { supplier: { select: { name: true } }, items: { where: { tenantId }, orderBy: { id: "asc" } } },
@@ -581,9 +627,9 @@ export class CounterWorkService {
   }
 
   /** Opening stock staged from an import and not posted yet. It needs no approval. */
-  private async stagedImports(tenantId: string, branchId: string) {
+  private async stagedImports(tenantId: string, branchId: string, only?: string) {
     const rows = await this.prisma.productImport.findMany({
-      where: { tenantId, branchId, status: "completed", stockStaged: true, stockPostedAt: null },
+      where: { tenantId, branchId, status: "completed", stockStaged: true, stockPostedAt: null, ...(only ? { id: only } : {}) },
       select: {
         id: true, filename: true, stagedStock: true, stockVersion: true, stockStagedBy: true,
         createdBy: true, createdAt: true, completedAt: true,
@@ -608,15 +654,27 @@ export class CounterWorkService {
   }
 }
 
-type DeliveryLine = { receivedQty?: number; packs?: number; unitsPerPack?: number; costPrice?: string; packCost?: string };
+export type DeliveryLine = {
+  productId?: string;
+  batchNo?: string;
+  expiryDate?: string;
+  receivedQty?: number;
+  packs?: number;
+  unitsPerPack?: number;
+  freeQty?: number;
+  rejectedQty?: number;
+  rejectedReason?: string;
+  costPrice?: string;
+  packCost?: string;
+};
 
-function deliveryLines(payload: Prisma.JsonValue): DeliveryLine[] {
+export function deliveryLines(payload: Prisma.JsonValue): DeliveryLine[] {
   const lines = (payload as { lines?: unknown } | null)?.lines;
   return Array.isArray(lines) ? (lines as DeliveryLine[]) : [];
 }
 
 /** What the delivery is billed at: packs × pack cost, or units × unit cost. Free goods are not billed. */
-function deliveryAmount(lines: DeliveryLine[]): string | null {
+export function deliveryAmount(lines: DeliveryLine[]): string | null {
   let total = 0;
   for (const line of lines) {
     if (line.packs != null && line.packCost != null) total += line.packs * Number(line.packCost);

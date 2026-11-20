@@ -295,6 +295,267 @@ function signedExecutionFor(
   };
 }
 
+// ── Counter reads (P6 #52): the lines each operation screen draws ──────────────────────────
+
+/**
+ * Kinds with a document read at the counter: `GET /counter-work/:kind/:id`. The document detail
+ * routes are web routes and refuse a PIN-opened counter login, so the counter reads the exact
+ * document it is about to confirm here, and only while it waits in this branch's Counter work.
+ */
+export const COUNTER_WORK_DETAIL_KINDS = [
+  "prepared_receipt",
+  "held_delivery",
+  "transfer_ship",
+  "transfer_receive",
+  "stocktake",
+  "supplier_return",
+  "import_stock",
+] as const;
+export type CounterWorkDetailKind = (typeof COUNTER_WORK_DETAIL_KINDS)[number];
+
+export function isCounterWorkDetailKind(value: string): value is CounterWorkDetailKind {
+  return (COUNTER_WORK_DETAIL_KINDS as readonly string[]).includes(value);
+}
+
+/** A person and a time on the document's trail; names are resolved, never user ids. */
+export type CounterWorkPerson = Readonly<{ name: string | null; at: string | null }>;
+
+/** A note someone left on the document for the counter, such as the approver's. */
+export type CounterWorkNote = Readonly<{
+  /** What the note is, for the screen's label: "Approver's note", "Why it was held". */
+  label: string;
+  text: string;
+  by: string | null;
+  at: string | null;
+}>;
+
+/** What the line is: the product. */
+export type CounterWorkLineProduct = Readonly<{
+  productId: string;
+  productName: string;
+  /** "Box of 96 tablets", from the product; null when the product has none. */
+  packLabel: string | null;
+  unitsPerPack: number;
+}>;
+
+/** Where the document names one: the batch. */
+export type CounterWorkLineBatch = Readonly<{
+  batchId: string | null;
+  batchNo: string | null;
+  /** Day only, `YYYY-MM-DD`. */
+  expiryDate: string | null;
+}>;
+
+/** Receiving a prepared receipt or a held delivery: the approved delivery, line by line. */
+export type CounterWorkReceiptLine = CounterWorkLineProduct &
+  CounterWorkLineBatch &
+  Readonly<{
+    /** The line's position in the approved delivery; the screen's tick key. */
+    index: number;
+    /** Packs on the delivery note, when it was prepared in packs. */
+    packs: number | null;
+    /** Good units billed for. */
+    receivedQty: number;
+    /** Bonus units at no charge. */
+    freeQty: number;
+    /** Units that arrived damaged; they go to quarantine in the same posting. */
+    damagedQty: number;
+    damagedReason: string | null;
+    /** Units the posting adds to saleable stock: received + free. */
+    unitsToStock: number;
+    /** Null without `costs.view`. */
+    packCost: string | null;
+    unitCost: string | null;
+  }>;
+
+/** Why a delivery was held at receiving and what the approver decided on the web. */
+export type CounterWorkHeldDecision = Readonly<{
+  reasons: ReadonlyArray<string>;
+  detail: string | null;
+  acceptOverDelivery: boolean;
+  acceptPriceVariance: boolean;
+  /** The approver corrected the delivery before approving it. */
+  corrected: boolean;
+}>;
+
+/** A transfer line: the approved batch and quantity, and what has arrived so far. */
+export type CounterWorkTransferLine = CounterWorkLineProduct &
+  CounterWorkLineBatch &
+  Readonly<{
+    transferItemId: string;
+    /** Units approved to leave (out) or sent (in). */
+    qty: number;
+    /** Units received at the destination so far; the signed receive sends it as `receivedQtyBefore`. */
+    receivedQty: number;
+    /** Units still on the way. */
+    remainingQty: number;
+  }>;
+
+/**
+ * A stocktake line, in the terms decision 3 posts: the difference found at the count, applied to
+ * stock as it is now, so sales and deliveries since the count are kept.
+ */
+export type CounterWorkStocktakeLine = CounterWorkLineProduct &
+  CounterWorkLineBatch &
+  Readonly<{
+    lineId: string;
+    /** What the counter should have found: snapshot plus movements up to the count. */
+    onHandAtCount: number;
+    /** Null when the line was never counted; posting leaves it as it is. */
+    countedQty: number | null;
+    /** counted − on hand at count; null when uncounted. */
+    difference: number | null;
+    /** On hand now: on hand at count plus movements after the count. */
+    now: number;
+    /** What posting leaves: now + difference (now when uncounted). */
+    afterPost: number;
+    /** Difference at batch cost; null without `costs.view` or when uncounted. */
+    valueAtCost: string | null;
+    reviewNote: string | null;
+  }>;
+
+export type CounterWorkStocktakeTotals = Readonly<{
+  lines: number;
+  /** Counted lines whose difference is not zero: the adjustments posting writes. */
+  differences: number;
+  /** Sum of the differences at cost; null without `costs.view`. */
+  valueAtCost: string | null;
+}>;
+
+/** A supplier return line: what leaves, from where, and why. */
+export type CounterWorkReturnLine = CounterWorkLineProduct &
+  CounterWorkLineBatch &
+  Readonly<{
+    itemId: string;
+    qty: number;
+    /** The batch is in quarantine; otherwise it is on the shelf. */
+    quarantined: boolean;
+    disposition: string;
+    /** Null without `costs.view`. */
+    unitPrice: string | null;
+  }>;
+
+/** An opening-stock import, by category: each category posts once. */
+export type CounterWorkImportCategory = Readonly<{
+  /** Null for rows with no category. Posting it sends `categoryName: null`. */
+  categoryName: string | null;
+  rows: number;
+  /** Distinct product and batch number pairs the rows post. Rows repeating a pair add none. */
+  batches: number;
+  units: number;
+  /** True once every row in the category is posted. */
+  posted: boolean;
+}>;
+
+export type CounterWorkImportRow = Readonly<{
+  rowNumber: number;
+  productId: string;
+  productName: string;
+  categoryName: string | null;
+  batchNo: string;
+  expiryDate: string | null;
+  qty: number;
+  /** Null without `costs.view`. */
+  unitCost: string | null;
+  posted: boolean;
+}>;
+
+type CounterWorkDetailBase<K extends CounterWorkDetailKind> = Readonly<{
+  kind: K;
+  id: string;
+  reference: string;
+  subject: string | null;
+  /** The approval check, exactly as `GET /counter-work` reports it. */
+  approval: Readonly<{
+    evidenceId: string | null;
+    approvedVersion: number | null;
+    currentVersion: number | null;
+    state: CounterWorkApprovalState;
+    changes: ReadonlyArray<string>;
+  }>;
+  task: CounterWorkTask;
+  requested: CounterWorkPerson | null;
+  approved: CounterWorkPerson | null;
+  dispatched: CounterWorkPerson | null;
+  notes: ReadonlyArray<CounterWorkNote>;
+}>;
+
+export type CounterWorkReceiptDetail = CounterWorkDetailBase<"prepared_receipt"> &
+  Readonly<{
+    supplierDeliveryNote: string | null;
+    /** Null without `costs.view`. */
+    amount: string | null;
+    lines: ReadonlyArray<CounterWorkReceiptLine>;
+  }>;
+
+export type CounterWorkHeldDeliveryDetail = CounterWorkDetailBase<"held_delivery"> &
+  Readonly<{
+    supplierDeliveryNote: string | null;
+    amount: string | null;
+    held: CounterWorkHeldDecision;
+    lines: ReadonlyArray<CounterWorkReceiptLine>;
+  }>;
+
+export type CounterWorkTransferDetail = CounterWorkDetailBase<"transfer_ship" | "transfer_receive"> &
+  Readonly<{
+    /** The other branch: destination for a transfer out, source for a transfer in. */
+    otherBranch: string;
+    lines: ReadonlyArray<CounterWorkTransferLine>;
+  }>;
+
+export type CounterWorkStocktakeDetail = CounterWorkDetailBase<"stocktake"> &
+  Readonly<{
+    totals: CounterWorkStocktakeTotals;
+    lines: ReadonlyArray<CounterWorkStocktakeLine>;
+  }>;
+
+export type CounterWorkReturnDetail = CounterWorkDetailBase<"supplier_return"> &
+  Readonly<{
+    amount: string | null;
+    lines: ReadonlyArray<CounterWorkReturnLine>;
+  }>;
+
+export type CounterWorkImportDetail = CounterWorkDetailBase<"import_stock"> &
+  Readonly<{
+    /** The staged version the post is pinned to (imports have no approval step). */
+    stockVersion: number;
+    categories: ReadonlyArray<CounterWorkImportCategory>;
+    rows: ReadonlyArray<CounterWorkImportRow>;
+  }>;
+
+export type CounterWorkDetail =
+  | CounterWorkReceiptDetail
+  | CounterWorkHeldDeliveryDetail
+  | CounterWorkTransferDetail
+  | CounterWorkStocktakeDetail
+  | CounterWorkReturnDetail
+  | CounterWorkImportDetail;
+
+/** One stock line an undoable import posted. */
+export type CounterUndoableImportLine = CounterWorkLineProduct &
+  CounterWorkLineBatch &
+  Readonly<{
+    qty: number;
+    /** The import created this product; undo removes it from the catalogue. */
+    newProduct: boolean;
+  }>;
+
+/**
+ * Decision 5: an import uploaded with its stock that this branch's counter can still undo
+ * (`GET /counter-work/imports`). Listed only while the undo checks pass, so the list drops an
+ * import once anything from it sells or moves.
+ */
+export type CounterUndoableImport = Readonly<{
+  importId: string;
+  filename: string;
+  uploaded: CounterWorkPerson;
+  productsCreated: number;
+  productsUpdated: number;
+  batches: number;
+  units: number;
+  lines: ReadonlyArray<CounterUndoableImportLine>;
+}>;
+
 /**
  * Pure projection: maps an approved document row plus approval state to W11/P6 task display
  * fields. The API sets `asOf` once per list response.
