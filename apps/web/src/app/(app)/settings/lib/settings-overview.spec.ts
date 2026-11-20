@@ -36,9 +36,7 @@ describe("settings home values (UI1 #205)", () => {
       "Pharmacy rule: passwords at least 1 character",
     );
     expect(values["/settings/receipts"]).toBe("A4 receipts · printed on request");
-    expect(values["/settings/payments"]).toBe(
-      "Cash, card, mobile wallet and customer credit at this branch · sales start on split",
-    );
+    expect(values["/settings/payments"]).toBe("4 ways to pay at this branch · starts on split");
     expect(values["/settings/offline-selling"]).toBe("Off at this branch");
     // The old "Counters & receipts" page is a redirect now, so it has no card of its own.
     expect(values["/settings/main"]).toBeUndefined();

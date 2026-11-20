@@ -149,9 +149,7 @@ it("groups the cards, states each group's scope and shows current values", async
   expect(card("Counters")).toHaveTextContent("No counters at Colombo");
   expect(card("Receipts")).toHaveTextContent("80 mm receipts · printed after every sale");
   // The pharmacy starts on card, but Colombo doesn't take card, so its counters start on cash.
-  expect(card("Payments")).toHaveTextContent(
-    "Cash and mobile wallet at Colombo · sales start on cash",
-  );
+  expect(card("Payments")).toHaveTextContent("Cash and mobile wallet at Colombo · starts on cash");
   expect(card("Offline selling")).toHaveTextContent("Allowed at Colombo");
 });
 

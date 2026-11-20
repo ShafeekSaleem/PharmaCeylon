@@ -89,13 +89,14 @@ const PAYMENT: Record<string, string> = {
   split: "split",
 };
 
-/** "Cash, card and mobile wallet": the methods in the order the Payments page lists them. */
+/** "Cash and card", or a count once the list would not fit on a card. */
 function methodList(policy: CounterPolicy): string {
   const names = [
     "Cash",
-    ...policy.onlinePaymentMethods.map((m) => ONLINE_PAYMENT_METHOD_LABELS[m]),
-  ].map((name, i) => (i === 0 ? name : name.toLowerCase()));
-  return names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
+    ...policy.onlinePaymentMethods.map((m) => ONLINE_PAYMENT_METHOD_LABELS[m].toLowerCase()),
+  ];
+  if (names.length > 2) return `${names.length} ways to pay`;
+  return names.join(" and ");
 }
 
 function plural(n: number, one: string, many = `${one}s`): string {
@@ -142,7 +143,7 @@ export function settingsValues(o: SettingsOverview): Partial<Record<string, stri
         s.posDefaultPaymentMethod,
         o.counterPolicy.onlinePaymentMethods,
       );
-    const start = method ? ` · sales start on ${PAYMENT[method] ?? method}` : "";
+    const start = method ? ` · starts on ${PAYMENT[method] ?? method}` : "";
     values["/settings/payments"] = `${methodList(o.counterPolicy)}${where}${start}`;
     values["/settings/offline-selling"] = o.counterPolicy.offlineEnabled
       ? `Allowed${where}`
