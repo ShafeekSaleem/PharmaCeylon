@@ -519,6 +519,36 @@ describe("SaleReadService.history — finding a sale without the receipt", () =>
 });
 
 describe("SaleReadService.historyOptions", () => {
+  it("loads shift options from till_shift (most recent first, capped)", async () => {
+    const { prisma, service } = setup();
+    prisma.tillShift.findMany.mockResolvedValue([
+      {
+        id: "shift-1",
+        shiftNumber: "S-1",
+        branchId: "branch-a",
+        registerId: "reg-1",
+        openedAt: new Date("2026-10-02T00:00:00.000Z"),
+        closedAt: null,
+        counter: { label: "Front" },
+      },
+    ]);
+
+    const options = await service.historyOptions(multiBranch);
+
+    expect(prisma.tillShift.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          tenantId: "tenant-1",
+          branchId: { in: expect.arrayContaining(["branch-a", "branch-b"]) },
+          sales: { some: {} },
+        }),
+        orderBy: { openedAt: "desc" },
+        take: 200,
+      }),
+    );
+    expect(options.shifts?.[0]).toMatchObject({ shiftId: "shift-1", registerLabel: "Front" });
+  });
+
   it("offers only viewable branches, and sellers from those branches", async () => {
     const { prisma, service } = setup();
     prisma.sale.findMany.mockResolvedValue([

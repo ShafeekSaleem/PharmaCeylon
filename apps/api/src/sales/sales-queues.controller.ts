@@ -21,7 +21,7 @@ export class SalesQueuesController {
   constructor(private readonly queues: SalesQueuesService) {}
 
   @ApiOperation({ summary: "Sale incident notes awaiting review at this branch" })
-  @RequirePermission("sales.view")
+  @RequirePermission("tenant.management")
   @Get("incident-notes")
   incidentNotes(
     @CurrentUser() user: RequestUser,
@@ -43,7 +43,7 @@ export class SalesQueuesController {
   }
 
   @ApiOperation({ summary: "Collected card money not tied to a completed sale (unresolved)" })
-  @RequirePermission("sales.view")
+  @RequirePermission("tenant.management")
   @Get("collected-money")
   collectedMoney(
     @CurrentUser() user: RequestUser,

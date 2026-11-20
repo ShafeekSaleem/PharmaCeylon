@@ -20,6 +20,7 @@ import {
   type OfflineJournalCommand,
   type OfflineSaleCommand,
   type SaleChannel,
+  type Signed,
 } from "@pharmaceylon/shared";
 import {
   addDays,
@@ -219,7 +220,7 @@ function toSaleDetail(
   sale: SaleDetailRow,
   ctx: AttributionContext,
   openCaseId: string | null,
-  offlineReceipt: { receiptNumber: string; recordedAt: string } | null,
+  offlineReceipt: { receiptNumber: string; recordedAt: string; syncedAt: string } | null,
 ) {
   return {
     id: sale.id,
@@ -673,7 +674,7 @@ export class SaleReadService {
   async historyOptions(user: RequestUser) {
     const branches = await this.viewableBranches(user);
     const branchIds = branches.map((branch) => branch.id);
-    const [sellers, registers, terminals, shiftKeys] = await Promise.all([
+    const [sellers, registers, terminals] = await Promise.all([
       this.prisma.sale.findMany({
         where: { tenantId: user.tenantId, ...branchWhere(branchIds) },
         distinct: ["soldBy"],
@@ -689,34 +690,25 @@ export class SaleReadService {
         select: { id: true, label: true, branchId: true },
         orderBy: [{ branchId: "asc" }, { label: "asc" }],
       }),
-      this.prisma.sale.findMany({
-        where: {
-          tenantId: user.tenantId,
-          ...branchWhere(branchIds),
-          shiftId: { not: null },
-        },
-        distinct: ["shiftId"],
-        select: { shiftId: true },
-        take: 500,
-      }),
     ]);
-    const shiftIds = shiftKeys.map((row) => row.shiftId).filter((id): id is string => Boolean(id));
-    const shifts = shiftIds.length
-      ? await this.prisma.tillShift.findMany({
-          where: { tenantId: user.tenantId, branchId: { in: branchIds }, id: { in: shiftIds } },
-          select: {
-            id: true,
-            shiftNumber: true,
-            branchId: true,
-            registerId: true,
-            openedAt: true,
-            closedAt: true,
-            counter: { select: { label: true } },
-          },
-          orderBy: { openedAt: "desc" },
-          take: 200,
-        })
-      : [];
+    const shifts = await this.prisma.tillShift.findMany({
+      where: {
+        tenantId: user.tenantId,
+        branchId: { in: branchIds },
+        sales: { some: {} },
+      },
+      select: {
+        id: true,
+        shiftNumber: true,
+        branchId: true,
+        registerId: true,
+        openedAt: true,
+        closedAt: true,
+        counter: { select: { label: true } },
+      },
+      orderBy: { openedAt: "desc" },
+      take: 200,
+    });
     return {
       branches,
       sellers: sellers
@@ -762,7 +754,11 @@ export class SaleReadService {
     if (!sale) throw new NotFoundException("Sale not found");
     const ctx = await this.attributionContext(user.tenantId, branchIds, [sale]);
     const openCases = await this.openDiscrepancyCaseIds(user.tenantId, [sale.id]);
-    const offlineReceipt = await this.offlineReceiptForSale(user.tenantId, sale.offlineCommandId);
+    const offlineReceipt = await this.offlineReceiptForSale(
+      user.tenantId,
+      sale.branchId,
+      sale.offlineCommandId,
+    );
     return toSaleDetail(
       sale,
       ctx,
@@ -786,19 +782,33 @@ export class SaleReadService {
 
   private async offlineReceiptForSale(
     tenantId: string,
+    branchId: string,
     offlineCommandId: string | null,
-  ): Promise<{ receiptNumber: string; recordedAt: string } | null> {
+  ): Promise<{ receiptNumber: string; recordedAt: string; syncedAt: string } | null> {
     if (!offlineCommandId) return null;
     const row = await this.prisma.terminalCommandReceipt.findFirst({
-      where: { tenantId, commandId: offlineCommandId },
+      where: { tenantId, branchId, commandId: offlineCommandId },
       select: { recordedAt: true, command: true },
     });
     if (!row) return null;
-    const payload = row.command as OfflineJournalCommand;
+    const signed = row.command as Signed<OfflineJournalCommand>;
+    const payload: OfflineJournalCommand =
+      signed && typeof signed === "object" && "payload" in signed
+        ? signed.payload
+        : (row.command as OfflineJournalCommand);
     if (payload.kind !== "ordinary_sale") return null;
-    const receiptNumber = (payload as OfflineSaleCommand).receiptNumber;
+    const sale = payload as OfflineSaleCommand;
+    const receiptNumber = sale.receiptNumber;
     if (typeof receiptNumber !== "string") return null;
-    return { receiptNumber, recordedAt: row.recordedAt.toISOString() };
+    const syncedAt = row.recordedAt.toISOString();
+    if (typeof sale.occurredAt === "number" && Number.isFinite(sale.occurredAt)) {
+      return {
+        receiptNumber,
+        recordedAt: new Date(sale.occurredAt).toISOString(),
+        syncedAt,
+      };
+    }
+    return { receiptNumber, recordedAt: syncedAt, syncedAt };
   }
 
   private async attributionContext(

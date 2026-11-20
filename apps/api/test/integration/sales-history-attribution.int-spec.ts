@@ -441,6 +441,30 @@ describe("sales history attribution and filters (#66 Phase B)", () => {
     ]);
   });
 
+  it("shift options exclude hidden-branch and other-tenant shifts", async () => {
+    const scoped = await reads.historyOptions(mainBranchManager(fx));
+    const shiftIds = scoped.shifts?.map((row) => row.shiftId) ?? [];
+    expect(shiftIds).toContain(shiftId);
+    expect(shiftIds).not.toContain(otherBranchIds.shiftId);
+    expect(shiftIds).not.toContain(otherTenantIds.shiftId);
+  });
+
+  it("filters accepted and pending_stock_posting without online checkout rows", async () => {
+    const accepted = await reads.history(owner(fx), fx.mainBranchId, { offlineSyncState: "accepted" });
+    expect(accepted.items.some((row) => row.id === offlineSaleId)).toBe(true);
+    expect(accepted.items.some((row) => row.id === counterSaleId)).toBe(false);
+    await prisma.sale.update({
+      where: { id: offlineSaleId },
+      data: { stockPosting: "pending_reconciliation" },
+    });
+    const pending = await reads.history(owner(fx), fx.mainBranchId, {
+      offlineSyncState: "pending_stock_posting",
+    });
+    expect(pending.items.some((row) => row.id === offlineSaleId)).toBe(true);
+    expect(pending.items.every((row) => row.offlineSyncState === "pending_stock_posting")).toBe(true);
+    await prisma.sale.update({ where: { id: offlineSaleId }, data: { stockPosting: "posted" } });
+  });
+
   it("labels offline sales with mutually exclusive sync states", async () => {
     const offline = await reads.history(owner(fx), fx.mainBranchId, { channel: "offline" });
     const row = offline.items.find((item) => item.id === offlineSaleId)!;

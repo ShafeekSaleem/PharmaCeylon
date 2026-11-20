@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { Injectable } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import type { OfflineJournalCommand, OfflineSaleCommand } from "@pharmaceylon/shared";
 import { PrismaService } from "../prisma/prisma.service";
@@ -17,6 +17,8 @@ import type {
 const DEFAULT_PAGE = 1;
 const DEFAULT_SIZE = 25;
 const MAX_SIZE = 100;
+/** Matches `SupportEvidenceReconciler.listHeld` — oldest held rows beyond this are not listed. */
+const PAYMENT_RECOVERY_ROW_CAP = 500;
 
 function receiptNumberOf(command: OfflineJournalCommand): string | null {
   if (command.kind !== "ordinary_sale") return null;
@@ -184,6 +186,7 @@ export class SalesQueuesService {
     const rows = await this.prisma.offlineSupportRecord.findMany({
       where,
       orderBy: order,
+      take: PAYMENT_RECOVERY_ROW_CAP,
       select: {
         attemptId: true,
         terminalId: true,
@@ -199,12 +202,13 @@ export class SalesQueuesService {
     });
     const byAttempt = new Map<string, (typeof rows)[number]>();
     for (const row of rows) {
-      const key = row.attemptId!;
-      const prev = byAttempt.get(key);
-      if (!prev || row.receivedAt > prev.receivedAt) byAttempt.set(key, row);
+      if (!row.attemptId) continue;
+      const prev = byAttempt.get(row.attemptId);
+      if (!prev || row.receivedAt > prev.receivedAt) byAttempt.set(row.attemptId, row);
     }
+    const sortField = query.sort === "recordedAt" ? "recordedAt" : "receivedAt";
     const attempts = [...byAttempt.values()].sort(
-      (a, b) => b.receivedAt.getTime() - a.receivedAt.getTime(),
+      (a, b) => b[sortField].getTime() - a[sortField].getTime(),
     );
     const total = attempts.length;
     const pageRows = attempts.slice(skip, skip + pageSize);
@@ -333,12 +337,4 @@ export class SalesQueuesService {
     };
   }
 
-  /** Guard: branch belongs to tenant (callers already scope by branch header). */
-  async assertBranch(tenantId: string, branchId: string) {
-    const branch = await this.prisma.branch.findFirst({
-      where: { tenantId, id: branchId, isActive: true },
-      select: { id: true },
-    });
-    if (!branch) throw new NotFoundException("Branch not found");
-  }
 }
