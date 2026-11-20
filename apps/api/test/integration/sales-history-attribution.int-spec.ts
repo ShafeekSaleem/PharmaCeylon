@@ -11,6 +11,7 @@ import { SalesHistoryQueryDto } from "../../src/sales/dto/sales-history-query.dt
 import { SaleReadService } from "../../src/sales/sale-read.service";
 import { SalesService } from "../../src/sales/sales.service";
 import { AccessService } from "../../src/security/access.service";
+import { PermissionsService } from "../../src/security/permissions.service";
 import type { RequestUser } from "../../src/security/interfaces/authenticated-request.interface";
 import { AttendanceProofsService } from "../../src/terminals/attendance-proofs.service";
 import { LocalAttendanceVerifier } from "../../src/terminals/local-attendance.verifier";
@@ -44,7 +45,8 @@ const sales = new SalesService(
   undefined,
   shifts,
 );
-const reads = new SaleReadService(prisma as never, {} as never);
+const permissions = new PermissionsService(prisma as never);
+const reads = new SaleReadService(prisma as never, permissions as never);
 
 const PIN = "4826";
 let fx: TenantFixture;
