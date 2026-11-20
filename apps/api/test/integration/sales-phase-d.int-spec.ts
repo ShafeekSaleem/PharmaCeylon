@@ -1,29 +1,44 @@
 import { randomUUID } from "node:crypto";
 import { ForbiddenException } from "@nestjs/common";
 import { PaymentMethod, RoleName } from "@prisma/client";
+import type {
+  ExternalCardAttemptRecord,
+  OfflineSaleIncident,
+  TerminalIdentity,
+} from "@pharmaceylon/shared";
+import { AuditService } from "../../src/audit/audit.service";
+import { StockService } from "../../src/inventory/stock/stock.service";
 import { ensureRbacSeed } from "../../prisma/rbac-seed";
 import { SaleReadService } from "../../src/sales/sale-read.service";
 import { SalesQueuesService } from "../../src/sales/sales-queues.service";
 import { AccessService } from "../../src/security/access.service";
 import { PermissionsService } from "../../src/security/permissions.service";
 import type { RequestUser } from "../../src/security/interfaces/authenticated-request.interface";
-import { StockService } from "../../src/inventory/stock/stock.service";
+import { BusinessHoursAcknowledgements } from "../../src/terminals/business-hours-acknowledgements.service";
+import { OfflineSupportRecords } from "../../src/terminals/offline-support-records.service";
+import { sha256 } from "../../src/terminals/terminal-wire";
 import {
+  access,
   counter,
   offlineJournal,
+  prisma,
   sync,
   type Counter,
 } from "./offline-counter.kit";
-import { createPrisma, createStockedBatch, createTenant, type TenantFixture } from "./fixtures";
+import { createStockedBatch, createTenant, type TenantFixture } from "./fixtures";
 
-const localPrisma = createPrisma();
-const access = new AccessService(localPrisma as never, {} as never);
+const audit = new AuditService(prisma as never);
+const support = new OfflineSupportRecords(
+  access,
+  audit,
+  new BusinessHoursAcknowledgements(access, audit),
+);
 const stock = new StockService();
 
-const queues = new SalesQueuesService(localPrisma as never);
+const queues = new SalesQueuesService(prisma as never);
 const config = { get: () => 0 } as never;
-const permissions = new PermissionsService(localPrisma as never, config);
-const reads = new SaleReadService(localPrisma as never, permissions);
+const permissions = new PermissionsService(prisma as never, config);
+const reads = new SaleReadService(prisma as never, permissions);
 
 let main: Counter;
 let otherTenant: Counter;
@@ -50,79 +65,94 @@ const guardBranch = (user: RequestUser, branchId: string) => {
 };
 
 const guardPermission = async (user: RequestUser, branchId: string) => {
-  const live = await localPrisma.$transaction((tx) => access.resolveLive(user, branchId, tx));
+  const live = await prisma.$transaction((tx) => access.resolveLive(user, branchId, tx));
   if (!live.has("tenant.management")) throw new ForbiddenException("Permission denied");
 };
 
+const recordSigned = (c: Counter, signed: unknown) =>
+  prisma.$transaction((tx) => support.record(tx, c.owner, c.fx.mainBranchId, signed, Date.now()));
+
+const saleIncident = (c: Counter, description: string): OfflineSaleIncident => ({
+  contractVersion: 1,
+  kind: "sale_incident",
+  recordId: randomUUID(),
+  identity: c.identity,
+  saleCommandId: randomUUID(),
+  recordedByUserId: c.cashier.userId,
+  staffSignInId: randomUUID(),
+  workSessionId: randomUUID(),
+  recordedAt: Date.now() - 60_000,
+  category: "other",
+  description,
+});
+
+type AttemptBinding = Pick<
+  ExternalCardAttemptRecord,
+  "attemptId" | "checkoutDraftId" | "reviewedSaleDigest" | "amountMinor" | "staffSignInId" | "workSessionId"
+>;
+
+const cardBinding = (): AttemptBinding => ({
+  attemptId: randomUUID(),
+  checkoutDraftId: randomUUID(),
+  reviewedSaleDigest: sha256(randomUUID()),
+  amountMinor: 245_000,
+  staffSignInId: randomUUID(),
+  workSessionId: randomUUID(),
+});
+
+const cardEvent = (
+  identity: TerminalIdentity,
+  attempt: AttemptBinding,
+  state: Record<string, unknown> = { state: "prepared" },
+): ExternalCardAttemptRecord =>
+  ({
+    contractVersion: 1,
+    kind: "external_card_attempt",
+    recordId: randomUUID(),
+    identity,
+    ...attempt,
+    recordedAt: Date.now() - 30_000,
+    ...state,
+  }) as ExternalCardAttemptRecord;
+
 async function seedAcceptedIncident(c: Counter, description: string) {
-  const enrollment = await localPrisma.terminalEnrollment.findFirstOrThrow({
-    where: { tenantId: c.fx.tenantId, branchId: c.fx.mainBranchId, terminalId: c.identity.terminalId },
+  const signed = c.device.sign(saleIncident(c, description), c.identity.keyId);
+  await recordSigned(c, signed);
+  const row = await prisma.offlineSupportRecord.findFirstOrThrow({
+    where: { tenantId: c.fx.tenantId, recordId: signed.payload.recordId },
   });
-  const verifiedAt = new Date("2026-10-01T10:02:00.000Z");
-  await localPrisma.offlineSupportRecord.create({
+  await prisma.offlineSupportRecord.update({
+    where: { id: row.id },
     data: {
-      tenantId: c.fx.tenantId,
-      branchId: c.fx.mainBranchId,
-      terminalId: c.identity.terminalId,
-      enrollmentId: enrollment.id,
-      keyId: enrollment.keyId,
-      kind: "sale_incident",
-      recordId: randomUUID(),
-      recordHash: "a".repeat(64),
-      envelope: {},
-      staffSignInId: randomUUID(),
-      workSessionId: randomUUID(),
-      recordedAt: new Date("2026-10-01T10:00:00.000Z"),
-      receivedAt: new Date("2026-10-01T10:01:00.000Z"),
-      receivedByUserId: c.owner.userId,
       status: "accepted",
-      incidentCategory: "other",
-      description: description.trim(),
-      recordedByUserId: c.cashier.userId,
-      saleCommandId: randomUUID(),
-      verifiedAt,
+      heldReason: null,
+      verifiedAt: new Date(),
       verifiedByUserId: c.manager.userId,
     },
   });
 }
 
 async function seedHeldCard(c: Counter) {
-  const enrollment = await localPrisma.terminalEnrollment.findFirstOrThrow({
-    where: { tenantId: c.fx.tenantId, branchId: c.fx.mainBranchId, terminalId: c.identity.terminalId },
-  });
-  const attemptId = randomUUID();
-  await localPrisma.offlineSupportRecord.create({
-    data: {
-      tenantId: c.fx.tenantId,
-      branchId: c.fx.mainBranchId,
-      terminalId: c.identity.terminalId,
-      enrollmentId: enrollment.id,
-      keyId: enrollment.keyId,
-      kind: "external_card_attempt",
-      recordId: randomUUID(),
-      recordHash: "b".repeat(64),
-      envelope: {},
-      staffSignInId: randomUUID(),
-      workSessionId: randomUUID(),
-      recordedAt: new Date("2026-10-02T10:00:00.000Z"),
-      receivedAt: new Date("2026-10-02T10:01:00.000Z"),
-      receivedByUserId: c.owner.userId,
-      status: "held",
-      heldReason: "card_not_used",
-      attemptId,
-      checkoutDraftId: randomUUID(),
-      reviewedSaleDigest: "c".repeat(64),
-      cardState: "not_used",
-      amountMinor: 1500n,
-      providerReference: "RRN-PHASE-D",
-      verifiedByUserId: c.manager.userId,
-    },
-  });
-  return attemptId;
+  const attempt = cardBinding();
+  await recordSigned(
+    c,
+    c.device.sign(
+      cardEvent(c.identity, attempt, {
+        state: "not_used",
+        providerReference: "RRN-PHASE-D",
+        settlement: "refund_owed",
+        reversalReference: null,
+        reason: "Card approved, sale never completed",
+        verifiedByUserId: c.manager.userId,
+      }),
+      c.identity.keyId,
+    ),
+  );
+  return attempt.attemptId;
 }
 
 beforeAll(async () => {
-  await ensureRbacSeed(localPrisma);
+  await ensureRbacSeed(prisma);
   main = await counter({ main: 20 });
   otherTenant = await counter({ main: 10 });
   await seedAcceptedIncident(main, "Main branch incident");
@@ -130,17 +160,17 @@ beforeAll(async () => {
   await seedHeldCard(main);
   await seedHeldCard(otherTenant);
 
-  fx = await createTenant(localPrisma, "sales-phase-d-fx");
-  await localPrisma.userBranchRole.createMany({
+  fx = await createTenant(prisma, "sales-phase-d-fx");
+  await prisma.userBranchRole.createMany({
     data: [
       { tenantId: fx.tenantId, branchId: fx.mainBranchId, userId: fx.ownerId, role: RoleName.owner },
       { tenantId: fx.tenantId, branchId: fx.mainBranchId, userId: fx.clerkId, role: RoleName.cashier },
       { tenantId: fx.tenantId, branchId: fx.otherBranchId, userId: fx.ownerId, role: RoleName.owner },
     ],
   });
-  const batchId = await createStockedBatch(localPrisma, stock, fx, { qty: 50 });
+  const batchId = await createStockedBatch(prisma, stock, fx, { qty: 50 });
   offlineOnFx = (
-    await localPrisma.sale.create({
+    await prisma.sale.create({
       data: {
         tenantId: fx.tenantId,
         branchId: fx.mainBranchId,
@@ -165,7 +195,7 @@ beforeAll(async () => {
     })
   ).id;
   pendingOnFx = (
-    await localPrisma.sale.create({
+    await prisma.sale.create({
       data: {
         tenantId: fx.tenantId,
         branchId: fx.mainBranchId,
@@ -202,13 +232,13 @@ beforeAll(async () => {
   };
   await sync(main, { staffSignIns: [signIn], commands: [open, saleCmd] });
   journaledSaleId = (
-    await localPrisma.sale.findFirstOrThrow({
+    await prisma.sale.findFirstOrThrow({
       where: { tenantId: main.fx.tenantId, offlineCommandId: saleCmd.payload.commandId },
     })
   ).id;
 });
 
-afterAll(() => localPrisma.$disconnect());
+afterAll(() => prisma.$disconnect());
 
 describe("sales phase D queues (Postgres)", () => {
   it("keeps incident notes tenant- and branch-scoped", async () => {
@@ -275,7 +305,7 @@ describe("sales history sync-state filters (Postgres)", () => {
   });
 
   it("filters accepted and pending_stock_posting and excludes online sales", async () => {
-    const online = await localPrisma.sale.create({
+    const online = await prisma.sale.create({
       data: {
         tenantId: fx.tenantId,
         branchId: fx.mainBranchId,
@@ -288,7 +318,7 @@ describe("sales history sync-state filters (Postgres)", () => {
           create: {
             tenantId: fx.tenantId,
             productId: fx.productId,
-            batchId: (await localPrisma.batch.findFirstOrThrow({ where: { tenantId: fx.tenantId } })).id,
+            batchId: (await prisma.batch.findFirstOrThrow({ where: { tenantId: fx.tenantId } })).id,
             qty: 1,
             unitPrice: "9",
             lineTotal: "9",
@@ -310,7 +340,7 @@ describe("sales history sync-state filters (Postgres)", () => {
 
 describe("journaled offline sale receipt on history detail", () => {
   it("returns receipt number and counter recordedAt from the signed journal payload", async () => {
-    const replayed = await localPrisma.terminalCommandReceipt.findFirstOrThrow({
+    const replayed = await prisma.terminalCommandReceipt.findFirstOrThrow({
       where: {
         tenantId: main.fx.tenantId,
         branchId: main.fx.mainBranchId,
