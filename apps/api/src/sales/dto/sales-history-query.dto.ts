@@ -1,5 +1,10 @@
 import { PaymentMethod } from "@prisma/client";
-import { SALE_CHANNELS, type SaleChannel } from "@pharmaceylon/shared";
+import {
+  OFFLINE_SALE_SYNC_STATES,
+  SALE_CHANNELS,
+  type OfflineSaleSyncState,
+  type SaleChannel,
+} from "@pharmaceylon/shared";
 import { Type } from "class-transformer";
 import {
   IsEnum,
@@ -107,4 +112,12 @@ export class SalesHistoryQueryDto {
   @IsOptional()
   @IsIn(SALE_CHANNELS as unknown as SaleChannel[])
   channel?: SaleChannel;
+
+  /**
+   * Offline replay sync on the server (`accepted` or `pending_stock_posting`; `held` is reserved).
+   * Applies only to sales with an `offlineCommandId`.
+   */
+  @IsOptional()
+  @IsIn([...OFFLINE_SALE_SYNC_STATES])
+  offlineSyncState?: OfflineSaleSyncState;
 }

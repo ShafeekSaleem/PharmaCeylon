@@ -1,5 +1,12 @@
 import { BadRequestException, ForbiddenException, NotFoundException } from "@nestjs/common";
-import { DesktopPosRollout, PaymentMethod, Prisma, RoleName, SaleStatus } from "@prisma/client";
+import {
+  DesktopPosRollout,
+  PaymentMethod,
+  Prisma,
+  RoleName,
+  SaleStatus,
+  SaleStockPosting,
+} from "@prisma/client";
 import { plainToInstance } from "class-transformer";
 import { validate } from "class-validator";
 import { PERMISSION_KEY } from "../security/decorators/require-permission.decorator";
@@ -47,6 +54,7 @@ function summaryRow(id: string, branchId = "branch-a") {
     tillId: null,
     shiftId: null,
     offlineCommandId: null,
+    stockPosting: SaleStockPosting.posted,
     shift: null,
     branch: branchRollout(branchId),
     customer: null,
@@ -71,6 +79,7 @@ function detailRow(branchId = "branch-b") {
     tillId: null,
     shiftId: null,
     offlineCommandId: null,
+    stockPosting: SaleStockPosting.posted,
     shift: null,
     subtotal: dec("1000"),
     discountTotal: dec("50"),
@@ -156,6 +165,15 @@ function setup() {
       findMany: jest.fn().mockResolvedValue([]),
     },
     operationalTerminal: {
+      findMany: jest.fn().mockResolvedValue([]),
+    },
+    offlineStockDiscrepancy: {
+      findMany: jest.fn().mockResolvedValue([]),
+    },
+    terminalCommandReceipt: {
+      findFirst: jest.fn().mockResolvedValue(null),
+    },
+    tillShift: {
       findMany: jest.fn().mockResolvedValue([]),
     },
     $queryRaw: jest.fn().mockResolvedValue([]),
@@ -511,7 +529,7 @@ describe("SaleReadService.historyOptions", () => {
     const options = await service.historyOptions(multiBranch);
 
     expect(options.branches.map((b) => b.id).sort()).toEqual(["branch-a", "branch-b"]);
-    expect(lastWhere(prisma.sale.findMany)).toEqual({
+    expect(prisma.sale.findMany.mock.calls[0][0].where).toEqual({
       tenantId: "tenant-1",
       branchId: { in: expect.arrayContaining(["branch-a", "branch-b"]) },
     });

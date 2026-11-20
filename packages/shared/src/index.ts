@@ -26,3 +26,4 @@ export * from "./supplier-cash-payout";
 export * from "./pharmacy-appearance";
 export * from "./display-format";
 export * from "./sale-channel";
+export * from "./offline-sale-sync";

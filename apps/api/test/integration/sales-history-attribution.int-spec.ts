@@ -275,9 +275,12 @@ describe("sales history attribution and filters (#66 Phase B)", () => {
     const detail = await reads.detail(owner(fx), counterSaleId);
     expect(detail).toMatchObject({
       channel: "desktop_online",
-      terminal: { id: terminalId },
-      register: { id: registerId, tillId },
+      terminal: { id: terminalId, label: expect.any(String) },
+      register: { id: registerId, tillId, label: expect.any(String) },
       shift: expect.objectContaining({ id: shiftId }),
+      offlineSyncState: null,
+      offlineCommandId: null,
+      offlineReceipt: null,
     });
   });
 
@@ -426,9 +429,30 @@ describe("sales history attribution and filters (#66 Phase B)", () => {
     expect(errors.map((e) => e.property).sort()).toEqual(["channel", "terminalId"]);
   });
 
-  it("options lists registers and terminals for the branch", async () => {
+  it("options lists registers, terminals and shifts for the branch", async () => {
     const options = await reads.historyOptions(owner(fx));
     expect(options.registers?.some((row) => row.registerId === registerId)).toBe(true);
     expect(options.terminals?.some((row) => row.terminalId === terminalId)).toBe(true);
+    expect(options.shifts?.some((row) => row.shiftId === shiftId)).toBe(true);
+    expect(options.offlineSyncStates?.map((s) => s.value)).toEqual(["accepted", "pending_stock_posting"]);
+  });
+
+  it("labels offline sales with pending_stock_posting sync state", async () => {
+    const offline = await reads.history(owner(fx), fx.mainBranchId, { channel: "offline" });
+    const row = offline.items.find((item) => item.id === offlineSaleId)!;
+    expect(row.offlineSyncState).toBe("accepted");
+    await prisma.sale.update({
+      where: { id: offlineSaleId },
+      data: { stockPosting: "pending_reconciliation" },
+    });
+    const again = await reads.history(owner(fx), fx.mainBranchId, { invoiceNo: row.invoiceNo });
+    expect(again.items[0]).toMatchObject({
+      offlineSyncState: "pending_stock_posting",
+      offlineCommandId: expect.any(String),
+    });
+    const filtered = await reads.history(owner(fx), fx.mainBranchId, {
+      offlineSyncState: "pending_stock_posting",
+    });
+    expect(filtered.items.some((item) => item.id === offlineSaleId)).toBe(true);
   });
 });

@@ -17,6 +17,10 @@ import { AccessService } from "../../security/access.service";
 import type { RequestUser } from "../../security/interfaces/authenticated-request.interface";
 import { HeldEvidenceVerifier } from "../held-evidence-verifier.service";
 import { supportRecordLockKey } from "../support-record-intake";
+import {
+  SUPPORT_MANAGER_HELD_REASONS,
+  heldSupportRecordWhere,
+} from "../support-queue-predicates";
 import { denied, uuid } from "../terminal-wire";
 import { OFFLINE_JOURNAL_OPERATION, storedCommand } from "./journal-chain";
 
@@ -61,14 +65,7 @@ export const SUPPORT_HELD_REASONS = {
     "The card was approved but no sale used it. The counter says it was reversed on the card machine, or that a refund is owed: check the money went back.",
 } as const;
 
-/** Held reasons promotion leaves alone: only a person settles them. */
-const MANAGER_DECIDES: readonly string[] = [
-  "enrollment_revoked",
-  "attempt_mismatch",
-  "card_payment_mismatch",
-  "sale_not_honoured",
-  "card_not_used",
-];
+const MANAGER_DECIDES: readonly string[] = [...SUPPORT_MANAGER_HELD_REASONS];
 
 /** One held record, as a manager reviewing support evidence sees it. */
 export type HeldSupportRecordView = Readonly<{
@@ -260,7 +257,7 @@ export class SupportEvidenceReconciler {
     return this.prisma.$transaction(async (tx) => {
       const access = await this.access.resolveLive(user, uuid(branchId), tx);
       if (!access.has("tenant.management")) denied("PERMISSION_DENIED");
-      const where = { tenantId: user.tenantId, branchId, status: "held" };
+      const recordWhere = heldSupportRecordWhere(user.tenantId, branchId);
       const base = {
         recordId: true,
         terminalId: true,
@@ -271,7 +268,7 @@ export class SupportEvidenceReconciler {
       } as const;
       const [records, acknowledgements] = await Promise.all([
         tx.offlineSupportRecord.findMany({
-          where,
+          where: recordWhere,
           orderBy: { receivedAt: "asc" },
           take: 500,
           select: {
@@ -283,7 +280,7 @@ export class SupportEvidenceReconciler {
           },
         }),
         tx.businessHoursAcknowledgement.findMany({
-          where,
+          where: { tenantId: user.tenantId, branchId, status: "held" },
           orderBy: { receivedAt: "asc" },
           take: 500,
           select: base,

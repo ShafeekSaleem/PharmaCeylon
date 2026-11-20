@@ -12,7 +12,15 @@ import {
   RoleName,
   SaleStatus,
 } from "@prisma/client";
-import { deriveSaleChannel, type FallbackWindow, type SaleChannel } from "@pharmaceylon/shared";
+import {
+  OFFLINE_SALE_SYNC_STATE_OPTIONS,
+  deriveSaleChannel,
+  type FallbackWindow,
+  type OfflineSaleSyncState,
+  type OfflineJournalCommand,
+  type OfflineSaleCommand,
+  type SaleChannel,
+} from "@pharmaceylon/shared";
 import {
   addDays,
   businessToday,
@@ -26,6 +34,7 @@ import { PermissionsService } from "../security/permissions.service";
 import { POS_ROLLOUT_SELECT } from "../tenant/pos-rollout";
 import { invoiceNoWhere } from "./invoice-no-search.util";
 import { channelWhere, fallbackWindowsFromAudit } from "./sale-fallback-windows.util";
+import { deriveOfflineSyncState, offlineSyncStateWhere } from "./offline-sync-state.util";
 
 const NO_SUCH_TILL = "00000000-0000-4000-8000-000000000000";
 const FALLBACK_AUDIT_EVENTS = [
@@ -83,6 +92,7 @@ const SALE_SUMMARY_SELECT = {
   tillId: true,
   shiftId: true,
   offlineCommandId: true,
+  stockPosting: true,
   branch: { select: BRANCH_ROLLOUT_SELECT },
   shift: { select: { id: true, shiftNumber: true, openedAt: true, closedAt: true } },
   customer: { select: { id: true, fullName: true, phone: true } },
@@ -132,7 +142,27 @@ function saleAttribution(
   };
 }
 
-function toSaleSummary(sale: SaleSummaryRow, ctx: AttributionContext) {
+function saleSyncFields(
+  sale: Pick<SaleSummaryRow, "offlineCommandId" | "stockPosting">,
+  openCaseId: string | null,
+) {
+  const offlineSyncState = deriveOfflineSyncState({
+    offlineCommandId: sale.offlineCommandId,
+    stockPosting: sale.stockPosting,
+    openDiscrepancy: Boolean(openCaseId),
+  });
+  return {
+    offlineCommandId: sale.offlineCommandId,
+    offlineSyncState,
+    reconciliationCaseId: openCaseId,
+  };
+}
+
+function toSaleSummary(
+  sale: SaleSummaryRow,
+  ctx: AttributionContext,
+  openCaseId: string | null,
+) {
   return {
     id: sale.id,
     invoiceNo: sale.invoiceNo,
@@ -154,6 +184,7 @@ function toSaleSummary(sale: SaleSummaryRow, ctx: AttributionContext) {
       .map((i) => `${i.qty}× ${i.product.name}`)
       .join(", "),
     ...saleAttribution(sale, ctx),
+    ...saleSyncFields(sale, openCaseId),
   };
 }
 
@@ -184,7 +215,12 @@ const SALE_DETAIL_INCLUDE = {
 
 type SaleDetailRow = Prisma.SaleGetPayload<{ include: typeof SALE_DETAIL_INCLUDE }>;
 
-function toSaleDetail(sale: SaleDetailRow, ctx: AttributionContext) {
+function toSaleDetail(
+  sale: SaleDetailRow,
+  ctx: AttributionContext,
+  openCaseId: string | null,
+  offlineReceipt: { receiptNumber: string; recordedAt: string } | null,
+) {
   return {
     id: sale.id,
     invoiceNo: sale.invoiceNo,
@@ -202,6 +238,8 @@ function toSaleDetail(sale: SaleDetailRow, ctx: AttributionContext) {
     notes: sale.notes,
     branch: { id: sale.branch.id, name: sale.branch.name },
     ...saleAttribution(sale, ctx),
+    ...saleSyncFields(sale, openCaseId),
+    offlineReceipt,
     customer: sale.customer,
     prescription: sale.prescription,
     seller: sale.seller,
@@ -258,6 +296,7 @@ export type SaleHistoryFilters = {
   tillId?: string;
   shiftId?: string;
   channel?: SaleChannel;
+  offlineSyncState?: OfflineSaleSyncState;
 };
 
 /**
@@ -355,7 +394,11 @@ export class SaleReadService {
       select: SALE_SUMMARY_SELECT,
     });
     const ctx = await this.attributionContext(tenantId, [branchId], sales);
-    return sales.map((row) => toSaleSummary(row, ctx));
+    const openCases = await this.openDiscrepancyCaseIds(
+      tenantId,
+      sales.map((row) => row.id),
+    );
+    return sales.map((row) => toSaleSummary(row, ctx, openCases.get(row.id) ?? null));
   }
 
   /** Invoice lookup for the POS returns lane (exact, contains, then suffix). */
@@ -583,6 +626,11 @@ export class SaleReadService {
         : filters.channel
           ? channelWhere(filters.channel, [], historicalFallbacks)
           : {}),
+      ...(filters.offlineSyncState === "held"
+        ? { id: NO_SUCH_TILL }
+        : filters.offlineSyncState
+          ? offlineSyncStateWhere(filters.offlineSyncState)
+          : {}),
     };
 
     const [rows, total] = await Promise.all([
@@ -596,7 +644,16 @@ export class SaleReadService {
       this.prisma.sale.count({ where }),
     ]);
     const ctx = await this.attributionContext(user.tenantId, branchIds, rows);
-    return { items: rows.map((row) => toSaleSummary(row, ctx)), total, page, pageSize };
+    const openCases = await this.openDiscrepancyCaseIds(
+      user.tenantId,
+      rows.map((row) => row.id),
+    );
+    return {
+      items: rows.map((row) => toSaleSummary(row, ctx, openCases.get(row.id) ?? null)),
+      total,
+      page,
+      pageSize,
+    };
   }
 
   /**
@@ -618,7 +675,7 @@ export class SaleReadService {
   async historyOptions(user: RequestUser) {
     const branches = await this.viewableBranches(user);
     const branchIds = branches.map((branch) => branch.id);
-    const [sellers, registers, terminals] = await Promise.all([
+    const [sellers, registers, terminals, shiftKeys] = await Promise.all([
       this.prisma.sale.findMany({
         where: { tenantId: user.tenantId, ...branchWhere(branchIds) },
         distinct: ["soldBy"],
@@ -634,7 +691,34 @@ export class SaleReadService {
         select: { id: true, label: true, branchId: true },
         orderBy: [{ branchId: "asc" }, { label: "asc" }],
       }),
+      this.prisma.sale.findMany({
+        where: {
+          tenantId: user.tenantId,
+          ...branchWhere(branchIds),
+          shiftId: { not: null },
+        },
+        distinct: ["shiftId"],
+        select: { shiftId: true },
+        take: 500,
+      }),
     ]);
+    const shiftIds = shiftKeys.map((row) => row.shiftId).filter((id): id is string => Boolean(id));
+    const shifts = shiftIds.length
+      ? await this.prisma.tillShift.findMany({
+          where: { tenantId: user.tenantId, branchId: { in: branchIds }, id: { in: shiftIds } },
+          select: {
+            id: true,
+            shiftNumber: true,
+            branchId: true,
+            registerId: true,
+            openedAt: true,
+            closedAt: true,
+            counter: { select: { label: true } },
+          },
+          orderBy: { openedAt: "desc" },
+          take: 200,
+        })
+      : [];
     return {
       branches,
       sellers: sellers
@@ -651,6 +735,16 @@ export class SaleReadService {
         label: row.label,
         branchId: row.branchId,
       })),
+      shifts: shifts.map((row) => ({
+        shiftId: row.id,
+        shiftNumber: row.shiftNumber,
+        branchId: row.branchId,
+        registerId: row.registerId,
+        registerLabel: row.counter.label,
+        openedAt: row.openedAt.toISOString(),
+        closedAt: row.closedAt?.toISOString() ?? null,
+      })),
+      offlineSyncStates: [...OFFLINE_SALE_SYNC_STATE_OPTIONS],
     };
   }
 
@@ -669,7 +763,44 @@ export class SaleReadService {
     });
     if (!sale) throw new NotFoundException("Sale not found");
     const ctx = await this.attributionContext(user.tenantId, branchIds, [sale]);
-    return toSaleDetail(sale, ctx);
+    const openCases = await this.openDiscrepancyCaseIds(user.tenantId, [sale.id]);
+    const offlineReceipt = await this.offlineReceiptForSale(user.tenantId, sale.offlineCommandId);
+    return toSaleDetail(
+      sale,
+      ctx,
+      openCases.get(sale.id) ?? null,
+      offlineReceipt,
+    );
+  }
+
+  private async openDiscrepancyCaseIds(
+    tenantId: string,
+    saleIds: readonly string[],
+  ): Promise<Map<string, string>> {
+    const ids = [...new Set(saleIds)];
+    if (!ids.length) return new Map();
+    const rows = await this.prisma.offlineStockDiscrepancy.findMany({
+      where: { tenantId, saleId: { in: ids }, status: "open" },
+      select: { saleId: true, id: true },
+    });
+    return new Map(rows.map((row) => [row.saleId, row.id]));
+  }
+
+  private async offlineReceiptForSale(
+    tenantId: string,
+    offlineCommandId: string | null,
+  ): Promise<{ receiptNumber: string; recordedAt: string } | null> {
+    if (!offlineCommandId) return null;
+    const row = await this.prisma.terminalCommandReceipt.findFirst({
+      where: { tenantId, commandId: offlineCommandId },
+      select: { recordedAt: true, command: true },
+    });
+    if (!row) return null;
+    const payload = row.command as OfflineJournalCommand;
+    if (payload.kind !== "ordinary_sale") return null;
+    const receiptNumber = (payload as OfflineSaleCommand).receiptNumber;
+    if (typeof receiptNumber !== "string") return null;
+    return { receiptNumber, recordedAt: row.recordedAt.toISOString() };
   }
 
   private async attributionContext(
