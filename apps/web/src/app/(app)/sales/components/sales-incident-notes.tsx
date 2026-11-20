@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Alert } from "@/components/alert";
 import { ActionButton, DataTable, PageHeader, type Column } from "@/components/ui";
 import { useAuth } from "@/lib/use-auth";
+import { isSalesQueueForbidden, SalesQueueAccessDenied } from "./sales-queue-access";
 import { fetchIncidentNotes } from "../services/sales-api";
 import { incidentNoteStatusBadge } from "../sync-badges";
 import type { SaleIncidentNoteRow } from "../types";
@@ -20,6 +21,7 @@ export default function SalesIncidentNotes() {
   const [data, setData] = useState({ items: [] as SaleIncidentNoteRow[], total: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [permissionDenied, setPermissionDenied] = useState(false);
   const [selected, setSelected] = useState<SaleIncidentNoteRow | null>(null);
   const alive = useRef(true);
 
@@ -27,12 +29,17 @@ export default function SalesIncidentNotes() {
     if (!branchId) return;
     setLoading(true);
     setError(null);
+    setPermissionDenied(false);
     try {
       const next = await fetchIncidentNotes(page, PAGE_SIZE);
       if (!alive.current) return;
       setData({ items: next.items, total: next.total });
     } catch (err) {
       if (!alive.current) return;
+      if (isSalesQueueForbidden(err)) {
+        setPermissionDenied(true);
+        return;
+      }
       setError(err instanceof Error ? err.message : "Couldn't load incident notes");
     } finally {
       if (alive.current) setLoading(false);
@@ -99,6 +106,17 @@ export default function SalesIncidentNotes() {
   ];
 
   if (!branchId) return <p>Select a branch to review incident notes.</p>;
+  if (permissionDenied) {
+    return (
+      <div className={css.page}>
+        <PageHeader
+          subtitleOnly
+          description="Incident notes recorded at the counter that still need a back-office look."
+        />
+        <SalesQueueAccessDenied />
+      </div>
+    );
+  }
 
   return (
     <div className={css.page}>

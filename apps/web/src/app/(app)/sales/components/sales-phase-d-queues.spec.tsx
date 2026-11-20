@@ -1,5 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { apiJson } from "@/lib/auth-client";
+import { ApiError } from "@/lib/api-error";
+import { SALES_QUEUE_ACCESS_DENIED } from "./sales-queue-access";
 import SalesIncidentNotes from "./sales-incident-notes";
 import SalesPaymentRecovery from "./sales-payment-recovery";
 import SalesCollectedMoney from "./sales-collected-money";
@@ -77,6 +79,14 @@ beforeEach(() => {
 });
 
 describe("incident notes queue", () => {
+  it("shows a calm no-access state on 403, not a red error", async () => {
+    jest.mocked(apiJson).mockRejectedValueOnce(new ApiError("Forbidden", 403, {}));
+    render(<SalesIncidentNotes />);
+    expect(await screen.findByText("Insufficient permissions")).toBeInTheDocument();
+    expect(screen.getByText(SALES_QUEUE_ACCESS_DENIED)).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
   it("lists rows, opens the drawer, and shows empty and error states", async () => {
     jest.mocked(apiJson).mockResolvedValueOnce({
       items: [incidentRow()],

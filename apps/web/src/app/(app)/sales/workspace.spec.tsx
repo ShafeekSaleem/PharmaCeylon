@@ -39,6 +39,30 @@ it("does not mount approval review for a history-only role even via deep link", 
   expect(screen.queryByText("Module pending review")).not.toBeInTheDocument();
 });
 
+it("hides recovery queue tabs without tenant.management", () => {
+  mockKeys = ["sales.view", "returns.approve"];
+  render(<SalesPage />);
+  expect(screen.queryByRole("link", { name: /Incident notes/ })).not.toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: /Payment recovery/ })).not.toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: /Unresolved money/ })).not.toBeInTheDocument();
+});
+
+it("falls back from a queue deep link when tenant.management is missing", () => {
+  mockKeys = ["sales.view"];
+  mockParams = new URLSearchParams("view=incident-notes");
+  render(<SalesPage />);
+  expect(screen.getByText("History content")).toBeInTheDocument();
+  expect(screen.queryByText("Incident queue")).not.toBeInTheDocument();
+});
+
+it("shows recovery queue tabs with tenant.management", () => {
+  mockKeys = ["sales.view", "tenant.management"];
+  render(<SalesPage />);
+  expect(screen.getByRole("link", { name: /Incident notes/ })).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: /Payment recovery/ })).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: /Unresolved money/ })).toBeInTheDocument();
+});
+
 it("deep links open Phase D tabs with matching hrefs", () => {
   render(<SalesPage />);
   expect(screen.getByRole("link", { name: /Incident notes/ })).toHaveAttribute(

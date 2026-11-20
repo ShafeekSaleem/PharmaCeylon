@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Alert } from "@/components/alert";
 import { ActionButton, DataTable, PageHeader, type Column } from "@/components/ui";
 import { useAuth } from "@/lib/use-auth";
+import { isSalesQueueForbidden, SalesQueueAccessDenied } from "./sales-queue-access";
 import { fetchCollectedMoney } from "../services/sales-api";
 import { unresolvedMoneyStatusBadge } from "../sync-badges";
 import type { CollectedMoneyRow } from "../types";
@@ -19,6 +20,7 @@ export default function SalesCollectedMoney() {
   const [data, setData] = useState({ items: [] as CollectedMoneyRow[], total: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [permissionDenied, setPermissionDenied] = useState(false);
   const [selected, setSelected] = useState<CollectedMoneyRow | null>(null);
   const alive = useRef(true);
 
@@ -26,12 +28,17 @@ export default function SalesCollectedMoney() {
     if (!branchId) return;
     setLoading(true);
     setError(null);
+    setPermissionDenied(false);
     try {
       const next = await fetchCollectedMoney(page, PAGE_SIZE);
       if (!alive.current) return;
       setData({ items: next.items, total: next.total });
     } catch (err) {
       if (!alive.current) return;
+      if (isSalesQueueForbidden(err)) {
+        setPermissionDenied(true);
+        return;
+      }
       setError(err instanceof Error ? err.message : "Couldn't load unresolved money");
     } finally {
       if (alive.current) setLoading(false);
@@ -83,6 +90,17 @@ export default function SalesCollectedMoney() {
   ];
 
   if (!branchId) return <p>Select a branch to review unresolved collected money.</p>;
+  if (permissionDenied) {
+    return (
+      <div className={css.page}>
+        <PageHeader
+          subtitleOnly
+          description="Card money collected at the counter that is not yet tied to a completed sale."
+        />
+        <SalesQueueAccessDenied />
+      </div>
+    );
+  }
 
   return (
     <div className={css.page}>

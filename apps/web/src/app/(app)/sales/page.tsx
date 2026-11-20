@@ -10,7 +10,12 @@ import SalesIncidentNotes from "./components/sales-incident-notes";
 import SalesPaymentRecovery from "./components/sales-payment-recovery";
 import PendingRefundApprovals from "./components/pending-refund-approvals";
 import { useSalesQueueCounts } from "./hooks/use-sales-queue-counts";
-import { isSalesWorkspaceView, salesViewHref, type SalesWorkspaceView } from "./sales-views";
+import {
+  isSalesRecoveryQueueView,
+  isSalesWorkspaceView,
+  salesViewHref,
+  type SalesWorkspaceView,
+} from "./sales-views";
 import SalesHistory from "./sales-history";
 import css from "./sales.module.css";
 
@@ -37,9 +42,8 @@ function resolveView(
     return mayApprove ? "pending-approvals" : mayViewSales ? "history" : "pending-approvals";
   }
   if (isSalesWorkspaceView(raw)) {
-    if (raw === "payment-recovery" && !mayManage) return mayViewSales ? "history" : "pending-approvals";
-    if ((raw === "incident-notes" || raw === "unresolved-money") && !mayViewSales) {
-      return mayApprove ? "pending-approvals" : "history";
+    if (isSalesRecoveryQueueView(raw) && !mayManage) {
+      return mayViewSales ? "history" : mayApprove ? "pending-approvals" : "history";
     }
     return raw;
   }
@@ -54,7 +58,7 @@ function SalesWorkspace() {
   const mayViewSales = permissionKeys.includes("sales.view");
   const mayApprove = permissionKeys.includes("returns.approve");
   const mayManage = permissionKeys.includes("tenant.management");
-  const queueCounts = useSalesQueueCounts(branchId, mayViewSales, mayManage, mayViewSales);
+  const queueCounts = useSalesQueueCounts(branchId, mayManage);
   if (loading && !hasLoadedOnce) return null;
 
   const view = resolveView(params.get("view"), mayViewSales, mayApprove, mayManage);
@@ -75,29 +79,27 @@ function SalesWorkspace() {
             Pending approvals
           </Link>
         )}
-        {mayViewSales && (
-          <Link
-            href={salesViewHref("incident-notes")}
-            aria-current={view === "incident-notes" ? "page" : undefined}
-          >
-            Incident notes{tabCount(queueCounts.incidentNotes)}
-          </Link>
-        )}
         {mayManage && (
-          <Link
-            href={salesViewHref("payment-recovery")}
-            aria-current={view === "payment-recovery" ? "page" : undefined}
-          >
-            Payment recovery{tabCount(queueCounts.paymentRecovery)}
-          </Link>
-        )}
-        {mayViewSales && (
-          <Link
-            href={salesViewHref("unresolved-money")}
-            aria-current={view === "unresolved-money" ? "page" : undefined}
-          >
-            Unresolved money{tabCount(queueCounts.collectedMoney)}
-          </Link>
+          <>
+            <Link
+              href={salesViewHref("incident-notes")}
+              aria-current={view === "incident-notes" ? "page" : undefined}
+            >
+              Incident notes{tabCount(queueCounts.incidentNotes)}
+            </Link>
+            <Link
+              href={salesViewHref("payment-recovery")}
+              aria-current={view === "payment-recovery" ? "page" : undefined}
+            >
+              Payment recovery{tabCount(queueCounts.paymentRecovery)}
+            </Link>
+            <Link
+              href={salesViewHref("unresolved-money")}
+              aria-current={view === "unresolved-money" ? "page" : undefined}
+            >
+              Unresolved money{tabCount(queueCounts.collectedMoney)}
+            </Link>
+          </>
         )}
       </nav>
       {view === "pending-approvals" ? (

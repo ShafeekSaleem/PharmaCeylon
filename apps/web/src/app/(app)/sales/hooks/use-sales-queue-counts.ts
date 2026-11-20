@@ -11,12 +11,8 @@ type QueueCounts = {
   collectedMoney: number | null;
 };
 
-export function useSalesQueueCounts(
-  branchId: string | null,
-  mayViewIncidents: boolean,
-  mayViewPaymentRecovery: boolean,
-  mayViewCollectedMoney: boolean,
-): QueueCounts {
+/** Queue totals require `tenant.management` on the API (PR #247 review). */
+export function useSalesQueueCounts(branchId: string | null, mayManage: boolean): QueueCounts {
   const [counts, setCounts] = useState<QueueCounts>({
     incidentNotes: null,
     paymentRecovery: null,
@@ -24,22 +20,16 @@ export function useSalesQueueCounts(
   });
 
   useEffect(() => {
-    if (!branchId) {
+    if (!branchId || !mayManage) {
       setCounts({ incidentNotes: null, paymentRecovery: null, collectedMoney: null });
       return;
     }
     let cancelled = false;
     void (async () => {
       const [incidentNotes, paymentRecovery, collectedMoney] = await Promise.all([
-        mayViewIncidents
-          ? fetchIncidentNotesTotal().catch(() => null)
-          : Promise.resolve(null),
-        mayViewPaymentRecovery
-          ? fetchPaymentRecoveryTotal().catch(() => null)
-          : Promise.resolve(null),
-        mayViewCollectedMoney
-          ? fetchCollectedMoneyTotal().catch(() => null)
-          : Promise.resolve(null),
+        fetchIncidentNotesTotal().catch(() => null),
+        fetchPaymentRecoveryTotal().catch(() => null),
+        fetchCollectedMoneyTotal().catch(() => null),
       ]);
       if (!cancelled) {
         setCounts({ incidentNotes, paymentRecovery, collectedMoney });
@@ -48,7 +38,7 @@ export function useSalesQueueCounts(
     return () => {
       cancelled = true;
     };
-  }, [branchId, mayViewIncidents, mayViewPaymentRecovery, mayViewCollectedMoney]);
+  }, [branchId, mayManage]);
 
   return counts;
 }

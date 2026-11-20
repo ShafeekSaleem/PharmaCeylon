@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Alert } from "@/components/alert";
 import { ActionButton, DataTable, PageHeader, type Column } from "@/components/ui";
 import { useAuth } from "@/lib/use-auth";
+import { isSalesQueueForbidden, SalesQueueAccessDenied } from "./sales-queue-access";
 import { fetchPaymentRecovery } from "../services/sales-api";
 import { clearsOnUploadBadge } from "../sync-badges";
 import type { PaymentRecoveryRow } from "../types";
@@ -20,6 +21,7 @@ export default function SalesPaymentRecovery() {
   const [data, setData] = useState({ items: [] as PaymentRecoveryRow[], total: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [permissionDenied, setPermissionDenied] = useState(false);
   const [selected, setSelected] = useState<PaymentRecoveryRow | null>(null);
   const alive = useRef(true);
 
@@ -27,12 +29,17 @@ export default function SalesPaymentRecovery() {
     if (!branchId) return;
     setLoading(true);
     setError(null);
+    setPermissionDenied(false);
     try {
       const next = await fetchPaymentRecovery(page, PAGE_SIZE);
       if (!alive.current) return;
       setData({ items: next.items, total: next.total });
     } catch (err) {
       if (!alive.current) return;
+      if (isSalesQueueForbidden(err)) {
+        setPermissionDenied(true);
+        return;
+      }
       setError(err instanceof Error ? err.message : "Couldn't load payment recovery");
     } finally {
       if (alive.current) setLoading(false);
@@ -90,6 +97,17 @@ export default function SalesPaymentRecovery() {
   ];
 
   if (!branchId) return <p>Select a branch to review payment recovery.</p>;
+  if (permissionDenied) {
+    return (
+      <div className={css.page}>
+        <PageHeader
+          subtitleOnly
+          description="Card payments held at the counter for recovery."
+        />
+        <SalesQueueAccessDenied />
+      </div>
+    );
+  }
 
   return (
     <div className={css.page}>

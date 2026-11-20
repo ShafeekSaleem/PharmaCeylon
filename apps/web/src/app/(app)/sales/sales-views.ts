@@ -8,8 +8,20 @@ export const SALES_VIEW_KEYS = [
 
 export type SalesWorkspaceView = (typeof SALES_VIEW_KEYS)[number];
 
+export const SALES_RECOVERY_QUEUE_VIEWS = [
+  "incident-notes",
+  "payment-recovery",
+  "unresolved-money",
+] as const satisfies readonly SalesWorkspaceView[];
+
 export function isSalesWorkspaceView(value: string | null): value is SalesWorkspaceView {
   return value !== null && (SALES_VIEW_KEYS as readonly string[]).includes(value);
+}
+
+export function isSalesRecoveryQueueView(value: string | null): value is (typeof SALES_RECOVERY_QUEUE_VIEWS)[number] {
+  return (
+    value !== null && (SALES_RECOVERY_QUEUE_VIEWS as readonly string[]).includes(value)
+  );
 }
 
 export function salesViewHref(view: SalesWorkspaceView | null): string {
