@@ -23,7 +23,7 @@ Approved by Shafeek **11 Nov 2026** (colours, 15-minute overdue, two-way sync, s
 
 ### Counter work operation screens (epic #52)
 
-Drawn 20 Nov 2026, **waiting for Shafeek's approval**: [`p6-counter-operations/`](p6-counter-operations/). These are the screens that open from a Counter work item: receive goods, held delivery, transfer out and in, stock count, supplier return and opening stock. Where they differ from the Receive goods panel on the `work` screen above, they replace it.
+Drawn 20 Nov 2026; Shafeek decided the five open questions the same day, and the drawings **wait for his sign-off**: [`p6-counter-operations/`](p6-counter-operations/). These are the screens that open from a Counter work item: receive goods, held delivery, transfer out and in, stock count, supplier return and opening stock. Where they differ from the Receive goods panel on the `work` screen above, they replace it.
 
 `pos-desktop-overview.png` shows the v1 screens on one board. It was made before This counter and First-run setup were added, so it doesn't show them. `pos-desktop-rx-approaches.png` compares the two ways to handle prescriptions.
 

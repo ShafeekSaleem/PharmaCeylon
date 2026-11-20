@@ -18,25 +18,25 @@ Mockups only. No product code. Audited against `develop` `419d16b`: `packages/sh
 ## Screens
 
 1. **`rcv` Receive goods.** A delivery prepared on the web from the supplier's note. Packs, free packs, batch and expiry are the approved version. Tick each line as it is checked, then Post receiving.
-2. **`rcv-mismatch` Something doesn't match.** Choose the line and what's wrong, add the count and a note, and send it to the approver. Nothing posts. The item waits for a corrected version and comes back with the ticks kept. **Needs an API (Q1).**
+2. **`rcv-mismatch` Something doesn't match.** Choose the line and what's wrong, add the count and a note, and send it to the approver. Nothing posts. The note lands in the approver's Daily work; the item waits for a corrected version and comes back with the ticks kept. **Needs a new endpoint (decision 1).**
 3. **`rcv-changed` Changed after approval.** Version 4 was saved after Dilini F. approved version 3. Posting is off until version 4 is approved.
 4. **`held` Post held delivery.** A delivery refused at receiving because it was over the order or the price went up. It was approved on the web, possibly corrected. The screen says why it was held and what was decided, then posts it. Damaged units go to quarantine in the same posting, and the summary shows the units added and the amount owed.
 5. **`tship` Pick and dispatch.** The approval names the batches, so the pick list is fixed. Dispatch takes the stock out and puts it on the way.
 6. **`tship-retry` No answer from the server.** See "Response loss" above.
 7. **`tship-done` Dispatched.**
-8. **`trecv` Receive transfer.** Count what arrived per line. "Receive all as sent" fills the counts. Units not received stay on the way (Q2). A line received earlier shows "Already in".
-9. **`stk` Post stock count.** Counted on phones and reviewed on the web. The counter posts the approved differences. It warns when stock moved since the count (Q3).
+8. **`trecv` Receive transfer.** Count what arrived per line. "Receive all as sent" fills the counts. Units not received stay on the way until they arrive or a manager closes the rest on the web (decision 2). A line received earlier shows "Already in".
+9. **`stk` Post stock count.** Counted on phones and reviewed on the web. The counter posts the approved differences, as found at the count, so sales and deliveries since are kept. **Needs an API change (decision 3).**
 10. **`sret` Hand over supplier return.** Pack each line, print the return note for the rep, then complete. Completing raises the debit note in the same transaction.
 11. **`imp` Post opening stock.** An approved stock import. Post one category, or the rest at once. Posted opening stock can't be undone; a correction is a stock adjustment.
-12. **`imp-undo` Undo an import.** For an import uploaded with its stock. It removes the products the import created and their stock, and keeps products it only updated. It is refused once anything from it has sold or moved. Where the counter opens it is Q5.
+12. **`imp-undo` Undo an import.** For an import uploaded with its stock. It removes the products the import created and their stock, and keeps products it only updated. It is refused once anything from it has sold or moved. It opens from an Imports filter in Counter work (decision 5).
 
-## Questions for Shafeek
+## Decisions (Shafeek, 20 Nov 2026)
 
-1. **Receiving can't change anything at the counter.** The post sends only the approval, so a short or damaged delivery can't be recorded here. Proposal: "Something doesn't match" sends a note to the approver through a small new endpoint, and the item waits for a corrected version. The alternative is no button, just "ask the manager". The same choice applies to "Can't pick all of it" on a transfer out and on a held delivery.
-2. **A transfer that arrives short has no way to close.** The missing units stay on the way indefinitely. Proposal: the source branch or a manager closes the remainder on the web with a reason, and the units go back to the source's stock.
-3. **Stocktake posting sets each batch to the counted figure.** The adjustment is counted − (snapshot + movements since), so sales after the count are not kept. Is that intended? If yes, the warning stays. If not, the API should apply only the difference found at count time.
-4. **Who collected a supplier return isn't recorded.** The complete sends only the approval. Is the signed paper note enough, or should the counter record the rep's name?
-5. **Where does the counter undo an import?** `import_undo` is a destination but not a Counter work kind, and the browser route sends people to the counter ("Undo it at the counter"). Proposal: an "Imports" filter in Counter work that lists this branch's imports with stock while undo is allowed.
+1. **Something doesn't match goes to the approver.** A new endpoint records the line, what's wrong, the count and a note, and puts it in the approver's Daily work. The item waits at the counter for a corrected, re-approved version. The same applies to "Can't pick all of it" on a transfer out and to a held delivery. Nothing posts from the counter until then.
+2. **A manager closes a short transfer on the web.** The remainder is closed with a reason: "never left the source" returns the units to the source branch's stock; "lost in transit" writes them off. Until then they stay on the way, and the counter can still receive them.
+3. **Stocktake posting applies the difference found at the count.** Today the API sets each batch to the counted figure (counted − (snapshot + movements since)), which drops sales and deliveries made after the count. The API changes to post counted − snapshot. An integration test proves today's behaviour first, then the fix.
+4. **The signed paper return note is enough for v1.** The counter doesn't record the rep's name; the complete still sends only the approval.
+5. **Imports filter in Counter work.** `import_undo` gets a filter that lists this branch's imports uploaded with their stock while undo is still allowed, using the existing undo-blocked reason to drop them.
 
 ## Not drawn
 
