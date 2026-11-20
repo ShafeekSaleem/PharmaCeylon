@@ -1,7 +1,14 @@
 import { randomUUID } from "node:crypto";
-import { ForbiddenException } from "@nestjs/common";
+import { ExecutionContext, ForbiddenException } from "@nestjs/common";
+import { Reflector } from "@nestjs/core";
 import { PaymentMethod, RoleName } from "@prisma/client";
-import type { ExternalCardAttemptRecord, OfflineSaleIncident, TerminalIdentity } from "@pharmaceylon/shared";
+import type {
+  ExternalCardAttemptRecord,
+  OfflineJournalCommand,
+  OfflineSaleIncident,
+  Signed,
+  TerminalIdentity,
+} from "@pharmaceylon/shared";
 import { AuditService } from "../../src/audit/audit.service";
 import { StockService } from "../../src/inventory/stock/stock.service";
 import { ensureRbacSeed } from "../../prisma/rbac-seed";
@@ -9,7 +16,9 @@ import { SaleReadService } from "../../src/sales/sale-read.service";
 import { SalesQueuesService } from "../../src/sales/sales-queues.service";
 import { AccessService } from "../../src/security/access.service";
 import { PermissionsService } from "../../src/security/permissions.service";
+import { TenantBranchGuard } from "../../src/security/guards/tenant-branch.guard";
 import type { RequestUser } from "../../src/security/interfaces/authenticated-request.interface";
+import { commandText } from "../../src/terminals/terminal-wire";
 import { BusinessHoursAcknowledgements } from "../../src/terminals/business-hours-acknowledgements.service";
 import { OfflineSupportRecords } from "../../src/terminals/offline-support-records.service";
 import { sha256 } from "../../src/terminals/terminal-wire";
@@ -47,8 +56,22 @@ let pendingOnFx: string;
 let journaledSaleId: string;
 let journaledCommand: { commandId: string; occurredAt: number; receiptNumber: string };
 let mainAcceptedIncidentRecordId: string;
+let mainSecondAcceptedIncidentRecordId: string;
 let otherTenantAcceptedIncidentRecordId: string;
 let hiddenBranchIncidentRecordId: string;
+let hiddenBranchIdentity: TerminalIdentity;
+let mainPaymentAttemptIds: string[];
+let otherTenantPaymentAttemptId: string;
+let hiddenBranchPaymentAttemptId: string;
+let mainCollectedPaymentIds: string[];
+let otherTenantCollectedPaymentId: string;
+let hiddenBranchCollectedPaymentId: string;
+
+const MAIN_PAYMENT_RECOVERY_FIXTURE_ATTEMPTS = 2;
+const MAIN_COLLECTED_MONEY_FIXTURES = 2;
+const MAIN_INCIDENT_NOTES_FIXTURES = 2;
+
+const tenantBranchGuard = new TenantBranchGuard({ getAllAndOverride: () => false } as Reflector);
 
 const ownerOn = (c: Counter): RequestUser => ({
   ...c.owner,
@@ -60,10 +83,14 @@ const cashierOn = (c: Counter): RequestUser => ({
   branchRoles: [{ branchId: c.fx.mainBranchId, role: RoleName.cashier }],
 });
 
-const guardBranch = (user: RequestUser, branchId: string) => {
-  if (!user.branchRoles.some((entry) => entry.branchId === branchId)) {
-    throw new ForbiddenException("No access to requested branch");
-  }
+const denyBranchViaTenantGuard = (user: RequestUser, branchId: string) => {
+  const request = { user, headers: { "x-branch-id": branchId } };
+  const ctx = {
+    switchToHttp: () => ({ getRequest: () => request }),
+    getHandler: () => undefined,
+    getClass: () => undefined,
+  } as ExecutionContext;
+  expect(() => tenantBranchGuard.canActivate(ctx)).toThrow(ForbiddenException);
 };
 
 const guardPermission = async (user: RequestUser, branchId: string) => {
@@ -71,11 +98,37 @@ const guardPermission = async (user: RequestUser, branchId: string) => {
   if (!live.has("tenant.management")) throw new ForbiddenException("Permission denied");
 };
 
-const recordSigned = (c: Counter, signed: unknown) =>
-  prisma.$transaction((tx) => support.record(tx, c.owner, c.fx.mainBranchId, signed, Date.now()));
-
 const tx15 = <T>(run: (client: import("@prisma/client").Prisma.TransactionClient) => Promise<T>) =>
   prisma.$transaction(run, { timeout: 15_000 });
+
+async function resumeJournal(c: Counter) {
+  const last = await prisma.terminalCommandReceipt.findFirstOrThrow({
+    where: { tenantId: c.fx.tenantId, enrollmentId: c.identity.enrollmentId },
+    orderBy: { offlineSequence: "desc" },
+    select: { recordedAt: true, command: true, offlineSequence: true },
+  });
+  const first = await prisma.terminalCommandReceipt.findFirstOrThrow({
+    where: { tenantId: c.fx.tenantId, enrollmentId: c.identity.enrollmentId },
+    orderBy: { offlineSequence: "asc" },
+    select: { command: true },
+  });
+  const lastPayload = (last.command as Signed<OfflineJournalCommand>).payload;
+  const firstPayload = (first.command as Signed<OfflineJournalCommand>).payload;
+  const saleReceipts = (
+    await prisma.terminalCommandReceipt.findMany({
+      where: { tenantId: c.fx.tenantId, enrollmentId: c.identity.enrollmentId },
+      select: { command: true },
+    })
+  ).filter((row) => (row.command as Signed<OfflineJournalCommand>).payload.kind === "ordinary_sale").length;
+  return offlineJournal(c, {
+    sequence: Number(last.offlineSequence),
+    previous: sha256(commandText(lastPayload)),
+    clock: last.recordedAt.getTime(),
+    offlineStartedAt: firstPayload.offlineStartedAt,
+    offlineSessionId: firstPayload.offlineSessionId,
+    receipts: c.grant.receiptNumbering.nextNumber - 1 + saleReceipts,
+  });
+}
 
 async function seedAcceptedSaleIncidentViaSync(c: Counter): Promise<string> {
   const j = offlineJournal(c);
@@ -143,9 +196,8 @@ async function enrollOtherBranch(c: Counter): Promise<TerminalIdentity> {
   return identity;
 }
 
-async function seedHiddenBranchAcceptedIncident(c: Counter): Promise<string> {
+async function seedHiddenBranchAcceptedIncident(c: Counter, identity: TerminalIdentity): Promise<string> {
   const branchId = c.fx.otherBranchId;
-  const identity = await enrollOtherBranch(c);
   const recordId = randomUUID();
   const signed = c.device.sign(
     {
@@ -171,7 +223,12 @@ async function seedHiddenBranchAcceptedIncident(c: Counter): Promise<string> {
   return recordId;
 }
 
-async function seedCollectedPaymentRow(c: Counter) {
+async function seedCollectedPaymentRow(
+  c: Counter,
+  opts: { branchId?: string; identity?: TerminalIdentity; sequence: number; providerReference: string },
+): Promise<string> {
+  const branchId = opts.branchId ?? c.fx.mainBranchId;
+  const identity = opts.identity ?? c.identity;
   const reviewId = randomUUID();
   const settlementId = randomUUID();
   const commandId = randomUUID();
@@ -181,13 +238,13 @@ async function seedCollectedPaymentRow(c: Counter) {
     data: {
       id: reviewId,
       tenantId: c.fx.tenantId,
-      branchId: c.fx.mainBranchId,
-      terminalId: c.identity.terminalId,
-      enrollmentId: c.identity.enrollmentId,
-      keyId: c.identity.keyId,
+      branchId,
+      terminalId: identity.terminalId,
+      enrollmentId: identity.enrollmentId,
+      keyId: identity.keyId,
       recordKind: "command",
       recordId: commandId,
-      sequence: BigInt(99_001),
+      sequence: BigInt(opts.sequence),
       recordHash,
       outcome: "rejected",
       errorCode: "TEST_FIXTURE",
@@ -199,11 +256,11 @@ async function seedCollectedPaymentRow(c: Counter) {
     data: {
       id: settlementId,
       tenantId: c.fx.tenantId,
-      branchId: c.fx.mainBranchId,
+      branchId,
       reviewId,
-      enrollmentId: c.identity.enrollmentId,
+      enrollmentId: identity.enrollmentId,
       commandId,
-      sequence: BigInt(99_001),
+      sequence: BigInt(opts.sequence),
       recordHash: sha256(commandId),
       decision: "not_honoured",
       reason: "Phase D collected-money queue fixture",
@@ -212,25 +269,26 @@ async function seedCollectedPaymentRow(c: Counter) {
     },
   });
   const signInRow = await prisma.offlineStaffSignIn.findFirst({
-    where: { tenantId: c.fx.tenantId, branchId: c.fx.mainBranchId, enrollmentId: c.identity.enrollmentId },
+    where: { tenantId: c.fx.tenantId, branchId, enrollmentId: identity.enrollmentId },
     orderBy: { receivedAt: "desc" },
   });
   const shiftRow = await prisma.tillShift.findFirst({
-    where: { tenantId: c.fx.tenantId, branchId: c.fx.mainBranchId },
+    where: { tenantId: c.fx.tenantId, branchId },
     orderBy: { openedAt: "desc" },
   });
+  const paymentId = randomUUID();
   await prisma.offlineCollectedPayment.create({
     data: {
-      id: randomUUID(),
+      id: paymentId,
       tenantId: c.fx.tenantId,
-      branchId: c.fx.mainBranchId,
+      branchId,
       settlementId,
-      enrollmentId: c.identity.enrollmentId,
+      enrollmentId: identity.enrollmentId,
       commandId,
       paymentIndex: 0,
       method: "external_card",
       amountMinor: 1500n,
-      providerReference: "RRN-PHASE-D-COLLECTED",
+      providerReference: opts.providerReference,
       approvalCode: "123456",
       approvedAt: now,
       workSessionId: signInRow?.workSessionId ?? randomUUID(),
@@ -239,6 +297,7 @@ async function seedCollectedPaymentRow(c: Counter) {
       collectedAt: now,
     },
   });
+  return paymentId;
 }
 
 type AttemptBinding = Pick<
@@ -270,20 +329,29 @@ const cardEvent = (
     ...state,
   }) as ExternalCardAttemptRecord;
 
-async function seedHeldCard(c: Counter) {
+async function seedHeldCardAttempt(
+  c: Counter,
+  branchId: string = c.fx.mainBranchId,
+  identity: TerminalIdentity = c.identity,
+): Promise<string> {
   const attempt = cardBinding();
-  await recordSigned(
-    c,
-    c.device.sign(
-      cardEvent(c.identity, attempt, {
-        state: "not_used",
-        providerReference: "RRN-PHASE-D",
-        settlement: "refund_owed",
-        reversalReference: null,
-        reason: "Card approved, sale never completed",
-        verifiedByUserId: c.manager.userId,
-      }),
-      c.identity.keyId,
+  await prisma.$transaction((tx) =>
+    support.record(
+      tx,
+      c.owner,
+      branchId,
+      c.device.sign(
+        cardEvent(identity, attempt, {
+          state: "not_used",
+          providerReference: `RRN-${attempt.attemptId.slice(0, 8)}`,
+          settlement: "refund_owed",
+          reversalReference: null,
+          reason: "Card approved, sale never completed",
+          verifiedByUserId: c.manager.userId,
+        }),
+        identity.keyId,
+      ),
+      Date.now(),
     ),
   );
   return attempt.attemptId;
@@ -321,8 +389,40 @@ beforeAll(async () => {
   );
   mainAcceptedIncidentRecordId = mainIncident.payload.recordId;
   await sync(main, { staffSignIns: [signIn], commands: [open, saleCmd], supportRecords: [mainIncident] });
-  await seedHeldCard(main);
-  await seedHeldCard(otherTenant);
+
+  const j2 = await resumeJournal(main);
+  const signIn2 = j2.signIn(main.cashier.userId, signIn.payload.session.workSessionId);
+  const sale2 = j2.sale(signIn2, [[main.batches.main, 1]]);
+  const mainIncident2 = main.device.sign(
+    {
+      contractVersion: 1,
+      kind: "sale_incident",
+      recordId: randomUUID(),
+      identity: main.identity,
+      saleCommandId: sale2.payload.commandId,
+      recordedByUserId: main.cashier.userId,
+      staffSignInId: signIn2.payload.staffSignInId,
+      workSessionId: signIn2.payload.session.workSessionId,
+      recordedAt: sale2.payload.occurredAt + 100,
+      category: "quantity_error",
+      description: "Second phase D incident-notes fixture",
+    } satisfies OfflineSaleIncident,
+    main.identity.keyId,
+  );
+  mainSecondAcceptedIncidentRecordId = mainIncident2.payload.recordId;
+  await sync(main, { staffSignIns: [signIn2], commands: [sale2], supportRecords: [mainIncident2] });
+
+  mainPaymentAttemptIds = [
+    await seedHeldCardAttempt(main),
+    await seedHeldCardAttempt(main),
+  ];
+  otherTenantPaymentAttemptId = await seedHeldCardAttempt(otherTenant);
+  hiddenBranchIdentity = await enrollOtherBranch(main);
+  hiddenBranchPaymentAttemptId = await seedHeldCardAttempt(
+    main,
+    main.fx.otherBranchId,
+    hiddenBranchIdentity,
+  );
 
   fx = await createTenant(prisma, "sales-phase-d-fx");
   await prisma.userBranchRole.createMany({
@@ -400,19 +500,36 @@ beforeAll(async () => {
   });
   expect(mainIncidentRow.status).toBe("accepted");
   otherTenantAcceptedIncidentRecordId = await seedAcceptedSaleIncidentViaSync(otherTenant);
-  hiddenBranchIncidentRecordId = await seedHiddenBranchAcceptedIncident(main);
-  await seedCollectedPaymentRow(main);
+  hiddenBranchIncidentRecordId = await seedHiddenBranchAcceptedIncident(main, hiddenBranchIdentity);
+  mainCollectedPaymentIds = [
+    await seedCollectedPaymentRow(main, { sequence: 99_001, providerReference: "RRN-PHASE-D-COLLECTED-1" }),
+    await seedCollectedPaymentRow(main, { sequence: 99_002, providerReference: "RRN-PHASE-D-COLLECTED-2" }),
+  ];
+  otherTenantCollectedPaymentId = await seedCollectedPaymentRow(otherTenant, {
+    sequence: 99_011,
+    providerReference: "RRN-PHASE-D-COLLECTED-OTHER",
+  });
+  hiddenBranchCollectedPaymentId = await seedCollectedPaymentRow(main, {
+    branchId: main.fx.otherBranchId,
+    identity: hiddenBranchIdentity,
+    sequence: 99_021,
+    providerReference: "RRN-PHASE-D-COLLECTED-HIDDEN",
+  });
 });
 
 afterAll(() => prisma.$disconnect());
 
 describe("sales phase D queues (Postgres)", () => {
-  it("scopes collected-money rows to the requested branch", async () => {
+  it("scopes collected money by row id across tenant and branch", async () => {
     const page = await queues.collectedMoney(ownerOn(main), main.fx.mainBranchId, {});
+    const ids = page.items.map((row) => row.id);
+    expect(ids).toEqual(expect.arrayContaining(mainCollectedPaymentIds));
+    expect(ids).not.toContain(otherTenantCollectedPaymentId);
+    expect(ids).not.toContain(hiddenBranchCollectedPaymentId);
+    expect(page.total).toBe(MAIN_COLLECTED_MONEY_FIXTURES);
     const otherPage = await queues.collectedMoney(ownerOn(otherTenant), otherTenant.fx.mainBranchId, {});
-    for (const row of page.items) expect(row.branchId).toBe(main.fx.mainBranchId);
-    for (const row of otherPage.items) expect(row.branchId).toBe(otherTenant.fx.mainBranchId);
-    expect(page.items.some((row) => row.branchId === otherTenant.fx.mainBranchId)).toBe(false);
+    expect(otherPage.items.map((row) => row.id)).toContain(otherTenantCollectedPaymentId);
+    expect(otherPage.items.map((row) => row.id)).not.toContain(mainCollectedPaymentIds[0]);
   });
 
   it("reports pagination total on collected money", async () => {
@@ -420,16 +537,20 @@ describe("sales phase D queues (Postgres)", () => {
       page: 1,
       pageSize: 1,
     });
-    expect(page.total).toBeGreaterThanOrEqual(1);
+    expect(page.total).toBe(MAIN_COLLECTED_MONEY_FIXTURES);
     expect(page.items).toHaveLength(1);
   });
 
-  it("keeps payment recovery tenant-scoped", async () => {
+  it("scopes payment recovery by attempt id across tenant and branch", async () => {
     const page = await queues.paymentRecovery(ownerOn(main), main.fx.mainBranchId, {});
-    expect(page.items.length).toBeGreaterThan(0);
-    expect(page.items.every((row) => row.branchId === main.fx.mainBranchId)).toBe(true);
+    const attemptIds = page.items.map((row) => row.attemptId);
+    expect(attemptIds).toEqual(expect.arrayContaining(mainPaymentAttemptIds));
+    expect(attemptIds).not.toContain(otherTenantPaymentAttemptId);
+    expect(attemptIds).not.toContain(hiddenBranchPaymentAttemptId);
+    expect(page.total).toBe(MAIN_PAYMENT_RECOVERY_FIXTURE_ATTEMPTS);
     const otherPage = await queues.paymentRecovery(ownerOn(otherTenant), otherTenant.fx.mainBranchId, {});
-    expect(otherPage.items.every((row) => row.branchId === otherTenant.fx.mainBranchId)).toBe(true);
+    expect(otherPage.items.map((row) => row.attemptId)).toContain(otherTenantPaymentAttemptId);
+    expect(otherPage.items.map((row) => row.attemptId)).not.toContain(mainPaymentAttemptIds[0]);
   });
 
   it("reports pagination total on payment recovery", async () => {
@@ -437,7 +558,7 @@ describe("sales phase D queues (Postgres)", () => {
       page: 1,
       pageSize: 1,
     });
-    expect(page.total).toBeGreaterThanOrEqual(1);
+    expect(page.total).toBe(MAIN_PAYMENT_RECOVERY_FIXTURE_ATTEMPTS);
     expect(page.items).toHaveLength(1);
   });
 
@@ -454,7 +575,7 @@ describe("sales phase D queues (Postgres)", () => {
     await expect(guardPermission(cashierOn(main), main.fx.mainBranchId)).rejects.toBeInstanceOf(
       ForbiddenException,
     );
-    expect(() => guardBranch(ownerOn(main), otherTenant.fx.mainBranchId)).toThrow(ForbiddenException);
+    denyBranchViaTenantGuard(ownerOn(main), otherTenant.fx.mainBranchId);
   });
 });
 
@@ -464,14 +585,13 @@ describe("incident notes queue (Postgres)", () => {
       page: 1,
       pageSize: 1,
     });
-    expect(page.total).toBeGreaterThanOrEqual(1);
+    expect(page.total).toBe(MAIN_INCIDENT_NOTES_FIXTURES);
     expect(page.items).toHaveLength(1);
-    expect(page.items[0]!.recordId).toBe(mainAcceptedIncidentRecordId);
     const full = await queues.incidentNotes(ownerOn(main), main.fx.mainBranchId, {});
-    expect(full.items.some((row) => row.recordId === mainAcceptedIncidentRecordId)).toBe(true);
-    for (const row of full.items) expect(row.branchId).toBe(main.fx.mainBranchId);
-    expect(full.items.some((row) => row.recordId === otherTenantAcceptedIncidentRecordId)).toBe(false);
-    expect(full.items.some((row) => row.recordId === hiddenBranchIncidentRecordId)).toBe(false);
+    const recordIds = full.items.map((row) => row.recordId);
+    expect(recordIds).toEqual(expect.arrayContaining([mainAcceptedIncidentRecordId, mainSecondAcceptedIncidentRecordId]));
+    expect(recordIds).not.toContain(otherTenantAcceptedIncidentRecordId);
+    expect(recordIds).not.toContain(hiddenBranchIncidentRecordId);
   });
 
   it("keeps incident notes tenant- and branch-scoped", async () => {
