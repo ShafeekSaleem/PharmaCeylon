@@ -461,14 +461,13 @@ describe("sales phase D queues (Postgres)", () => {
 describe("incident notes queue (Postgres)", () => {
   it("lists accepted sale incidents for the caller branch with pagination total", async () => {
     const page = await queues.incidentNotes(ownerOn(main), main.fx.mainBranchId, {
-      status: "accepted",
       page: 1,
       pageSize: 1,
     });
     expect(page.total).toBeGreaterThanOrEqual(1);
     expect(page.items).toHaveLength(1);
     expect(page.items[0]!.recordId).toBe(mainAcceptedIncidentRecordId);
-    const full = await queues.incidentNotes(ownerOn(main), main.fx.mainBranchId, { status: "accepted" });
+    const full = await queues.incidentNotes(ownerOn(main), main.fx.mainBranchId, {});
     expect(full.items.some((row) => row.recordId === mainAcceptedIncidentRecordId)).toBe(true);
     for (const row of full.items) expect(row.branchId).toBe(main.fx.mainBranchId);
     expect(full.items.some((row) => row.recordId === otherTenantAcceptedIncidentRecordId)).toBe(false);
@@ -476,9 +475,7 @@ describe("incident notes queue (Postgres)", () => {
   });
 
   it("keeps incident notes tenant- and branch-scoped", async () => {
-    const otherPage = await queues.incidentNotes(ownerOn(otherTenant), otherTenant.fx.mainBranchId, {
-      status: "accepted",
-    });
+    const otherPage = await queues.incidentNotes(ownerOn(otherTenant), otherTenant.fx.mainBranchId, {});
     expect(otherPage.items.some((row) => row.recordId === otherTenantAcceptedIncidentRecordId)).toBe(true);
     expect(otherPage.items.some((row) => row.recordId === mainAcceptedIncidentRecordId)).toBe(false);
     expect(otherPage.items.every((row) => row.branchId === otherTenant.fx.mainBranchId)).toBe(true);
