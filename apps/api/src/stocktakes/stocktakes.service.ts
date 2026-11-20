@@ -181,6 +181,32 @@ type MovementSummary = {
   refs: MovementRef[];
 };
 
+/**
+ * Split a batch's movements since the snapshot at the moment the line was counted. Movements up
+ * to the count are already reflected on the shelf the counter saw, so they belong in what the
+ * counter should have found; movements after it (sales while the count waited for review) are
+ * real and must survive posting. The variance is therefore counted − (snapshot + before count),
+ * and posting that difference leaves later movements in place.
+ */
+function movementsAtCount(summary: MovementSummary | undefined, countedAt: Date | null) {
+  let beforeCount = 0;
+  let afterCount = 0;
+  for (const ref of summary?.refs ?? []) {
+    if (countedAt && new Date(ref.occurredAt) > countedAt) afterCount += ref.qtyDelta;
+    else beforeCount += ref.qtyDelta;
+  }
+  return { beforeCount, afterCount };
+}
+
+/** What the counter should have found: snapshot plus movements up to the count. */
+function expectedAtCount(
+  snapshotQty: number,
+  summary: MovementSummary | undefined,
+  countedAt: Date | null,
+) {
+  return snapshotQty + movementsAtCount(summary, countedAt).beforeCount;
+}
+
 /** On hand per batch from the running totals — what a counter should find on the shelf. */
 async function onHandByBatch(
   tx: Prisma.TransactionClient,
@@ -512,8 +538,7 @@ export class StocktakesService {
         totalCountedQty += line.countedQty;
       }
       if (blindRestricted) continue;
-      const movementDelta = movementMap.get(line.batchId)?.delta ?? 0;
-      const expectedAtReview = snapshotQty + movementDelta;
+      const expectedAtReview = expectedAtCount(snapshotQty, movementMap.get(line.batchId), line.countedAt);
       const adjustedVariance =
         line.countedQty == null ? null : line.countedQty - expectedAtReview;
       if (!adjustedVariance) continue;
@@ -559,7 +584,8 @@ export class StocktakesService {
       .map((line) => {
         const snapshotQty = snapshotByLineId.get(line.id)?.snapshotQty ?? line.systemQty;
         const movementSummary = movementMap.get(line.batchId) ?? { delta: 0, refs: [] };
-        const expectedAtReview = snapshotQty + movementSummary.delta;
+        const { beforeCount, afterCount } = movementsAtCount(movementSummary, line.countedAt);
+        const expectedAtReview = snapshotQty + beforeCount;
         const adjustedVariance =
           line.countedQty == null ? null : line.countedQty - expectedAtReview;
 
@@ -572,7 +598,10 @@ export class StocktakesService {
           countedQty: line.countedQty,
           varianceQty: blindRestricted ? null : adjustedVariance,
           adjustedVariance: blindRestricted ? null : adjustedVariance,
-          movementDeltaSinceSnapshot: blindRestricted ? null : movementSummary.delta,
+          /** Movements between the snapshot and this line's count: already off the shelf. */
+          movementDeltaSinceSnapshot: blindRestricted ? null : beforeCount,
+          /** Movements after the count. Posting keeps them, so they are not part of the variance. */
+          movementDeltaAfterCount: blindRestricted ? null : afterCount,
           expectedAtReview: blindRestricted ? null : expectedAtReview,
           countStatus: line.status,
           condition: line.condition,
@@ -949,9 +978,11 @@ export class StocktakesService {
     this.assertLineEditable(row.status);
 
     const lineByBatchId = new Map(row.lines.map((line) => [line.batchId, line]));
-    const now = new Date();
 
     await this.prisma.$transaction(async (tx) => {
+      // Stamp the count with the database clock, the same one that stamps stock movements
+      // (occurred_at defaults to now()), so "before/after the count" never depends on app clock skew.
+      const [{ now }] = await tx.$queryRaw<Array<{ now: Date }>>`SELECT now() AS now`;
       for (const input of dto.lines) {
         const existing = lineByBatchId.get(input.batchId);
         if (!existing) {
@@ -1325,7 +1356,7 @@ export class StocktakesService {
       throw new BadRequestException("Cannot approve while lines are awaiting recount");
     const movementMap = await this.movementMapForRow(row, tx);
     const snapshots = new Map(row.snapshotLines.map(line => [line.lineId, line.snapshotQty]));
-    if (row.lines.some(line => line.countedQty !== (snapshots.get(line.id) ?? line.systemQty) + (movementMap.get(line.batchId)?.delta ?? 0) && !line.reviewReason))
+    if (row.lines.some(line => line.countedQty !== expectedAtCount(snapshots.get(line.id) ?? line.systemQty, movementMap.get(line.batchId), line.countedAt) && !line.reviewReason))
       throw new BadRequestException("Give a reason for every line whose count differs from what was expected");
   }
 
@@ -1383,7 +1414,7 @@ export class StocktakesService {
   }
 
   /**
-   * Bring each counted batch to its count, then quarantine what was counted as damaged, expired
+   * Post the difference each line found at its count, then quarantine what was counted as damaged, expired
    * or temperature-affected — those units are on the shelf but must not be sold. Runs inside the
    * caller's transaction, after it has claimed the stocktake.
    */
@@ -1401,6 +1432,7 @@ export class StocktakesService {
 
     // Lock the counted batches, then read the movements since the snapshot: nothing can
     // change them between the variance being worked out and the adjustment being written.
+    // Only the difference found at the count is posted, so what moved after it is kept.
     await this.stock.lockBatches(tx, tenantId, row.lines.map((line) => line.batchId));
     const movementMap = await this.movementMapForRow(row, tx);
     await tx.stocktakePosting.create({
@@ -1417,7 +1449,7 @@ export class StocktakesService {
     const losses: Array<{ productId: string; batchId: string; qty: number; reason: string }> = [];
     for (const line of row.lines) {
       const snapshotQty = snapshotByLineId.get(line.id) ?? line.systemQty;
-      const expected = snapshotQty + (movementMap.get(line.batchId)?.delta ?? 0);
+      const expected = expectedAtCount(snapshotQty, movementMap.get(line.batchId), line.countedAt);
       const adjustedVariance = line.countedQty == null ? 0 : line.countedQty - expected;
       await tx.stocktakeLine.update({
         where: { id: line.id, tenantId },

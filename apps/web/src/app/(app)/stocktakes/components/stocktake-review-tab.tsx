@@ -121,7 +121,8 @@ export function StocktakeReviewTab({
                 <th>Product / batch</th>
                 <th>Location</th>
                 <th className={scss.num}>Snapshot</th>
-                <th className={scss.num}>Movements</th>
+                <th className={scss.num} title="Stock moved between the snapshot and the count. Sales after the count are kept when this posts.">Before count</th>
+                <th className={scss.num} title="Stock moved after the count. It is kept when this posts, so it is not part of the variance.">After count</th>
                 <th className={scss.num}>Expected</th>
                 <th className={scss.num}>Counted</th>
                 <th className={scss.num}>Variance</th>
@@ -220,10 +221,15 @@ export function StocktakeReviewTab({
                       <span className={scss.locationCell}>{areaLabel || "Branch scope"}</span>
                     </td>
                     <td className={scss.num} data-label="Snapshot">{line.snapshotQty ?? "—"}</td>
-                    <td className={scss.num} data-label="Movements">
+                    <td className={scss.num} data-label="Before count">
                       {line.movementDeltaSinceSnapshot == null
                         ? "—"
                         : formatSigned(line.movementDeltaSinceSnapshot)}
+                    </td>
+                    <td className={scss.num} data-label="After count">
+                      {line.movementDeltaAfterCount == null
+                        ? "—"
+                        : formatSigned(line.movementDeltaAfterCount)}
                     </td>
                     <td className={scss.num} data-label="Expected">{line.expectedAtReview ?? "—"}</td>
                     <td className={scss.num} data-label="Counted">{line.countedQty ?? "—"}</td>

@@ -100,6 +100,7 @@ export type StocktakeLine = {
   varianceQty: number | null;
   adjustedVariance: number | null;
   movementDeltaSinceSnapshot: number | null;
+  movementDeltaAfterCount?: number | null;
   expectedAtReview: number | null;
   countStatus: StocktakeCountStatus;
   condition: StocktakeCondition;
