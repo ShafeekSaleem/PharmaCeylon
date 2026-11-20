@@ -114,7 +114,7 @@ export class SalesHistoryQueryDto {
   channel?: SaleChannel;
 
   /**
-   * Offline replay sync on the server (`accepted` or `pending_stock_posting`; `held` is reserved).
+   * Offline replay sync on the server (`accepted`, `pending_stock_posting`, or `held` — mutually exclusive).
    * Applies only to sales with an `offlineCommandId`.
    */
   @IsOptional()

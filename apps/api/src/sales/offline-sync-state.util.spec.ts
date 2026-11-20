@@ -12,7 +12,34 @@ describe("deriveOfflineSyncState", () => {
     ).toBeNull();
   });
 
-  it("returns accepted when stock is posted and no open case", () => {
+  it("returns held when an open stock case is linked", () => {
+    expect(
+      deriveOfflineSyncState({
+        offlineCommandId: "cmd-1",
+        stockPosting: SaleStockPosting.pending_reconciliation,
+        openDiscrepancy: true,
+      }),
+    ).toBe("held");
+    expect(
+      deriveOfflineSyncState({
+        offlineCommandId: "cmd-1",
+        stockPosting: SaleStockPosting.posted,
+        openDiscrepancy: true,
+      }),
+    ).toBe("held");
+  });
+
+  it("returns pending_stock_posting only without an open case", () => {
+    expect(
+      deriveOfflineSyncState({
+        offlineCommandId: "cmd-1",
+        stockPosting: SaleStockPosting.pending_reconciliation,
+        openDiscrepancy: false,
+      }),
+    ).toBe("pending_stock_posting");
+  });
+
+  it("returns accepted when posted and no open case", () => {
     expect(
       deriveOfflineSyncState({
         offlineCommandId: "cmd-1",
@@ -21,29 +48,20 @@ describe("deriveOfflineSyncState", () => {
       }),
     ).toBe("accepted");
   });
-
-  it("returns pending_stock_posting when stock is pending or a case is open", () => {
-    expect(
-      deriveOfflineSyncState({
-        offlineCommandId: "cmd-1",
-        stockPosting: SaleStockPosting.pending_reconciliation,
-        openDiscrepancy: false,
-      }),
-    ).toBe("pending_stock_posting");
-    expect(
-      deriveOfflineSyncState({
-        offlineCommandId: "cmd-1",
-        stockPosting: SaleStockPosting.posted,
-        openDiscrepancy: true,
-      }),
-    ).toBe("pending_stock_posting");
-  });
 });
 
 describe("offlineSyncStateWhere", () => {
-  it("reserved held matches nothing", () => {
-    expect(offlineSyncStateWhere("held")).toEqual({
-      id: "00000000-0000-4000-8000-000000000000",
+  it("defines mutually exclusive filters", () => {
+    expect(offlineSyncStateWhere("held")).toMatchObject({
+      offlineCommandId: { not: null },
+      offlineStockDiscrepancy: { is: { status: "open" } },
+    });
+    expect(offlineSyncStateWhere("pending_stock_posting")).toMatchObject({
+      stockPosting: SaleStockPosting.pending_reconciliation,
+    });
+    expect(offlineSyncStateWhere("pending_stock_posting").NOT).toBeDefined();
+    expect(offlineSyncStateWhere("accepted")).toMatchObject({
+      stockPosting: SaleStockPosting.posted,
     });
   });
 });

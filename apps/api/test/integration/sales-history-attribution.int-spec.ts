@@ -434,25 +434,69 @@ describe("sales history attribution and filters (#66 Phase B)", () => {
     expect(options.registers?.some((row) => row.registerId === registerId)).toBe(true);
     expect(options.terminals?.some((row) => row.terminalId === terminalId)).toBe(true);
     expect(options.shifts?.some((row) => row.shiftId === shiftId)).toBe(true);
-    expect(options.offlineSyncStates?.map((s) => s.value)).toEqual(["accepted", "pending_stock_posting"]);
+    expect(options.offlineSyncStates?.map((s) => s.value)).toEqual([
+      "accepted",
+      "pending_stock_posting",
+      "held",
+    ]);
   });
 
-  it("labels offline sales with pending_stock_posting sync state", async () => {
+  it("labels offline sales with mutually exclusive sync states", async () => {
     const offline = await reads.history(owner(fx), fx.mainBranchId, { channel: "offline" });
     const row = offline.items.find((item) => item.id === offlineSaleId)!;
     expect(row.offlineSyncState).toBe("accepted");
+
     await prisma.sale.update({
       where: { id: offlineSaleId },
-      data: { stockPosting: "pending_reconciliation" },
+      data: { stockPosting: "pending_reconciliation", terminalId },
     });
-    const again = await reads.history(owner(fx), fx.mainBranchId, { invoiceNo: row.invoiceNo });
+    let again = await reads.history(owner(fx), fx.mainBranchId, { invoiceNo: row.invoiceNo });
     expect(again.items[0]).toMatchObject({
       offlineSyncState: "pending_stock_posting",
-      offlineCommandId: expect.any(String),
+      reconciliationCaseId: null,
     });
-    const filtered = await reads.history(owner(fx), fx.mainBranchId, {
-      offlineSyncState: "pending_stock_posting",
+
+    const sale = await prisma.sale.findFirstOrThrow({ where: { id: offlineSaleId } });
+    const enrollment = await prisma.terminalEnrollment.findFirstOrThrow({
+      where: { tenantId: fx.tenantId, branchId: fx.mainBranchId, terminalId },
     });
-    expect(filtered.items.some((item) => item.id === offlineSaleId)).toBe(true);
+    const caseId = randomUUID();
+    await prisma.offlineStockDiscrepancy.create({
+      data: {
+        id: caseId,
+        tenantId: fx.tenantId,
+        branchId: fx.mainBranchId,
+        terminalId,
+        enrollmentId: enrollment.id,
+        keyId: enrollment.keyId,
+        commandId: sale.offlineCommandId!,
+        saleId: offlineSaleId,
+        snapshotId: randomUUID(),
+        snapshotVersion: 1,
+        status: "open",
+      },
+    });
+    again = await reads.history(owner(fx), fx.mainBranchId, { invoiceNo: row.invoiceNo });
+    expect(again.items[0]).toMatchObject({
+      offlineSyncState: "held",
+      reconciliationCaseId: caseId,
+    });
+    const heldOnly = await reads.history(owner(fx), fx.mainBranchId, { offlineSyncState: "held" });
+    expect(heldOnly.items.some((item) => item.id === offlineSaleId)).toBe(true);
+
+    await prisma.offlineStockDiscrepancy.update({
+      where: { id: caseId },
+      data: { status: "resolved", resolvedAt: new Date() },
+    });
+    again = await reads.history(owner(fx), fx.mainBranchId, { invoiceNo: row.invoiceNo });
+    expect(again.items[0]?.offlineSyncState).toBe("pending_stock_posting");
+    expect(again.items[0]?.reconciliationCaseId).toBeNull();
+
+    await prisma.sale.update({
+      where: { id: offlineSaleId },
+      data: { stockPosting: "posted" },
+    });
+    again = await reads.history(owner(fx), fx.mainBranchId, { invoiceNo: row.invoiceNo });
+    expect(again.items[0]?.offlineSyncState).toBe("accepted");
   });
 });

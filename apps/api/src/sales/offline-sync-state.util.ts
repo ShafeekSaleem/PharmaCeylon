@@ -8,45 +8,49 @@ type SaleSyncInput = Readonly<{
   openDiscrepancy: boolean;
 }>;
 
-/** Emitted sync states only — `held` is reserved and never returned here. */
+/** Mutually exclusive states for offline-replayed sales on the server. */
 export function deriveOfflineSyncState(
   sale: SaleSyncInput,
 ): OfflineSaleSyncState | null {
   if (!sale.offlineCommandId) return null;
-  if (
-    sale.stockPosting === SaleStockPosting.pending_reconciliation ||
-    sale.openDiscrepancy
-  ) {
+  if (sale.openDiscrepancy) return "held";
+  if (sale.stockPosting === SaleStockPosting.pending_reconciliation) {
     return "pending_stock_posting";
   }
   return "accepted";
 }
 
-const EMITTED: readonly OfflineSaleSyncState[] = ["accepted", "pending_stock_posting"];
+const OPEN_CASE = {
+  offlineStockDiscrepancy: {
+    is: { status: OfflineStockDiscrepancyStatus.open },
+  },
+} satisfies Prisma.SaleWhereInput;
+
+/** No row linked, or only a resolved/closed case. */
+const NO_OPEN_CASE: Prisma.SaleWhereInput = {
+  NOT: OPEN_CASE,
+};
 
 export function offlineSyncStateWhere(
   state: OfflineSaleSyncState,
 ): Prisma.SaleWhereInput {
-  if (!EMITTED.includes(state)) {
-    return { id: "00000000-0000-4000-8000-000000000000" };
-  }
   const offline: Prisma.SaleWhereInput = { offlineCommandId: { not: null } };
-  if (state === "accepted") {
-    return {
-      ...offline,
-      stockPosting: SaleStockPosting.posted,
-      offlineStockDiscrepancy: { is: null },
-    };
+  switch (state) {
+    case "held":
+      return { ...offline, ...OPEN_CASE };
+    case "pending_stock_posting":
+      return {
+        ...offline,
+        stockPosting: SaleStockPosting.pending_reconciliation,
+        ...NO_OPEN_CASE,
+      };
+    case "accepted":
+      return {
+        ...offline,
+        stockPosting: SaleStockPosting.posted,
+        ...NO_OPEN_CASE,
+      };
+    default:
+      return { id: "00000000-0000-4000-8000-000000000000" };
   }
-  return {
-    ...offline,
-    OR: [
-      { stockPosting: SaleStockPosting.pending_reconciliation },
-      {
-        offlineStockDiscrepancy: {
-          is: { status: OfflineStockDiscrepancyStatus.open },
-        },
-      },
-    ],
-  };
 }

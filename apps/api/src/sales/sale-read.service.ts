@@ -626,11 +626,9 @@ export class SaleReadService {
         : filters.channel
           ? channelWhere(filters.channel, [], historicalFallbacks)
           : {}),
-      ...(filters.offlineSyncState === "held"
-        ? { id: NO_SUCH_TILL }
-        : filters.offlineSyncState
-          ? offlineSyncStateWhere(filters.offlineSyncState)
-          : {}),
+      ...(filters.offlineSyncState
+        ? offlineSyncStateWhere(filters.offlineSyncState)
+        : {}),
     };
 
     const [rows, total] = await Promise.all([
