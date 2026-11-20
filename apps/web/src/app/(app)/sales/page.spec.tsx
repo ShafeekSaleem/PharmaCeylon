@@ -1,14 +1,16 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import SalesHistory from "./sales-history";
 import { apiJson } from "@/lib/auth-client";
 import { salesHistoryQuery } from "./services/sales-api";
 import type { SaleListRow, SalesFilters, SalesHistoryPage } from "./types";
 import { DEFAULT_FILTERS } from "./constants";
+import { registersForPicker } from "./register-options";
 
+let branchId: string | null = "branch-a";
 const push = jest.fn();
 jest.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
 jest.mock("@/lib/auth-client", () => ({ apiJson: jest.fn() }));
-jest.mock("@/lib/use-auth", () => ({ useAuth: () => ({ branchId: "branch-a" }) }));
+jest.mock("@/lib/use-auth", () => ({ useAuth: () => ({ branchId }) }));
 
 function row(overrides: Partial<SaleListRow> = {}): SaleListRow {
   return {
@@ -25,7 +27,7 @@ function row(overrides: Partial<SaleListRow> = {}): SaleListRow {
     summary: "2× Paracetamol, 1× Cetirizine",
     channel: "desktop_online",
     terminal: { id: "term-1", label: "Front desk" },
-    register: { id: "reg-1", tillId: "till-1", label: "Counter 1" },
+    register: { id: "reg-1", tillId: "till-1", label: "Counter 1 Floor 2" },
     shift: {
       id: "shift-1",
       shiftNumber: "S-0042",
@@ -37,10 +39,20 @@ function row(overrides: Partial<SaleListRow> = {}): SaleListRow {
 }
 
 const OPTIONS = {
-  branches: [{ id: "branch-a", name: "Colombo" }],
+  branches: [
+    { id: "branch-a", name: "Colombo" },
+    { id: "branch-b", name: "Kandy" },
+  ],
   sellers: [{ id: "user-cashier", fullName: "Nimal Perera" }],
-  registers: [{ registerId: "reg-1", tillId: "till-1", label: "Counter 1", branchId: "branch-a" }],
-  terminals: [{ terminalId: "term-1", label: "Front desk", branchId: "branch-a" }],
+  registers: [
+    { registerId: "reg-1", tillId: "till-1", label: "Counter 1 Floor 2", branchId: "branch-a" },
+    { registerId: "reg-2", tillId: "till-2", label: "Counter 1", branchId: "branch-b" },
+  ],
+  terminals: [
+    { terminalId: "term-1", label: "Front desk", branchId: "branch-a" },
+    { terminalId: "term-2", label: "Front desk", branchId: "branch-b" },
+  ],
+  shifts: [],
 };
 
 let historyPages: SalesHistoryPage[];
@@ -58,7 +70,15 @@ function lastHistoryQuery(): URLSearchParams {
   return new URLSearchParams(calls[calls.length - 1]!.split("?")[1]);
 }
 
+function lastListHistoryQuery(): URLSearchParams {
+  const listCalls = historyCalls().filter(
+    (path) => new URLSearchParams(path.split("?")[1]).get("pageSize") === "25",
+  );
+  return new URLSearchParams(listCalls[listCalls.length - 1]!.split("?")[1]);
+}
+
 beforeEach(() => {
+  branchId = "branch-a";
   push.mockReset();
   historyPages = [];
   channelTotals = { all: 3, desktop_online: 2, offline: 1, web_legacy: 0, fallback: 0 };
@@ -81,13 +101,64 @@ it("lists sales with Phase B columns and channel chip counts", async () => {
   render(<SalesHistory />);
 
   expect(await screen.findByText("INV-2610-000042")).toBeInTheDocument();
-  expect(screen.getByText("Counter 1")).toBeInTheDocument();
-  expect(screen.getByText("Till 1")).toBeInTheDocument();
+  expect(screen.getByText("Counter 1 Floor 2")).toBeInTheDocument();
+  expect(screen.queryByText("Till 1")).not.toBeInTheDocument();
   expect(screen.getAllByText("Desktop").length).toBeGreaterThan(0);
-  expect(screen.getByText("Cash + Card")).toBeInTheDocument();
   expect(screen.getByText("LKR 1,250.00")).toBeInTheDocument();
   expect(screen.queryByText("Completed")).not.toBeInTheDocument();
   expect(screen.getAllByTestId("filter-chip-count")[0]).toHaveTextContent("3");
+
+  const query = lastListHistoryQuery();
+  expect(query.get("page")).toBe("1");
+  expect(query.get("pageSize")).toBe("25");
+  expect(query.has("branchId")).toBe(false);
+});
+
+it("only offers counters from the active branch", async () => {
+  render(<SalesHistory />);
+  await screen.findByText("INV-2610-000042");
+
+  fireEvent.click(screen.getByRole("button", { name: /^Counter scope/ }));
+  expect(screen.getByRole("option", { name: "Counter 1 Floor 2" })).toBeInTheDocument();
+  expect(screen.queryByRole("option", { name: "Counter 1" })).not.toBeInTheDocument();
+});
+
+it("scopes register picks to the active branch", () => {
+  const picks = registersForPicker(OPTIONS.registers, "branch-a", OPTIONS.branches);
+  expect(picks.map((p) => p.counterLabel)).toEqual(["Counter 1 Floor 2"]);
+});
+
+it("resets branch-scoped filters when the branch changes", async () => {
+  const { rerender } = render(<SalesHistory />);
+  await screen.findByText("INV-2610-000042");
+
+  fireEvent.click(screen.getByRole("button", { name: "Filters" }));
+  const panel = await screen.findByRole("dialog", { name: "Sales filters" });
+  fireEvent.click(within(panel).getByRole("button", { name: /^Counter/ }));
+  fireEvent.click(await screen.findByRole("option", { name: "Counter 1 Floor 2" }));
+  fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+  await waitFor(() => expect(lastHistoryQuery().get("registerId")).toBe("reg-1"));
+
+  branchId = "branch-b";
+  rerender(<SalesHistory />);
+  await waitFor(() => {
+    const query = lastHistoryQuery();
+    expect(query.has("registerId")).toBe(false);
+    expect(query.has("shiftId")).toBe(false);
+  });
+});
+
+it("asks the server for the next page", async () => {
+  historyPages = [
+    { items: [row()], total: 60, page: 1, pageSize: 25 },
+    { items: [row({ id: "sale-26", invoiceNo: "INV-2610-000026" })], total: 60, page: 2, pageSize: 25 },
+  ];
+  render(<SalesHistory />);
+  await screen.findByText("INV-2610-000042");
+
+  fireEvent.click(screen.getByRole("button", { name: "Next" }));
+  expect(await screen.findByText("INV-2610-000026")).toBeInTheDocument();
+  expect(lastHistoryQuery().get("page")).toBe("2");
 });
 
 it("maps channel chip selection to the channel query param", async () => {
@@ -95,7 +166,6 @@ it("maps channel chip selection to the channel query param", async () => {
   await screen.findByText("INV-2610-000042");
 
   fireEvent.click(screen.getByRole("button", { name: /Offline/i }));
-
   await waitFor(() => expect(lastHistoryQuery().get("channel")).toBe("offline"));
 });
 
@@ -123,7 +193,7 @@ it("searches by receipt with counter scope once typing pauses", async () => {
     });
 
     fireEvent.click(screen.getByRole("button", { name: /^Counter scope/ }));
-    fireEvent.click(await screen.findByRole("option", { name: "Counter 1" }));
+    fireEvent.click(await screen.findByRole("option", { name: "Counter 1 Floor 2" }));
 
     fireEvent.change(screen.getByRole("searchbox", { name: "Search by receipt or invoice number" }), {
       target: { value: "186" },
@@ -182,13 +252,14 @@ it("shows loading status text while sales load", async () => {
   expect(await screen.findByText("INV-2610-000042")).toBeInTheDocument();
 });
 
-it("shows the API error", async () => {
+it("shows the API error without empty-state copy", async () => {
   jest.mocked(apiJson).mockImplementation(async (path: string) => {
     if (path === "/sales/history/options") return OPTIONS;
     throw new Error("You can't view sales at that branch");
   });
   render(<SalesHistory />);
   expect(await screen.findByText("You can't view sales at that branch")).toBeInTheDocument();
+  expect(screen.queryByText("No sales yet")).not.toBeInTheDocument();
 });
 
 it("maps filters to query params", () => {
@@ -219,4 +290,12 @@ it("opens a sale from its row", async () => {
   render(<SalesHistory />);
   fireEvent.click(await screen.findByText("INV-2610-000042"));
   expect(push).toHaveBeenCalledWith("/sales/sale-1");
+});
+
+it("routes receipt copy from the row menu", async () => {
+  render(<SalesHistory />);
+  await screen.findByText("INV-2610-000042");
+  fireEvent.click(screen.getByRole("button", { name: /Actions for INV-2610-000042/ }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "Receipt copy" }));
+  expect(push).toHaveBeenCalledWith("/sales/sale-1?receipt=1");
 });

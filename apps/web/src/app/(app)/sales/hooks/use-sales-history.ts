@@ -51,6 +51,7 @@ export function useSalesHistoryOptions() {
     sellers: [],
     registers: [],
     terminals: [],
+    shifts: [],
   });
 
   useEffect(() => {

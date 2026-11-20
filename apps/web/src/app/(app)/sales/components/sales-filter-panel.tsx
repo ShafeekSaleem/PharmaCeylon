@@ -4,7 +4,13 @@ import { useEffect, useMemo, useState } from "react";
 import { DateRangeField, FilterPopover, FilterRow } from "@/components/ui";
 import { InventoryFilterSelect } from "../../inventory/components/inventory-filter-select";
 import { DEFAULT_FILTERS, PAYMENT_METHOD_OPTIONS } from "../constants";
-import type { SalesFilters, SalesHistoryOptions } from "../types";
+import {
+  counterFilterOptions,
+  hasTillFilterOptions,
+  tillFilterOptions,
+  type RegisterPickOption,
+} from "../register-options";
+import type { SalesFilters, SalesHistoryOptions, SalesHistoryShiftOption } from "../types";
 import css from "../sales.module.css";
 
 export type SalesPanelFilters = Pick<
@@ -35,17 +41,15 @@ export function salesPanelFiltersFrom(filters: SalesFilters): SalesPanelFilters 
   };
 }
 
-type ShiftOption = { id: string; label: string };
-
 type Props = {
   applied: SalesPanelFilters;
   options: SalesHistoryOptions;
-  shiftOptions: ShiftOption[];
+  registerPicks: RegisterPickOption[];
   onApply: (next: SalesPanelFilters) => void;
   onClear: () => void;
 };
 
-export function SalesFilterPanel({ applied, options, shiftOptions, onApply, onClear }: Props) {
+export function SalesFilterPanel({ applied, options, registerPicks, onApply, onClear }: Props) {
   const [draft, setDraft] = useState(applied);
 
   useEffect(() => {
@@ -60,31 +64,20 @@ export function SalesFilterPanel({ applied, options, shiftOptions, onApply, onCl
     [options.sellers],
   );
 
-  const registerOptions = useMemo(
-    () => [
-      { value: "all", label: "All counters" },
-      ...options.registers.map((r) => ({ value: r.registerId, label: r.label })),
-    ],
-    [options.registers],
+  const counterOptions = useMemo(
+    () => counterFilterOptions(registerPicks, "All counters"),
+    [registerPicks],
   );
 
-  const tillOptions = useMemo(() => {
-    const rows = options.registers.map((r) => {
-      const digits = r.label.replace(/\D/g, "");
-      const label = digits ? `Till ${digits}` : r.label;
-      return { value: r.tillId, label, registerId: r.registerId };
-    });
-  const unique = new Map<string, { value: string; label: string }>();
-    for (const row of rows) {
-      if (!unique.has(row.value)) unique.set(row.value, { value: row.value, label: row.label });
-    }
-    return [{ value: "all", label: "All tills" }, ...unique.values()];
-  }, [options.registers]);
+  const tillOptions = useMemo(() => tillFilterOptions(registerPicks), [registerPicks]);
+  const showTillFilter = hasTillFilterOptions(registerPicks);
 
+  const shiftOptions: SalesHistoryShiftOption[] = options.shifts ?? [];
   const shiftSelectOptions = useMemo(
-    () => [{ value: "all", label: "All shifts" }, ...shiftOptions.map((s) => ({ value: s.id, label: s.label }))],
+    () => [{ value: "all", label: "All shifts" }, ...shiftOptions.map((s) => ({ value: s.shiftId, label: s.label }))],
     [shiftOptions],
   );
+  const showShiftFilter = shiftOptions.length > 0;
 
   const active = salesPanelFiltersAreActive(applied);
 
@@ -95,7 +88,11 @@ export function SalesFilterPanel({ applied, options, shiftOptions, onApply, onCl
       panelTitle="Filters"
       panelAriaLabel="Sales filters"
     >
-      <FilterRow label="Sale dates" hasSelection={Boolean(draft.from || draft.to)} onClear={() => setDraft((d) => ({ ...d, from: "", to: "" }))}>
+      <FilterRow
+        label="Sale dates"
+        hasSelection={Boolean(draft.from || draft.to)}
+        onClear={() => setDraft((d) => ({ ...d, from: "", to: "" }))}
+      >
         <DateRangeField
           label="Sale dates"
           from={draft.from}
@@ -113,36 +110,40 @@ export function SalesFilterPanel({ applied, options, shiftOptions, onApply, onCl
         <InventoryFilterSelect
           label="Counter"
           value={draft.registerId}
-          options={registerOptions}
+          options={counterOptions}
           onChange={(v) => setDraft((d) => ({ ...d, registerId: v || "all" }))}
         />
       </FilterRow>
 
-      <FilterRow
-        label="Till"
-        hasSelection={draft.tillId !== "all"}
-        onClear={() => setDraft((d) => ({ ...d, tillId: "all" }))}
-      >
-        <InventoryFilterSelect
+      {showTillFilter ? (
+        <FilterRow
           label="Till"
-          value={draft.tillId}
-          options={tillOptions}
-          onChange={(v) => setDraft((d) => ({ ...d, tillId: v || "all" }))}
-        />
-      </FilterRow>
+          hasSelection={draft.tillId !== "all"}
+          onClear={() => setDraft((d) => ({ ...d, tillId: "all" }))}
+        >
+          <InventoryFilterSelect
+            label="Till"
+            value={draft.tillId}
+            options={tillOptions}
+            onChange={(v) => setDraft((d) => ({ ...d, tillId: v || "all" }))}
+          />
+        </FilterRow>
+      ) : null}
 
-      <FilterRow
-        label="Shift"
-        hasSelection={draft.shiftId !== "all"}
-        onClear={() => setDraft((d) => ({ ...d, shiftId: "all" }))}
-      >
-        <InventoryFilterSelect
+      {showShiftFilter ? (
+        <FilterRow
           label="Shift"
-          value={draft.shiftId}
-          options={shiftSelectOptions}
-          onChange={(v) => setDraft((d) => ({ ...d, shiftId: v || "all" }))}
-        />
-      </FilterRow>
+          hasSelection={draft.shiftId !== "all"}
+          onClear={() => setDraft((d) => ({ ...d, shiftId: "all" }))}
+        >
+          <InventoryFilterSelect
+            label="Shift"
+            value={draft.shiftId}
+            options={shiftSelectOptions}
+            onChange={(v) => setDraft((d) => ({ ...d, shiftId: v || "all" }))}
+          />
+        </FilterRow>
+      ) : null}
 
       <FilterRow
         label="Sold by"

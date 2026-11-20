@@ -1,3 +1,4 @@
+import { SALE_CHANNELS } from "@pharmaceylon/shared";
 import { apiJson } from "@/lib/auth-client";
 import { PAGE_SIZE } from "../constants";
 import type { SaleDetail, SalesChannelChip, SalesFilters, SalesHistoryOptions, SalesHistoryPage } from "../types";
@@ -47,6 +48,7 @@ export function fetchSalesHistoryOptions(): Promise<SalesHistoryOptions> {
     sellers: options.sellers ?? [],
     registers: options.registers ?? [],
     terminals: options.terminals ?? [],
+    shifts: options.shifts ?? [],
   }));
 }
 
@@ -58,7 +60,7 @@ export type SaleChannelCounts = Record<SalesChannelChip, number | null>;
 
 export function fetchSalesChannelCounts(filters: SalesFilters): Promise<SaleChannelCounts> {
   const base: SalesFilters = { ...filters, channel: "all" };
-  const chips: SalesChannelChip[] = ["all", "desktop_online", "offline", "web_legacy", "fallback"];
+  const chips: SalesChannelChip[] = ["all", ...SALE_CHANNELS];
   return Promise.all(
     chips.map(async (chip) => {
       try {

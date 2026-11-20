@@ -7,7 +7,15 @@ export type PaymentMethod = "cash" | "card" | "mobile_wallet" | "credit";
 export type SaleAttribution = {
   channel: SaleChannel;
   terminal: { id: string; label: string } | null;
-  register: { id: string; tillId: string; label: string } | null;
+  register: {
+    id: string;
+    tillId: string;
+    label: string;
+    /** Till display name when the API adds it; absent until then. */
+    tillLabel?: string | null;
+  } | null;
+  /** Till attribution when the API exposes it separately from the register row. */
+  till?: { id: string; label: string } | null;
   shift: {
     id: string;
     shiftNumber: string;
@@ -45,6 +53,12 @@ export type SalesHistoryRegisterOption = {
   tillId: string;
   label: string;
   branchId: string;
+  tillLabel?: string | null;
+};
+
+export type SalesHistoryShiftOption = {
+  shiftId: string;
+  label: string;
 };
 
 export type SalesHistoryTerminalOption = {
@@ -58,6 +72,8 @@ export type SalesHistoryOptions = {
   sellers: { id: string; fullName: string }[];
   registers: SalesHistoryRegisterOption[];
   terminals: SalesHistoryTerminalOption[];
+  /** Present once the API exposes a shift pick-list; omitted until then. */
+  shifts?: SalesHistoryShiftOption[];
 };
 
 /** `GET /sales/history/:id`. Costs are `null` when the caller lacks `costs.view` there. */

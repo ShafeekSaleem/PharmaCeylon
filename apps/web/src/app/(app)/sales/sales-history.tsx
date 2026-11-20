@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Alert } from "@/components/alert";
 import { IconReceipt, IconSearch } from "@/components/icons";
@@ -26,6 +26,7 @@ import {
   type SalesPanelFilters,
 } from "./components/sales-filter-panel";
 import {
+  BRANCH_SCOPED_FILTER_DEFAULTS,
   CHANNEL_CHIP_ORDER,
   CHANNEL_LABELS,
   DEFAULT_FILTERS,
@@ -34,6 +35,8 @@ import {
 } from "./constants";
 import { useSalesChannelCounts } from "./hooks/use-sales-channel-counts";
 import { useSalesHistory, useSalesHistoryOptions } from "./hooks/use-sales-history";
+import { receiptScopeOptions, registersForPicker, tillLabelForId, type RegisterPickOption } from "./register-options";
+import { saleTillCell } from "./till-display";
 import type { SaleListRow, SalesChannelChip, SalesFilters } from "./types";
 import {
   DASH,
@@ -42,7 +45,6 @@ import {
   formatShiftRange,
   formatTime,
   paymentMethodsLabel,
-  tillLabelFromRegister,
 } from "./utils";
 import css from "./sales.module.css";
 
@@ -70,11 +72,23 @@ export default function SalesHistory() {
   const [filters, setFilters] = useState<SalesFilters>(DEFAULT_FILTERS);
   const [invoiceInput, setInvoiceInput] = useState("");
   const [page, setPage] = useState(1);
-  const [knownShifts, setKnownShifts] = useState<Map<string, { id: string; label: string }>>(new Map());
-
   const options = useSalesHistoryOptions();
   const history = useSalesHistory(filters, page, branchId);
   const channelCounts = useSalesChannelCounts(filters, branchId);
+  const prevBranchId = useRef<string | null>(null);
+
+  const registerPicks = useMemo(
+    () => registersForPicker(options.registers, branchId, options.branches),
+    [options.registers, options.branches, branchId],
+  );
+
+  const counterScopeOptions = useMemo(() => receiptScopeOptions(registerPicks), [registerPicks]);
+
+  const registerPicksById = useMemo(() => {
+    const map = new Map<string, RegisterPickOption>();
+    for (const pick of registerPicks) map.set(pick.registerId, pick);
+    return map;
+  }, [registerPicks]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -84,38 +98,19 @@ export default function SalesHistory() {
   }, [invoiceInput]);
 
   useEffect(() => {
+    if (prevBranchId.current !== null && prevBranchId.current !== branchId) {
+      setFilters((f) => ({ ...f, ...BRANCH_SCOPED_FILTER_DEFAULTS }));
+    }
+    prevBranchId.current = branchId;
     setPage(1);
-  }, [filters, branchId]);
+  }, [branchId]);
 
   useEffect(() => {
-    setKnownShifts((prev) => {
-      const next = new Map(prev);
-      for (const row of history.items) {
-        if (row.shift) {
-          next.set(row.shift.id, { id: row.shift.id, label: formatShiftRange(row.shift) });
-        }
-      }
-      return next;
-    });
-  }, [history.items]);
+    setPage(1);
+  }, [filters]);
 
-  const registerOptions = useMemo(
-    () => [
-      { value: "any", label: "Any counter" },
-      ...options.registers.map((r) => ({ value: r.registerId, label: r.label })),
-    ],
-    [options.registers],
-  );
-
-  const sellerOptions = useMemo(
-    () => [
-      { value: "all", label: "All staff" },
-      ...options.sellers.map((s) => ({ value: s.id, label: s.fullName })),
-    ],
-    [options.sellers],
-  );
-
-  const shiftOptions = useMemo(() => [...knownShifts.values()], [knownShifts]);
+  const panelCounterActive = filters.registerId !== "all";
+  const shiftOptions = options.shifts ?? [];
 
   const pills: FilterPill[] = [
     ...(filters.channel !== "all"
@@ -133,8 +128,7 @@ export default function SalesHistory() {
       ? [
           {
             key: "counter",
-            label:
-              registerOptions.find((o) => o.value === filters.registerId)?.label ?? "Counter",
+            label: registerPicksById.get(filters.registerId)?.counterLabel ?? "Counter",
           },
         ]
       : []),
@@ -142,17 +136,24 @@ export default function SalesHistory() {
       ? [
           {
             key: "till",
-            label:
-              options.registers.find((r) => r.tillId === filters.tillId)?.label ??
-              "Till",
+            label: tillLabelForId(filters.tillId, registerPicks) ?? "Till",
           },
         ]
       : []),
-    ...(filters.shiftId !== "all"
-      ? [{ key: "shift", label: knownShifts.get(filters.shiftId)?.label ?? "Shift" }]
+    ...(filters.shiftId !== "all" && shiftOptions.length > 0
+      ? [{ key: "shift", label: shiftOptions.find((s) => s.shiftId === filters.shiftId)?.label ?? "Shift" }]
       : []),
     ...(filters.soldBy !== "all"
-      ? [{ key: "staff", label: sellerOptions.find((o) => o.value === filters.soldBy)?.label ?? "Staff" }]
+      ? [
+          {
+            key: "staff",
+            label:
+              [{ value: "all", label: "All staff" }, ...options.sellers.map((s) => ({
+                value: s.id,
+                label: s.fullName,
+              }))].find((o) => o.value === filters.soldBy)?.label ?? "Staff",
+          },
+        ]
       : []),
     ...(filters.paymentMethod !== "all"
       ? [{ key: "payment", label: PAYMENT_METHOD_LABELS[filters.paymentMethod] }]
@@ -160,12 +161,14 @@ export default function SalesHistory() {
     ...(filters.invoiceNo.trim()
       ? [{ key: "invoice", label: `Receipt: ${filters.invoiceNo.trim()}` }]
       : []),
-    ...(filters.receiptCounterScope !== "any" && filters.invoiceNo.trim()
+    ...(filters.receiptCounterScope !== "any" &&
+    filters.invoiceNo.trim() &&
+    !panelCounterActive
       ? [
           {
             key: "scope",
             label:
-              registerOptions.find((o) => o.value === filters.receiptCounterScope)?.label ??
+              counterScopeOptions.find((o) => o.value === filters.receiptCounterScope)?.label ??
               "Counter scope",
           },
         ]
@@ -179,18 +182,27 @@ export default function SalesHistory() {
   }
 
   function applyPanel(panel: SalesPanelFilters) {
-    setFilters((f) => ({ ...f, ...panel }));
+    setFilters((f) => ({
+      ...f,
+      ...panel,
+      receiptCounterScope: panel.registerId !== "all" ? "any" : f.receiptCounterScope,
+    }));
   }
 
   function clearPanel() {
     setFilters((f) => ({
       ...f,
       ...salesPanelFiltersFrom(DEFAULT_FILTERS),
+      receiptCounterScope: "any",
     }));
   }
 
   const rowActions = (row: SaleListRow): RowMenuAction[] => [
     { label: "View sale", onClick: () => router.push(`/sales/${row.id}`) },
+    {
+      label: "Receipt copy",
+      onClick: () => router.push(`/sales/${row.id}?receipt=1`),
+    },
     {
       label: "Prepare refund",
       onClick: () => router.push(`/sales/${row.id}`),
@@ -232,7 +244,7 @@ export default function SalesHistory() {
       key: "till",
       header: "Till",
       width: "6.5rem",
-      render: (row) => (row.register ? tillLabelFromRegister(row.register) : DASH),
+      render: (row) => saleTillCell(row),
     },
     {
       key: "shift",
@@ -313,8 +325,9 @@ export default function SalesHistory() {
             <InventoryFilterSelect
               label="Counter scope"
               value={filters.receiptCounterScope}
-              options={registerOptions}
+              options={counterScopeOptions}
               className={css.receiptScopeSelect}
+              disabled={panelCounterActive}
               onChange={(v) =>
                 setFilters((f) => ({ ...f, receiptCounterScope: v || "any" }))
               }
@@ -325,7 +338,7 @@ export default function SalesHistory() {
         <SalesFilterPanel
           applied={salesPanelFiltersFrom(filters)}
           options={options}
-          shiftOptions={shiftOptions}
+          registerPicks={registerPicks}
           onApply={applyPanel}
           onClear={clearPanel}
         />
@@ -340,28 +353,30 @@ export default function SalesHistory() {
       />
 
       <div className={css.tableStage}>
-        <DataTable
-          variant="list"
-          minTableWidth="1100px"
-          columns={columns}
-          data={history.items}
-          rowKey={(row) => row.id}
-          loading={history.loading}
-          page={page}
-          pageSize={PAGE_SIZE}
-          total={history.total}
-          onPageChange={setPage}
-          onRowClick={(row) => router.push(`/sales/${row.id}`)}
-          fixedLayout
-          stickyHeader
-          emptyIcon={<IconReceipt size={40} />}
-          emptyTitle={filtered ? "No sales match these filters" : "No sales yet"}
-          emptyDescription={
-            filtered
-              ? "Try a wider date range, or clear the filters."
-              : "Sales rung up at the counter appear here."
-          }
-        />
+        {history.error ? null : (
+          <DataTable
+            variant="list"
+            minTableWidth="1100px"
+            columns={columns}
+            data={history.items}
+            rowKey={(row) => row.id}
+            loading={history.loading}
+            page={page}
+            pageSize={PAGE_SIZE}
+            total={history.total}
+            onPageChange={setPage}
+            onRowClick={(row) => router.push(`/sales/${row.id}`)}
+            fixedLayout
+            stickyHeader
+            emptyIcon={<IconReceipt size={40} />}
+            emptyTitle={filtered ? "No sales match these filters" : "No sales yet"}
+            emptyDescription={
+              filtered
+                ? "Try a wider date range, or clear the filters."
+                : "Sales rung up at the counter appear here."
+            }
+          />
+        )}
         {history.loading ? (
           <p className={css.loadingFoot} role="status">
             Loading sales…

@@ -5,7 +5,12 @@ import type { SaleDetail } from "../types";
 
 const push = jest.fn();
 const setLastSegmentLabel = jest.fn();
-jest.mock("next/navigation", () => ({ useParams: () => ({ id: "sale-1" }), useRouter: () => ({ push }) }));
+const searchParams = new URLSearchParams();
+jest.mock("next/navigation", () => ({
+  useParams: () => ({ id: "sale-1" }),
+  useRouter: () => ({ push }),
+  useSearchParams: () => searchParams,
+}));
 jest.mock("@/lib/page-chrome-context", () => ({ usePageChrome: () => ({ setLastSegmentLabel }) }));
 jest.mock("@/lib/auth-client", () => ({ apiJson: jest.fn() }));
 // The refund panel has its own spec.
@@ -91,6 +96,7 @@ function mockApi(detail: SaleDetail | Error) {
 beforeEach(() => {
   push.mockReset();
   setLastSegmentLabel.mockReset();
+  searchParams.forEach((_, key) => searchParams.delete(key));
   document.body.className = "";
 });
 
@@ -104,6 +110,11 @@ it("shows the sale's items, payments, customer and prescription", async () => {
 
   const details = screen.getByRole("region", { name: "Sale details" });
   expect(within(details).getByText("Partially refunded")).toBeInTheDocument();
+  expect(within(details).getByText("Desktop")).toBeInTheDocument();
+  expect(within(details).getByText("Counter 1")).toBeInTheDocument();
+  expect(within(screen.getByRole("region", { name: "Receipt" })).getByText(
+    "Receipt and invoice use the same number.",
+  )).toBeInTheDocument();
   expect(within(details).getByText("Nimal Perera")).toBeInTheDocument();
   expect(within(details).getByText("Ruwan Jayasuriya")).toBeInTheDocument();
   expect(within(details).getByRole("link", { name: "Kamala Silva" })).toHaveAttribute(
@@ -167,6 +178,34 @@ it("opens a receipt copy that is marked as a copy and prints only the receipt", 
 
   fireEvent(window, new Event("afterprint"));
   expect(document.body.classList.length).toBe(0);
+});
+
+it("shows a C1R receipt without the same-number line and no Till row without a till name", async () => {
+  mockApi(
+    sale({
+      invoiceNo: "C1R-000186",
+      status: "posted",
+      register: { id: "reg-1", tillId: "till-1", label: "Counter 1" },
+      shift: {
+        id: "shift-1",
+        shiftNumber: "S-0042",
+        openedAt: "2026-10-20T08:14:00.000Z",
+        closedAt: null,
+      },
+    }),
+  );
+  render(<SaleDetailPage />);
+  expect(await screen.findByRole("heading", { name: "C1R-000186" })).toBeInTheDocument();
+  expect(screen.queryByText("Receipt and invoice use the same number.")).not.toBeInTheDocument();
+  const details = screen.getByRole("region", { name: "Sale details" });
+  expect(within(details).queryByText("Till", { selector: "dt" })).not.toBeInTheDocument();
+});
+
+it("opens receipt copy from a list deep link", async () => {
+  searchParams.set("receipt", "1");
+  mockApi(sale());
+  render(<SaleDetailPage />);
+  expect(await screen.findByRole("dialog")).toBeInTheDocument();
 });
 
 it("explains a sale it can't show", async () => {

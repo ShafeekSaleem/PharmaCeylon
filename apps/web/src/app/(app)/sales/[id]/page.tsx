@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Alert } from "@/components/alert";
 import { IconChevronLeft, IconPackage, IconReceipt } from "@/components/icons";
 import { ActionButton, DataTable, PageHeader, StatusBadge, type Column } from "@/components/ui";
@@ -13,13 +13,14 @@ import { SaleRefundPanel } from "../components/sale-refund-panel";
 import { PAYMENT_METHOD_LABELS } from "../constants";
 import { useSaleDetail } from "../hooks/use-sale-detail";
 import type { SaleDetail } from "../types";
+import { saleTillLabel } from "../till-display";
 import {
+  BUSINESS_TIME_ZONE,
   channelLabel,
   formatDateTime,
   formatExpiry,
   formatShiftDetail,
   formatShiftRange,
-  tillLabelFromRegister,
 } from "../utils";
 import css from "../sales.module.css";
 
@@ -91,9 +92,14 @@ function paymentLabel(payment: SaleDetail["payments"][number]): string {
 export default function SaleDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { data: sale, loading, error } = useSaleDetail(params?.id);
   const { setLastSegmentLabel } = usePageChrome();
   const [receiptOpen, setReceiptOpen] = useState(false);
+
+  useEffect(() => {
+    if (searchParams?.get("receipt") === "1") setReceiptOpen(true);
+  }, [searchParams]);
 
   useEffect(() => {
     if (sale?.invoiceNo) setLastSegmentLabel(sale.invoiceNo);
@@ -111,12 +117,13 @@ export default function SaleDetailPage() {
   }
 
   const refundedTotal = sale.refunds.reduce((sum, refund) => sum + Number(refund.amount), 0);
+  const tillLabel = saleTillLabel(sale);
 
   return (
     <div className={css.page}>
       <PageHeader
         title={sale.invoiceNo}
-        description={`${formatDateTime(sale.soldAt)} · ${sale.branch.name}`}
+        description={`${formatDateTime(sale.soldAt)} ${BUSINESS_TIME_ZONE} · ${sale.branch.name}`}
         actions={
           <>
             <ActionButton
@@ -160,7 +167,7 @@ export default function SaleDetailPage() {
                 <dt>Sold</dt>
                 <dd>
                   {formatDateTime(sale.soldAt)}
-                  <span className={css.cellSub}>{formatDateTime(sale.soldAt)} Asia/Colombo</span>
+                  <span className={css.cellSub}>{BUSINESS_TIME_ZONE}</span>
                 </dd>
               </div>
               <div className={css.fact}>
@@ -175,23 +182,21 @@ export default function SaleDetailPage() {
                 <dt>Counter</dt>
                 <dd>{sale.register?.label ?? "—"}</dd>
               </div>
-              <div className={css.fact}>
-                <dt>Till</dt>
-                <dd>{sale.register ? tillLabelFromRegister(sale.register) : "—"}</dd>
-              </div>
-              <div className={css.fact}>
-                <dt>Shift</dt>
-                <dd>
-                  {sale.shift ? (
-                    <>
-                      {formatShiftRange(sale.shift)}
-                      <span className={css.cellSub}>{formatShiftDetail(sale.shift)}</span>
-                    </>
-                  ) : (
-                    "—"
-                  )}
-                </dd>
-              </div>
+              {tillLabel ? (
+                <div className={css.fact}>
+                  <dt>Till</dt>
+                  <dd>{tillLabel}</dd>
+                </div>
+              ) : null}
+              {sale.shift ? (
+                <div className={css.fact}>
+                  <dt>Shift</dt>
+                  <dd>
+                    {formatShiftRange(sale.shift)}
+                    <span className={css.cellSub}>{formatShiftDetail(sale.shift)}</span>
+                  </dd>
+                </div>
+              ) : null}
               <div className={css.fact}>
                 <dt>Sold by</dt>
                 <dd>{sale.seller.fullName}</dd>

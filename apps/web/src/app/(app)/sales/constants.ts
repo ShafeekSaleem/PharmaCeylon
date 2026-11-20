@@ -1,15 +1,9 @@
-import type { SaleChannel } from "@pharmaceylon/shared";
+import { SALE_CHANNELS, type SaleChannel } from "@pharmaceylon/shared";
 import type { PaymentMethod, SalesChannelChip, SalesFilters } from "./types";
 
 export const PAGE_SIZE = 25;
 
-export const CHANNEL_CHIP_ORDER: readonly SalesChannelChip[] = [
-  "all",
-  "desktop_online",
-  "offline",
-  "web_legacy",
-  "fallback",
-];
+export const CHANNEL_CHIP_ORDER: readonly SalesChannelChip[] = ["all", ...SALE_CHANNELS];
 
 export const CHANNEL_LABELS: Record<SaleChannel, string> = {
   desktop_online: "Desktop",
@@ -29,6 +23,17 @@ export const DEFAULT_FILTERS: SalesFilters = {
   registerId: "all",
   tillId: "all",
   shiftId: "all",
+};
+
+/** Branch-only attribution filters to reset when the top-bar branch changes. */
+export const BRANCH_SCOPED_FILTER_DEFAULTS: Pick<
+  SalesFilters,
+  "registerId" | "tillId" | "shiftId" | "receiptCounterScope"
+> = {
+  registerId: "all",
+  tillId: "all",
+  shiftId: "all",
+  receiptCounterScope: "any",
 };
 
 export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
