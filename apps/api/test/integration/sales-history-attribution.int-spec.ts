@@ -44,7 +44,7 @@ const sales = new SalesService(
   undefined,
   shifts,
 );
-const reads = new SaleReadService(prisma as never, access);
+const reads = new SaleReadService(prisma as never, {} as never);
 
 const PIN = "4826";
 let fx: TenantFixture;
