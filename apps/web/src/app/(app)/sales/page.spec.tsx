@@ -128,6 +128,16 @@ it("scopes register picks to the active branch", () => {
   expect(picks.map((p) => p.counterLabel)).toEqual(["Counter 1 Floor 2"]);
 });
 
+it("shows branch suffix on counter options when no branch is selected", async () => {
+  branchId = null;
+  render(<SalesHistory />);
+  await screen.findByText("INV-2610-000042");
+
+  fireEvent.click(screen.getByRole("button", { name: /^Counter scope/ }));
+  expect(screen.getByRole("option", { name: "Counter 1 Floor 2 · Colombo" })).toBeInTheDocument();
+  expect(screen.getByRole("option", { name: "Counter 1 · Kandy" })).toBeInTheDocument();
+});
+
 it("resets branch-scoped filters when the branch changes", async () => {
   const { rerender } = render(<SalesHistory />);
   await screen.findByText("INV-2610-000042");
