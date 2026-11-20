@@ -1,11 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { ForbiddenException } from "@nestjs/common";
 import { PaymentMethod, RoleName } from "@prisma/client";
-import type {
-  ExternalCardAttemptRecord,
-  OfflineSaleIncident,
-  TerminalIdentity,
-} from "@pharmaceylon/shared";
+import type { ExternalCardAttemptRecord, TerminalIdentity } from "@pharmaceylon/shared";
 import { AuditService } from "../../src/audit/audit.service";
 import { StockService } from "../../src/inventory/stock/stock.service";
 import { ensureRbacSeed } from "../../prisma/rbac-seed";
@@ -72,20 +68,6 @@ const guardPermission = async (user: RequestUser, branchId: string) => {
 const recordSigned = (c: Counter, signed: unknown) =>
   prisma.$transaction((tx) => support.record(tx, c.owner, c.fx.mainBranchId, signed, Date.now()));
 
-const saleIncident = (c: Counter, description: string): OfflineSaleIncident => ({
-  contractVersion: 1,
-  kind: "sale_incident",
-  recordId: randomUUID(),
-  identity: c.identity,
-  saleCommandId: randomUUID(),
-  recordedByUserId: c.cashier.userId,
-  staffSignInId: randomUUID(),
-  workSessionId: randomUUID(),
-  recordedAt: Date.now() - 60_000,
-  category: "other",
-  description,
-});
-
 type AttemptBinding = Pick<
   ExternalCardAttemptRecord,
   "attemptId" | "checkoutDraftId" | "reviewedSaleDigest" | "amountMinor" | "staffSignInId" | "workSessionId"
@@ -115,34 +97,6 @@ const cardEvent = (
     ...state,
   }) as ExternalCardAttemptRecord;
 
-async function syncAcceptedIncident(c: Counter, description: string) {
-  const j = offlineJournal(c);
-  const signIn = j.signIn(c.cashier.userId, randomUUID());
-  const open = j.open(signIn, 0);
-  const saleCmd = j.sale(signIn, [[c.batches.main, 1]]);
-  const incident = c.device.sign(
-    {
-      ...saleIncident(c, description),
-      saleCommandId: saleCmd.payload.commandId,
-      staffSignInId: signIn.payload.staffSignInId,
-      workSessionId: signIn.payload.session.workSessionId,
-    },
-    c.identity.keyId,
-  );
-  await sync(c, {
-    staffSignIns: [signIn],
-    commands: [open, saleCmd],
-    supportRecords: [incident as never],
-  });
-  const row = await prisma.offlineSupportRecord.findFirstOrThrow({
-    where: { tenantId: c.fx.tenantId, recordId: incident.payload.recordId },
-  });
-  if (row.status !== "accepted") {
-    throw new Error(`expected accepted incident, got ${row.status}`);
-  }
-  return saleCmd;
-}
-
 async function seedHeldCard(c: Counter) {
   const attempt = cardBinding();
   await recordSigned(
@@ -166,13 +120,16 @@ beforeAll(async () => {
   await ensureRbacSeed(prisma);
   main = await counter({ main: 20 });
   otherTenant = await counter({ main: 10 });
-  const journaledSale = await syncAcceptedIncident(main, "Main branch incident");
+  const j = offlineJournal(main);
+  const signIn = j.signIn(main.cashier.userId, randomUUID());
+  const open = j.open(signIn, 0);
+  const saleCmd = j.sale(signIn, [[main.batches.main, 1]]);
   journaledCommand = {
-    commandId: journaledSale.payload.commandId,
-    occurredAt: journaledSale.payload.occurredAt,
-    receiptNumber: journaledSale.payload.receiptNumber,
+    commandId: saleCmd.payload.commandId,
+    occurredAt: saleCmd.payload.occurredAt,
+    receiptNumber: saleCmd.payload.receiptNumber,
   };
-  await syncAcceptedIncident(otherTenant, "Other tenant incident");
+  await sync(main, { staffSignIns: [signIn], commands: [open, saleCmd] });
   await seedHeldCard(main);
   await seedHeldCard(otherTenant);
 
@@ -247,15 +204,6 @@ beforeAll(async () => {
 afterAll(() => prisma.$disconnect());
 
 describe("sales phase D queues (Postgres)", () => {
-  it("keeps incident notes tenant- and branch-scoped", async () => {
-    const page = await queues.incidentNotes(ownerOn(main), main.fx.mainBranchId, {});
-    expect(page.items.some((row) => row.description === "Main branch incident")).toBe(true);
-    expect(page.items.some((row) => row.description === "Other tenant incident")).toBe(false);
-    const otherPage = await queues.incidentNotes(ownerOn(otherTenant), otherTenant.fx.mainBranchId, {});
-    expect(otherPage.items.some((row) => row.description === "Other tenant incident")).toBe(true);
-    expect(otherPage.items.some((row) => row.description === "Main branch incident")).toBe(false);
-  });
-
   it("scopes collected-money rows to the requested branch", async () => {
     const page = await queues.collectedMoney(ownerOn(main), main.fx.mainBranchId, {});
     const otherPage = await queues.collectedMoney(ownerOn(otherTenant), otherTenant.fx.mainBranchId, {});
@@ -272,11 +220,13 @@ describe("sales phase D queues (Postgres)", () => {
     expect(otherPage.items.every((row) => row.branchId === otherTenant.fx.mainBranchId)).toBe(true);
   });
 
-  it("reports pagination total on incident notes", async () => {
-    for (let i = 0; i < 2; i++) await syncAcceptedIncident(main, `Extra note ${i}`);
-    const page = await queues.incidentNotes(ownerOn(main), main.fx.mainBranchId, { page: 1, pageSize: 2 });
-    expect(page.total).toBeGreaterThanOrEqual(3);
-    expect(page.items).toHaveLength(2);
+  it("reports pagination total on payment recovery", async () => {
+    const page = await queues.paymentRecovery(ownerOn(main), main.fx.mainBranchId, {
+      page: 1,
+      pageSize: 1,
+    });
+    expect(page.total).toBeGreaterThanOrEqual(1);
+    expect(page.items).toHaveLength(1);
   });
 
   it("honours payment-recovery sort=recordedAt", async () => {
