@@ -13,7 +13,14 @@ import { SaleRefundPanel } from "../components/sale-refund-panel";
 import { PAYMENT_METHOD_LABELS } from "../constants";
 import { useSaleDetail } from "../hooks/use-sale-detail";
 import type { SaleDetail } from "../types";
-import { formatDateTime, formatExpiry } from "../utils";
+import {
+  channelLabel,
+  formatDateTime,
+  formatExpiry,
+  formatShiftDetail,
+  formatShiftRange,
+  tillLabelFromRegister,
+} from "../utils";
 import css from "../sales.module.css";
 
 type SaleItem = SaleDetail["items"][number];
@@ -128,6 +135,18 @@ export default function SaleDetailPage() {
 
       <div className={css.detailLayout}>
         <div className={css.column}>
+          <section className={css.card} aria-label="Receipt">
+            <h2 className={css.cardTitle}>Receipt</h2>
+            <div className={css.receiptCard}>
+              <div className={css.receiptCardPrimary}>{sale.invoiceNo}</div>
+              {sale.invoiceNo.toUpperCase().startsWith("INV-") ? (
+                <p className={css.receiptCardLinked}>
+                  Receipt and invoice use the same number.
+                </p>
+              ) : null}
+            </div>
+          </section>
+
           <section className={css.card} aria-label="Sale details">
             <h2 className={css.cardTitle}>Sale</h2>
             <dl className={css.facts}>
@@ -139,11 +158,39 @@ export default function SaleDetailPage() {
               </div>
               <div className={css.fact}>
                 <dt>Sold</dt>
-                <dd>{formatDateTime(sale.soldAt)}</dd>
+                <dd>
+                  {formatDateTime(sale.soldAt)}
+                  <span className={css.cellSub}>{formatDateTime(sale.soldAt)} Asia/Colombo</span>
+                </dd>
               </div>
               <div className={css.fact}>
                 <dt>Branch</dt>
                 <dd>{sale.branch.name}</dd>
+              </div>
+              <div className={css.fact}>
+                <dt>Channel</dt>
+                <dd>{channelLabel(sale.channel)}</dd>
+              </div>
+              <div className={css.fact}>
+                <dt>Counter</dt>
+                <dd>{sale.register?.label ?? "—"}</dd>
+              </div>
+              <div className={css.fact}>
+                <dt>Till</dt>
+                <dd>{sale.register ? tillLabelFromRegister(sale.register) : "—"}</dd>
+              </div>
+              <div className={css.fact}>
+                <dt>Shift</dt>
+                <dd>
+                  {sale.shift ? (
+                    <>
+                      {formatShiftRange(sale.shift)}
+                      <span className={css.cellSub}>{formatShiftDetail(sale.shift)}</span>
+                    </>
+                  ) : (
+                    "—"
+                  )}
+                </dd>
               </div>
               <div className={css.fact}>
                 <dt>Sold by</dt>

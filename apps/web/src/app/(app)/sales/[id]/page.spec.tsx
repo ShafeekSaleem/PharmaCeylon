@@ -54,6 +54,15 @@ function sale(overrides: Partial<SaleDetail> = {}): SaleDetail {
       },
     ],
     refunds: [{ id: "return-1", returnNumber: "RET-2026-00003", amount: "237.50", createdAt: "2026-10-21T04:00:00.000Z" }],
+    channel: "desktop_online",
+    terminal: { id: "term-1", label: "Front desk" },
+    register: { id: "reg-1", tillId: "till-1", label: "Counter 1" },
+    shift: {
+      id: "shift-1",
+      shiftNumber: "S-0042",
+      openedAt: "2026-10-20T08:14:00.000Z",
+      closedAt: null,
+    },
     ...overrides,
   };
 }
