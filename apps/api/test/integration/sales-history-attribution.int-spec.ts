@@ -448,7 +448,7 @@ describe("sales history attribution and filters (#66 Phase B)", () => {
 
     await prisma.sale.update({
       where: { id: offlineSaleId },
-      data: { stockPosting: "pending_reconciliation", terminalId },
+      data: { stockPosting: "pending_reconciliation" },
     });
     let again = await reads.history(owner(fx), fx.mainBranchId, { invoiceNo: row.invoiceNo });
     expect(again.items[0]).toMatchObject({
