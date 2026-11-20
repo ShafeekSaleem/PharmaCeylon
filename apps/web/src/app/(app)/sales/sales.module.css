@@ -115,7 +115,7 @@
 .filterPanelApply {
   border: 1px solid var(--ui-accent, var(--pc-primary));
   background: var(--ui-accent, var(--pc-primary));
-  color: var(--ui-accent-ink, #fff);
+  color: var(--ui-accent-ink, var(--pc-primary-foreground, var(--pc-foreground)));
 }
 
 .receiptCard {
