@@ -12,6 +12,7 @@ import {
   RoleName,
   SaleStatus,
 } from "@prisma/client";
+import { deriveSaleChannel, type FallbackWindow, type SaleChannel } from "@pharmaceylon/shared";
 import {
   addDays,
   businessToday,
@@ -22,6 +23,15 @@ import {
 import { PrismaService } from "../prisma/prisma.service";
 import type { RequestUser } from "../security/interfaces/authenticated-request.interface";
 import { PermissionsService } from "../security/permissions.service";
+import { POS_ROLLOUT_SELECT } from "../tenant/pos-rollout";
+import { channelWhere, fallbackWindowsFromAudit } from "./sale-fallback-windows.util";
+
+const NO_SUCH_TILL = "00000000-0000-4000-8000-000000000000";
+const FALLBACK_AUDIT_EVENTS = [
+  "branch.pos_fallback_started",
+  "branch.pos_fallback_extended",
+  "branch.pos_fallback_ended",
+] as const;
 
 const SALE_PRODUCT_SELECT = { id: true, name: true, sku: true, unit: true } satisfies Prisma.ProductSelect;
 const SALE_BATCH_SELECT = { id: true, batchNo: true, expiryDate: true } satisfies Prisma.BatchSelect;
@@ -56,13 +66,24 @@ function branchWhere(scope: SaleBranchScope): Prisma.SaleWhereInput {
 }
 
 /** A sale as one row: the till's recent-sales card and the back office's Sales list. */
+const BRANCH_ROLLOUT_SELECT = {
+  id: true,
+  name: true,
+  ...POS_ROLLOUT_SELECT,
+} as const;
+
 const SALE_SUMMARY_SELECT = {
   id: true,
   invoiceNo: true,
   status: true,
   soldAt: true,
   grandTotal: true,
-  branch: { select: { id: true, name: true } },
+  terminalId: true,
+  tillId: true,
+  shiftId: true,
+  offlineCommandId: true,
+  branch: { select: BRANCH_ROLLOUT_SELECT },
+  shift: { select: { id: true, shiftNumber: true, openedAt: true, closedAt: true } },
   customer: { select: { id: true, fullName: true, phone: true } },
   seller: { select: { id: true, fullName: true } },
   items: {
@@ -77,14 +98,47 @@ const SALE_SUMMARY_SELECT = {
 
 type SaleSummaryRow = Prisma.SaleGetPayload<{ select: typeof SALE_SUMMARY_SELECT }>;
 
-function toSaleSummary(sale: SaleSummaryRow) {
+type RegisterRow = { id: string; tillId: string; label: string };
+
+type AttributionContext = {
+  registersByTill: Map<string, RegisterRow>;
+  terminalsById: Map<string, { id: string; label: string }>;
+  fallbackByBranch: Map<string, FallbackWindow[]>;
+};
+
+function saleAttribution(
+  sale: Pick<
+    SaleSummaryRow,
+    "terminalId" | "tillId" | "shiftId" | "offlineCommandId" | "soldAt" | "branch" | "shift"
+  >,
+  ctx: AttributionContext,
+) {
+  const register = sale.tillId ? (ctx.registersByTill.get(sale.tillId) ?? null) : null;
+  const channel = deriveSaleChannel(sale, sale.branch, ctx.fallbackByBranch.get(sale.branch.id) ?? []);
+  const terminal = sale.terminalId ? (ctx.terminalsById.get(sale.terminalId) ?? null) : null;
+  return {
+    channel,
+    terminal,
+    register: register ? { id: register.id, tillId: register.tillId, label: register.label } : null,
+    shift: sale.shift
+      ? {
+          id: sale.shift.id,
+          shiftNumber: sale.shift.shiftNumber,
+          openedAt: sale.shift.openedAt.toISOString(),
+          closedAt: sale.shift.closedAt?.toISOString() ?? null,
+        }
+      : null,
+  };
+}
+
+function toSaleSummary(sale: SaleSummaryRow, ctx: AttributionContext) {
   return {
     id: sale.id,
     invoiceNo: sale.invoiceNo,
     status: sale.status,
     soldAt: sale.soldAt.toISOString(),
     grandTotal: sale.grandTotal.toFixed(2),
-    branch: sale.branch,
+    branch: { id: sale.branch.id, name: sale.branch.name },
     itemCount: sale.items.reduce((sum, i) => sum + i.qty, 0),
     customerName: sale.customer?.fullName ?? null,
     customerPhone: sale.customer?.phone ?? null,
@@ -98,12 +152,14 @@ function toSaleSummary(sale: SaleSummaryRow) {
       .slice(0, 3)
       .map((i) => `${i.qty}× ${i.product.name}`)
       .join(", "),
+    ...saleAttribution(sale, ctx),
   };
 }
 
 /** The detail page reads named fields only, so a cost can't ride along on a whole row. */
 const SALE_DETAIL_INCLUDE = {
-  branch: { select: { id: true, name: true } },
+  branch: { select: BRANCH_ROLLOUT_SELECT },
+  shift: { select: { id: true, shiftNumber: true, openedAt: true, closedAt: true } },
   items: {
     include: {
       product: { select: SALE_PRODUCT_SELECT },
@@ -127,7 +183,7 @@ const SALE_DETAIL_INCLUDE = {
 
 type SaleDetailRow = Prisma.SaleGetPayload<{ include: typeof SALE_DETAIL_INCLUDE }>;
 
-function toSaleDetail(sale: SaleDetailRow) {
+function toSaleDetail(sale: SaleDetailRow, ctx: AttributionContext) {
   return {
     id: sale.id,
     invoiceNo: sale.invoiceNo,
@@ -143,7 +199,8 @@ function toSaleDetail(sale: SaleDetailRow) {
     // receipt/repricing, so they cannot establish historical COGS, even for an owner.
     costTotal: null,
     notes: sale.notes,
-    branch: sale.branch,
+    branch: { id: sale.branch.id, name: sale.branch.name },
+    ...saleAttribution(sale, ctx),
     customer: sale.customer,
     prescription: sale.prescription,
     seller: sale.seller,
@@ -195,6 +252,11 @@ export type SaleHistoryFilters = {
   /** Sale total bounds, both inclusive. */
   minTotal?: string;
   maxTotal?: string;
+  terminalId?: string;
+  registerId?: string;
+  tillId?: string;
+  shiftId?: string;
+  channel?: SaleChannel;
 };
 
 /**
@@ -291,7 +353,8 @@ export class SaleReadService {
       take: Math.min(Math.max(take, 1), ranged ? 500 : 50),
       select: SALE_SUMMARY_SELECT,
     });
-    return sales.map(toSaleSummary);
+    const ctx = await this.attributionContext(tenantId, [branchId], sales);
+    return sales.map((row) => toSaleSummary(row, ctx));
   }
 
   /** Invoice lookup for the POS returns lane (exact, contains, then suffix). */
@@ -462,8 +525,36 @@ export class SaleReadService {
     const pageSize = Math.min(Math.max(filters.pageSize ?? DEFAULT_PAGE_SIZE, 1), MAX_PAGE_SIZE);
     const branchIds = await this.historyScope(user, activeBranchId, filters.branchId);
     const invoiceNo = filters.invoiceNo?.trim().replace(/\s+/g, "");
+    const counterScoped = Boolean(invoiceNo && (filters.registerId || filters.terminalId));
     const zone = filters.from || filters.to ? await this.tenantZone(user.tenantId) : null;
     const customerIds = phoneDigits ? await this.customersByPhone(user.tenantId, phoneDigits) : null;
+
+    const [rolloutBranches, fallbackHistory, registerTillId] = await Promise.all([
+      filters.channel
+        ? this.prisma.branch.findMany({
+            where: { tenantId: user.tenantId, id: { in: branchIds } },
+            select: BRANCH_ROLLOUT_SELECT,
+          })
+        : Promise.resolve([]),
+      filters.channel
+        ? this.prisma.auditEvent.findMany({
+            where: {
+              tenantId: user.tenantId,
+              branchId: { in: branchIds },
+              eventName: { in: [...FALLBACK_AUDIT_EVENTS] },
+            },
+            select: { branchId: true, eventName: true, payload: true, createdAt: true },
+            orderBy: { createdAt: "asc" },
+          })
+        : Promise.resolve([]),
+      filters.registerId
+        ? this.prisma.terminalCounter.findFirst({
+            where: { tenantId: user.tenantId, branchId: { in: branchIds }, id: filters.registerId },
+            select: { tillId: true },
+          })
+        : Promise.resolve(null),
+    ]);
+    const historicalFallbacks = filters.channel ? fallbackWindowsFromAudit(fallbackHistory) : new Map();
 
     const where: Prisma.SaleWhereInput = {
       tenantId: user.tenantId,
@@ -474,11 +565,27 @@ export class SaleReadService {
       ...(filters.paymentMethod
         ? { payments: { some: { method: filters.paymentMethod, amount: { gt: 0 } } } }
         : {}),
-      ...(invoiceNo ? { invoiceNo: { contains: invoiceNo, mode: "insensitive" } } : {}),
+      ...(invoiceNo
+        ? counterScoped
+          ? { invoiceNo: { equals: invoiceNo, mode: "insensitive" } }
+          : { invoiceNo: { contains: invoiceNo, mode: "insensitive" } }
+        : {}),
       ...(customerIds ? { customerId: { in: customerIds } } : {}),
       ...(minTotal || maxTotal
         ? { grandTotal: { ...(minTotal ? { gte: minTotal } : {}), ...(maxTotal ? { lte: maxTotal } : {}) } }
         : {}),
+      ...(filters.terminalId ? { terminalId: filters.terminalId } : {}),
+      ...(filters.shiftId ? { shiftId: filters.shiftId } : {}),
+      ...(filters.tillId
+        ? { tillId: filters.tillId }
+        : filters.registerId
+          ? { tillId: registerTillId?.tillId ?? NO_SUCH_TILL }
+          : {}),
+      ...(filters.channel && rolloutBranches.length
+        ? channelWhere(filters.channel, rolloutBranches, historicalFallbacks)
+        : filters.channel
+          ? channelWhere(filters.channel, [], historicalFallbacks)
+          : {}),
     };
 
     const [rows, total] = await Promise.all([
@@ -491,7 +598,8 @@ export class SaleReadService {
       }),
       this.prisma.sale.count({ where }),
     ]);
-    return { items: rows.map(toSaleSummary), total, page, pageSize };
+    const ctx = await this.attributionContext(user.tenantId, branchIds, rows);
+    return { items: rows.map((row) => toSaleSummary(row, ctx)), total, page, pageSize };
   }
 
   /**
@@ -512,16 +620,40 @@ export class SaleReadService {
   /** What the Sales filters offer: the branches the caller can view, and who has sold there. */
   async historyOptions(user: RequestUser) {
     const branches = await this.viewableBranches(user);
-    const sellers = await this.prisma.sale.findMany({
-      where: { tenantId: user.tenantId, ...branchWhere(branches.map((branch) => branch.id)) },
-      distinct: ["soldBy"],
-      select: { seller: { select: { id: true, fullName: true } } },
-    });
+    const branchIds = branches.map((branch) => branch.id);
+    const [sellers, registers, terminals] = await Promise.all([
+      this.prisma.sale.findMany({
+        where: { tenantId: user.tenantId, ...branchWhere(branchIds) },
+        distinct: ["soldBy"],
+        select: { seller: { select: { id: true, fullName: true } } },
+      }),
+      this.prisma.terminalCounter.findMany({
+        where: { tenantId: user.tenantId, branchId: { in: branchIds }, isActive: true },
+        select: { id: true, tillId: true, label: true, branchId: true },
+        orderBy: [{ branchId: "asc" }, { label: "asc" }],
+      }),
+      this.prisma.operationalTerminal.findMany({
+        where: { tenantId: user.tenantId, branchId: { in: branchIds }, retiredAt: null },
+        select: { id: true, label: true, branchId: true },
+        orderBy: [{ branchId: "asc" }, { label: "asc" }],
+      }),
+    ]);
     return {
       branches,
       sellers: sellers
         .map((row) => row.seller)
         .sort((a, b) => a.fullName.localeCompare(b.fullName)),
+      registers: registers.map((row) => ({
+        registerId: row.id,
+        tillId: row.tillId,
+        label: row.label,
+        branchId: row.branchId,
+      })),
+      terminals: terminals.map((row) => ({
+        terminalId: row.id,
+        label: row.label,
+        branchId: row.branchId,
+      })),
     };
   }
 
@@ -539,6 +671,44 @@ export class SaleReadService {
       include: SALE_DETAIL_INCLUDE,
     });
     if (!sale) throw new NotFoundException("Sale not found");
-    return toSaleDetail(sale);
+    const ctx = await this.attributionContext(user.tenantId, branchIds, [sale]);
+    return toSaleDetail(sale, ctx);
+  }
+
+  private async attributionContext(
+    tenantId: string,
+    branchIds: readonly string[],
+    sales: ReadonlyArray<{ tillId: string | null; terminalId: string | null; branch: { id: string } }>,
+  ): Promise<AttributionContext> {
+    const tillIds = [...new Set(sales.map((s) => s.tillId).filter((id): id is string => Boolean(id)))];
+    const terminalIds = [...new Set(sales.map((s) => s.terminalId).filter((id): id is string => Boolean(id)))];
+    const [registers, terminals, auditRows] = await Promise.all([
+      tillIds.length
+        ? this.prisma.terminalCounter.findMany({
+            where: { tenantId, branchId: { in: [...branchIds] }, tillId: { in: tillIds } },
+            select: { id: true, tillId: true, label: true },
+          })
+        : Promise.resolve([]),
+      terminalIds.length
+        ? this.prisma.operationalTerminal.findMany({
+            where: { tenantId, branchId: { in: [...branchIds] }, id: { in: terminalIds } },
+            select: { id: true, label: true },
+          })
+        : Promise.resolve([]),
+      this.prisma.auditEvent.findMany({
+        where: {
+          tenantId,
+          branchId: { in: [...branchIds] },
+          eventName: { in: [...FALLBACK_AUDIT_EVENTS] },
+        },
+        select: { branchId: true, eventName: true, payload: true, createdAt: true },
+        orderBy: { createdAt: "asc" },
+      }),
+    ]);
+    return {
+      registersByTill: new Map(registers.map((row) => [row.tillId, row])),
+      terminalsById: new Map(terminals.map((row) => [row.id, row])),
+      fallbackByBranch: fallbackWindowsFromAudit(auditRows),
+    };
   }
 }
