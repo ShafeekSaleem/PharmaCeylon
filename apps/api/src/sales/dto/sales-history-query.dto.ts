@@ -1,7 +1,9 @@
 import { PaymentMethod } from "@prisma/client";
+import { SALE_CHANNELS, type SaleChannel } from "@pharmaceylon/shared";
 import { Type } from "class-transformer";
 import {
   IsEnum,
+  IsIn,
   IsInt,
   IsOptional,
   IsString,
@@ -55,7 +57,7 @@ export class SalesHistoryQueryDto {
   @IsEnum(PaymentMethod)
   paymentMethod?: PaymentMethod;
 
-  /** Part of an invoice number; spaces are ignored. */
+  /** Part of an invoice number; spaces are ignored. With `registerId` or `terminalId`, scoped to that counter. */
   @IsOptional()
   @IsString()
   @MaxLength(64)
@@ -80,4 +82,29 @@ export class SalesHistoryQueryDto {
   @IsOptional()
   @Matches(MONEY, { message: "maxTotal must be an amount like 1250.00" })
   maxTotal?: string;
+
+  /** Enrolled counter terminal (`OperationalTerminal`). */
+  @IsOptional()
+  @IsUUID()
+  terminalId?: string;
+
+  /** Register / till counter id (`TerminalCounter`). */
+  @IsOptional()
+  @IsUUID()
+  registerId?: string;
+
+  /** Till drawer id, when filtering by till rather than register. */
+  @IsOptional()
+  @IsUUID()
+  tillId?: string;
+
+  /** Till shift the sale was rung up on. */
+  @IsOptional()
+  @IsUUID()
+  shiftId?: string;
+
+  /** Checkout channel: `web_legacy`, `desktop_online`, `offline`, or `fallback`. */
+  @IsOptional()
+  @IsIn(SALE_CHANNELS as unknown as SaleChannel[])
+  channel?: SaleChannel;
 }

@@ -1,5 +1,5 @@
 import { BadRequestException, ForbiddenException, NotFoundException } from "@nestjs/common";
-import { PaymentMethod, Prisma, RoleName, SaleStatus } from "@prisma/client";
+import { DesktopPosRollout, PaymentMethod, Prisma, RoleName, SaleStatus } from "@prisma/client";
 import { plainToInstance } from "class-transformer";
 import { validate } from "class-validator";
 import { PERMISSION_KEY } from "../security/decorators/require-permission.decorator";
@@ -24,15 +24,31 @@ const ROLE_GRANTS: Record<string, string[]> = {
   "role-no-sales": ["inventory.view"],
 };
 
-function summaryRow(id: string, branchId = "branch-a") {
+function branchRollout(branchId: string) {
   const branch = BRANCHES.find((b) => b.id === branchId)!;
+  return {
+    id: branch.id,
+    name: branch.name,
+    desktopPosRollout: DesktopPosRollout.not_live,
+    desktopPosLiveAt: null,
+    posFallbackStartedAt: null,
+    posFallbackEndsAt: null,
+  };
+}
+
+function summaryRow(id: string, branchId = "branch-a") {
   return {
     id,
     invoiceNo: `INV-2610-${id}`,
     status: SaleStatus.posted,
     soldAt: new Date("2026-10-20T04:00:00.000Z"),
     grandTotal: dec("1250"),
-    branch: { id: branch.id, name: branch.name },
+    terminalId: null,
+    tillId: null,
+    shiftId: null,
+    offlineCommandId: null,
+    shift: null,
+    branch: branchRollout(branchId),
     customer: null,
     seller: { id: "user-cashier", fullName: "Nimal Perera" },
     items: [{ qty: 2, productId: "product-1", product: { name: "Paracetamol" } }],
@@ -44,7 +60,6 @@ function summaryRow(id: string, branchId = "branch-a") {
 }
 
 function detailRow(branchId = "branch-b") {
-  const branch = BRANCHES.find((b) => b.id === branchId)!;
   return {
     id: "sale-1",
     tenantId: "tenant-1",
@@ -52,6 +67,11 @@ function detailRow(branchId = "branch-b") {
     invoiceNo: "INV-2610-000042",
     status: SaleStatus.partially_refunded,
     soldAt: new Date("2026-10-20T04:00:00.000Z"),
+    terminalId: null,
+    tillId: null,
+    shiftId: null,
+    offlineCommandId: null,
+    shift: null,
     subtotal: dec("1000"),
     discountTotal: dec("50"),
     taxTotal: dec("0"),
@@ -59,7 +79,7 @@ function detailRow(branchId = "branch-b") {
     amountPaid: dec("1000"),
     changeDue: dec("50"),
     notes: null,
-    branch: { id: branch.id, name: branch.name },
+    branch: branchRollout(branchId),
     customer: { id: "customer-1", fullName: "Kamala Silva", phone: "0771234567" },
     prescription: { id: "rx-1", rxNumber: "RX-17", patientName: "Kamala Silva", doctorName: "Dr Fernando" },
     seller: { id: "user-cashier", fullName: "Nimal Perera" },
@@ -95,16 +115,48 @@ function setup() {
   const prisma = {
     tenant: { findUnique: jest.fn().mockResolvedValue({ timezone: "Asia/Colombo" }) },
     branch: {
-      findMany: jest.fn(async ({ where }: { where: { tenantId: string; id?: { in: string[] } } }) =>
-        BRANCHES.filter(
-          (b) => b.tenantId === where.tenantId && b.isActive && (!where.id || where.id.in.includes(b.id)),
-        ).map(({ id, name }) => ({ id, name })),
+      findMany: jest.fn(
+        async ({
+          where,
+          select,
+        }: {
+          where: { tenantId: string; id?: { in: string[] }; isActive?: boolean };
+          select?: Record<string, boolean>;
+        }) => {
+          const rows = BRANCHES.filter(
+            (b) =>
+              b.tenantId === where.tenantId &&
+              (where.isActive === undefined || b.isActive === where.isActive) &&
+              (!where.id || where.id.in.includes(b.id)),
+          );
+          const rollout = select?.desktopPosRollout;
+          return rows.map((b) =>
+            rollout
+              ? {
+                  id: b.id,
+                  name: b.name,
+                  desktopPosRollout: DesktopPosRollout.not_live,
+                  desktopPosLiveAt: null,
+                  posFallbackStartedAt: null,
+                  posFallbackEndsAt: null,
+                }
+              : { id: b.id, name: b.name },
+          );
+        },
       ),
     },
     sale: {
       findMany: jest.fn().mockResolvedValue([]),
       findFirst: jest.fn().mockResolvedValue(null),
       count: jest.fn().mockResolvedValue(0),
+    },
+    auditEvent: { findMany: jest.fn().mockResolvedValue([]) },
+    terminalCounter: {
+      findFirst: jest.fn().mockResolvedValue(null),
+      findMany: jest.fn().mockResolvedValue([]),
+    },
+    operationalTerminal: {
+      findMany: jest.fn().mockResolvedValue([]),
     },
     $queryRaw: jest.fn().mockResolvedValue([]),
   };
@@ -241,6 +293,98 @@ describe("SaleReadService.history — filters and pagination", () => {
     });
   });
 
+  it("scopes invoice search to a register when both are sent", async () => {
+    const { prisma, service } = setup();
+    prisma.terminalCounter.findFirst.mockResolvedValue({ tillId: "till-1" });
+
+    await service.history(owner, "branch-a", {
+      registerId: "6f9a2b1c-8d7e-4f60-a1b2-c3d4e5f6a7b8",
+      invoiceNo: " C1R-000186 ",
+    });
+
+    expect(prisma.terminalCounter.findFirst).toHaveBeenCalled();
+    const where = lastWhere(prisma.sale.findMany);
+    expect(where).toMatchObject({ tillId: "till-1" });
+    expect(where.OR).toEqual(
+      expect.arrayContaining([
+        { invoiceNo: { contains: "C1R-000186", mode: "insensitive" } },
+        { invoiceNo: { endsWith: "-000186", mode: "insensitive" } },
+      ]),
+    );
+  });
+
+  it("finds a counter sale by a short receipt tail when scoped", async () => {
+    const { prisma, service } = setup();
+    prisma.terminalCounter.findFirst.mockResolvedValue({ tillId: "till-1" });
+    const row = {
+      ...summaryRow("sale-186"),
+      invoiceNo: "C1R-000186",
+      terminalId: "term-1",
+      tillId: "till-1",
+    };
+    prisma.sale.findMany.mockResolvedValue([row]);
+    prisma.operationalTerminal.findMany.mockResolvedValue([{ id: "term-1", label: "Desk" }]);
+
+    const result = await service.history(owner, "branch-a", { registerId: "6f9a2b1c-8d7e-4f60-a1b2-c3d4e5f6a7b8", invoiceNo: "186" });
+
+    expect(result.items).toHaveLength(1);
+    expect(lastWhere(prisma.sale.findMany).OR).toEqual(
+      expect.arrayContaining([{ invoiceNo: { endsWith: "-000186", mode: "insensitive" } }]),
+    );
+  });
+
+  it("returns no rows for a register id from another tenant", async () => {
+    const { prisma, service } = setup();
+
+    await service.history(owner, "branch-a", {
+      registerId: "6f9a2b1c-8d7e-4f60-a1b2-c3d4e5f6a7b8",
+    });
+
+    expect(lastWhere(prisma.sale.findMany)).toMatchObject({
+      tillId: "00000000-0000-4000-8000-000000000000",
+    });
+  });
+
+  it("filters by terminal, till and shift", async () => {
+    const { prisma, service } = setup();
+    const terminalId = "6f9a2b1c-8d7e-4f60-a1b2-c3d4e5f6a7b8";
+    const tillId = "8d7e4f60-a1b2-c3d4-e5f6-a7b8c3d4e5f6";
+    const shiftId = "0d4c1c2a-3f4b-4b7e-9a0c-6c1f2e3d4a5b";
+
+    await service.history(owner, "branch-a", { terminalId, tillId, shiftId });
+
+    expect(lastWhere(prisma.sale.findMany)).toMatchObject({ terminalId, tillId, shiftId });
+  });
+
+  it("adds attribution fields on each row", async () => {
+    const { prisma, service } = setup();
+    const row = {
+      ...summaryRow("000051"),
+      terminalId: "term-1",
+      tillId: "till-1",
+      shift: {
+        id: "shift-1",
+        shiftNumber: "S-0042",
+        openedAt: new Date("2026-10-20T04:00:00.000Z"),
+        closedAt: null,
+      },
+    };
+    prisma.sale.findMany.mockResolvedValue([row]);
+    prisma.terminalCounter.findMany.mockResolvedValue([
+      { id: "reg-1", tillId: "till-1", label: "Counter 1" },
+    ]);
+    prisma.operationalTerminal.findMany.mockResolvedValue([{ id: "term-1", label: "Front desk" }]);
+
+    const result = await service.history(owner, "branch-a", {});
+
+    expect(result.items[0]).toMatchObject({
+      channel: "desktop_online",
+      terminal: { id: "term-1", label: "Front desk" },
+      register: { id: "reg-1", tillId: "till-1", label: "Counter 1" },
+      shift: expect.objectContaining({ shiftNumber: "S-0042" }),
+    });
+  });
+
   it("reads a date range as the tenant's calendar days, both ends inclusive", async () => {
     const { prisma, service } = setup();
 
@@ -348,6 +492,8 @@ describe("SaleReadService.history — finding a sale without the receipt", () =>
     [{ customerPhone: "07" }, "customerPhone"],
     [{ minTotal: "-5" }, "minTotal"],
     [{ maxTotal: "12.345" }, "maxTotal"],
+    [{ terminalId: "not-a-uuid" }, "terminalId"],
+    [{ channel: "mobile" }, "channel"],
   ])("validates %j", async (query, property) => {
     const errors = await validate(plainToInstance(SalesHistoryQueryDto, query));
     expect(errors.map((e) => e.property)).toContain(property);
@@ -422,6 +568,10 @@ describe("SaleReadService.detail", () => {
     expect(sale).toMatchObject({
       invoiceNo: "INV-2610-000042",
       branch: { id: "branch-b", name: "Kandy" },
+      channel: "web_legacy",
+      terminal: null,
+      register: null,
+      shift: null,
       grandTotal: "950.00",
       customer: { fullName: "Kamala Silva" },
       prescription: { id: "rx-1", rxNumber: "RX-17" },
@@ -512,6 +662,10 @@ describe("SalesHistoryQueryDto", () => {
         soldBy: "6f9a2b1c-8d7e-4f60-a1b2-c3d4e5f6a7b8",
         paymentMethod: "mobile_wallet",
         invoiceNo: "INV-2610",
+        terminalId: "6f9a2b1c-8d7e-4f60-a1b2-c3d4e5f6a7b8",
+        registerId: "0d4c1c2a-3f4b-4b7e-9a0c-6c1f2e3d4a5b",
+        shiftId: "8d7e4f60-a1b2-4b7e-9a0c-6c1f2e3d4a5b",
+        channel: "desktop_online",
       }),
     ).toEqual([]);
   });
