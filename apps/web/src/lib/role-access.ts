@@ -109,7 +109,7 @@ export function rolesForPath(pathname: string): RoleName[] | undefined {
     // No blanket "/settings" entry: My Profile, Password & Login, and Appearance under
     // /settings are open to every role; the admin-only subtrees (Tenant Profile, Branches,
     // Main/Catalog/Operations, Alerts & Approvals, and the admin part of Security) each gate
-    // themselves via RolePageGuard in their own layout.tsx instead — see settings-subnav.tsx.
+    // themselves via RolePageGuard in their own layout.tsx instead — see lib/settings-menu.tsx.
   ];
 
   const match = rules

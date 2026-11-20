@@ -184,6 +184,17 @@ Owner and manager dashboards (Phase 2). The other three roles keep their layout 
 - **Sales trend.** Daily bars for 7, 14 or 30 days, so a day with no sales shows as zero. A run of empty days ends in "No sales recorded since…".
 - **Sizing.** The fixed cards are as tall as their content and wrap under the queue when there is no room beside it. Cards in the Customise canvas keep their fixed grid rows for now.
 
+## Settings
+
+Settings home and navigation (Phase 2, decision 3).
+
+- **The settings menu replaces the main sidebar.** Inside `/settings` the shell's sidebar shows the settings menu instead of the main nav, with "Back to app" at the top. It returns to the last page you had open outside Settings in this tab (Dashboard if there is none). Collapsing, the mobile drawer and Ctrl + B work the same as on the main nav.
+- **One list of settings pages:** [`apps/web/src/lib/settings-menu.tsx`](../../../apps/web/src/lib/settings-menu.tsx). Each page has its display name, its own icon, a group, whether it is admin-only, and the names of the fields inside it. The menu, the breadcrumb and the shell's page title read it, so the same page is never called two things.
+- **Groups state their scope once:** You (Only your account), Pharmacy, At the counter, Stock & buying, Reports & alerts (Everyone). The Personal / Organization-wide banner at the top of every page is gone.
+- **Content is capped at 880 px**, so forms such as My Profile no longer stretch across a wide screen.
+- "Counters & receipts" and "Counters & devices" keep their names until the Counters / Receipts / Payments / Offline selling split. Until then the device page's heading says "Counters & devices" so it matches the menu.
+- Screenshots: `screenshots/pr-settings-shell/`.
+
 ## Not done yet
 
 These items in #205 come in later PRs:

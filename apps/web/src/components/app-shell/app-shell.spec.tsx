@@ -106,7 +106,7 @@ function quickSale() {
 }
 
 async function renderShell() {
-  render(
+  const view = render(
     <AppShell>
       <p>Page body</p>
     </AppShell>,
@@ -114,10 +114,12 @@ async function renderShell() {
   await waitFor(() => expect(request).toHaveBeenCalledWith("/tenant/context"));
   // Let the context answer land.
   await act(async () => {});
+  return view;
 }
 
 beforeEach(() => {
   resetBranchRolloutCache();
+  sessionStorage.clear();
   mockPathname = "/dashboard";
   mockBackOfficeAccess = true;
   mockAccessResolved = true;
@@ -327,6 +329,66 @@ describe("W3 back-office web scope", () => {
   });
 });
 
+describe("#205 settings menu replaces the main sidebar", () => {
+  it("swaps the main nav for the settings menu inside Settings", async () => {
+    mockPathname = "/settings/approval-rules";
+    mockKeys = ["tenant.management"];
+    await renderShell();
+    expect(screen.queryByRole("navigation", { name: "Main" })).not.toBeInTheDocument();
+    const menu = screen.getByRole("navigation", { name: "Settings" });
+    expect(within(menu).getByRole("link", { name: "Back to app" })).toHaveAttribute(
+      "href",
+      "/dashboard",
+    );
+    expect(within(menu).getByRole("link", { name: "Approval Rules" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    // Each group says once who its changes reach.
+    expect(within(menu).getByRole("group", { name: "You: Only your account" })).toBeInTheDocument();
+    expect(within(menu).getByRole("group", { name: "At the counter: Everyone" })).toBeInTheDocument();
+  });
+
+  it("returns to the last page you had open outside Settings", async () => {
+    mockPathname = "/customers";
+    const view = await renderShell();
+    expect(screen.getByRole("navigation", { name: "Main" })).toBeInTheDocument();
+    mockPathname = "/settings/my-profile";
+    view.rerender(
+      <AppShell>
+        <p>Page body</p>
+      </AppShell>,
+    );
+    const menu = await screen.findByRole("navigation", { name: "Settings" });
+    await waitFor(() =>
+      expect(within(menu).getByRole("link", { name: "Back to app" })).toHaveAttribute(
+        "href",
+        "/customers",
+      ),
+    );
+  });
+
+  it("shows only your own pages without tenant management", async () => {
+    mockPathname = "/settings/my-profile";
+    mockKeys = [];
+    await renderShell();
+    const menu = screen.getByRole("navigation", { name: "Settings" });
+    expect(within(menu).getByRole("link", { name: "Password & Login" })).toBeInTheDocument();
+    expect(within(menu).queryByRole("link", { name: "Branches" })).not.toBeInTheDocument();
+    expect(within(menu).queryByRole("group", { name: /Pharmacy/ })).not.toBeInTheDocument();
+  });
+
+  it("names settings pages by their display name", () => {
+    expect(buildBreadcrumbs("/settings/counters")).toEqual([
+      { label: "Settings", href: "/settings" },
+      { label: "Counters & devices" },
+    ]);
+    expect(buildBreadcrumbs("/settings/tenant-profile").at(-1)).toEqual({
+      label: "Organization Profile",
+    });
+  });
+});
+
 describe("#205 web shell: one title, one scope control, quiet sidebar", () => {
   it("shows the page title once, in the page, and no breadcrumb on a top-level page", async () => {
     mockPathname = "/customers";
@@ -371,7 +433,7 @@ describe("#205 web shell: one title, one scope control, quiet sidebar", () => {
     const crumb = screen.getByRole("navigation", { name: "Breadcrumb" });
     expect(crumb).toHaveTextContent("Settings");
     expect(crumb).not.toHaveTextContent("Appearance");
-    expect(screen.getByRole("link", { name: "Settings", current: false })).toBeInTheDocument();
+    expect(within(crumb).getByRole("link", { name: "Settings" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Appearance");
   });
 

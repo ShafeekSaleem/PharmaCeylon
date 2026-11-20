@@ -67,7 +67,7 @@ export default function CountersSettingsPage() {
   return (
     <div>
       <PageHeader
-        title="Counters"
+        title="Counters & devices"
         description="The checkout counters at this branch, the computer enrolled on each, and codes for enrolling a new one."
       />
       <div className={css.panel}>{branchId ? <Counters key={branchId} /> : null}</div>

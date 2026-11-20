@@ -975,3 +975,36 @@
 
   .fab span { display: none; }
 }
+
+/* ── Settings menu (UI1 #205): replaces the main nav inside Settings ── */
+
+.settingsBack {
+  margin-top: 0.15rem;
+  color: var(--pc-muted-fg);
+}
+
+.settingsBack:hover {
+  color: var(--pc-foreground);
+}
+
+.settingsHome {
+  margin-bottom: 0.35rem;
+  font-weight: 600;
+}
+
+/* Who a group's changes reach, said once beside its heading. */
+.settingsScope {
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.sidebarCollapsed .settingsScope {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .sidebarOpen .settingsScope {
+    display: inline;
+  }
+}
