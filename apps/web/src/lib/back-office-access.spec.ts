@@ -18,6 +18,12 @@ describe("web-only access scope", () => {
     }
   });
 
+  it("keeps the settings home open, since it lists only the pages a person may open", () => {
+    expect(mayOpenWebPath("/settings", false, live)).toBe(true);
+    expect(mayOpenWebPath("/settings/branches", false, live)).toBe(false);
+    expect(mayOpenWebPath("/settingsx", false, live)).toBe(false);
+  });
+
   it("retains legacy web workflows before branch go-live", () => {
     expect(mayOpenWebPath("/pos", false, { ...live, state: "not_live" })).toBe(true);
     expect(mayOpenWebPath("/products", false, { ...live, state: "not_live" })).toBe(true);
