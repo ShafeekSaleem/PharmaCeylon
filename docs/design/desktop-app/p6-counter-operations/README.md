@@ -3,7 +3,8 @@
 Mockups for the desktop screens that P6 ([#52](https://github.com/ShafeekSaleem/PharmaCeylon/issues/52)) still has to build inside the Counter work frame (#122): every row marked `planned` in [`docs/COUNTER_WORK_COVERAGE.md`](../../../COUNTER_WORK_COVERAGE.md). Drawn 20 November 2026. Shafeek decided the five questions the drawings raised on 20 November 2026 (see `SPEC.md`); the drawings themselves still wait for sign-off before anything is built.
 
 - `SPEC.md` lists each screen, the API call behind it, and the decisions.
-- `index.html` is the review page. Open it with `?theme=light|dark|both` or `?full=<screen-id>`.
+- `index.html` is the review page. Open it with `?theme=light|dark|both` or `?full=<screen-id>`. Each screen is drawn once, light; the page script makes the dark copies and the full-size frames, so edit only the light one.
+- `SPEC.md` also lists what the API needs before these screens can be built: the counter can't read the documents yet.
 - The PNGs are 1600×1000 frames, `d-<screen-id>-light.png` and `d-<screen-id>-dark.png`.
 
 | # | Screen id | Counter work kind | Signed call |
@@ -17,6 +18,6 @@ Mockups for the desktop screens that P6 ([#52](https://github.com/ShafeekSaleem/
 | 11 | `imp` | `import_stock` | `POST /products/import/:importId/stock/post` |
 | 12 | `imp-undo` | (`import_undo` destination) | `POST /products/import/:importId/undo-stock` |
 
-These replace the Receive goods drawing on the `work` screen of `pharmaceylon-pos-desktop.html` where they differ. That drawing let the counter change a received quantity and type a batch; the post sends only the approval, so the counter can't. A mismatch goes to the approver instead (decision 1). The cold-chain tag stays in P8 #104.
+These replace the Receive goods drawing on the `work` screen of `pharmaceylon-pos-desktop.html` where they differ. That drawing let the counter change a received quantity and type a batch; the signed post names only the document, pinned to its approval, so the counter can't. A mismatch goes to the approver instead (decision 1). The cold-chain tag stays in P8 #104.
 
 The style follows the P4 offline-sale mockups (`../p4-offline-sale-v2/`) and UI1 #205: a queue card's title is its next action, it has one quiet state chip, and colour marks only the exception.
