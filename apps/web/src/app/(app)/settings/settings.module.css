@@ -1,35 +1,8 @@
-/* The app shell's own content area scrolls the whole document (it isn't height-clamped), so
-   giving this row a viewport-relative height on top of that produced two independent
-   scrollbars — the outer document and this row's own overflow. Instead only the nav rail is
-   pinned (position:sticky), and the page scrolls normally as one document. */
+/* Settings pages read best as a column: forms such as My Profile no longer stretch across a
+   1,400 px screen (UI1 #205). The settings menu is the app shell's sidebar, so this is the
+   only column here. */
 .page {
-  display: flex;
-  align-items: flex-start;
-  gap: 1.25rem;
-  max-width: 1680px;
-  margin: 0 auto;
-}
-
-.scopeBar {
-  min-height: 36px;
-  display: flex;
-  align-items: center;
-  gap: 0.65rem;
-  padding: 0.45rem 0.7rem;
-  border: 1px solid var(--pc-border);
-  border-radius: var(--pc-radius-sm);
-  background: color-mix(in srgb, var(--pc-primary-soft) 45%, var(--pc-card-bg));
-  color: var(--pc-muted-fg);
-  font-size: 0.76rem;
-}
-
-.scopeBadge {
-  flex-shrink: 0;
-  padding: 0.16rem 0.5rem;
-  border-radius: 999px;
-  background: var(--pc-primary-soft);
-  color: var(--pc-primary);
-  font-weight: 700;
+  max-width: 880px;
 }
 
 .lead {
@@ -38,79 +11,6 @@
   color: var(--pc-muted-fg);
   line-height: 1.45;
   max-width: 760px;
-}
-
-/* ── Sub-nav rail — vertical, grouped, mirrors app-shell.module.css's sidebar nav ── */
-
-.subnav {
-  width: 240px;
-  flex-shrink: 0;
-  position: sticky;
-  /* The app shell's top bar (56px) sits outside the scrolling <main> this lives in, so <main>'s
-     own content already starts below it — a sticky `top` here only needs to clear the *next*
-     thing scrolling past, which is nothing. `top: 56px` double-counted the header height,
-     forcing the rail to rest 56px below its "Organization-wide"/"Personal" scope-pill sibling
-     instead of starting flush with it; `top: 0` still keeps it pinned under the header once
-     scrolled (<main>'s own top already accounts for that), it just stops adding a second gap
-     at rest. */
-  top: 0;
-  max-height: calc(100vh - 56px - 1.5rem);
-  overflow-y: auto;
-  background: var(--pc-card-bg);
-  border: 1px solid var(--pc-border);
-  border-radius: var(--pc-radius-md, 10px);
-  padding: 0.75rem;
-}
-
-.subnavGroup {
-  margin-bottom: 0.25rem;
-}
-
-.subnavGroupLabel {
-  display: block;
-  padding: 0.5rem 0.6rem 0.25rem;
-  font-size: 0.65rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--pc-muted-fg);
-}
-
-.subnavItem {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  padding: 0.5rem 0.6rem;
-  margin-bottom: 1px;
-  border-radius: var(--pc-radius-sm);
-  font-size: 0.81rem;
-  font-weight: 500;
-  color: var(--pc-foreground);
-  text-decoration: none;
-}
-
-.subnavItem:hover {
-  background: var(--pc-muted-bg);
-}
-
-.subnavItemActive {
-  background: var(--pc-primary-soft);
-  color: var(--pc-primary);
-  font-weight: 600;
-}
-
-.subnavIcon {
-  width: 16px;
-  height: 16px;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--pc-muted-fg);
-}
-
-.subnavItemActive .subnavIcon {
-  color: var(--pc-primary);
 }
 
 /* ── Panel / cards — shared by every settings sub-page ── */
@@ -167,20 +67,8 @@
   .formGrid {
     grid-template-columns: 1fr;
   }
-  .page {
-    flex-direction: column;
-  }
-  .subnav {
-    width: 100%;
-    position: static;
-    max-height: 260px;
-  }
   .panel {
     padding-bottom: 0;
-  }
-
-  .scopeBar {
-    align-items: flex-start;
   }
 }
 

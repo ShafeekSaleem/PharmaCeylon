@@ -21,6 +21,8 @@ import { AppearanceEffect } from "./appearance-effect";
 import { PosFallbackBanner } from "./pos-fallback-banner";
 import { PageTitleProvider } from "./page-title-context";
 import { ThemeToggle } from "./theme-toggle";
+import { SettingsMenu } from "./settings-menu";
+import { SETTINGS_ITEMS } from "@/lib/settings-menu";
 import {
   IconGrid,
   IconShoppingCart,
@@ -222,7 +224,7 @@ const NAV_GROUPS: NavGroup[] = [
         permission: "users.view",
       },
       // Open to every role — My Profile/Password & Login/Appearance live under here too;
-      // the admin-only subtrees self-gate in their own layout.tsx (see settings-subnav.tsx).
+      // the admin-only subtrees self-gate in their own layout.tsx (see lib/settings-menu.tsx).
       {
         href: "/settings",
         label: "Settings",
@@ -261,27 +263,27 @@ Object.assign(PAGE_TITLES, {
   "/insights": "Insights",
   "/notifications": "Notifications",
   "/users/roles": "Roles",
-  "/settings/my-profile": "My Profile",
-  "/settings/tenant-profile": "Organization Profile",
-  "/settings/branches": "Branches",
   "/settings/branches/hours": "Opening Hours",
-  "/settings/main": "Counters & receipts",
-  "/settings/counters": "Counters",
-  "/settings/counter-alerts": "Counter alerts",
-  "/settings/payments": "Payments",
-  "/settings/offline-policy": "Offline policy",
-  "/settings/catalog": "Catalog",
   "/settings/catalog/categories": "Categories",
   "/settings/catalog/tags": "Tags",
-  "/settings/operations": "Operations",
   "/settings/profitability": "Profitability",
   "/settings/alerts-recipients": "Recipients & Channels",
-  "/settings/notifications": "Notifications",
-  "/settings/approval-rules": "Approval Rules",
   "/settings/insights-reports": "Insights & Reports",
-  "/settings/password-login": "Password & Login",
-  "/settings/appearance": "Appearance",
 } satisfies Record<string, string>);
+// Settings pages take their display names from the settings menu, so the breadcrumb, the page
+// title and the menu say the same thing ("Counters & devices", never "counters").
+for (const item of SETTINGS_ITEMS) PAGE_TITLES[item.href] = item.label;
+
+/** Where "Back to app" returns to from Settings: the last page you had open outside it. */
+const SETTINGS_RETURN_KEY = "pc_settings_return";
+
+function readSettingsReturn(): string {
+  try {
+    const saved = sessionStorage.getItem(SETTINGS_RETURN_KEY);
+    if (saved && saved.startsWith("/") && !saved.startsWith("//")) return saved;
+  } catch {}
+  return "/dashboard";
+}
 
 const COLLAPSE_KEY = "pc_sidebar_collapsed";
 
@@ -481,6 +483,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     setMobileOpen(false);
   }, [pathname]);
 
+  // Remember the last page outside Settings, so "Back to app" returns to it.
+  const [settingsReturn, setSettingsReturn] = useState("/dashboard");
+  useEffect(() => {
+    const inSettings = pathname === "/settings" || pathname.startsWith("/settings/");
+    if (inSettings) {
+      setSettingsReturn(readSettingsReturn());
+      return;
+    }
+    try {
+      sessionStorage.setItem(SETTINGS_RETURN_KEY, pathname);
+    } catch {}
+  }, [pathname]);
+
   /* ── Keyboard shortcuts ── */
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -631,72 +646,83 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             {!collapsed && <span className={styles.sidebarBrand}>PharmaCeylon</span>}
           </div>
 
-          <nav className={styles.sidebarNav} aria-label="Main">
-            {navGroups.map((group) => {
-              // A heading earns its place only over two or more items (#205); over a lone item
-              // it just repeats it ("Sales" over "Sales").
-              const showHeading = group.items.length > 1;
-              return (
-                <div
-                  key={group.label}
-                  className={`${styles.navGroup}${showHeading ? "" : ` ${styles.navGroupHeadless}`}`}
-                  role="group"
-                  aria-label={showHeading ? group.label : undefined}
-                >
-                  {showHeading && (
-                    <span className={styles.navGroupLabel} aria-hidden>
-                      {group.label}
-                    </span>
-                  )}
-                  {group.items.map((item) => {
-                    const active = pathname === item.href || pathname.startsWith(item.href + "/");
-                    const allowed = navItemAllowed(item, userRoles, permissionKeys);
-                    const deniedTip = roleDeniedMessage(item.roles);
+          {isSettings ? (
+            <SettingsMenu
+              pathname={pathname}
+              backHref={settingsReturn}
+              isAdmin={permissionKeys.includes("tenant.management")}
+              personalOnly={webScopeRestricted}
+              collapsed={collapsed}
+              onNavigate={() => setMobileOpen(false)}
+            />
+          ) : (
+            <nav className={styles.sidebarNav} aria-label="Main">
+              {navGroups.map((group) => {
+                // A heading earns its place only over two or more items (#205); over a lone item
+                // it just repeats it ("Sales" over "Sales").
+                const showHeading = group.items.length > 1;
+                return (
+                  <div
+                    key={group.label}
+                    className={`${styles.navGroup}${showHeading ? "" : ` ${styles.navGroupHeadless}`}`}
+                    role="group"
+                    aria-label={showHeading ? group.label : undefined}
+                  >
+                    {showHeading && (
+                      <span className={styles.navGroupLabel} aria-hidden>
+                        {group.label}
+                      </span>
+                    )}
+                    {group.items.map((item) => {
+                      const active = pathname === item.href || pathname.startsWith(item.href + "/");
+                      const allowed = navItemAllowed(item, userRoles, permissionKeys);
+                      const deniedTip = roleDeniedMessage(item.roles);
 
-                    if (!allowed) {
+                      if (!allowed) {
+                        return (
+                          <span
+                            key={item.href}
+                            className={`${styles.navItem} ${styles.navItemRestricted}`}
+                            aria-disabled="true"
+                            data-tooltip={deniedTip}
+                            data-tooltip-placement="right"
+                          >
+                            <span className={styles.navItemIcon}>{item.icon}</span>
+                            <span className={styles.navItemLabel}>{item.label}</span>
+                          </span>
+                        );
+                      }
+
                       return (
-                        <span
+                        <Link
                           key={item.href}
-                          className={`${styles.navItem} ${styles.navItemRestricted}`}
-                          aria-disabled="true"
-                          data-tooltip={deniedTip}
-                          data-tooltip-placement="right"
+                          href={item.href}
+                          className={`${styles.navItem}${active ? ` ${styles.navItemActive}` : ""}`}
+                          aria-current={active ? "page" : undefined}
+                          onClick={() => setMobileOpen(false)}
+                          {...(collapsed
+                            ? {
+                                "data-tooltip": item.label,
+                                "data-tooltip-placement": "right",
+                              }
+                            : {})}
                         >
                           <span className={styles.navItemIcon}>{item.icon}</span>
                           <span className={styles.navItemLabel}>{item.label}</span>
-                        </span>
+                          {navBadges[item.href] ? (
+                            <span className={styles.navBadge}>
+                              {navBadgeText(navBadges[item.href])}
+                              <span className="pc-sr-only"> need action</span>
+                            </span>
+                          ) : null}
+                        </Link>
                       );
-                    }
-
-                    return (
-                      <Link
-                        key={item.href}
-                        href={item.href}
-                        className={`${styles.navItem}${active ? ` ${styles.navItemActive}` : ""}`}
-                        aria-current={active ? "page" : undefined}
-                        onClick={() => setMobileOpen(false)}
-                        {...(collapsed
-                          ? {
-                              "data-tooltip": item.label,
-                              "data-tooltip-placement": "right",
-                            }
-                          : {})}
-                      >
-                        <span className={styles.navItemIcon}>{item.icon}</span>
-                        <span className={styles.navItemLabel}>{item.label}</span>
-                        {navBadges[item.href] ? (
-                          <span className={styles.navBadge}>
-                            {navBadgeText(navBadges[item.href])}
-                            <span className="pc-sr-only"> need action</span>
-                          </span>
-                        ) : null}
-                      </Link>
-                    );
-                  })}
-                </div>
-              );
-            })}
-          </nav>
+                    })}
+                  </div>
+                );
+              })}
+            </nav>
+          )}
 
           <div className={styles.sidebarFooter}>Version 1.0.0</div>
         </aside>

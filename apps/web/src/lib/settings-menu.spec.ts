@@ -1,0 +1,70 @@
+import {
+  SETTINGS_GROUPS,
+  SETTINGS_ITEMS,
+  groupSettingsItems,
+  searchSettings,
+  settingsItemFor,
+  visibleSettingsItems,
+} from "./settings-menu";
+
+const ALL = visibleSettingsItems({ isAdmin: true, personalOnly: false });
+
+describe("settings menu (UI1 #205)", () => {
+  it("gives every item its own icon and a known group", () => {
+    const groups = new Set(SETTINGS_GROUPS.map((g) => g.key));
+    for (const item of SETTINGS_ITEMS) expect(groups.has(item.group)).toBe(true);
+    // Each item names a different icon component.
+    const icons = SETTINGS_ITEMS.map((item) => {
+      const el = item.icon(16) as { type: { name: string } };
+      return el.type.name;
+    });
+    expect(new Set(icons).size).toBe(SETTINGS_ITEMS.length);
+  });
+
+  it("states the scope once per group", () => {
+    expect(SETTINGS_GROUPS.find((g) => g.key === "you")?.scope).toBe("Only your account");
+    for (const g of SETTINGS_GROUPS.filter((g) => g.key !== "you"))
+      expect(g.scope).toBe("Everyone");
+  });
+
+  it("shows admin pages only with tenant management, and only personal pages when restricted", () => {
+    const self = visibleSettingsItems({ isAdmin: false, personalOnly: false });
+    expect(self.every((item) => !item.adminOnly)).toBe(true);
+    expect(groupSettingsItems(self).map((g) => g.group.key)).toEqual(["you"]);
+
+    const restricted = visibleSettingsItems({ isAdmin: true, personalOnly: true });
+    expect(restricted.map((i) => i.href)).toEqual([
+      "/settings/my-profile",
+      "/settings/password-login",
+      "/settings/appearance",
+    ]);
+  });
+
+  it("finds a page by name and by a field inside it", () => {
+    expect(searchSettings(ALL, "refund limit").map((m) => m.item.label)).toEqual([
+      "Approval Rules",
+    ]);
+    expect(searchSettings(ALL, "refund limit")[0]?.field).toBe("refund limit");
+    expect(searchSettings(ALL, "branches")[0]?.item.label).toBe("Branches");
+    expect(searchSettings(ALL, "VAT").map((m) => m.item.label)).toContain("Catalog");
+    expect(searchSettings(ALL, "accent colour")[0]?.item.label).toBe("Appearance");
+    expect(searchSettings(ALL, "accent color")[0]?.item.label).toBe("Appearance");
+  });
+
+  it("puts name matches before field matches and needs every word", () => {
+    const results = searchSettings(ALL, "counter");
+    expect(results[0]?.field).toBeUndefined();
+    expect(searchSettings(ALL, "refund banana")).toEqual([]);
+    expect(searchSettings(ALL, "   ")).toEqual([]);
+  });
+
+  it("does not find pages you cannot open", () => {
+    const self = visibleSettingsItems({ isAdmin: false, personalOnly: false });
+    expect(searchSettings(self, "refund limit")).toEqual([]);
+  });
+
+  it("maps a sub-page to its parent item", () => {
+    expect(settingsItemFor("/settings/branches/hours")?.label).toBe("Branches");
+    expect(settingsItemFor("/settings")).toBeUndefined();
+  });
+});
