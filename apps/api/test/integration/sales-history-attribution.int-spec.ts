@@ -247,9 +247,6 @@ beforeAll(async () => {
       grandTotal: "30",
       amountPaid: "30",
       soldBy: fx.clerkId,
-      terminalId,
-      tillId,
-      shiftId,
       items: {
         create: { tenantId: fx.tenantId, productId: fx.productId, batchId, qty: 1, unitPrice: "30", lineTotal: "30" },
       },
