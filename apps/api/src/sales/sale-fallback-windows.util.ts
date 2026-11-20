@@ -1,5 +1,9 @@
 import { DesktopPosRollout, Prisma } from "@prisma/client";
-import type { FallbackWindow, SaleChannel } from "@pharmaceylon/shared";
+import {
+  effectiveFallbackWindows,
+  type FallbackWindow,
+  type SaleChannel,
+} from "@pharmaceylon/shared";
 import type { PosRolloutColumns } from "../tenant/pos-rollout";
 
 type AuditRow = { branchId: string | null; eventName: string; payload: unknown; createdAt: Date };
@@ -27,11 +31,19 @@ export function fallbackWindowsFromAudit(rows: AuditRow[]): Map<string, Fallback
     const windows: FallbackWindow[] = [];
     let open: { startedAt: Date; endsAt: Date } | null = null;
     for (const event of events.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())) {
-      if (event.eventName === "branch.pos_fallback_started" || event.eventName === "branch.pos_fallback_extended") {
+      if (event.eventName === "branch.pos_fallback_started") {
         const end = endsAt(event.payload);
         if (!end) continue;
-        if (!open) open = { startedAt: event.createdAt, endsAt: end };
-        else open = { startedAt: open.startedAt, endsAt: end };
+        if (open) {
+          const closeAt =
+            open.endsAt.getTime() <= event.createdAt.getTime() ? open.endsAt : event.createdAt;
+          if (open.startedAt < closeAt) windows.push({ startedAt: open.startedAt, endsAt: closeAt });
+        }
+        open = { startedAt: event.createdAt, endsAt: end };
+      } else if (event.eventName === "branch.pos_fallback_extended") {
+        const end = endsAt(event.payload);
+        if (!end || !open) continue;
+        open.endsAt = end;
       } else if (event.eventName === "branch.pos_fallback_ended" && open) {
         windows.push({ startedAt: open.startedAt, endsAt: event.createdAt });
         open = null;
@@ -47,21 +59,13 @@ const WEB_SALE: Prisma.SaleWhereInput = { terminalId: null, offlineCommandId: nu
 
 export type BranchRolloutRow = PosRolloutColumns & { id: string };
 
-/** `soldAt` fell in a recorded fallback window for a live branch. */
-export function fallbackSoldAtOr(
+function fallbackSoldAtOr(
   branches: readonly BranchRolloutRow[],
   historical: Map<string, FallbackWindow[]>,
 ): Prisma.SaleWhereInput[] {
   const clauses: Prisma.SaleWhereInput[] = [];
   for (const branch of branches) {
-    if (branch.desktopPosRollout !== DesktopPosRollout.live) continue;
-    if (branch.posFallbackStartedAt && branch.posFallbackEndsAt) {
-      clauses.push({
-        branchId: branch.id,
-        soldAt: { gte: branch.posFallbackStartedAt, lt: branch.posFallbackEndsAt },
-      });
-    }
-    for (const window of historical.get(branch.id) ?? []) {
+    for (const window of effectiveFallbackWindows(branch, historical.get(branch.id) ?? [])) {
       clauses.push({
         branchId: branch.id,
         soldAt: { gte: window.startedAt, lt: window.endsAt },
@@ -69,6 +73,28 @@ export function fallbackSoldAtOr(
     }
   }
   return clauses;
+}
+
+function webLegacySoldAtOr(
+  branches: readonly BranchRolloutRow[],
+  historical: Map<string, FallbackWindow[]>,
+): Prisma.SaleWhereInput[] {
+  const or: Prisma.SaleWhereInput[] = [];
+  for (const branch of branches) {
+    if (branch.desktopPosRollout !== DesktopPosRollout.live || !branch.desktopPosLiveAt) {
+      or.push({ branchId: branch.id });
+      continue;
+    }
+    or.push({ branchId: branch.id, soldAt: { lt: branch.desktopPosLiveAt } });
+    const fallback = fallbackSoldAtOr([branch], historical);
+    or.push({
+      AND: [
+        { branchId: branch.id, soldAt: { gte: branch.desktopPosLiveAt } },
+        ...(fallback.length ? [{ NOT: { OR: fallback } }] : []),
+      ],
+    });
+  }
+  return or;
 }
 
 export function channelWhere(
@@ -88,10 +114,8 @@ export function channelWhere(
         : { AND: [WEB_SALE, { id: "00000000-0000-4000-8000-000000000000" }] };
     }
     case "web_legacy": {
-      const ranges = fallbackSoldAtOr(branches, historical);
-      return ranges.length
-        ? { AND: [WEB_SALE, { NOT: { OR: ranges } }] }
-        : { AND: [WEB_SALE] };
+      const or = webLegacySoldAtOr(branches, historical);
+      return or.length ? { AND: [WEB_SALE, { OR: or }] } : { AND: [WEB_SALE] };
     }
     default:
       return {};

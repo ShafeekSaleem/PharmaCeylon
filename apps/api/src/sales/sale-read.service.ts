@@ -24,6 +24,7 @@ import { PrismaService } from "../prisma/prisma.service";
 import type { RequestUser } from "../security/interfaces/authenticated-request.interface";
 import { PermissionsService } from "../security/permissions.service";
 import { POS_ROLLOUT_SELECT } from "../tenant/pos-rollout";
+import { invoiceNoWhere } from "./invoice-no-search.util";
 import { channelWhere, fallbackWindowsFromAudit } from "./sale-fallback-windows.util";
 
 const NO_SUCH_TILL = "00000000-0000-4000-8000-000000000000";
@@ -565,11 +566,7 @@ export class SaleReadService {
       ...(filters.paymentMethod
         ? { payments: { some: { method: filters.paymentMethod, amount: { gt: 0 } } } }
         : {}),
-      ...(invoiceNo
-        ? counterScoped
-          ? { invoiceNo: { equals: invoiceNo, mode: "insensitive" } }
-          : { invoiceNo: { contains: invoiceNo, mode: "insensitive" } }
-        : {}),
+      ...(invoiceNo ? invoiceNoWhere(invoiceNo, counterScoped) : {}),
       ...(customerIds ? { customerId: { in: customerIds } } : {}),
       ...(minTotal || maxTotal
         ? { grandTotal: { ...(minTotal ? { gte: minTotal } : {}), ...(maxTotal ? { lte: maxTotal } : {}) } }

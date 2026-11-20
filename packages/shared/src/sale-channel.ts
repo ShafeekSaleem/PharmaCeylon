@@ -32,10 +32,45 @@ function inWindow(soldAt: Date, window: FallbackWindow): boolean {
   return soldAt >= window.startedAt && soldAt < window.endsAt;
 }
 
+function clipWindow(start: Date, end: Date, liveAt: Date): FallbackWindow | null {
+  const clippedStart = start < liveAt ? liveAt : start;
+  return clippedStart < end ? { startedAt: clippedStart, endsAt: end } : null;
+}
+
+/**
+ * Fallback intervals that count for labelling and filtering: only on a live branch, never before
+ * `desktopPosLiveAt`, from current branch columns plus historical audit windows.
+ */
+export function effectiveFallbackWindows(
+  branch: SaleChannelBranchRollout,
+  historical: readonly FallbackWindow[] = [],
+): FallbackWindow[] {
+  if (branch.desktopPosRollout !== "live") return [];
+  const liveAt = branch.desktopPosLiveAt ? at(branch.desktopPosLiveAt) : null;
+  if (!liveAt) return [];
+
+  const windows: FallbackWindow[] = [];
+  if (branch.posFallbackStartedAt && branch.posFallbackEndsAt) {
+    const clipped = clipWindow(at(branch.posFallbackStartedAt), at(branch.posFallbackEndsAt), liveAt);
+    if (clipped) windows.push(clipped);
+  }
+  for (const window of historical) {
+    const clipped = clipWindow(at(window.startedAt), at(window.endsAt), liveAt);
+    if (clipped) windows.push(clipped);
+  }
+  return windows;
+}
+
+export function isFallbackWebSale(
+  soldAt: Date | string,
+  branch: SaleChannelBranchRollout,
+  historical: readonly FallbackWindow[] = [],
+): boolean {
+  return effectiveFallbackWindows(branch, historical).some((window) => inWindow(at(soldAt), window));
+}
+
 /**
  * Derives the sales channel from persisted attribution and branch rollout, without a stored column.
- * Offline replay wins over counter attribution; counter over web; web splits legacy vs fallback from
- * go-live and fallback windows (current branch columns plus optional historical audit windows).
  */
 export function deriveSaleChannel(
   sale: SaleChannelAttribution,
@@ -51,11 +86,7 @@ export function deriveSaleChannel(
   const liveAt = branch.desktopPosLiveAt ? at(branch.desktopPosLiveAt) : null;
   if (!liveAt || soldAt < liveAt) return "web_legacy";
 
-  const started = branch.posFallbackStartedAt ? at(branch.posFallbackStartedAt) : null;
-  const ends = branch.posFallbackEndsAt ? at(branch.posFallbackEndsAt) : null;
-  if (started && ends && inWindow(soldAt, { startedAt: started, endsAt: ends })) return "fallback";
-
-  if (historicalFallbacks.some((window) => inWindow(soldAt, window))) return "fallback";
+  if (isFallbackWebSale(soldAt, branch, historicalFallbacks)) return "fallback";
 
   return "web_legacy";
 }

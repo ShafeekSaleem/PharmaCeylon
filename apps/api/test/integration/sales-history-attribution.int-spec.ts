@@ -50,6 +50,7 @@ const PIN = "4826";
 let fx: TenantFixture;
 let other: TenantFixture;
 let batchId: string;
+let otherBatchId: string;
 let registerId: string;
 let tillId: string;
 let terminalId: string;
@@ -57,6 +58,9 @@ let shiftId: string;
 let counterSaleId: string;
 let counterInvoice: string;
 let webInvoice: string;
+let offlineSaleId: string;
+let otherTenantIds: { terminalId: string; registerId: string; tillId: string; shiftId: string; saleId: string };
+let otherBranchIds: { terminalId: string; registerId: string; tillId: string; shiftId: string; saleId: string };
 
 const tx = <T>(run: (client: Prisma.TransactionClient) => Promise<T>) => prisma.$transaction(run, { timeout: 15_000 });
 type Device = ReturnType<typeof terminalDevice>;
@@ -71,14 +75,24 @@ const owner = (tenant: TenantFixture): RequestUser => ({
   branchRoles: [{ branchId: tenant.mainBranchId, role: RoleName.owner }],
 });
 
-const staff = (tenant: TenantFixture, userId: string): RequestUser => ({
+const mainBranchManager = (tenant: TenantFixture): RequestUser => ({
+  userId: tenant.managerId,
+  tenantId: tenant.tenantId,
+  tokenVersion: 0,
+  email: "mgr@it.test",
+  fullName: "Manager",
+  authMethod: "bearer",
+  branchRoles: [{ branchId: tenant.mainBranchId, role: RoleName.manager }],
+});
+
+const staff = (tenant: TenantFixture, userId: string, branchId: string): RequestUser => ({
   userId,
   tenantId: tenant.tenantId,
   tokenVersion: 0,
   email: "staff@it.test",
   fullName: "Staff",
   authMethod: "bearer",
-  branchRoles: [{ branchId: tenant.mainBranchId, role: userId === tenant.clerkId ? RoleName.cashier : RoleName.owner }],
+  branchRoles: [{ branchId, role: userId === tenant.clerkId ? RoleName.cashier : RoleName.owner }],
 });
 
 function attestation(
@@ -105,56 +119,71 @@ function attestation(
   };
 }
 
-const record = (device: Device, a: LocalAttendanceAttestation, actor: RequestUser) =>
-  proofs.record(actor, fx.mainBranchId, device.sign(a, a.identity.keyId, "attendance"));
+const record = (actor: RequestUser, branchId: string, device: Device, a: LocalAttendanceAttestation) =>
+  proofs.record(actor, branchId, device.sign(a, a.identity.keyId, "attendance"));
 
-async function enroll(ownerUser: RequestUser, clerkUser: RequestUser) {
+async function enrollCounter(
+  tenant: TenantFixture,
+  branchId: string,
+  ownerUser: RequestUser,
+  clerkUser: RequestUser,
+  invoiceNo?: string,
+) {
   const device = terminalDevice();
-  const created = await tx((c) => trust.createCounter(c, ownerUser, fx.mainBranchId, `Till ${randomUUID().slice(0, 4)}`));
-  registerId = created.id;
-  tillId = created.tillId;
+  const created = await tx((c) => trust.createCounter(c, ownerUser, branchId, `Till ${randomUUID().slice(0, 4)}`));
   const challenge = await tx((c) =>
-    trust.beginEnrollment(c, ownerUser, fx.mainBranchId, {
-      registerId,
+    trust.beginEnrollment(c, ownerUser, branchId, {
+      registerId: created.id,
       keyId: randomUUID(),
       publicKeyHex: device.publicKeyHex,
       label: "Front desk",
     }),
   );
-  const proof = await record(device, attestation(challenge, "enrollment", ownerUser), ownerUser);
+  const proof = await record(ownerUser, branchId, device, attestation(challenge, "enrollment", ownerUser));
   const identity = await tx((c) =>
-    trust.finishEnrollment(c, ownerUser, fx.mainBranchId, device.sign(challenge, challenge.identity.keyId), proof.proofId),
+    trust.finishEnrollment(c, ownerUser, branchId, device.sign(challenge, challenge.identity.keyId), proof.proofId),
   );
-  terminalId = identity.terminalId;
-
-  const sessionChallenge = await tx((c) => trust.beginSession(c, clerkUser, fx.mainBranchId, identity));
-  const sessionProof = await record(device, attestation(sessionChallenge, "session", clerkUser), clerkUser);
+  const sessionChallenge = await tx((c) => trust.beginSession(c, clerkUser, branchId, identity));
+  const sessionProof = await record(clerkUser, branchId, device, attestation(sessionChallenge, "session", clerkUser));
   const session = await tx((c) =>
-    trust.finishSession(c, clerkUser, fx.mainBranchId, device.sign(sessionChallenge, identity.keyId), sessionProof.proofId),
+    trust.finishSession(c, clerkUser, branchId, device.sign(sessionChallenge, identity.keyId), sessionProof.proofId),
   );
-
-  shiftId = randomUUID();
-  await shifts.open(clerkUser, fx.mainBranchId, session.workSessionId, {
-    shiftId,
+  const shift = randomUUID();
+  await shifts.open(clerkUser, branchId, session.workSessionId, {
+    shiftId: shift,
     pin: PIN,
     openingCount: { totalMinor: 500_000, lines: [{ denominationMinor: 100, count: 5000 }] },
   });
-
+  const batch =
+    tenant.tenantId === fx.tenantId && branchId === fx.mainBranchId
+      ? batchId
+      : tenant.tenantId === fx.tenantId
+        ? await createStockedBatch(prisma, stock, tenant, { qty: 50, branchId })
+        : otherBatchId;
   const sale = await sales.checkout(
-    fx.tenantId,
-    fx.mainBranchId,
+    tenant.tenantId,
+    branchId,
     clerkUser.userId,
     [],
     {
-      items: [{ productId: fx.productId, batchId, qty: 1, unitPrice: "25.00" }],
+      items: [{ productId: tenant.productId, batchId: batch, qty: 1, unitPrice: "25.00" }],
       payments: [{ method: PaymentMethod.cash, amount: "25.00" }],
     } as never,
     randomUUID(),
     { user: clerkUser, workSessionId: session.workSessionId },
   );
-  counterSaleId = sale!.id;
-  const row = await prisma.sale.findFirstOrThrow({ where: { id: counterSaleId } });
-  counterInvoice = row.invoiceNo;
+  if (invoiceNo) {
+    await prisma.sale.update({ where: { id: sale!.id }, data: { invoiceNo } });
+  }
+  const row = await prisma.sale.findFirstOrThrow({ where: { id: sale!.id } });
+  return {
+    registerId: created.id,
+    tillId: created.tillId,
+    terminalId: identity.terminalId,
+    shiftId: shift,
+    saleId: sale!.id,
+    invoiceNo: row.invoiceNo,
+  };
 }
 
 beforeAll(async () => {
@@ -164,11 +193,18 @@ beforeAll(async () => {
     data: [
       { tenantId: fx.tenantId, branchId: fx.mainBranchId, userId: fx.clerkId, role: RoleName.cashier },
       { tenantId: fx.tenantId, branchId: fx.mainBranchId, userId: fx.ownerId, role: RoleName.owner },
+      { tenantId: fx.tenantId, branchId: fx.mainBranchId, userId: fx.managerId, role: RoleName.manager },
+      { tenantId: other.tenantId, branchId: other.mainBranchId, userId: other.clerkId, role: RoleName.cashier },
+      { tenantId: other.tenantId, branchId: other.mainBranchId, userId: other.ownerId, role: RoleName.owner },
     ],
   });
   const posPinHash = await bcrypt.hash(PIN, 4);
-  await prisma.appUser.update({ where: { id: fx.clerkId }, data: { posPinHash, posPinVersion: 1 } });
+  await prisma.appUser.updateMany({
+    where: { id: { in: [fx.clerkId, other.clerkId] } },
+    data: { posPinHash, posPinVersion: 1 },
+  });
   batchId = await createStockedBatch(prisma, stock, fx, { qty: 200 });
+  otherBatchId = await createStockedBatch(prisma, stock, other, { qty: 50 });
 
   const web = await sales.checkout(
     fx.tenantId,
@@ -183,13 +219,42 @@ beforeAll(async () => {
   );
   webInvoice = (await prisma.sale.findFirstOrThrow({ where: { id: web!.id } })).invoiceNo;
 
-  await enroll(owner(fx), staff(fx, fx.clerkId));
+  const main = await enrollCounter(fx, fx.mainBranchId, owner(fx), staff(fx, fx.clerkId, fx.mainBranchId), "C1R-000186");
+  registerId = main.registerId;
+  tillId = main.tillId;
+  terminalId = main.terminalId;
+  shiftId = main.shiftId;
+  counterSaleId = main.saleId;
+  counterInvoice = main.invoiceNo;
 
-  const otherBatch = await createStockedBatch(prisma, stock, other, { qty: 5 });
-  await sales.checkout(other.tenantId, other.mainBranchId, other.clerkId, [], {
-    items: [{ productId: other.productId, batchId: otherBatch, qty: 1, unitPrice: "5.00" }],
-    payments: [{ method: PaymentMethod.cash, amount: "5.00" }],
-  } as never, randomUUID());
+  otherTenantIds = await enrollCounter(other, other.mainBranchId, owner(other), staff(other, other.clerkId, other.mainBranchId));
+  otherBranchIds = await enrollCounter(
+    fx,
+    fx.otherBranchId,
+    owner(fx),
+    staff(fx, fx.clerkId, fx.otherBranchId),
+  );
+
+  const offline = await prisma.sale.create({
+    data: {
+      tenantId: fx.tenantId,
+      branchId: fx.mainBranchId,
+      invoiceNo: `C1R-OFF-${randomUUID().slice(0, 6)}`,
+      offlineCommandId: randomUUID(),
+      subtotal: "30",
+      grandTotal: "30",
+      amountPaid: "30",
+      soldBy: fx.clerkId,
+      terminalId,
+      tillId,
+      shiftId,
+      items: {
+        create: { tenantId: fx.tenantId, productId: fx.productId, batchId, qty: 1, unitPrice: "30", lineTotal: "30" },
+      },
+      payments: { create: { tenantId: fx.tenantId, method: PaymentMethod.cash, amount: "30" } },
+    },
+  });
+  offlineSaleId = offline.id;
 });
 
 afterAll(() => prisma.$disconnect());
@@ -214,38 +279,135 @@ describe("sales history attribution and filters (#66 Phase B)", () => {
     });
   });
 
-  it("labels web checkout as web_legacy", async () => {
+  it("finds a counter sale by short receipt number when the register is selected", async () => {
+    const byShort = await reads.history(owner(fx), fx.mainBranchId, { registerId, invoiceNo: "186" });
+    expect(byShort.items.map((row) => row.id)).toEqual([counterSaleId]);
+
+    const byPadded = await reads.history(owner(fx), fx.mainBranchId, { registerId, invoiceNo: "000186" });
+    expect(byPadded.items.map((row) => row.id)).toEqual([counterSaleId]);
+
+    const partial = await reads.history(owner(fx), fx.mainBranchId, { registerId, invoiceNo: "C1R-0001" });
+    expect(partial.items.map((row) => row.id)).toEqual([counterSaleId]);
+  });
+
+  it("labels web checkout as web_legacy and filters channel=web_legacy", async () => {
     const listed = await reads.history(owner(fx), fx.mainBranchId, { invoiceNo: webInvoice });
-    expect(listed.items.some((row) => row.invoiceNo === webInvoice)).toBe(true);
     expect(listed.items.find((row) => row.invoiceNo === webInvoice)).toMatchObject({
       channel: "web_legacy",
       terminal: null,
       register: null,
     });
+    const filtered = await reads.history(owner(fx), fx.mainBranchId, { channel: "web_legacy" });
+    expect(filtered.items.every((row) => row.channel === "web_legacy")).toBe(true);
+    expect(filtered.items.some((row) => row.invoiceNo === webInvoice)).toBe(true);
   });
 
-  it("filters by register and per-counter invoice", async () => {
-    const only = await reads.history(owner(fx), fx.mainBranchId, { registerId, invoiceNo: counterInvoice });
-    expect(only.items).toHaveLength(1);
-    expect(only.items[0]!.id).toBe(counterSaleId);
+  it("filters offline sales and labels channel=offline", async () => {
+    const filtered = await reads.history(owner(fx), fx.mainBranchId, { channel: "offline" });
+    expect(filtered.items.some((row) => row.id === offlineSaleId)).toBe(true);
+    expect(filtered.items.every((row) => row.channel === "offline")).toBe(true);
+  });
 
-    const wrongRegister = await reads.history(owner(fx), fx.mainBranchId, {
-      registerId: randomUUID(),
-      invoiceNo: counterInvoice,
+  it("keeps channel filters aligned with row labels across go-live and fallback history", async () => {
+    const liveAt = new Date("2026-08-01T00:00:00.000Z");
+    const preLiveSale = await prisma.sale.create({
+      data: {
+        tenantId: fx.tenantId,
+        branchId: fx.mainBranchId,
+        invoiceNo: `PRE-LIVE-${randomUUID().slice(0, 6)}`,
+        soldAt: new Date("2026-07-01T12:00:00.000Z"),
+        subtotal: "11",
+        grandTotal: "11",
+        amountPaid: "11",
+        soldBy: fx.clerkId,
+        items: {
+          create: { tenantId: fx.tenantId, productId: fx.productId, batchId, qty: 1, unitPrice: "11", lineTotal: "11" },
+        },
+        payments: { create: { tenantId: fx.tenantId, method: PaymentMethod.cash, amount: "11" } },
+      },
     });
-    expect(wrongRegister.total).toBe(0);
+    await prisma.auditEvent.create({
+      data: {
+        tenantId: fx.tenantId,
+        branchId: fx.mainBranchId,
+        eventName: "branch.pos_fallback_started",
+        entityName: "branch",
+        entityId: fx.mainBranchId,
+        payload: { endsAt: "2026-07-15T00:00:00.000Z" },
+        createdAt: new Date("2026-07-10T00:00:00.000Z"),
+      },
+    });
+    const fallbackSale = await prisma.sale.create({
+      data: {
+        tenantId: fx.tenantId,
+        branchId: fx.mainBranchId,
+        invoiceNo: `FB-${randomUUID().slice(0, 6)}`,
+        soldAt: new Date("2026-09-01T12:00:00.000Z"),
+        subtotal: "40",
+        grandTotal: "40",
+        amountPaid: "40",
+        soldBy: fx.clerkId,
+        items: {
+          create: { tenantId: fx.tenantId, productId: fx.productId, batchId, qty: 1, unitPrice: "40", lineTotal: "40" },
+        },
+        payments: { create: { tenantId: fx.tenantId, method: PaymentMethod.cash, amount: "40" } },
+      },
+    });
+    await prisma.branch.update({
+      where: { id: fx.mainBranchId },
+      data: {
+        desktopPosRollout: DesktopPosRollout.live,
+        desktopPosLiveAt: liveAt,
+        posFallbackStartedAt: new Date("2026-09-01T08:00:00.000Z"),
+        posFallbackEndsAt: new Date("2026-09-01T20:00:00.000Z"),
+      },
+    });
+
+    for (const channel of ["web_legacy", "fallback", "desktop_online", "offline"] as const) {
+      const filtered = await reads.history(owner(fx), fx.mainBranchId, { channel, branchId: "all" });
+      expect(filtered.items.every((row) => row.channel === channel)).toBe(true);
+    }
+
+    const legacyList = await reads.history(owner(fx), fx.mainBranchId, { channel: "web_legacy", invoiceNo: preLiveSale.invoiceNo });
+    expect(legacyList.items[0]?.channel).toBe("web_legacy");
+    const fallbackList = await reads.history(owner(fx), fx.mainBranchId, { channel: "fallback", invoiceNo: fallbackSale.invoiceNo });
+    expect(fallbackList.items[0]?.channel).toBe("fallback");
+
+    const wronglyFiltered = await reads.history(owner(fx), fx.mainBranchId, { channel: "fallback", invoiceNo: preLiveSale.invoiceNo });
+    expect(wronglyFiltered.total).toBe(0);
   });
 
-  it("isolates another tenant's terminal, register and shift", async () => {
-    const foreign = await prisma.sale.findFirstOrThrow({ where: { tenantId: other.tenantId } });
+  it("isolates another tenant's real terminal, register, till and shift ids", async () => {
+    const ids = otherTenantIds;
     for (const filters of [
-      { terminalId: foreign.terminalId ?? randomUUID() },
-      { registerId: randomUUID() },
-      { shiftId: foreign.shiftId ?? randomUUID() },
+      { terminalId: ids.terminalId },
+      { registerId: ids.registerId },
+      { tillId: ids.tillId },
+      { shiftId: ids.shiftId },
     ]) {
       const result = await reads.history(owner(fx), fx.mainBranchId, filters);
       expect(result.total).toBe(0);
     }
+    const options = await reads.historyOptions(owner(fx));
+    expect(options.registers?.some((row) => row.registerId === ids.registerId)).toBe(false);
+    expect(options.terminals?.some((row) => row.terminalId === ids.terminalId)).toBe(false);
+  });
+
+  it("hides another branch's sale and attribution from a manager scoped to main only", async () => {
+    const ids = otherBranchIds;
+    const viewer = mainBranchManager(fx);
+    for (const filters of [
+      { terminalId: ids.terminalId },
+      { registerId: ids.registerId },
+      { tillId: ids.tillId },
+      { shiftId: ids.shiftId },
+    ]) {
+      const result = await reads.history(viewer, fx.mainBranchId, filters);
+      expect(result.total).toBe(0);
+    }
+    const options = await reads.historyOptions(viewer);
+    expect(options.registers?.some((row) => row.registerId === ids.registerId)).toBe(false);
+    await expect(reads.detail(viewer, ids.saleId)).rejects.toMatchObject({ status: 404 });
   });
 
   it("combines channel and shift filters", async () => {
@@ -266,47 +428,5 @@ describe("sales history attribution and filters (#66 Phase B)", () => {
     const options = await reads.historyOptions(owner(fx));
     expect(options.registers?.some((row) => row.registerId === registerId)).toBe(true);
     expect(options.terminals?.some((row) => row.terminalId === terminalId)).toBe(true);
-  });
-
-  it("labels fallback web sales from branch rollout windows", async () => {
-    const started = new Date(Date.now() - 1_800_000);
-    const ends = new Date(Date.now() + 3_600_000);
-    await prisma.branch.update({
-      where: { id: fx.mainBranchId },
-      data: {
-        desktopPosRollout: DesktopPosRollout.live,
-        desktopPosLiveAt: new Date(Date.now() - 86_400_000),
-        posFallbackStartedAt: started,
-        posFallbackEndsAt: ends,
-      },
-    });
-    const fallbackInvoice = `INV-FB-${randomUUID().slice(0, 8)}`;
-    await prisma.sale.create({
-      data: {
-        tenantId: fx.tenantId,
-        branchId: fx.mainBranchId,
-        invoiceNo: fallbackInvoice,
-        soldAt: new Date(Date.now() - 600_000),
-        subtotal: "40",
-        grandTotal: "40",
-        amountPaid: "40",
-        soldBy: fx.clerkId,
-        items: {
-          create: {
-            tenantId: fx.tenantId,
-            productId: fx.productId,
-            batchId,
-            qty: 1,
-            unitPrice: "40",
-            lineTotal: "40",
-          },
-        },
-        payments: { create: { tenantId: fx.tenantId, method: PaymentMethod.cash, amount: "40" } },
-      },
-    });
-    const byChannel = await reads.history(owner(fx), fx.mainBranchId, { channel: "fallback" });
-    expect(byChannel.items.some((row) => row.invoiceNo === fallbackInvoice)).toBe(true);
-    const row = byChannel.items.find((item) => item.invoiceNo === fallbackInvoice)!;
-    expect(row.channel).toBe("fallback");
   });
 });

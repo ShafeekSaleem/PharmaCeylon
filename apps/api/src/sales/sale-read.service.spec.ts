@@ -303,10 +303,34 @@ describe("SaleReadService.history — filters and pagination", () => {
     });
 
     expect(prisma.terminalCounter.findFirst).toHaveBeenCalled();
-    expect(lastWhere(prisma.sale.findMany)).toMatchObject({
+    const where = lastWhere(prisma.sale.findMany);
+    expect(where).toMatchObject({ tillId: "till-1" });
+    expect(where.OR).toEqual(
+      expect.arrayContaining([
+        { invoiceNo: { contains: "C1R-000186", mode: "insensitive" } },
+        { invoiceNo: { endsWith: "-000186", mode: "insensitive" } },
+      ]),
+    );
+  });
+
+  it("finds a counter sale by a short receipt tail when scoped", async () => {
+    const { prisma, service } = setup();
+    prisma.terminalCounter.findFirst.mockResolvedValue({ tillId: "till-1" });
+    const row = {
+      ...summaryRow("sale-186"),
+      invoiceNo: "C1R-000186",
+      terminalId: "term-1",
       tillId: "till-1",
-      invoiceNo: { equals: "C1R-000186", mode: "insensitive" },
-    });
+    };
+    prisma.sale.findMany.mockResolvedValue([row]);
+    prisma.operationalTerminal.findMany.mockResolvedValue([{ id: "term-1", label: "Desk" }]);
+
+    const result = await service.history(owner, "branch-a", { registerId: "6f9a2b1c-8d7e-4f60-a1b2-c3d4e5f6a7b8", invoiceNo: "186" });
+
+    expect(result.items).toHaveLength(1);
+    expect(lastWhere(prisma.sale.findMany).OR).toEqual(
+      expect.arrayContaining([{ invoiceNo: { endsWith: "-000186", mode: "insensitive" } }]),
+    );
   });
 
   it("returns no rows for a register id from another tenant", async () => {
