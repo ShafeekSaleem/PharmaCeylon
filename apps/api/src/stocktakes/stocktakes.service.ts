@@ -198,6 +198,15 @@ function movementsAtCount(summary: MovementSummary | undefined, countedAt: Date 
   return { beforeCount, afterCount };
 }
 
+/** What the counter should have found: snapshot plus movements up to the count. */
+function expectedAtCount(
+  snapshotQty: number,
+  summary: MovementSummary | undefined,
+  countedAt: Date | null,
+) {
+  return snapshotQty + movementsAtCount(summary, countedAt).beforeCount;
+}
+
 /** On hand per batch from the running totals — what a counter should find on the shelf. */
 async function onHandByBatch(
   tx: Prisma.TransactionClient,
@@ -529,8 +538,7 @@ export class StocktakesService {
         totalCountedQty += line.countedQty;
       }
       if (blindRestricted) continue;
-      const { beforeCount } = movementsAtCount(movementMap.get(line.batchId), line.countedAt);
-      const expectedAtReview = snapshotQty + beforeCount;
+      const expectedAtReview = expectedAtCount(snapshotQty, movementMap.get(line.batchId), line.countedAt);
       const adjustedVariance =
         line.countedQty == null ? null : line.countedQty - expectedAtReview;
       if (!adjustedVariance) continue;
@@ -970,9 +978,11 @@ export class StocktakesService {
     this.assertLineEditable(row.status);
 
     const lineByBatchId = new Map(row.lines.map((line) => [line.batchId, line]));
-    const now = new Date();
 
     await this.prisma.$transaction(async (tx) => {
+      // Stamp the count with the database clock, the same one that stamps stock movements
+      // (occurred_at defaults to now()), so "before/after the count" never depends on app clock skew.
+      const [{ now }] = await tx.$queryRaw<Array<{ now: Date }>>`SELECT now() AS now`;
       for (const input of dto.lines) {
         const existing = lineByBatchId.get(input.batchId);
         if (!existing) {
@@ -1346,7 +1356,7 @@ export class StocktakesService {
       throw new BadRequestException("Cannot approve while lines are awaiting recount");
     const movementMap = await this.movementMapForRow(row, tx);
     const snapshots = new Map(row.snapshotLines.map(line => [line.lineId, line.snapshotQty]));
-    if (row.lines.some(line => line.countedQty !== (snapshots.get(line.id) ?? line.systemQty) + movementsAtCount(movementMap.get(line.batchId), line.countedAt).beforeCount && !line.reviewReason))
+    if (row.lines.some(line => line.countedQty !== expectedAtCount(snapshots.get(line.id) ?? line.systemQty, movementMap.get(line.batchId), line.countedAt) && !line.reviewReason))
       throw new BadRequestException("Give a reason for every line whose count differs from what was expected");
   }
 
@@ -1439,7 +1449,7 @@ export class StocktakesService {
     const losses: Array<{ productId: string; batchId: string; qty: number; reason: string }> = [];
     for (const line of row.lines) {
       const snapshotQty = snapshotByLineId.get(line.id) ?? line.systemQty;
-      const expected = snapshotQty + movementsAtCount(movementMap.get(line.batchId), line.countedAt).beforeCount;
+      const expected = expectedAtCount(snapshotQty, movementMap.get(line.batchId), line.countedAt);
       const adjustedVariance = line.countedQty == null ? 0 : line.countedQty - expected;
       await tx.stocktakeLine.update({
         where: { id: line.id, tenantId },

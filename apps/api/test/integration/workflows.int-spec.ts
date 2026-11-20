@@ -150,7 +150,8 @@ describe("Operations workflows against PostgreSQL", () => {
     });
 
     it("posts the difference found at the count, so sales after the count are kept", async () => {
-      const tick = () => new Promise((resolve) => setTimeout(resolve, 15));
+      // Timestamps are millisecond-resolution and taken from the database clock, so separate each step.
+      const tick = () => new Promise((resolve) => setTimeout(resolve, 25));
       const sell = (batchId: string, qty: number) =>
         prisma.$transaction((tx) =>
           stock.issue(
