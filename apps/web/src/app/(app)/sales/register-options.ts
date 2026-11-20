@@ -17,12 +17,16 @@ export function registersForPicker(
 ): RegisterPickOption[] {
   const branchName = new Map(branches.map((b) => [b.id, b.name]));
   const scoped = branchId ? registers.filter((r) => r.branchId === branchId) : registers;
-  return scoped.map((r) => ({
-    registerId: r.registerId,
-    tillId: r.tillId,
-    counterLabel: r.label,
-    tillLabel: r.tillLabel ?? null,
-  }));
+  return scoped.map((r) => {
+    const suffix = branchId ? null : branchName.get(r.branchId);
+    const counterLabel = suffix ? `${r.label} · ${suffix}` : r.label;
+    return {
+      registerId: r.registerId,
+      tillId: r.tillId,
+      counterLabel,
+      tillLabel: r.tillLabel ?? null,
+    };
+  });
 }
 
 export function counterFilterOptions(
