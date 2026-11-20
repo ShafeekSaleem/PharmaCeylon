@@ -149,6 +149,55 @@ describe("Operations workflows against PostgreSQL", () => {
       expect(done.status).toBe("completed");
     });
 
+    it("posts the difference found at the count, so sales after the count are kept", async () => {
+      const tick = () => new Promise((resolve) => setTimeout(resolve, 15));
+      const sell = (batchId: string, qty: number) =>
+        prisma.$transaction((tx) =>
+          stock.issue(
+            tx,
+            { tenantId: fx.tenantId, branchId: fx.mainBranchId, userId: fx.managerId, referenceType: "sale", referenceId: randomUUID() },
+            [{ productId: fx.productId, batchId, qty, movementType: StockMovementType.sale_out, from: "sellable_first" }],
+          ),
+        );
+      const batchId = await createStockedBatch(prisma, stock, fx, { qty: 50 });
+      const service = stocktakes();
+      const created = await service.create(
+        fx.tenantId, fx.mainBranchId, fx.clerkId,
+        { scope: "custom", batchIds: [batchId], counterIds: [fx.clerkId] }, counter(),
+      );
+      await service.start(fx.tenantId, fx.mainBranchId, fx.clerkId, created.id, counter());
+      await tick();
+      // Sold between the snapshot and the count: the shelf the counter sees already lacks these.
+      await sell(batchId, 2);
+      await tick();
+      // 48 should be on the shelf; the counter finds 45, so 3 are missing.
+      await service.upsertLines(
+        fx.tenantId, fx.mainBranchId, fx.clerkId, created.id, { lines: [{ batchId, countedQty: 45 }] }, counter(),
+      );
+      await tick();
+      // Sold after the count, while the count waits for review: these are real sales.
+      await sell(batchId, 5);
+      await service.submit(fx.tenantId, fx.mainBranchId, fx.clerkId, created.id, counter());
+      await service.startReview(fx.tenantId, fx.mainBranchId, fx.managerId, created.id, reviewer());
+
+      const counted = await service.getOne(fx.tenantId, fx.mainBranchId, created.id, reviewer());
+      expect(counted.lines[0]).toMatchObject({ expectedAtReview: 48, adjustedVariance: -3 });
+      await service.reviewLines(
+        fx.tenantId, fx.mainBranchId, fx.managerId, created.id,
+        { lines: [{ lineId: counted.lines[0]!.id, reviewReason: "counting_error" }] }, reviewer(),
+      );
+      await approve(created.id);
+      await post(created.id);
+
+      // 50 − 2 sold − 3 missing − 5 sold after the count. Setting the batch to the count (45)
+      // would erase the 5 later sales.
+      expect(await batchTotals(prisma, batchId)).toEqual(
+        expect.objectContaining({ onHand: 40, ledgerOnHand: 40 }),
+      );
+      const posted = await prisma.stockLedger.findMany({ where: { referenceType: "stocktake", referenceId: created.id } });
+      expect(posted.map((row) => row.qtyDelta)).toEqual([-3]);
+    });
+
     it("refuses to approve a variance with no reason", async () => {
       const batchId = await createStockedBatch(prisma, stock, fx, { qty: 20 });
       const id = await countedStocktake(batchId, 18);
