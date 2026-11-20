@@ -1,8 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import {
+  Suspense,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { usePageChrome } from "@/lib/page-chrome-context";
 import { useAuth } from "@/lib/use-auth";
 import { hasPermission, usePermissions } from "@/lib/permissions";
@@ -277,12 +285,32 @@ for (const item of SETTINGS_ITEMS) PAGE_TITLES[item.href] = item.label;
 /** Where "Back to app" returns to from Settings: the last page you had open outside it. */
 const SETTINGS_RETURN_KEY = "pc_settings_return";
 
-function readSettingsReturn(): string {
+function isSettingsPath(pathname: string): boolean {
+  return pathname === "/settings" || pathname.startsWith("/settings/");
+}
+
+function readSettingsReturn(): string | null {
   try {
     const saved = sessionStorage.getItem(SETTINGS_RETURN_KEY);
     if (saved && saved.startsWith("/") && !saved.startsWith("//")) return saved;
   } catch {}
-  return "/dashboard";
+  return null;
+}
+
+/**
+ * Remembers the last page outside Settings with its query, so "Back to app" brings a filtered
+ * list back filtered. Its own component because `useSearchParams` needs a Suspense boundary.
+ */
+function SettingsReturnTracker() {
+  const pathname = usePathname();
+  const search = useSearchParams()?.toString() ?? "";
+  useEffect(() => {
+    if (isSettingsPath(pathname)) return;
+    try {
+      sessionStorage.setItem(SETTINGS_RETURN_KEY, search ? `${pathname}?${search}` : pathname);
+    } catch {}
+  }, [pathname, search]);
+  return null;
 }
 
 const COLLAPSE_KEY = "pc_sidebar_collapsed";
@@ -483,18 +511,26 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     setMobileOpen(false);
   }, [pathname]);
 
-  // Remember the last page outside Settings, so "Back to app" returns to it.
-  const [settingsReturn, setSettingsReturn] = useState("/dashboard");
+  // The last page outside Settings (SettingsReturnTracker saves it), read on entering Settings.
+  const [settingsReturn, setSettingsReturn] = useState<string | null>(null);
   useEffect(() => {
-    const inSettings = pathname === "/settings" || pathname.startsWith("/settings/");
-    if (inSettings) {
-      setSettingsReturn(readSettingsReturn());
-      return;
-    }
-    try {
-      sessionStorage.setItem(SETTINGS_RETURN_KEY, pathname);
-    } catch {}
+    if (isSettingsPath(pathname)) setSettingsReturn(readSettingsReturn());
   }, [pathname]);
+  // "Back to app" only offers a page this person may open now. Someone kept to their own
+  // settings (a desktop-live branch, no back-office access) has no web page to go back to,
+  // so the link goes rather than leading to "Use PharmaCeylon POS".
+  const settingsBackHref = (() => {
+    const returnPath = settingsReturn?.split(/[?#]/)[0];
+    if (
+      settingsReturn &&
+      returnPath &&
+      (isPersonalAccountPath(returnPath) ||
+        (accessResolved && mayOpenWebPath(returnPath, backOfficeAccess, scopeRollout)))
+    ) {
+      return settingsReturn;
+    }
+    return webScopeRestricted ? null : "/dashboard";
+  })();
 
   /* ── Keyboard shortcuts ── */
   useEffect(() => {
@@ -609,7 +645,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pageTitle = crumbs[crumbs.length - 1]?.label ?? "Page";
   const parentCrumbs = crumbs.slice(0, -1);
   const initials = user ? getInitials(user.fullName) : "??";
-  const isSettings = pathname === "/settings" || pathname.startsWith("/settings/");
+  const isSettings = isSettingsPath(pathname);
 
   const sidebarCls = [
     styles.sidebar,
@@ -622,6 +658,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <div className={styles.shell}>
       <AppearanceEffect />
+      <Suspense fallback={null}>
+        <SettingsReturnTracker />
+      </Suspense>
       {/* Mobile backdrop */}
       {mobileOpen && !chromeHidden && (
         <div className={styles.backdrop} onClick={() => setMobileOpen(false)} />
@@ -649,7 +688,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           {isSettings ? (
             <SettingsMenu
               pathname={pathname}
-              backHref={settingsReturn}
+              backHref={settingsBackHref}
               isAdmin={permissionKeys.includes("tenant.management")}
               personalOnly={webScopeRestricted}
               collapsed={collapsed}

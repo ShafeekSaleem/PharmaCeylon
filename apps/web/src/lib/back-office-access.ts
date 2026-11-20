@@ -1,6 +1,8 @@
 import type { PosRollout } from "./branch-rollout";
 
 export function isPersonalAccountPath(pathname: string): boolean {
+  // The settings home itself is open: it only lists the pages the person may open.
+  if (pathname === "/settings") return true;
   return ["/settings/my-profile", "/settings/password-login", "/settings/appearance"].some(
     (path) => pathname === path || pathname.startsWith(`${path}/`),
   );

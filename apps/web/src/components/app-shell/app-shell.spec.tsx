@@ -10,10 +10,12 @@ import { AppShell, buildBreadcrumbs } from "./app-shell";
 
 const push = jest.fn();
 let mockPathname = "/dashboard";
+let mockSearch = "";
 let mockBackOfficeAccess = true;
 let mockAccessResolved = true;
 jest.mock("next/navigation", () => ({
   usePathname: () => mockPathname,
+  useSearchParams: () => new URLSearchParams(mockSearch),
   useRouter: () => ({ push, replace: jest.fn() }),
 }));
 
@@ -121,6 +123,7 @@ beforeEach(() => {
   resetBranchRolloutCache();
   sessionStorage.clear();
   mockPathname = "/dashboard";
+  mockSearch = "";
   mockBackOfficeAccess = true;
   mockAccessResolved = true;
   rollout = NOT_LIVE;
@@ -345,12 +348,17 @@ describe("#205 settings menu replaces the main sidebar", () => {
       "page",
     );
     // Each group says once who its changes reach.
-    expect(within(menu).getByRole("group", { name: "You: Only your account" })).toBeInTheDocument();
+    expect(
+      within(menu).getByRole("group", {
+        name: "You: Your account (owner settings for everyone are marked on the page)",
+      }),
+    ).toBeInTheDocument();
     expect(within(menu).getByRole("group", { name: "At the counter: Everyone" })).toBeInTheDocument();
   });
 
   it("returns to the last page you had open outside Settings", async () => {
     mockPathname = "/customers";
+    mockSearch = "status=active";
     const view = await renderShell();
     expect(screen.getByRole("navigation", { name: "Main" })).toBeInTheDocument();
     mockPathname = "/settings/my-profile";
@@ -363,9 +371,44 @@ describe("#205 settings menu replaces the main sidebar", () => {
     await waitFor(() =>
       expect(within(menu).getByRole("link", { name: "Back to app" })).toHaveAttribute(
         "href",
-        "/customers",
+        "/customers?status=active",
       ),
     );
+  });
+
+  it("offers only your own pages and no way back at a live branch without back-office access", async () => {
+    rollout = LIVE;
+    mockBackOfficeAccess = false;
+    mockKeys = ["tenant.management"];
+    mockPathname = "/dashboard";
+    const view = await renderShell();
+    mockPathname = "/settings/my-profile";
+    view.rerender(
+      <AppShell>
+        <p>Page body</p>
+      </AppShell>,
+    );
+    const menu = await screen.findByRole("navigation", { name: "Settings" });
+    expect(within(menu).getAllByRole("link").map((link) => link.textContent)).toEqual([
+      "Settings",
+      "My Profile",
+      "Password & Login",
+      "Appearance",
+    ]);
+    // The dashboard would only say "Use PharmaCeylon POS", so there is no link back to it.
+    expect(within(menu).queryByRole("link", { name: "Back to app" })).not.toBeInTheDocument();
+  });
+
+  it("gives the older report and alert pages a home in the menu", async () => {
+    mockPathname = "/settings/insights-reports";
+    mockKeys = ["tenant.management"];
+    await renderShell();
+    const menu = screen.getByRole("navigation", { name: "Settings" });
+    expect(within(menu).getByRole("link", { name: "Insights & Reports" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    expect(within(menu).getByRole("link", { name: "Recipients & Channels" })).toBeInTheDocument();
   });
 
   it("shows only your own pages without tenant management", async () => {

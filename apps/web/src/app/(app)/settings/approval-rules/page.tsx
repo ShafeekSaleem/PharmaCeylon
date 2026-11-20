@@ -6,6 +6,7 @@ import { PageHeader, ActionButton, FormField, ToggleSwitch } from "@/components/
 import { IconCheckCircle, IconLock, IconUsers } from "@/components/icons";
 import { usePermissions } from "@/lib/permissions";
 import css from "../settings.module.css";
+import { approvalRuleLabel } from "./rules";
 import { SyncNote } from "../lib/counter-policy";
 import {
   fetchApprovalRoles,
@@ -120,7 +121,7 @@ export default function ApprovalRulesPage() {
 
           <div className={css.rowItem}>
             <div>
-              <div className={css.rowLabel}>Controlled substance sales</div>
+              <div className={css.rowLabel}>{approvalRuleLabel("controlled")}</div>
               <div className={css.rowHint}>
                 Enforced by the API for regulatory compliance — cannot be disabled here.
               </div>
@@ -132,7 +133,7 @@ export default function ApprovalRulesPage() {
 
           <div className={css.rowItem}>
             <div style={{ flex: 1 }}>
-              <div className={css.rowLabel}>Purchase orders over a threshold</div>
+              <div className={css.rowLabel}>{approvalRuleLabel("purchaseOrders")}</div>
               <div className={css.rowHint}>
                 Orders at or above this value wait for someone who can approve purchase orders before they are issued.
               </div>
@@ -172,7 +173,7 @@ export default function ApprovalRulesPage() {
 
           <div className={css.rowItem}>
             <div>
-              <div className={css.rowLabel}>Branch stock transfers</div>
+              <div className={css.rowLabel}>{approvalRuleLabel("transfers")}</div>
               <div className={css.rowHint}>
                 Transfers wait for someone who can approve transfers at the sending branch before stock is reserved and shipped.
               </div>
@@ -189,7 +190,7 @@ export default function ApprovalRulesPage() {
 
           <div className={css.rowItem}>
             <div style={{ flex: 1 }}>
-              <div className={css.rowLabel}>Refunds over a threshold</div>
+              <div className={css.rowLabel}>{approvalRuleLabel("refunds")}</div>
               <div className={css.rowHint}>
                 Refunds at or above this value need someone who can approve returns. They can
                 approve remotely from Sales, or by entering their own PIN at the counter. Either
@@ -227,7 +228,7 @@ export default function ApprovalRulesPage() {
 
           <div className={css.rowItem}>
             <div style={{ flex: 1 }}>
-              <div className={css.rowLabel}>Write-offs over a threshold</div>
+              <div className={css.rowLabel}>{approvalRuleLabel("writeOffs")}</div>
               <div className={css.rowHint}>
                 Write-offs worth this much or more wait for someone who can write off stock — unless
                 they entered it and their role may approve its own requests.

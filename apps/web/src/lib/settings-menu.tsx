@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import {
   IconAlertTriangle,
+  IconBarChart,
   IconBell,
   IconCheckCircle,
   IconCloud,
@@ -8,6 +9,7 @@ import {
   IconHome,
   IconKeyboard,
   IconLock,
+  IconMail,
   IconMapPin,
   IconPackage,
   IconReceipt,
@@ -30,10 +32,19 @@ export type SettingsGroup = {
   label: string;
   /** Who a change in this group affects. Stated once on the group, not on every page. */
   scope: string;
+  /** Said after the scope where the group is not quite all one scope. */
+  scopeNote?: string;
 };
 
 export const SETTINGS_GROUPS: SettingsGroup[] = [
-  { key: "you", label: "You", scope: "Only your account" },
+  // Password & Login and Appearance also hold an owner setting for everyone (the password
+  // policy, the pharmacy brand), so the group does not claim "only" your account.
+  {
+    key: "you",
+    label: "You",
+    scope: "Your account",
+    scopeNote: "owner settings for everyone are marked on the page",
+  },
   { key: "pharmacy", label: "Pharmacy", scope: "Everyone" },
   { key: "counter", label: "At the counter", scope: "Everyone" },
   { key: "stock", label: "Stock & buying", scope: "Everyone" },
@@ -49,6 +60,8 @@ export type SettingsItem = {
   group: SettingsGroupKey;
   /** Each item has its own icon, so no two rows in the menu look alike. */
   icon: (size: number) => ReactNode;
+  /** Older routes that belong to this page, so the menu marks it as the open one. */
+  aliases?: string[];
   /** Admin pages need `tenant.management`; the rest are self-service for every role. */
   adminOnly?: boolean;
   /** Names of the fields and sections on the page, so search finds "refund limit". */
@@ -258,6 +271,8 @@ export const SETTINGS_ITEMS: SettingsItem[] = [
     description: "Product display and VAT",
     group: "stock",
     icon: (s) => <IconPackage size={s} />,
+    // Profitability Target folded into Catalog; the old route redirects here.
+    aliases: ["/settings/profitability"],
     adminOnly: true,
     keywords: [
       "vat rate",
@@ -329,6 +344,35 @@ export const SETTINGS_ITEMS: SettingsItem[] = [
     adminOnly: true,
     keywords: ["counter alerts", "recipients", "cash variance", "offline too long", "alert roles"],
   },
+  {
+    href: "/settings/alerts-recipients",
+    label: "Recipients & Channels",
+    description: "How alerts are delivered and who gets the email digest",
+    group: "alerts",
+    icon: (s) => <IconMail size={s} />,
+    adminOnly: true,
+    keywords: [
+      "email digest",
+      "digest recipients",
+      "in-app notification bell",
+      "alert channels",
+      "alert email",
+    ],
+  },
+  {
+    href: "/settings/insights-reports",
+    label: "Insights & Reports",
+    description: "Report defaults and the weekly summary",
+    group: "alerts",
+    icon: (s) => <IconBarChart size={s} />,
+    adminOnly: true,
+    keywords: [
+      "default report period",
+      "footfall analytics",
+      "weekly summary email",
+      "reports",
+    ],
+  },
 ];
 
 export type SettingsAccess = {
@@ -355,11 +399,21 @@ export function groupSettingsItems(
   })).filter((entry) => entry.items.length > 0);
 }
 
+/** Whether a path is this item's page, one of its sub-pages or an older route of it. */
+export function settingsItemCovers(item: SettingsItem, pathname: string): boolean {
+  return [item.href, ...(item.aliases ?? [])].some(
+    (href) => pathname === href || pathname.startsWith(`${href}/`),
+  );
+}
+
 /** The settings item a path belongs to (a sub-page belongs to its parent's item). */
 export function settingsItemFor(pathname: string): SettingsItem | undefined {
-  return SETTINGS_ITEMS.find(
-    (item) => pathname === item.href || pathname.startsWith(`${item.href}/`),
-  );
+  return SETTINGS_ITEMS.find((item) => settingsItemCovers(item, pathname));
+}
+
+/** A group's scope as one line, with its note when it has one. */
+export function settingsGroupScope(group: SettingsGroup): string {
+  return group.scopeNote ? `${group.scope} (${group.scopeNote})` : group.scope;
 }
 
 function normalise(text: string): string {
