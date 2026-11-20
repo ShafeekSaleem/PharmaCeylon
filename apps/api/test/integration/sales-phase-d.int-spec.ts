@@ -2,13 +2,7 @@ import { randomUUID } from "node:crypto";
 import { ExecutionContext, ForbiddenException } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
 import { PaymentMethod, RoleName } from "@prisma/client";
-import type {
-  ExternalCardAttemptRecord,
-  OfflineJournalCommand,
-  OfflineSaleIncident,
-  Signed,
-  TerminalIdentity,
-} from "@pharmaceylon/shared";
+import type { ExternalCardAttemptRecord, OfflineSaleIncident, TerminalIdentity } from "@pharmaceylon/shared";
 import { AuditService } from "../../src/audit/audit.service";
 import { StockService } from "../../src/inventory/stock/stock.service";
 import { ensureRbacSeed } from "../../prisma/rbac-seed";
@@ -18,7 +12,6 @@ import { AccessService } from "../../src/security/access.service";
 import { PermissionsService } from "../../src/security/permissions.service";
 import { TenantBranchGuard } from "../../src/security/guards/tenant-branch.guard";
 import type { RequestUser } from "../../src/security/interfaces/authenticated-request.interface";
-import { commandText } from "../../src/terminals/terminal-wire";
 import { BusinessHoursAcknowledgements } from "../../src/terminals/business-hours-acknowledgements.service";
 import { OfflineSupportRecords } from "../../src/terminals/offline-support-records.service";
 import { sha256 } from "../../src/terminals/terminal-wire";
@@ -101,35 +94,6 @@ const guardPermission = async (user: RequestUser, branchId: string) => {
 const tx15 = <T>(run: (client: import("@prisma/client").Prisma.TransactionClient) => Promise<T>) =>
   prisma.$transaction(run, { timeout: 15_000 });
 
-async function resumeJournal(c: Counter) {
-  const last = await prisma.terminalCommandReceipt.findFirstOrThrow({
-    where: { tenantId: c.fx.tenantId, enrollmentId: c.identity.enrollmentId },
-    orderBy: { offlineSequence: "desc" },
-    select: { recordedAt: true, command: true, offlineSequence: true },
-  });
-  const first = await prisma.terminalCommandReceipt.findFirstOrThrow({
-    where: { tenantId: c.fx.tenantId, enrollmentId: c.identity.enrollmentId },
-    orderBy: { offlineSequence: "asc" },
-    select: { command: true },
-  });
-  const lastPayload = (last.command as Signed<OfflineJournalCommand>).payload;
-  const firstPayload = (first.command as Signed<OfflineJournalCommand>).payload;
-  const saleReceipts = (
-    await prisma.terminalCommandReceipt.findMany({
-      where: { tenantId: c.fx.tenantId, enrollmentId: c.identity.enrollmentId },
-      select: { command: true },
-    })
-  ).filter((row) => (row.command as Signed<OfflineJournalCommand>).payload.kind === "ordinary_sale").length;
-  return offlineJournal(c, {
-    sequence: Number(last.offlineSequence),
-    previous: sha256(commandText(lastPayload)),
-    clock: last.recordedAt.getTime(),
-    offlineStartedAt: firstPayload.offlineStartedAt,
-    offlineSessionId: firstPayload.offlineSessionId,
-    receipts: c.grant.receiptNumbering.nextNumber - 1 + saleReceipts,
-  });
-}
-
 async function seedAcceptedSaleIncidentViaSync(c: Counter): Promise<string> {
   const j = offlineJournal(c);
   const signIn = j.signIn(c.cashier.userId, randomUUID());
@@ -194,6 +158,38 @@ async function enrollOtherBranch(c: Counter): Promise<TerminalIdentity> {
     data: { ...identity, id: undefined, staffUserId: c.cashier.userId, pinVersion: 1 },
   });
   return identity;
+}
+
+async function seedAcceptedIncidentOnPostedSale(
+  c: Counter,
+  saleCommandId: string,
+  staffSignInId: string,
+  workSessionId: string,
+  description: string,
+): Promise<string> {
+  const recordId = randomUUID();
+  const signed = c.device.sign(
+    {
+      contractVersion: 1,
+      kind: "sale_incident",
+      recordId,
+      identity: c.identity,
+      saleCommandId,
+      recordedByUserId: c.cashier.userId,
+      staffSignInId,
+      workSessionId,
+      recordedAt: Date.now() - 30_000,
+      category: "payment_uncertain",
+      description,
+    } satisfies OfflineSaleIncident,
+    c.identity.keyId,
+  );
+  await prisma.$transaction((client) => support.record(client, c.owner, c.fx.mainBranchId, signed, Date.now()));
+  await prisma.offlineSupportRecord.updateMany({
+    where: { tenantId: c.fx.tenantId, enrollmentId: c.identity.enrollmentId, recordId, status: "held" },
+    data: { status: "accepted", heldReason: null, verifiedAt: new Date() },
+  });
+  return recordId;
 }
 
 async function seedHiddenBranchAcceptedIncident(c: Counter, identity: TerminalIdentity): Promise<string> {
@@ -390,27 +386,13 @@ beforeAll(async () => {
   mainAcceptedIncidentRecordId = mainIncident.payload.recordId;
   await sync(main, { staffSignIns: [signIn], commands: [open, saleCmd], supportRecords: [mainIncident] });
 
-  const j2 = await resumeJournal(main);
-  const signIn2 = j2.signIn(main.cashier.userId, signIn.payload.session.workSessionId);
-  const sale2 = j2.sale(signIn2, [[main.batches.main, 1]]);
-  const mainIncident2 = main.device.sign(
-    {
-      contractVersion: 1,
-      kind: "sale_incident",
-      recordId: randomUUID(),
-      identity: main.identity,
-      saleCommandId: sale2.payload.commandId,
-      recordedByUserId: main.cashier.userId,
-      staffSignInId: signIn2.payload.staffSignInId,
-      workSessionId: signIn2.payload.session.workSessionId,
-      recordedAt: sale2.payload.occurredAt + 100,
-      category: "quantity_error",
-      description: "Second phase D incident-notes fixture",
-    } satisfies OfflineSaleIncident,
-    main.identity.keyId,
+  mainSecondAcceptedIncidentRecordId = await seedAcceptedIncidentOnPostedSale(
+    main,
+    journaledCommand.commandId,
+    staffSignInId,
+    session.workSessionId,
+    "Second phase D incident-notes fixture",
   );
-  mainSecondAcceptedIncidentRecordId = mainIncident2.payload.recordId;
-  await sync(main, { staffSignIns: [signIn2], commands: [sale2], supportRecords: [mainIncident2] });
 
   mainPaymentAttemptIds = [
     await seedHeldCardAttempt(main),
