@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { ForbiddenException } from "@nestjs/common";
 import { PaymentMethod, RoleName } from "@prisma/client";
-import type { ExternalCardAttemptRecord, TerminalIdentity } from "@pharmaceylon/shared";
+import type { ExternalCardAttemptRecord, OfflineSaleIncident, TerminalIdentity } from "@pharmaceylon/shared";
 import { AuditService } from "../../src/audit/audit.service";
 import { StockService } from "../../src/inventory/stock/stock.service";
 import { ensureRbacSeed } from "../../prisma/rbac-seed";
@@ -15,10 +15,13 @@ import { OfflineSupportRecords } from "../../src/terminals/offline-support-recor
 import { sha256 } from "../../src/terminals/terminal-wire";
 import {
   access,
+  attest,
   counter,
   offlineJournal,
   prisma,
+  proofs,
   sync,
+  trust,
   type Counter,
 } from "./offline-counter.kit";
 import { createStockedBatch, createTenant, type TenantFixture } from "./fixtures";
@@ -43,6 +46,9 @@ let offlineOnFx: string;
 let pendingOnFx: string;
 let journaledSaleId: string;
 let journaledCommand: { commandId: string; occurredAt: number; receiptNumber: string };
+let mainAcceptedIncidentRecordId: string;
+let otherTenantAcceptedIncidentRecordId: string;
+let hiddenBranchIncidentRecordId: string;
 
 const ownerOn = (c: Counter): RequestUser => ({
   ...c.owner,
@@ -67,6 +73,173 @@ const guardPermission = async (user: RequestUser, branchId: string) => {
 
 const recordSigned = (c: Counter, signed: unknown) =>
   prisma.$transaction((tx) => support.record(tx, c.owner, c.fx.mainBranchId, signed, Date.now()));
+
+const tx15 = <T>(run: (client: import("@prisma/client").Prisma.TransactionClient) => Promise<T>) =>
+  prisma.$transaction(run, { timeout: 15_000 });
+
+async function seedAcceptedSaleIncidentViaSync(c: Counter): Promise<string> {
+  const j = offlineJournal(c);
+  const signIn = j.signIn(c.cashier.userId, randomUUID());
+  const open = j.open(signIn, 0);
+  const sale = j.sale(signIn, [[c.batches.main, 1]]);
+  const { staffSignInId, session } = signIn.payload;
+  const incident = c.device.sign(
+    {
+      contractVersion: 1,
+      kind: "sale_incident",
+      recordId: randomUUID(),
+      identity: c.identity,
+      saleCommandId: sale.payload.commandId,
+      recordedByUserId: c.cashier.userId,
+      staffSignInId,
+      workSessionId: session.workSessionId,
+      recordedAt: sale.payload.occurredAt + 100,
+      category: "other",
+      description: "Phase D incident-notes queue fixture",
+    } satisfies OfflineSaleIncident,
+    c.identity.keyId,
+  );
+  await sync(c, { staffSignIns: [signIn], commands: [open, sale], supportRecords: [incident] });
+  const row = await prisma.offlineSupportRecord.findFirstOrThrow({
+    where: {
+      tenantId: c.fx.tenantId,
+      branchId: c.fx.mainBranchId,
+      recordId: incident.payload.recordId,
+    },
+  });
+  expect(row.status).toBe("accepted");
+  return row.recordId;
+}
+
+async function enrollOtherBranch(c: Counter): Promise<TerminalIdentity> {
+  const branchId = c.fx.otherBranchId;
+  await prisma.userBranchRole.createMany({
+    data: [
+      { tenantId: c.fx.tenantId, branchId, userId: c.owner.userId, role: RoleName.owner },
+      { tenantId: c.fx.tenantId, branchId, userId: c.cashier.userId, role: RoleName.cashier },
+    ],
+    skipDuplicates: true,
+  });
+  const register = await tx15((t) => trust.createCounter(t, c.owner, branchId, `Other ${randomUUID().slice(0, 4)}`));
+  const challenge = await tx15((t) =>
+    trust.beginEnrollment(t, c.owner, branchId, {
+      registerId: register.id,
+      keyId: randomUUID(),
+      publicKeyHex: c.device.publicKeyHex,
+      label: "Other desk",
+    }),
+  );
+  const proof = await proofs.record(
+    c.owner,
+    branchId,
+    c.device.sign(attest(c.fx, challenge, "enrollment", c.owner), challenge.identity.keyId, "attendance"),
+  );
+  const identity = await tx15((t) =>
+    trust.finishEnrollment(t, c.owner, branchId, c.device.sign(challenge, challenge.identity.keyId), proof.proofId),
+  );
+  await prisma.terminalStaffPreparation.create({
+    data: { ...identity, id: undefined, staffUserId: c.cashier.userId, pinVersion: 1 },
+  });
+  return identity;
+}
+
+async function seedHiddenBranchAcceptedIncident(c: Counter): Promise<string> {
+  const branchId = c.fx.otherBranchId;
+  const identity = await enrollOtherBranch(c);
+  const recordId = randomUUID();
+  const signed = c.device.sign(
+    {
+      contractVersion: 1,
+      kind: "sale_incident",
+      recordId,
+      identity,
+      saleCommandId: randomUUID(),
+      recordedByUserId: c.cashier.userId,
+      staffSignInId: randomUUID(),
+      workSessionId: randomUUID(),
+      recordedAt: Date.now() - 60_000,
+      category: "customer_dispute",
+      description: "Hidden-branch incident-notes fixture",
+    } satisfies OfflineSaleIncident,
+    identity.keyId,
+  );
+  await prisma.$transaction((client) => support.record(client, c.owner, branchId, signed, Date.now()));
+  await prisma.offlineSupportRecord.updateMany({
+    where: { tenantId: c.fx.tenantId, enrollmentId: identity.enrollmentId, recordId, status: "held" },
+    data: { status: "accepted", heldReason: null, verifiedAt: new Date() },
+  });
+  return recordId;
+}
+
+async function seedCollectedPaymentRow(c: Counter) {
+  const reviewId = randomUUID();
+  const settlementId = randomUUID();
+  const commandId = randomUUID();
+  const recordHash = sha256(`collected-money-fixture-${settlementId}`);
+  const now = new Date();
+  await prisma.offlineJournalReview.create({
+    data: {
+      id: reviewId,
+      tenantId: c.fx.tenantId,
+      branchId: c.fx.mainBranchId,
+      terminalId: c.identity.terminalId,
+      enrollmentId: c.identity.enrollmentId,
+      keyId: c.identity.keyId,
+      recordKind: "command",
+      recordId: commandId,
+      sequence: BigInt(99_001),
+      recordHash,
+      outcome: "rejected",
+      errorCode: "TEST_FIXTURE",
+      envelope: {},
+      receivedByUserId: c.owner.userId,
+    },
+  });
+  await prisma.offlineJournalSettlement.create({
+    data: {
+      id: settlementId,
+      tenantId: c.fx.tenantId,
+      branchId: c.fx.mainBranchId,
+      reviewId,
+      enrollmentId: c.identity.enrollmentId,
+      commandId,
+      sequence: BigInt(99_001),
+      recordHash: sha256(commandId),
+      decision: "not_honoured",
+      reason: "Phase D collected-money queue fixture",
+      status: "prepared",
+      requestedBy: c.manager.userId,
+    },
+  });
+  const signInRow = await prisma.offlineStaffSignIn.findFirst({
+    where: { tenantId: c.fx.tenantId, branchId: c.fx.mainBranchId, enrollmentId: c.identity.enrollmentId },
+    orderBy: { receivedAt: "desc" },
+  });
+  const shiftRow = await prisma.tillShift.findFirst({
+    where: { tenantId: c.fx.tenantId, branchId: c.fx.mainBranchId },
+    orderBy: { openedAt: "desc" },
+  });
+  await prisma.offlineCollectedPayment.create({
+    data: {
+      id: randomUUID(),
+      tenantId: c.fx.tenantId,
+      branchId: c.fx.mainBranchId,
+      settlementId,
+      enrollmentId: c.identity.enrollmentId,
+      commandId,
+      paymentIndex: 0,
+      method: "external_card",
+      amountMinor: 1500n,
+      providerReference: "RRN-PHASE-D-COLLECTED",
+      approvalCode: "123456",
+      approvedAt: now,
+      workSessionId: signInRow?.workSessionId ?? randomUUID(),
+      shiftId: shiftRow?.id ?? null,
+      staffUserId: c.cashier.userId,
+      collectedAt: now,
+    },
+  });
+}
 
 type AttemptBinding = Pick<
   ExternalCardAttemptRecord,
@@ -129,7 +302,25 @@ beforeAll(async () => {
     occurredAt: saleCmd.payload.occurredAt,
     receiptNumber: saleCmd.payload.receiptNumber,
   };
-  await sync(main, { staffSignIns: [signIn], commands: [open, saleCmd] });
+  const { staffSignInId, session } = signIn.payload;
+  const mainIncident = main.device.sign(
+    {
+      contractVersion: 1,
+      kind: "sale_incident",
+      recordId: randomUUID(),
+      identity: main.identity,
+      saleCommandId: saleCmd.payload.commandId,
+      recordedByUserId: main.cashier.userId,
+      staffSignInId,
+      workSessionId: session.workSessionId,
+      recordedAt: saleCmd.payload.occurredAt + 100,
+      category: "other",
+      description: "Phase D incident-notes queue fixture",
+    } satisfies OfflineSaleIncident,
+    main.identity.keyId,
+  );
+  mainAcceptedIncidentRecordId = mainIncident.payload.recordId;
+  await sync(main, { staffSignIns: [signIn], commands: [open, saleCmd], supportRecords: [mainIncident] });
   await seedHeldCard(main);
   await seedHeldCard(otherTenant);
 
@@ -199,6 +390,18 @@ beforeAll(async () => {
       where: { tenantId: main.fx.tenantId, offlineCommandId: journaledCommand.commandId },
     })
   ).id;
+
+  const mainIncidentRow = await prisma.offlineSupportRecord.findFirstOrThrow({
+    where: {
+      tenantId: main.fx.tenantId,
+      branchId: main.fx.mainBranchId,
+      recordId: mainAcceptedIncidentRecordId,
+    },
+  });
+  expect(mainIncidentRow.status).toBe("accepted");
+  otherTenantAcceptedIncidentRecordId = await seedAcceptedSaleIncidentViaSync(otherTenant);
+  hiddenBranchIncidentRecordId = await seedHiddenBranchAcceptedIncident(main);
+  await seedCollectedPaymentRow(main);
 });
 
 afterAll(() => prisma.$disconnect());
@@ -210,6 +413,15 @@ describe("sales phase D queues (Postgres)", () => {
     for (const row of page.items) expect(row.branchId).toBe(main.fx.mainBranchId);
     for (const row of otherPage.items) expect(row.branchId).toBe(otherTenant.fx.mainBranchId);
     expect(page.items.some((row) => row.branchId === otherTenant.fx.mainBranchId)).toBe(false);
+  });
+
+  it("reports pagination total on collected money", async () => {
+    const page = await queues.collectedMoney(ownerOn(main), main.fx.mainBranchId, {
+      page: 1,
+      pageSize: 1,
+    });
+    expect(page.total).toBeGreaterThanOrEqual(1);
+    expect(page.items).toHaveLength(1);
   });
 
   it("keeps payment recovery tenant-scoped", async () => {
@@ -243,6 +455,33 @@ describe("sales phase D queues (Postgres)", () => {
       ForbiddenException,
     );
     expect(() => guardBranch(ownerOn(main), otherTenant.fx.mainBranchId)).toThrow(ForbiddenException);
+  });
+});
+
+describe("incident notes queue (Postgres)", () => {
+  it("lists accepted sale incidents for the caller branch with pagination total", async () => {
+    const page = await queues.incidentNotes(ownerOn(main), main.fx.mainBranchId, {
+      status: "accepted",
+      page: 1,
+      pageSize: 1,
+    });
+    expect(page.total).toBeGreaterThanOrEqual(1);
+    expect(page.items).toHaveLength(1);
+    expect(page.items[0]!.recordId).toBe(mainAcceptedIncidentRecordId);
+    const full = await queues.incidentNotes(ownerOn(main), main.fx.mainBranchId, { status: "accepted" });
+    expect(full.items.some((row) => row.recordId === mainAcceptedIncidentRecordId)).toBe(true);
+    for (const row of full.items) expect(row.branchId).toBe(main.fx.mainBranchId);
+    expect(full.items.some((row) => row.recordId === otherTenantAcceptedIncidentRecordId)).toBe(false);
+    expect(full.items.some((row) => row.recordId === hiddenBranchIncidentRecordId)).toBe(false);
+  });
+
+  it("keeps incident notes tenant- and branch-scoped", async () => {
+    const otherPage = await queues.incidentNotes(ownerOn(otherTenant), otherTenant.fx.mainBranchId, {
+      status: "accepted",
+    });
+    expect(otherPage.items.some((row) => row.recordId === otherTenantAcceptedIncidentRecordId)).toBe(true);
+    expect(otherPage.items.some((row) => row.recordId === mainAcceptedIncidentRecordId)).toBe(false);
+    expect(otherPage.items.every((row) => row.branchId === otherTenant.fx.mainBranchId)).toBe(true);
   });
 });
 
