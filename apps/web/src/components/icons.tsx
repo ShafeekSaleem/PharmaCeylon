@@ -602,6 +602,27 @@ export function IconKeyboard(props: IconProps) {
   );
 }
 
+/** A counter computer: a screen on a stand. */
+export function IconMonitor(props: IconProps) {
+  return (
+    <svg {...defaults(props)}>
+      <rect width="20" height="13" x="2" y="3" rx="2" />
+      <path d="M8 21h8M12 16v5" />
+    </svg>
+  );
+}
+
+/** Selling without the internet: a cloud struck through. */
+export function IconCloudOff(props: IconProps) {
+  return (
+    <svg {...defaults(props)}>
+      <path d="m2 2 20 20" />
+      <path d="M5.78 5.78A7 7 0 0 0 9 19h8.5a4.5 4.5 0 0 0 1.31-.2" />
+      <path d="M21.53 16.5A4.5 4.5 0 0 0 17.5 10h-1.79A7 7 0 0 0 10 5.07" />
+    </svg>
+  );
+}
+
 export function IconPill(props: IconProps) {
   return (
     <svg {...defaults(props)}>
