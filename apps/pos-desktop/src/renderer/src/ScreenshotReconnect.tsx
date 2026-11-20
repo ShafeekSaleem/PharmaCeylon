@@ -76,6 +76,7 @@ const device: DeviceState = {
     enrolledByName: "Dilini Fernando",
     offlineBackup: emptyEnrollmentOfflineBackup,
     enrollmentFactsLive: true,
+    lastTestReceipt: null,
     enrollmentStatusFetchedAt: null,
   },
   operator: null,

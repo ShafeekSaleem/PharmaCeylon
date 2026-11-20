@@ -40,6 +40,11 @@ export type ReadinessFacts = {
   printers?: string[];
   /** Windows could not list its printers (the print spooler stopped, for example). */
   printerLookupFailed?: boolean;
+  /**
+   * Display name (as in `printers`) of the installed printer the last test receipt at this
+   * enrollment was confirmed on; null or absent when none, or when it is no longer installed.
+   */
+  testReceiptPrinter?: string | null;
   /** Trusted time for offline decisions (P4 #50). Absent: not looked at (no store open). */
   trustedClock?: TrustedNow;
   /** Offline card payments and support records (P4 #50). Absent: not looked at (not enrolled). */
@@ -236,6 +241,22 @@ export function isVirtualPrinter(name: string): boolean {
   return /\b(pdf|xps|onenote|fax)\b/i.test(name) || /^(microsoft print to|send to )/i.test(name);
 }
 
+/**
+ * The printer facts from what Windows lists. A confirmed test receipt records the printer's
+ * Windows name, which differs from its display name for a shared or network printer, so it is
+ * matched by name here and reported by display name, as `printers` is.
+ */
+export function printerReadiness(
+  installed: readonly { name: string; displayName: string }[],
+  testReceiptPrinterName: string | null,
+): Pick<ReadinessFacts, "printers" | "testReceiptPrinter"> {
+  const tested = installed.find((printer) => printer.name === testReceiptPrinterName);
+  return {
+    printers: installed.map((printer) => printer.displayName),
+    testReceiptPrinter: tested?.displayName ?? null,
+  };
+}
+
 /** The receipt printer: what Windows has installed. The printer itself is chosen at each sale. */
 function printerRow(facts: ReadinessFacts): Row {
   if (facts.printerLookupFailed)
@@ -253,6 +274,9 @@ function printerRow(facts: ReadinessFacts): Row {
         ? `No receipt printer is installed in Windows on this computer: only ${printers.join(", ")}, which can't print receipts.`
         : "No printer is installed in Windows on this computer, so receipts can't print.",
     };
+  const tested = facts.testReceiptPrinter;
+  if (tested && paper.includes(tested))
+    return { status: "ok", detail: `${tested} · test receipt confirmed.` };
   const installed = paper.length === 1 ? `${paper[0]} is` : `${paper.length} printers are (${paper.join(", ")})`;
   return { status: "ok", detail: `${installed} installed in Windows. Print a test receipt below to check it.` };
 }

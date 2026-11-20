@@ -243,10 +243,19 @@ export class TerminalEnrollmentService {
               })
             : null;
 
+        // The last confirmed test receipt from this enrollment (go-live evidence), so the counter
+        // can show it after a restart rather than only in the session that confirmed it.
+        const lastTestReceipt = await tx.terminalTestReceipt.findFirst({
+          where: { tenantId: user.tenantId, branchId, enrollmentId: enrollment.id },
+          orderBy: { confirmedAt: "desc" },
+          select: { confirmedAt: true, confirmedBy: true, printerName: true },
+        });
+
         const actorIds = [
           nomination?.activatedByUserId,
           nominationAuthorization?.authorizedByUserId,
           outstandingAuthorization?.authorizedByUserId,
+          lastTestReceipt?.confirmedBy,
         ].filter((id): id is string => id !== undefined && id !== null);
         const names =
           actorIds.length === 0
@@ -276,6 +285,11 @@ export class TerminalEnrollmentService {
             outstandingAuthorization,
             fullName,
           ),
+          lastTestReceipt: lastTestReceipt && {
+            confirmedAt: lastTestReceipt.confirmedAt.getTime(),
+            confirmedByName: fullName(lastTestReceipt.confirmedBy),
+            printerName: lastTestReceipt.printerName,
+          },
         };
       },
     );

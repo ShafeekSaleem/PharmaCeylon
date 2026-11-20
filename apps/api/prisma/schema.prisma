@@ -906,6 +906,8 @@ model TerminalTestReceipt {
   enrollment    TerminalEnrollment @relation(fields: [tenantId, branchId, terminalId, enrollmentId, keyId], references: [tenantId, branchId, terminalId, id, keyId], onDelete: Restrict, onUpdate: Restrict)
 
   @@index([tenantId, branchId, confirmedAt])
+  // An enrollment's latest test receipt, read with every enrollment status (P2b #103).
+  @@index([tenantId, branchId, enrollmentId, confirmedAt], map: "terminal_test_receipt_enrollment_confirmed_idx")
   @@map("terminal_test_receipt")
 }
 

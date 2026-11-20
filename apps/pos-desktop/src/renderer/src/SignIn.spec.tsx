@@ -29,6 +29,7 @@ const enrollmentBase = {
   enrolledByName: "Branch enroller",
   offlineBackup: emptyEnrollmentOfflineBackup,
   enrollmentFactsLive: true,
+  lastTestReceipt: null,
   enrollmentStatusFetchedAt: null,
 };
 

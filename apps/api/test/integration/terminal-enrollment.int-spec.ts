@@ -1350,7 +1350,7 @@ describe("go-live evidence from counters", () => {
         pin: "2580",
         password: PASSWORD,
       });
-      await enrollmentService.recordTestReceipt(
+      const recorded = await enrollmentService.recordTestReceipt(
         clerk,
         fx.mainBranchId,
         session.workSessionId,
@@ -1359,6 +1359,23 @@ describe("go-live evidence from counters", () => {
       expect(
         await counterEvidence(prisma, fx.tenantId, fx.mainBranchId),
       ).toEqual({ preparedStaff: 1, testReceipts: 1 });
+      // The counter reads the confirmation back with its enrollment status, so it survives a
+      // restart: the time recorded and the name of who confirmed it (the cashier, not the owner
+      // reading the status).
+      const withReceipt = await enrollmentService.enrollmentStatus(
+        owner,
+        fx.mainBranchId,
+        identity.enrollmentId,
+      );
+      const cashier = await prisma.appUser.findUniqueOrThrow({
+        where: { id: fx.clerkId },
+        select: { fullName: true },
+      });
+      expect(withReceipt.lastTestReceipt).toEqual({
+        confirmedAt: recorded.confirmedAt,
+        confirmedByName: cashier.fullName,
+        printerName: "Receipt printer",
+      });
 
       // An admin PIN reset makes the preparation stale; a revoked counter's receipt stops counting.
       // tenant-scope: test fixture — simulating the admin reset's version bump.

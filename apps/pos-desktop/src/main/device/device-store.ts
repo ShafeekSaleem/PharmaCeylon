@@ -1,7 +1,9 @@
 import type { TerminalIdentity } from "@pharmaceylon/shared";
 import {
   enrollmentOfflineBackupSchema,
+  testReceiptFactSchema,
   type EnrollmentOfflineBackup,
+  type TestReceiptFact,
 } from "../../shared/ipc-contract";
 import type { PosDatabase } from "../db/database";
 import { DeviceKey } from "./device-key";
@@ -59,6 +61,16 @@ type Row = {
   enrollment_status_counter_label: string | null;
   enrollment_offline_backup_json: string | null;
   enrollment_status_enrollment_id: string | null;
+  enrollment_last_test_receipt_json: string | null;
+};
+
+const parseTestReceipt = (json: string | null): TestReceiptFact | null => {
+  if (!json) return null;
+  try {
+    return testReceiptFactSchema.parse(JSON.parse(json));
+  } catch {
+    return null;
+  }
 };
 
 const toIdentity = (row: Row): DeviceIdentity => ({
@@ -256,6 +268,24 @@ export class DeviceStore {
       );
   }
 
+  /**
+   * The last test receipt confirmed at this enrollment, confirmed here or reported by the server.
+   * The row is this enrollment's (a new enrollment replaces it), so no status fetch is needed.
+   */
+  readLastTestReceipt(): TestReceiptFact | null {
+    return parseTestReceipt(this.row()?.enrollment_last_test_receipt_json ?? null);
+  }
+
+  /** Records the last test receipt confirmed at this enrollment. */
+  saveLastTestReceipt(enrollmentId: string, fact: TestReceiptFact): void {
+    this.db
+      .prepare(
+        `UPDATE device_identity SET enrollment_last_test_receipt_json = ?
+         WHERE id = 1 AND enrollment_id = ?`,
+      )
+      .run(JSON.stringify(fact), enrollmentId);
+  }
+
   clearEnrollmentStatusCache(): void {
     this.db
       .prepare(
@@ -263,7 +293,8 @@ export class DeviceStore {
            enrollment_status_fetched_at = NULL,
            enrollment_status_counter_label = NULL,
            enrollment_offline_backup_json = NULL,
-           enrollment_status_enrollment_id = NULL
+           enrollment_status_enrollment_id = NULL,
+           enrollment_last_test_receipt_json = NULL
          WHERE id = 1`,
       )
       .run();

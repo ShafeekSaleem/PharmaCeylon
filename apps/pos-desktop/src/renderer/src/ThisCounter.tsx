@@ -10,6 +10,7 @@ import type {
   Printer,
   ReadinessCheck,
   ReadinessReport,
+  TestReceiptFact,
 } from "../../shared/ipc-contract";
 import { dayMonthYear, relativeTime, time } from "./format";
 import {
@@ -152,7 +153,9 @@ function Readiness({
   );
 }
 
-function PrinterTest() {
+/** The last confirmation comes from the counter's state (the newer of one made here and the
+ * server's, kept on this computer), so it survives a restart; one made here shows at once. */
+function PrinterTest({ last }: { last: TestReceiptFact | null }) {
   const [printers, setPrinters] = useState<Printer[] | null>(null);
   const [selected, setSelected] = useState("");
   const [printing, setPrinting] = useState(false);
@@ -161,10 +164,22 @@ function PrinterTest() {
     null,
   );
   const [printed, setPrinted] = useState<string | null>(null);
-  const [confirmed, setConfirmed] = useState<{
+  const [justConfirmed, setJustConfirmed] = useState<{
     at: string;
     byName: string | null;
+    printerName: string;
   } | null>(null);
+  const confirmed =
+    justConfirmed ??
+    (last
+      ? {
+          at: new Date(last.confirmedAt).toISOString(),
+          byName: last.confirmedByName,
+          printerName: last.printerName,
+        }
+      : null);
+
+  const [lookupFailed, setLookupFailed] = useState(false);
 
   useEffect(() => {
     window.pos
@@ -173,13 +188,15 @@ function PrinterTest() {
         setPrinters(list);
         setSelected(list[0]?.name ?? "");
       })
-      .catch(() => setPrinters([]));
+      .catch(() => {
+        setLookupFailed(true);
+        setPrinters([]);
+      });
   }, []);
 
   async function print() {
     setPrinting(true);
     setMessage(null);
-    setConfirmed(null);
     try {
       const result = await window.pos.printTestReceipt({
         printerName: selected,
@@ -208,9 +225,10 @@ function PrinterTest() {
         .confirmTestReceipt({ printerName: printed })
         .catch(() => null);
       if (result?.ok) {
-        setConfirmed({
+        setJustConfirmed({
           at: result.value.confirmedAt,
           byName: result.value.confirmedByName,
+          printerName: printed,
         });
         setPrinted(null);
         setMessage(null);
@@ -231,10 +249,26 @@ function PrinterTest() {
   const asking = Boolean(printed) && !printing && !confirming;
   useKeyBinding("Ctrl+Enter", () => void confirm(), { enabled: asking });
 
-  const pill = confirmed && !printed ? (
+  // Whether the confirmed printer is installed: unknown (null) until Windows has listed its
+  // printers, and when it could not, so the panel never claims it is gone.
+  const confirmedInstalled =
+    confirmed === null || printers === null || lookupFailed
+      ? null
+      : printers.some((p) => p.name === confirmed.printerName);
+  const confirmedHere = confirmedInstalled === true;
+  const printFailed = message !== null && !message.ok;
+  const pill = printing ? (
+    <span className={cx(ui.pill, ui.neutral, styles.right)}>Printing…</span>
+  ) : printFailed ? (
+    <span className={cx(ui.pill, ui.warn, styles.right)}>Did not print</span>
+  ) : confirmedHere && !printed ? (
     <span className={cx(ui.pill, ui.ok, styles.right)}>
       <Icon name="check" />
       Ready
+    </span>
+  ) : lookupFailed ? (
+    <span className={cx(ui.pill, ui.warn, styles.right)}>
+      Printers unavailable
     </span>
   ) : printers?.length === 0 ? (
     <span className={cx(ui.pill, ui.warn, styles.right)}>No printer</span>
@@ -256,7 +290,11 @@ function PrinterTest() {
         ) : printers.length === 0 ? (
           <div className={cx(ui.note, ui.noteWarn)}>
             <Icon name="alert-triangle" />
-            <div>No printers are installed in Windows on this computer.</div>
+            <div>
+              {lookupFailed
+                ? "Windows could not list its printers. Restart the computer; contact support if this stays."
+                : "No printers are installed in Windows on this computer."}
+            </div>
           </div>
         ) : (
           <>
@@ -336,8 +374,12 @@ function PrinterTest() {
         {confirmed && !printed && (
           <div className={styles.footN}>
             Last confirmed {dayMonthYear(new Date(confirmed.at))}
-            {confirmed.byName ? ` by ${confirmed.byName}` : ""}. Recorded for
-            the branch go-live checklist. Shown for this session only.
+            {confirmed.byName ? ` by ${confirmed.byName}` : ""}
+            {confirmedInstalled === false
+              ? ` on ${confirmed.printerName}, which is not installed now`
+              : ""}
+            .
+            Recorded for the branch go-live checklist.
           </div>
         )}
       </div>
@@ -764,7 +806,7 @@ export function ThisCounterPage({
       <div className={styles.body}>
         <Readiness readiness={readiness} onCheck={onCheck} />
         <div className={styles.side}>
-          <PrinterTest />
+          <PrinterTest last={enrollment.lastTestReceipt} />
           <OfflineRecords
             active={active}
             focusAttemptId={focusCardAttemptId}

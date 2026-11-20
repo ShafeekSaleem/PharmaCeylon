@@ -174,6 +174,7 @@ const enrollment = {
   enrolledByName: null,
   offlineBackup: emptyEnrollmentOfflineBackup,
   enrollmentFactsLive: true,
+  lastTestReceipt: null,
   enrollmentStatusFetchedAt: null,
 };
 
