@@ -45,6 +45,8 @@ export const DAILY_WORK_KINDS = [
   "offline_journal.review",
   "supplier_cash_payout.approve",
   "supplier_cash_payout.execute",
+  // P6 #52 decision 1: the counter says an approved document doesn't match.
+  "counter_mismatch.review",
 ] as const;
 export type DailyWorkKind = (typeof DAILY_WORK_KINDS)[number];
 

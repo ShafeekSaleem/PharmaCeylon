@@ -59,6 +59,9 @@ export const DAILY_WORK_KIND_DEFS: Readonly<Record<DailyWorkKind, KindDef>> = {
   "offline_journal.review": { executes: null },
   "supplier_cash_payout.approve": { executes: null },
   "supplier_cash_payout.execute": { approvalAction: "supplier_cash_payout.execute" },
+  // P6 #52 decision 1: the counter says an approved document doesn't match. Answered on the web,
+  // by approving a corrected version or keeping it as approved.
+  "counter_mismatch.review": { executes: null },
 };
 
 export function kindOperation(kind: DailyWorkKind): MutationKey | null {

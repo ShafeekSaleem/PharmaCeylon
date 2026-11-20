@@ -5,7 +5,7 @@ import {
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
-import { Prisma, StockMovementType, TransferStatus } from "@prisma/client";
+import { Prisma, StockMovementType, TransferShortCloseReason, TransferStatus } from "@prisma/client";
 import { randomUUID } from "node:crypto";
 import { nextTenantDocumentNumber } from "../common/document-sequence.util";
 import { IDEMPOTENCY_SCOPE } from "../common/idempotency.constants";
@@ -26,6 +26,8 @@ import { denied } from "../terminals/terminal-wire";
 import { CreateTransferDto } from "./dto/create-transfer.dto";
 import { ApproveTransferDto, DispatchTransferDto } from "./dto/approve-transfer.dto";
 import { ReceiveTransferDto } from "./dto/receive-transfer.dto";
+import type { CloseShortTransferDto } from "./dto/close-short-transfer.dto";
+import { assertNoMismatchHold } from "../security/counter-mismatch-hold";
 
 type Tx = Prisma.TransactionClient;
 
@@ -148,7 +150,8 @@ export class TransfersService {
       approvalVersion: number;
       executionApprovalId: string | null;
       dispatchedBy: string | null;
-      items: Array<{ id: string; productId: string; batchId: string | null; qty: number; receivedQty: number }>;
+      items: Array<{ id: string; productId: string; batchId: string | null; qty: number; receivedQty: number; closedQty: number }>;
+      shortClosedAt?: Date | null;
       [key: string]: unknown;
     }>,
   ) {
@@ -201,9 +204,11 @@ export class TransfersService {
     return rows.map((row) => {
       const totalQty = row.items.reduce((sum, item) => sum + item.qty, 0);
       const itemReceivedQty = row.items.reduce((sum, item) => sum + item.receivedQty, 0);
+      // Decision 2: units a manager closed short are no longer on the way.
+      const closedQty = row.items.reduce((sum, item) => sum + item.closedQty, 0);
       const movement = movementByTransfer.get(row.id) ?? { dispatchedQty: 0, receivedQty: 0 };
       let receivedQty = Math.max(itemReceivedQty, movement.receivedQty);
-      if (row.status === TransferStatus.received && receivedQty === 0 && totalQty > 0) {
+      if (row.status === TransferStatus.received && !row.shortClosedAt && receivedQty === 0 && totalQty > 0) {
         receivedQty = totalQty;
       }
       const receivedPercent =
@@ -220,7 +225,8 @@ export class TransfersService {
         dispatchedQty: movement.dispatchedQty,
         receivedQty,
         // Left the source but not yet booked in at the destination.
-        inTransitQty: Math.max(0, movement.dispatchedQty - movement.receivedQty),
+        inTransitQty: Math.max(0, movement.dispatchedQty - movement.receivedQty - closedQty),
+        closedQty,
         receivedPercent,
         dispatcher: row.dispatchedBy ? (dispatcherById.get(row.dispatchedBy) ?? null) : null,
         approvalWaived,
@@ -677,6 +683,10 @@ export class TransfersService {
         )
       : null;
 
+    // Decision 1: under a waived approval a "Can't pick all of it" report holds the transfer itself.
+    if (!evidence)
+      await assertNoMismatchHold(tx, { tenantId, branchId: fromBranchId, kind: "transfer_ship", documentId: t.id, approvalId: null });
+
     await this.stock.consumeReservations(tx, tenantId, TRANSFER_RESERVATION_SOURCE, t.id);
     await this.stock.issue(
       tx,
@@ -836,7 +846,7 @@ export class TransfersService {
       }
     } else {
       for (const item of t.items) {
-        const remaining = item.qty - item.receivedQty;
+        const remaining = item.qty - item.receivedQty - item.closedQty;
         if (remaining > 0) receivePlan.set(item.id, { qty: remaining });
       }
     }
@@ -856,7 +866,7 @@ export class TransfersService {
         throw new ConflictException("Part of this transfer was received since you counted it; refresh and count again");
       }
 
-      const remaining = line.qty - line.receivedQty;
+      const remaining = line.qty - line.receivedQty - line.closedQty;
       if (plan.qty > remaining) {
         throw new BadRequestException(
           `Cannot receive ${plan.qty} on line ${itemId}; only ${remaining} remaining`,
@@ -928,7 +938,7 @@ export class TransfersService {
     const refreshed = await tx.transferItem.findMany({
       where: { transferId: t.id, tenantId },
     });
-    const fullyReceived = refreshed.every((i) => i.receivedQty >= i.qty);
+    const fullyReceived = refreshed.every((i) => i.receivedQty + i.closedQty >= i.qty);
     const nextStatus = fullyReceived ? TransferStatus.received : TransferStatus.partially_received;
 
     const statusClaimed = await tx.transfer.updateMany({
@@ -970,6 +980,140 @@ export class TransfersService {
       tx,
     );
     return { actor, status: nextStatus, receivedQty, lines };
+  }
+
+  /**
+   * P6 #52 decision 2: a manager closes what is still on the way, on the web, with a reason.
+   * "never_left_source" books the units back into the source batch (an adjustment in at the
+   * source); only the source branch can say that. "lost_in_transit" writes them off as lost at
+   * the source, where the stock was last held: a matched adjustment in and out, so the source's
+   * on-hand is unchanged and the loss shows in its write-offs. Either way the transfer is
+   * finished: nothing more can be received on it. `remaining` pins what the manager saw, so units
+   * the counter received in the meantime are never closed as well.
+   */
+  async closeShort(user: RequestUser, branchId: string, transferId: string, dto: CloseShortTransferDto) {
+    const tenantId = user.tenantId;
+    await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM transfer WHERE tenant_id = ${tenantId}::uuid AND id = ${transferId}::uuid AND (from_branch_id = ${branchId}::uuid OR to_branch_id = ${branchId}::uuid) FOR UPDATE`;
+      const t = await tx.transfer.findFirst({
+        where: { id: transferId, tenantId, OR: [{ fromBranchId: branchId }, { toBranchId: branchId }] },
+        include: { items: true },
+      });
+      if (!t) throw new NotFoundException("Transfer not found");
+      const actor = await this.access.resolveLive(user, branchId, tx);
+      if (!actor.has("transfers.approve"))
+        throw new ForbiddenException({ code: "PERMISSION_DENIED", message: "You can't close transfers at this branch" });
+      if (t.status !== TransferStatus.in_transit && t.status !== TransferStatus.partially_received)
+        throw new BadRequestException("Only a transfer still on the way can be closed short");
+      const reason = dto.reason as TransferShortCloseReason;
+      if (reason === TransferShortCloseReason.never_left_source && branchId !== t.fromBranchId)
+        throw new ForbiddenException({
+          code: "PERMISSION_DENIED",
+          message: "Only the sending branch can say the units never left it",
+        });
+      const note = dto.note.trim();
+      if (note.length < 3) throw new BadRequestException("Say why the rest is being closed");
+
+      const open = t.items
+        .map((item) => ({ item, qty: item.qty - item.receivedQty - item.closedQty }))
+        .filter((line) => line.qty > 0);
+      if (!open.length) throw new BadRequestException("Nothing is still on the way on this transfer");
+      const seen = new Map(dto.remaining.map((line) => [line.transferItemId, line.qty]));
+      if (
+        seen.size !== dto.remaining.length ||
+        seen.size !== open.length ||
+        open.some((line) => seen.get(line.item.id) !== line.qty)
+      )
+        throw new ConflictException("Part of this transfer arrived since you opened it; refresh and check again");
+
+      const lines = stockLines(open.map((line) => ({ ...line.item, qty: line.qty })));
+      const ctx = {
+        tenantId,
+        branchId: t.fromBranchId,
+        userId: user.userId,
+        referenceType: "transfer",
+        referenceId: t.id,
+      };
+      const why = `${t.transferNumber}: ${note}`;
+      if (reason === TransferShortCloseReason.never_left_source) {
+        await this.stock.receive(
+          tx,
+          ctx,
+          lines.map((line) => ({
+            productId: line.productId,
+            batchId: line.batchId,
+            qty: line.qty,
+            movementType: StockMovementType.adjustment_in,
+            reason: `Never left on transfer ${why}`.slice(0, 512),
+            reasonCode: "correction",
+          })),
+        );
+      } else {
+        await this.stock.post(
+          tx,
+          ctx,
+          lines.flatMap((line) => [
+            {
+              productId: line.productId,
+              batchId: line.batchId,
+              movementType: StockMovementType.adjustment_in,
+              qtyDelta: line.qty,
+              reason: `Back on the books to write off: transfer ${why}`.slice(0, 512),
+              reasonCode: "correction",
+            },
+            {
+              productId: line.productId,
+              batchId: line.batchId,
+              movementType: StockMovementType.adjustment_out,
+              qtyDelta: -line.qty,
+              reason: `Lost in transit on transfer ${why}`.slice(0, 512),
+              reasonCode: "lost",
+            },
+          ]),
+        );
+      }
+
+      for (const line of open) {
+        const bumped = await tx.transferItem.updateMany({
+          where: { id: line.item.id, tenantId, receivedQty: line.item.receivedQty, closedQty: line.item.closedQty },
+          data: { closedQty: line.item.closedQty + line.qty },
+        });
+        if (bumped.count !== 1) throw new ConflictException("Transfer close conflict — refresh and try again");
+      }
+      const claimed = await tx.transfer.updateMany({
+        where: { id: t.id, tenantId, status: t.status },
+        data: {
+          status: TransferStatus.received,
+          shortClosedBy: user.userId,
+          shortClosedAt: new Date(),
+          shortCloseReason: reason,
+          shortCloseNote: note,
+        },
+      });
+      if (claimed.count !== 1) throw new ConflictException("Transfer close conflict — refresh and try again");
+
+      await this.audit.log(
+        {
+          tenantId,
+          branchId,
+          actorUserId: user.userId,
+          eventName: "transfer.closed_short",
+          entityName: "transfer",
+          entityId: t.id,
+          payload: {
+            reason,
+            note,
+            fromBranchId: t.fromBranchId,
+            toBranchId: t.toBranchId,
+            dispatchApprovalId: t.executionApprovalId,
+            lines: open.map((line) => ({ transferItemId: line.item.id, qty: line.qty })),
+            closedQty: open.reduce((sum, line) => sum + line.qty, 0),
+          },
+        },
+        tx,
+      );
+    });
+    return this.getOne(tenantId, branchId, transferId);
   }
 
   /** Source-branch row lock; the approval document resolver takes the same lock. */

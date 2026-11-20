@@ -15,6 +15,7 @@ import { PharmacistCosigns } from "./pharmacist-cosigns.service";
 import { CounterWorkController } from "./counter-work.controller";
 import { CounterWorkService } from "./counter-work.service";
 import { CounterWorkDetailService } from "./counter-work-detail.service";
+import { CounterMismatchService } from "./counter-mismatch.service";
 import { SignedOperations } from "./signed-operations";
 import { TerminalCommandsController } from "./terminal-commands.controller";
 import { TerminalCommandExecutor } from "./terminal-command.executor";
@@ -35,6 +36,6 @@ import { TerminalCommandExecutor } from "./terminal-command.executor";
     StockCasesModule,
   ],
   controllers: [TerminalCommandsController, CounterWorkController],
-  providers: [TerminalCommandExecutor, SignedOperations, PharmacistCosigns, CounterWorkService, CounterWorkDetailService],
+  providers: [TerminalCommandExecutor, SignedOperations, PharmacistCosigns, CounterWorkService, CounterWorkDetailService, CounterMismatchService],
 })
 export class TerminalCommandsModule {}

@@ -16,7 +16,8 @@ function item(kind: CounterWorkItem["kind"], extra: Partial<CounterWorkItem> = {
     kind, id: "doc-1", reference: "REF-1", subject: "Hemas", lineCount: 1, amount: "120.00",
     readyAt: "2026-11-20T08:00:00.000Z", requested: { name: "Clerk", at: null }, approved: null, dispatched: null,
     approval: { evidenceId: "ev", approvedVersion: 1, currentVersion: 1, state: "matches", changes: [] },
-    operation: "POST /api/v1/stocktakes/:id/post", task: { stage: "ready_for_execution" } as never, ...extra,
+    operation: "POST /api/v1/stocktakes/:id/post", task: { stage: "ready_for_execution" } as never, mismatches: [],
+    ...extra,
   };
 }
 

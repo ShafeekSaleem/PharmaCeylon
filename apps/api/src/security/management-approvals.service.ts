@@ -18,6 +18,7 @@ import {
   approvalDocument,
   type ApprovalAction,
 } from "./approval-documents";
+import { assertNoMismatchHold, MISMATCH_HELD_ACTIONS } from "./counter-mismatch-hold";
 import type { RequestUser } from "./interfaces/authenticated-request.interface";
 import { lockOfflineStockResolution } from "./offline-stock-resolution-approval-material";
 import { lockOfflineJournalSettlement } from "./offline-journal-settlement-approval-material";
@@ -225,6 +226,9 @@ export class ManagementApprovalsService {
     });
     if (error) denied(error);
     assertMayApprove(approver, doc.requesters, doc.identity.documentType);
+    const heldKind = MISMATCH_HELD_ACTIONS[action];
+    if (heldKind)
+      await assertNoMismatchHold(tx, { tenantId: user.tenantId, branchId, kind: heldKind, documentId, approvalId });
     return approval;
   }
 

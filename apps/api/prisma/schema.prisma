@@ -137,6 +137,31 @@ enum TransferStatus {
   cancelled
 }
 
+/// Decision 2 (P6 #52): why a manager closed what was still on the way.
+enum TransferShortCloseReason {
+  /// The units never left the source: they go back to the source batch.
+  never_left_source
+  /// Lost on the way: written off, at neither branch.
+  lost_in_transit
+}
+
+/// Decision 1 (P6 #52): what the counter says doesn't match the approved document.
+enum CounterMismatchProblem {
+  fewer_arrived
+  more_arrived
+  different_batch_or_expiry
+  damaged
+  not_on_note
+  cannot_pick
+}
+
+enum CounterMismatchStatus {
+  /// Waiting for the approver. It holds the approval the counter saw until a new one replaces it.
+  open
+  /// The approver read it and kept the document as approved.
+  dismissed
+}
+
 enum GoodsReturnType {
   customer
   supplier
@@ -3190,6 +3215,11 @@ model Transfer {
   dispatchedBy    String?      @map("dispatched_by") @db.Uuid
   dispatchedAt    DateTime?    @map("dispatched_at")
   receivedAt      DateTime?    @map("received_at")
+  /// Decision 2: a manager closed what was still on the way, on the web.
+  shortClosedBy     String?                   @map("short_closed_by") @db.Uuid
+  shortClosedAt     DateTime?                 @map("short_closed_at")
+  shortCloseReason  TransferShortCloseReason? @map("short_close_reason")
+  shortCloseNote    String?                   @map("short_close_note") @db.VarChar(500)
 
   fromBranch Branch   @relation("TransferFromBranch", fields: [fromBranchId], references: [id])
   toBranch   Branch   @relation("TransferToBranch", fields: [toBranchId], references: [id])
@@ -3213,12 +3243,52 @@ model TransferItem {
   batchId     String? @map("batch_id") @db.Uuid
   qty         Int
   receivedQty Int     @default(0) @map("received_qty")
+  /// Units a manager closed short (decision 2): never received, never on the way again.
+  closedQty   Int     @default(0) @map("closed_qty")
 
   transfer Transfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
   product  Product  @relation(fields: [productId], references: [id])
   batch    Batch?   @relation(fields: [batchId], references: [id])
 
   @@map("transfer_item")
+}
+
+/// Decision 1 (P6 #52): "Something doesn't match" / "Can't pick all of it" from the counter.
+/// Nothing posts from it. While open, it holds the approval it was raised against
+/// (`approvalId`): that approval can't be executed until a new approval replaces it or the
+/// approver dismisses the report. A transfer in is never held (its short arrival still books).
+model CounterMismatchReport {
+  id              String                 @id @default(uuid()) @db.Uuid
+  tenantId        String                 @map("tenant_id") @db.Uuid
+  /// The counter's branch: the source for a transfer out, the destination for a transfer in.
+  branchId        String                 @map("branch_id") @db.Uuid
+  /// prepared_receipt, held_delivery, transfer_ship or transfer_receive.
+  kind            String                 @db.VarChar(32)
+  documentId      String                 @map("document_id") @db.Uuid
+  /// The document number when it was raised (PO or transfer number).
+  reference       String                 @db.VarChar(64)
+  /// The approval the counter saw; null where none was needed (waived, or a transfer in).
+  approvalId      String?                @map("approval_id") @db.Uuid
+  documentVersion Int                    @map("document_version")
+  /// The line: a delivery line's index, or a transfer item id. Null for "not on the note".
+  lineRef         String?                @map("line_ref") @db.VarChar(64)
+  /// The line's product as the counter saw it.
+  lineLabel       String?                @map("line_label") @db.VarChar(255)
+  problem         CounterMismatchProblem
+  /// What the counter counted, in `countUnit`.
+  countedQty      Int?                   @map("counted_qty")
+  countUnit       String?                @map("count_unit") @db.VarChar(8)
+  note            String?                @db.VarChar(500)
+  status          CounterMismatchStatus  @default(open)
+  reportedBy      String                 @map("reported_by") @db.Uuid
+  reportedAt      DateTime               @default(now()) @map("reported_at")
+  dismissedBy     String?                @map("dismissed_by") @db.Uuid
+  dismissedAt     DateTime?              @map("dismissed_at")
+  dismissNote     String?                @map("dismiss_note") @db.VarChar(500)
+
+  @@index([tenantId, branchId, status])
+  @@index([tenantId, documentId, status])
+  @@map("counter_mismatch_report")
 }
 
 model GoodsReturn {

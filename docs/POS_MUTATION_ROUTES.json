@@ -186,6 +186,16 @@
   },
   {
     "method": "POST",
+    "path": "/api/v1/counter-work/mismatches",
+    "source": "apps/api/src/terminal-commands/counter-work.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/counter-work/mismatches/:id/dismiss",
+    "source": "apps/api/src/terminal-commands/counter-work.controller.ts"
+  },
+  {
+    "method": "POST",
     "path": "/api/v1/customers",
     "source": "apps/api/src/customers/customers.controller.ts"
   },
@@ -1242,6 +1252,11 @@
   {
     "method": "POST",
     "path": "/api/v1/transfers/:id/cancel",
+    "source": "apps/api/src/transfers/transfers.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/transfers/:id/close-short",
     "source": "apps/api/src/transfers/transfers.controller.ts"
   },
   {

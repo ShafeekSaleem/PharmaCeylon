@@ -13,6 +13,7 @@ export const IDEMPOTENCY_SCOPE = {
   heldAdjustmentRequest: "held_adjustment_request",
   stockAdjustment: "stock_adjustment",
   offlineJournalSettlementPrepare: "offline_journal_settlement_prepare",
+  counterMismatchReport: "counter_mismatch_report",
 } as const;
 
 export type IdempotencyScope =

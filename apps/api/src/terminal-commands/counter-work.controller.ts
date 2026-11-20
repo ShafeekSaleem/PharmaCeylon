@@ -1,4 +1,16 @@
-import { BadRequestException, Controller, Get, Param, ParseUUIDPipe, Res, UseFilters } from "@nestjs/common";
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  Headers,
+  Param,
+  ParseUUIDPipe,
+  Post,
+  Query,
+  Res,
+  UseFilters,
+} from "@nestjs/common";
 import type { Response } from "express";
 import { ApiOperation, ApiTags } from "@nestjs/swagger";
 import { CounterRoute } from "../security/decorators/counter-route.decorator";
@@ -14,7 +26,13 @@ import {
   COUNTER_WORK_DETAIL_KINDS,
   isCounterWorkDetailKind,
 } from "@pharmaceylon/shared";
+import { CounterMismatchService } from "./counter-mismatch.service";
 import { CounterWorkDetailService } from "./counter-work-detail.service";
+import {
+  CounterMismatchQueryDto,
+  DismissCounterMismatchDto,
+  ReportCounterMismatchDto,
+} from "./dto/counter-mismatch.dto";
 import { CounterWorkService } from "./counter-work.service";
 import { TERMINAL_EXECUTE } from "./terminal-command.executor";
 
@@ -30,6 +48,7 @@ export class CounterWorkController {
   constructor(
     private readonly work: CounterWorkService,
     private readonly details: CounterWorkDetailService,
+    private readonly mismatches: CounterMismatchService,
   ) {}
 
   @ApiOperation({ summary: "Web-approved work waiting at this branch's counter, with its approval state" })
@@ -54,6 +73,50 @@ export class CounterWorkController {
   @Get("imports")
   imports(@CurrentUser() user: RequestUser, @RequireBranchId() branchId: string) {
     return this.details.undoableImports(user, branchId);
+  }
+
+  /**
+   * Decision 1: "Something doesn't match" / "Can't pick all of it". Nothing posts. The report
+   * goes to the approver's Daily work and holds the approval the counter saw (deliveries and
+   * transfers out) until a corrected version is approved or the approver keeps it as it is.
+   * Send an `Idempotency-Key`; a resend returns the same report.
+   */
+  @ApiOperation({ summary: "Tell the approver an approved document doesn't match what is at the counter" })
+  @RequirePermission(TERMINAL_EXECUTE)
+  @CounterRoute()
+  @Post("mismatches")
+  report(
+    @CurrentUser() user: RequestUser,
+    @RequireBranchId() branchId: string,
+    @Body() dto: ReportCounterMismatchDto,
+    @Headers("idempotency-key") idempotencyKey: string | undefined,
+  ) {
+    return this.mismatches.report(user, branchId, dto, idempotencyKey);
+  }
+
+  /** Web: the reports sent about one document, for its page. The document's view permission. */
+  @ApiOperation({ summary: "Counter mismatch reports about one document" })
+  @RequirePermission("purchasing.view", "transfers.view")
+  @Get("mismatches")
+  mismatchesFor(
+    @CurrentUser() user: RequestUser,
+    @RequireBranchId() branchId: string,
+    @Query() query: CounterMismatchQueryDto,
+  ) {
+    return this.mismatches.forDocument(user, branchId, query.kind, query.documentId);
+  }
+
+  /** Web: the approver keeps the document as approved; the counter may post it again. */
+  @ApiOperation({ summary: "Keep the document as approved and release the counter" })
+  @RequirePermission("purchasing.approve", "transfers.approve")
+  @Post("mismatches/:id/dismiss")
+  dismiss(
+    @CurrentUser() user: RequestUser,
+    @RequireBranchId() branchId: string,
+    @Param("id", new ParseUUIDPipe()) id: string,
+    @Body() dto: DismissCounterMismatchDto,
+  ) {
+    return this.mismatches.dismiss(user, branchId, id, dto);
   }
 
   /**

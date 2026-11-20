@@ -7,6 +7,7 @@ import { RequestUser } from "../security/interfaces/authenticated-request.interf
 import { ApproveTransferDto, DispatchTransferDto } from "./dto/approve-transfer.dto";
 import { CreateTransferDto } from "./dto/create-transfer.dto";
 import { ReceiveTransferDto } from "./dto/receive-transfer.dto";
+import { CloseShortTransferDto } from "./dto/close-short-transfer.dto";
 import { TransfersService } from "./transfers.service";
 
 @Controller("transfers")
@@ -99,5 +100,20 @@ export class TransfersController {
     @Headers("idempotency-key") idempotencyKey: string | undefined,
   ) {
     return this.transfers.receive(user, toBranchId, id, dto ?? {}, idempotencyKey);
+  }
+
+  /**
+   * P6 #52 decision 2: a manager at either branch closes what is still on the way, with a
+   * reason. Web only. "never_left_source" is the sending branch's to say.
+   */
+  @RequirePermission("transfers.approve")
+  @Post(":id/close-short")
+  closeShort(
+    @CurrentUser() user: RequestUser,
+    @RequireBranchId() branchId: string,
+    @Param("id", ParseUUIDPipe) id: string,
+    @Body() dto: CloseShortTransferDto,
+  ) {
+    return this.transfers.closeShort(user, branchId, id, dto);
   }
 }

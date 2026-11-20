@@ -24,10 +24,10 @@ Mockups only. No product code. Audited against `develop` `419d16b`: `packages/sh
 The screens are drawn from documents the counter can't read yet. `GET /counter-work` carries only each item's header: reference, subject, line count, amount, who asked and who approved. The document detail routes are web routes, and a PIN-opened counter login is refused there (`COUNTER_SESSION_ONLY`). P6 needs:
 
 1. **A counter read per kind**, marked `@CounterRoute()`, returning the lines each screen draws: products, batches, expiry, quantities, the trail and the approver's note. Costs are left out without `costs.view`. Refunds (`GET /sales/refund-requests`) and offline stock cases (`GET /offline-stock-cases/resolutions/ready`) already work this way. **Built:** `GET /counter-work/:kind/:id` (see `docs/COUNTER_WORK_COVERAGE.md`).
-2. **The mismatch endpoint** (decision 1).
+2. **The mismatch endpoint** (decision 1). **Built:** `POST /counter-work/mismatches` (see `docs/COUNTER_WORK_COVERAGE.md`).
 3. **The stocktake posting change** (decision 3). **Built** (#240).
 4. **A counter list of imports that can still be undone** (decision 5). **Built:** `GET /counter-work/imports`.
-5. **Closing a short transfer on the web** (decision 2). This is a web route, not a counter one.
+5. **Closing a short transfer on the web** (decision 2). This is a web route, not a counter one. **Built:** `POST /transfers/:id/close-short`, with "Close the rest" on the transfer.
 
 ## Screens
 
