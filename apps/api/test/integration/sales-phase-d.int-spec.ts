@@ -58,6 +58,7 @@ async function seedAcceptedIncident(c: Counter, description: string) {
   const enrollment = await localPrisma.terminalEnrollment.findFirstOrThrow({
     where: { tenantId: c.fx.tenantId, branchId: c.fx.mainBranchId, terminalId: c.identity.terminalId },
   });
+  const verifiedAt = new Date("2026-10-01T10:02:00.000Z");
   await localPrisma.offlineSupportRecord.create({
     data: {
       tenantId: c.fx.tenantId,
@@ -67,7 +68,7 @@ async function seedAcceptedIncident(c: Counter, description: string) {
       keyId: enrollment.keyId,
       kind: "sale_incident",
       recordId: randomUUID(),
-      recordHash: randomUUID().replace(/-/g, "").slice(0, 64),
+      recordHash: "a".repeat(64),
       envelope: {},
       staffSignInId: randomUUID(),
       workSessionId: randomUUID(),
@@ -76,8 +77,11 @@ async function seedAcceptedIncident(c: Counter, description: string) {
       receivedByUserId: c.owner.userId,
       status: "accepted",
       incidentCategory: "other",
-      description,
+      description: description.trim(),
       recordedByUserId: c.cashier.userId,
+      saleCommandId: randomUUID(),
+      verifiedAt,
+      verifiedByUserId: c.manager.userId,
     },
   });
 }
@@ -96,7 +100,7 @@ async function seedHeldCard(c: Counter) {
       keyId: enrollment.keyId,
       kind: "external_card_attempt",
       recordId: randomUUID(),
-      recordHash: randomUUID().replace(/-/g, "").slice(0, 64),
+      recordHash: "b".repeat(64),
       envelope: {},
       staffSignInId: randomUUID(),
       workSessionId: randomUUID(),
@@ -106,10 +110,12 @@ async function seedHeldCard(c: Counter) {
       status: "held",
       heldReason: "card_not_used",
       attemptId,
+      checkoutDraftId: randomUUID(),
+      reviewedSaleDigest: "c".repeat(64),
       cardState: "not_used",
       amountMinor: 1500n,
       providerReference: "RRN-PHASE-D",
-      approvalCode: "OK1",
+      verifiedByUserId: c.manager.userId,
     },
   });
   return attemptId;
