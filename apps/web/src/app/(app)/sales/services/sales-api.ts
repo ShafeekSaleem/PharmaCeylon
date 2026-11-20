@@ -1,7 +1,17 @@
 import { SALE_CHANNELS } from "@pharmaceylon/shared";
 import { apiJson } from "@/lib/auth-client";
 import { PAGE_SIZE } from "../constants";
-import type { SaleDetail, SalesChannelChip, SalesFilters, SalesHistoryOptions, SalesHistoryPage } from "../types";
+import type {
+  CollectedMoneyRow,
+  PaymentRecoveryRow,
+  SaleDetail,
+  SaleIncidentNoteRow,
+  SalesChannelChip,
+  SalesFilters,
+  SalesHistoryOptions,
+  SalesHistoryPage,
+  SalesQueuePage,
+} from "../types";
 
 function counterScopeRegisterId(filters: SalesFilters): string | undefined {
   const invoice = filters.invoiceNo.trim();
@@ -28,6 +38,9 @@ export function salesHistoryQuery(filters: SalesFilters, page: number): string {
   if (registerFilter) params.set("registerId", registerFilter);
   if (filters.tillId !== "all") params.set("tillId", filters.tillId);
   if (filters.shiftId !== "all") params.set("shiftId", filters.shiftId);
+  if (filters.offlineSyncState !== "all") {
+    params.set("offlineSyncState", filters.offlineSyncState);
+  }
   return params.toString();
 }
 
@@ -49,7 +62,38 @@ export function fetchSalesHistoryOptions(): Promise<SalesHistoryOptions> {
     registers: options.registers ?? [],
     terminals: options.terminals ?? [],
     shifts: options.shifts ?? [],
+    offlineSyncStates: options.offlineSyncStates ?? [],
   }));
+}
+
+export function fetchIncidentNotes(page: number, pageSize = PAGE_SIZE): Promise<SalesQueuePage<SaleIncidentNoteRow>> {
+  const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
+  return apiJson(`/sales/incident-notes?${params}`);
+}
+
+export function fetchIncidentNotesTotal(): Promise<number> {
+  const params = new URLSearchParams({ page: "1", pageSize: "1" });
+  return apiJson<SalesQueuePage<SaleIncidentNoteRow>>(`/sales/incident-notes?${params}`).then((p) => p.total);
+}
+
+export function fetchPaymentRecovery(page: number, pageSize = PAGE_SIZE): Promise<SalesQueuePage<PaymentRecoveryRow>> {
+  const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
+  return apiJson(`/sales/payment-recovery?${params}`);
+}
+
+export function fetchPaymentRecoveryTotal(): Promise<number> {
+  const params = new URLSearchParams({ page: "1", pageSize: "1" });
+  return apiJson<SalesQueuePage<PaymentRecoveryRow>>(`/sales/payment-recovery?${params}`).then((p) => p.total);
+}
+
+export function fetchCollectedMoney(page: number, pageSize = PAGE_SIZE): Promise<SalesQueuePage<CollectedMoneyRow>> {
+  const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
+  return apiJson(`/sales/collected-money?${params}`);
+}
+
+export function fetchCollectedMoneyTotal(): Promise<number> {
+  const params = new URLSearchParams({ page: "1", pageSize: "1" });
+  return apiJson<SalesQueuePage<CollectedMoneyRow>>(`/sales/collected-money?${params}`).then((p) => p.total);
 }
 
 export function fetchSaleDetail(id: string): Promise<SaleDetail> {

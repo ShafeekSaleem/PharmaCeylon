@@ -109,7 +109,7 @@ it("shows the sale's items, payments, customer and prescription", async () => {
   expect(setLastSegmentLabel).toHaveBeenCalledWith("INV-2610-000042");
 
   const details = screen.getByRole("region", { name: "Sale details" });
-  expect(within(details).getByText("Partially refunded")).toBeInTheDocument();
+  expect(within(details).getByText("Partly refunded")).toBeInTheDocument();
   expect(within(details).getByText("Desktop")).toBeInTheDocument();
   expect(within(details).getByText("Counter 1")).toBeInTheDocument();
   expect(within(screen.getByRole("region", { name: "Receipt" })).getByText(
@@ -183,8 +183,12 @@ it("opens a receipt copy that is marked as a copy and prints only the receipt", 
 it("shows a C1R receipt without the same-number line and no Till row without a till name", async () => {
   mockApi(
     sale({
-      invoiceNo: "C1R-000186",
+      invoiceNo: "INV-2610-000186",
       status: "posted",
+      offlineReceipt: {
+        receiptNumber: "C1R-000186",
+        recordedAt: "2026-10-20T03:48:00.000Z",
+      },
       register: { id: "reg-1", tillId: "till-1", label: "Counter 1" },
       shift: {
         id: "shift-1",
@@ -195,10 +199,35 @@ it("shows a C1R receipt without the same-number line and no Till row without a t
     }),
   );
   render(<SaleDetailPage />);
-  expect(await screen.findByRole("heading", { name: "C1R-000186" })).toBeInTheDocument();
-  expect(screen.queryByText("Receipt and invoice use the same number.")).not.toBeInTheDocument();
+  expect(await screen.findByRole("heading", { name: "INV-2610-000186" })).toBeInTheDocument();
+  const receipt = screen.getByRole("region", { name: "Receipt" });
+  expect(within(receipt).getByText("C1R-000186")).toBeInTheDocument();
+  expect(within(receipt).getByText(/Recorded .+ Asia\/Colombo/)).toBeInTheDocument();
+  expect(within(receipt).getByText("Invoice INV-2610-000186")).toBeInTheDocument();
   const details = screen.getByRole("region", { name: "Sale details" });
   expect(within(details).queryByText("Till", { selector: "dt" })).not.toBeInTheDocument();
+});
+
+it("shows sync pills and a held reconciliation note", async () => {
+  mockApi(
+    sale({
+      status: "posted",
+      offlineSyncState: "held",
+      reconciliationCaseId: "case-2148",
+      offlineReceipt: {
+        receiptNumber: "C1R-000186",
+        recordedAt: "2026-10-20T03:48:00.000Z",
+      },
+    }),
+  );
+  render(<SaleDetailPage />);
+  const details = await screen.findByRole("region", { name: "Sale details" });
+  expect(within(details).getByText("Completed")).toBeInTheDocument();
+  expect(within(details).getByText("Held")).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "Open reconciliation case" })).toHaveAttribute(
+    "href",
+    "/inventory/stock-cases?caseId=case-2148",
+  );
 });
 
 it("opens receipt copy from a list deep link", async () => {

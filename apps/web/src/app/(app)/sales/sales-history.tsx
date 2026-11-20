@@ -9,7 +9,6 @@ import {
   DataTable,
   FilterChips,
   PageHeader,
-  StatusBadge,
   rowMenuColumn,
   type Column,
   type FilterPill,
@@ -30,9 +29,12 @@ import {
   CHANNEL_CHIP_ORDER,
   CHANNEL_LABELS,
   DEFAULT_FILTERS,
+  OFFLINE_SYNC_FILTER_OPTIONS,
   PAGE_SIZE,
   PAYMENT_METHOD_LABELS,
 } from "./constants";
+import { EllipsisTip } from "./ellipsis-tip";
+import { offlineSyncBadge, saleStatusBadge } from "./sync-badges";
 import { useSalesChannelCounts } from "./hooks/use-sales-channel-counts";
 import { useSalesHistory, useSalesHistoryOptions } from "./hooks/use-sales-history";
 import { receiptScopeOptions, registersForPicker, tillLabelForId, type RegisterPickOption } from "./register-options";
@@ -42,17 +44,12 @@ import {
   DASH,
   channelLabel,
   formatDate,
+  formatShiftDetail,
   formatShiftRange,
   formatTime,
   paymentMethodsLabel,
 } from "./utils";
 import css from "./sales.module.css";
-
-function listStatusCell(status: SaleListRow["status"]) {
-  if (status === "posted") return null;
-  const variant = status === "voided" ? "danger" : "info";
-  return <StatusBadge status={status} variant={variant} />;
-}
 
 function salesFiltersAreActive(filters: SalesFilters): boolean {
   return (
@@ -158,6 +155,16 @@ export default function SalesHistory() {
     ...(filters.paymentMethod !== "all"
       ? [{ key: "payment", label: PAYMENT_METHOD_LABELS[filters.paymentMethod] }]
       : []),
+    ...(filters.offlineSyncState !== "all"
+      ? [
+          {
+            key: "sync",
+            label:
+              OFFLINE_SYNC_FILTER_OPTIONS.find((o) => o.value === filters.offlineSyncState)?.label ??
+              "Sync",
+          },
+        ]
+      : []),
     ...(filters.invoiceNo.trim()
       ? [{ key: "invoice", label: `Receipt: ${filters.invoiceNo.trim()}` }]
       : []),
@@ -250,7 +257,18 @@ export default function SalesHistory() {
       key: "shift",
       header: "Shift",
       width: "8.5rem",
-      render: (row) => (row.shift ? formatShiftRange(row.shift) : DASH),
+      render: (row) => {
+        const text = row.shift ? formatShiftDetail(row.shift) : DASH;
+        return row.shift ? (
+          <EllipsisTip text={text}>
+            <span className={css.cellStack}>
+              <span>{formatShiftRange(row.shift)}</span>
+            </span>
+          </EllipsisTip>
+        ) : (
+          DASH
+        );
+      },
     },
     {
       key: "channel",
@@ -262,13 +280,16 @@ export default function SalesHistory() {
       key: "seller",
       header: "Sold by",
       width: "9rem",
-      render: (row) => row.sellerName,
+      render: (row) => <EllipsisTip text={row.sellerName} />,
     },
     {
       key: "payment",
       header: "Payment",
       width: "8.5rem",
-      render: (row) => paymentMethodsLabel(row.paymentMethods),
+      render: (row) => {
+        const label = paymentMethodsLabel(row.paymentMethods);
+        return label === DASH ? DASH : <EllipsisTip text={label} />;
+      },
     },
     {
       key: "grandTotal",
@@ -280,8 +301,14 @@ export default function SalesHistory() {
     {
       key: "status",
       header: "Status",
-      width: "8rem",
-      render: (row) => listStatusCell(row.status),
+      width: "10.75rem",
+      render: (row) => saleStatusBadge(row.status),
+    },
+    {
+      key: "sync",
+      header: "Sync",
+      width: "9.25rem",
+      render: (row) => offlineSyncBadge(row.offlineSyncState ?? null, "list"),
     },
     rowMenuColumn(rowActions, (row) => row.invoiceNo),
   ];
@@ -356,7 +383,7 @@ export default function SalesHistory() {
         {history.error ? null : (
           <DataTable
             variant="list"
-            minTableWidth="1100px"
+            minTableWidth="1200px"
             columns={columns}
             data={history.items}
             rowKey={(row) => row.id}

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { DateRangeField, FilterPopover, FilterRow } from "@/components/ui";
 import { InventoryFilterSelect } from "../../inventory/components/inventory-filter-select";
-import { DEFAULT_FILTERS, PAYMENT_METHOD_OPTIONS } from "../constants";
+import { DEFAULT_FILTERS, OFFLINE_SYNC_FILTER_OPTIONS, PAYMENT_METHOD_OPTIONS } from "../constants";
 import {
   counterFilterOptions,
   hasTillFilterOptions,
@@ -15,7 +15,7 @@ import css from "../sales.module.css";
 
 export type SalesPanelFilters = Pick<
   SalesFilters,
-  "from" | "to" | "soldBy" | "paymentMethod" | "registerId" | "tillId" | "shiftId"
+  "from" | "to" | "soldBy" | "paymentMethod" | "registerId" | "tillId" | "shiftId" | "offlineSyncState"
 >;
 
 export function salesPanelFiltersAreActive(filters: SalesPanelFilters): boolean {
@@ -25,7 +25,8 @@ export function salesPanelFiltersAreActive(filters: SalesPanelFilters): boolean 
     filters.paymentMethod !== "all" ||
     filters.registerId !== "all" ||
     filters.tillId !== "all" ||
-    filters.shiftId !== "all"
+    filters.shiftId !== "all" ||
+    filters.offlineSyncState !== "all"
   );
 }
 
@@ -38,6 +39,7 @@ export function salesPanelFiltersFrom(filters: SalesFilters): SalesPanelFilters 
     registerId: filters.registerId,
     tillId: filters.tillId,
     shiftId: filters.shiftId,
+    offlineSyncState: filters.offlineSyncState,
   };
 }
 
@@ -78,6 +80,14 @@ export function SalesFilterPanel({ applied, options, registerPicks, onApply, onC
     [shiftOptions],
   );
   const showShiftFilter = shiftOptions.length > 0;
+  const syncOptions = useMemo(
+    () =>
+      OFFLINE_SYNC_FILTER_OPTIONS.map((o) => ({
+        value: o.value,
+        label: o.label,
+      })),
+    [],
+  );
 
   const active = salesPanelFiltersAreActive(applied);
 
@@ -173,6 +183,24 @@ export function SalesFilterPanel({ applied, options, registerPicks, onApply, onC
             setDraft((d) => ({
               ...d,
               paymentMethod: (v || "all") as SalesFilters["paymentMethod"],
+            }))
+          }
+        />
+      </FilterRow>
+
+      <FilterRow
+        label="Sync"
+        hasSelection={draft.offlineSyncState !== "all"}
+        onClear={() => setDraft((d) => ({ ...d, offlineSyncState: "all" }))}
+      >
+        <InventoryFilterSelect
+          label="Sync"
+          value={draft.offlineSyncState}
+          options={syncOptions}
+          onChange={(v) =>
+            setDraft((d) => ({
+              ...d,
+              offlineSyncState: (v || "all") as SalesFilters["offlineSyncState"],
             }))
           }
         />

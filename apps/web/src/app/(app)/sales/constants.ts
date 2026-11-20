@@ -23,17 +23,29 @@ export const DEFAULT_FILTERS: SalesFilters = {
   registerId: "all",
   tillId: "all",
   shiftId: "all",
+  offlineSyncState: "all",
 };
+
+export const OFFLINE_SYNC_FILTER_OPTIONS: {
+  value: SalesFilters["offlineSyncState"];
+  label: string;
+}[] = [
+  { value: "all", label: "All sync states" },
+  { value: "accepted", label: "Accepted" },
+  { value: "pending_stock_posting", label: "Pending stock posting" },
+  { value: "held", label: "Held" },
+];
 
 /** Branch-only attribution filters to reset when the top-bar branch changes. */
 export const BRANCH_SCOPED_FILTER_DEFAULTS: Pick<
   SalesFilters,
-  "registerId" | "tillId" | "shiftId" | "receiptCounterScope"
+  "registerId" | "tillId" | "shiftId" | "receiptCounterScope" | "offlineSyncState"
 > = {
   registerId: "all",
   tillId: "all",
   shiftId: "all",
   receiptCounterScope: "any",
+  offlineSyncState: "all",
 };
 
 export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {

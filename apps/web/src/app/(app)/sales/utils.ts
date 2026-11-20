@@ -1,5 +1,6 @@
 import type { SaleChannel } from "@pharmaceylon/shared";
 import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
+import { formatMoney } from "@/lib/money";
 import { CHANNEL_LABELS } from "./constants";
 import { PAYMENT_METHOD_LABELS } from "./constants";
 import type { PaymentMethod, SaleListRow } from "./types";
@@ -66,6 +67,11 @@ export function paymentMethodsLabel(methods: PaymentMethod[]): string {
 }
 
 /** `YYYY-MM-DD` for a local calendar day, `offset` days from today. */
+export function minorToMoney(minor: number | null | undefined): string {
+  if (minor === null || minor === undefined) return DASH;
+  return formatMoney(minor / 100);
+}
+
 export function localDateKey(offset = 0): string {
   const d = new Date();
   d.setDate(d.getDate() + offset);

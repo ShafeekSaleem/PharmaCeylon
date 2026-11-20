@@ -105,7 +105,7 @@ it("lists sales with Phase B columns and channel chip counts", async () => {
   expect(screen.queryByText("Till 1")).not.toBeInTheDocument();
   expect(screen.getAllByText("Desktop").length).toBeGreaterThan(0);
   expect(screen.getByText("LKR 1,250.00")).toBeInTheDocument();
-  expect(screen.queryByText("Completed")).not.toBeInTheDocument();
+  expect(screen.getByText("Completed")).toBeInTheDocument();
   expect(screen.getAllByTestId("filter-chip-count")[0]).toHaveTextContent("3");
 
   const query = lastListHistoryQuery();
@@ -284,6 +284,7 @@ it("maps filters to query params", () => {
         soldBy: "user-cashier",
         paymentMethod: "cash",
         shiftId: "shift-1",
+        offlineSyncState: "held",
       },
       2,
     ),
@@ -293,7 +294,51 @@ it("maps filters to query params", () => {
   expect(query.get("invoiceNo")).toBe("186");
   expect(query.get("soldBy")).toBe("user-cashier");
   expect(query.get("shiftId")).toBe("shift-1");
+  expect(query.get("offlineSyncState")).toBe("held");
   expect(query.get("page")).toBe("2");
+});
+
+it("applies the sync filter from the Filters panel", async () => {
+  render(<SalesHistory />);
+  await screen.findByText("INV-2610-000042");
+
+  fireEvent.click(screen.getByRole("button", { name: "Filters" }));
+  fireEvent.click(screen.getByRole("button", { name: /^Sync/ }));
+  fireEvent.click(await screen.findByRole("option", { name: "Pending stock posting" }));
+  fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+
+  await waitFor(() =>
+    expect(lastHistoryQuery().get("offlineSyncState")).toBe("pending_stock_posting"),
+  );
+});
+
+it("shows sync pills and full-text hovers on cut-off cells", async () => {
+  historyPages = [
+    {
+      items: [
+        row({
+          sellerName: "Nimal Perera with a very long display name",
+          paymentMethods: ["cash", "card", "mobile_wallet"],
+          offlineSyncState: "accepted",
+          shift: {
+            id: "shift-2",
+            shiftNumber: "S-0099",
+            openedAt: "2026-10-20T02:30:00.000Z",
+            closedAt: "2026-10-20T14:30:00.000Z",
+          },
+        }),
+      ],
+      total: 1,
+      page: 1,
+      pageSize: 25,
+    },
+  ];
+  render(<SalesHistory />);
+  await screen.findByText("Accepted");
+  expect(screen.getByText("Completed")).toBeInTheDocument();
+  expect(
+    screen.getByText("Nimal Perera with a very long display name").getAttribute("data-tooltip"),
+  ).toContain("Nimal Perera with a very long display name");
 });
 
 it("opens a sale from its row", async () => {

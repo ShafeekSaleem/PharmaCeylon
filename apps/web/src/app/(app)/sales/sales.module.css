@@ -496,3 +496,36 @@
   gap: 0.5rem;
   margin-top: 0.5rem;
 }
+
+.factSpan {
+  grid-column: 1 / -1;
+}
+
+.syncNote,
+.heldNote {
+  margin: 0.75rem 0 0;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--ui-warn-line);
+  border-radius: var(--pc-radius-sm);
+  background: var(--ui-warn-soft);
+  color: var(--ui-warn-ink);
+  font-size: 0.82rem;
+}
+
+.heldNote {
+  border-color: var(--ui-danger-line);
+  background: var(--ui-danger-soft);
+  color: var(--ui-danger-ink);
+}
+
+.queueReview {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.queueLater {
+  margin: 0;
+  color: var(--ui-text-muted);
+  font-size: 0.82rem;
+}
