@@ -71,7 +71,7 @@ const MAIN_PAYMENT_RECOVERY_FIXTURE_ATTEMPTS = 2;
 const MAIN_COLLECTED_MONEY_FIXTURES = 2;
 const MAIN_INCIDENT_NOTES_FIXTURES = 2;
 
-const tenantBranchGuard = new TenantBranchGuard({ getAllAndOverride: () => false } as Reflector);
+const tenantBranchGuard = new TenantBranchGuard({ getAllAndOverride: () => false } as unknown as Reflector);
 
 const ownerOn = (c: Counter): RequestUser => ({
   ...c.owner,
@@ -89,7 +89,7 @@ const denyBranchViaTenantGuard = (user: RequestUser, branchId: string) => {
     switchToHttp: () => ({ getRequest: () => request }),
     getHandler: () => undefined,
     getClass: () => undefined,
-  } as ExecutionContext;
+  } as unknown as ExecutionContext;
   expect(() => tenantBranchGuard.canActivate(ctx)).toThrow(ForbiddenException);
 };
 
