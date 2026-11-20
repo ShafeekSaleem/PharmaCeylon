@@ -57,3 +57,22 @@ The screens are drawn from documents the counter can't read yet. `GET /counter-w
 - The refund, held write-off, offline stock case and supplier cash payout screens. They are already built.
 - Quarantine and release from Stock, built in #173.
 - The cold-chain check when receiving, in P8 #104.
+
+## Review fixes (20 Nov 2026)
+
+Changes after the UI review on #239:
+
+- `rcv-changed`: the banner says ticks stay on the lines that didn't change, which is the rule the mismatch note also states.
+- `rcv-mismatch`: the review tag is gone. The count reads "Packs that arrived", and the line picker shows a chevron.
+- Queue cards no longer carry an "Approved" chip. Every queued item is approved; only exceptions are labelled.
+- `held`: decisions are marked "Decided on web", not with a tick.
+- `trecv`: "Something doesn't match" sits beside "Fill the rest as sent", so a short arrival has a route to the approver.
+- `tship`, `tship-done`: one unit per line (tablets, capsules, inhalers, sachets).
+- `tship-retry`, `tship-done`: times stay on the fixture clock (14:18 to 14:19).
+- `stk`: columns are "On hand at count", "Counted", "Difference", "Now", "After post". Each difference is applied to Now, so sales since the count stay.
+- `stk-confirm` (new): Ctrl ↵ on the count opens a sheet with the totals before anything posts.
+- `imp`: a note explains why batches can exceed rows. `imp-confirm` (new): the bulk post is confirmed with its row and unit totals.
+- `sret-confirm` (new): the hand-over opens a sheet once every line is packed, naming the units and the debit note.
+- `imp-undo`: the header says what the screen is for, and the sheet says the catalogue products are removed, not only their stock.
+
+Still for the build, not drawn here: a responsive pass at 1366×768 or 1280×800. Every frame is 1600×1000, so text sizes, the 16 px tick boxes and the footer hints need a check at the smaller size before the screens are built.

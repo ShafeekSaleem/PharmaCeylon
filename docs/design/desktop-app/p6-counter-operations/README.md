@@ -5,7 +5,7 @@ Mockups for the desktop screens that P6 ([#52](https://github.com/ShafeekSaleem/
 - `SPEC.md` lists each screen, the API call behind it, and the decisions.
 - `index.html` is the review page. Open it with `?theme=light|dark|both` or `?full=<screen-id>`. Each screen is drawn once, light; the page script makes the dark copies and the full-size frames, so edit only the light one.
 - `SPEC.md` also lists what the API needs before these screens can be built: the counter can't read the documents yet.
-- The PNGs are 1600×1000 frames, `d-<screen-id>-light.png` and `d-<screen-id>-dark.png`.
+- The PNGs (30: 15 screens, light and dark) are 1600×1000 frames, `d-<screen-id>-light.png` and `d-<screen-id>-dark.png`.
 
 | # | Screen id | Counter work kind | Signed call |
 | --- | --- | --- | --- |
@@ -17,6 +17,9 @@ Mockups for the desktop screens that P6 ([#52](https://github.com/ShafeekSaleem/
 | 10 | `sret` | `supplier_return` | `POST /returns/:id/complete` |
 | 11 | `imp` | `import_stock` | `POST /products/import/:importId/stock/post` |
 | 12 | `imp-undo` | (`import_undo` destination) | `POST /products/import/:importId/undo-stock` |
+| 9b | `stk-confirm` | `stocktake` | sheet over `stk`, before `POST /stocktakes/:id/post` |
+| 10b | `sret-confirm` | `supplier_return` | sheet over `sret`, before `POST /returns/:id/complete` |
+| 11b | `imp-confirm` | `import_stock` | sheet over `imp`, before `POST /products/import/:importId/stock/post` |
 
 These replace the Receive goods drawing on the `work` screen of `pharmaceylon-pos-desktop.html` where they differ. That drawing let the counter change a received quantity and type a batch; the signed post names only the document, pinned to its approval, so the counter can't. A mismatch goes to the approver instead (decision 1). The cold-chain tag stays in P8 #104.
 
