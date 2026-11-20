@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 import {
   ACCENT_PRESETS,
+  DEFAULT_PHARMACY_APPEARANCE,
   accentProblem,
   normalizeHex,
   type CounterThemeDefault,
@@ -12,7 +13,7 @@ import {
   type ChartPalette,
   type StatusColourSet,
 } from "@pharmaceylon/shared";
-import { ActionButton, FormField, ToggleSwitch } from "@/components/ui";
+import { FormField, ToggleSwitch } from "@/components/ui";
 import { IconCheck, IconLock, IconShield } from "@/components/icons";
 import { ApiError } from "@/lib/api-error";
 import type { AuthUser } from "@/lib/auth-types";
@@ -61,12 +62,36 @@ function same(
   return JSON.stringify(settingsOf(a)) === JSON.stringify(settingsOf(b));
 }
 
+/** What the Appearance page's one Save and Reset do to the brand. */
+export type PharmacyBrandHandle = {
+  /** Saves the owner's changes. Resolves false when the save was refused (the card says why). */
+  save: () => Promise<boolean>;
+  /** Puts the PharmaCeylon defaults in the form, unsaved, for the owner to save or undo. */
+  resetToDefaults: () => void;
+};
+
+export type PharmacyBrandState = {
+  /** The owner has changes that aren't saved yet. */
+  dirty: boolean;
+  /** A custom colour is typed that can't be saved. */
+  invalid: boolean;
+};
+
+type Props = {
+  user: AuthUser | null;
+  onStateChange?: (state: PharmacyBrandState) => void;
+};
+
 /**
  * The pharmacy brand (UI1 #205): one accent, sidebar style and status colour set for everyone at
  * the pharmacy. Owners edit it here with a live preview that is put back if they leave unsaved;
- * everyone else sees what was chosen. The API refuses the same accents this form does.
+ * everyone else sees what was chosen. The API refuses the same accents this form does. Saving is
+ * the Appearance page's: it calls `save` through the ref, beside the person's own display.
  */
-export function PharmacyBrandCard({ user }: { user: AuthUser | null }) {
+export const PharmacyBrandCard = forwardRef<PharmacyBrandHandle, Props>(function PharmacyBrandCard(
+  { user, onStateChange },
+  ref,
+) {
   const canEdit = isOwner(user);
   const [saved, setSaved] = useState<PharmacyAppearance | null>(null);
   const [draft, setDraft] = useState<PharmacyAppearanceSettings | null>(null);
@@ -109,7 +134,12 @@ export function PharmacyBrandCard({ user }: { user: AuthUser | null }) {
   }, []);
 
   const hexProblem = hexInput.trim() === "" ? null : accentProblem(hexInput);
-  const dirty = saved !== null && draft !== null && !same(saved, draft);
+  const dirty = canEdit && saved !== null && draft !== null && !same(saved, draft);
+  const invalid = canEdit && hexProblem !== null;
+
+  useEffect(() => {
+    onStateChange?.({ dirty, invalid });
+  }, [dirty, invalid, onStateChange]);
 
   // Live preview of whatever the owner has chosen so far.
   useEffect(() => {
@@ -133,19 +163,24 @@ export function PharmacyBrandCard({ user }: { user: AuthUser | null }) {
     if (hex && accentProblem(hex) === null) change({ accent: hex });
   }
 
-  function undo() {
-    if (saved) take(saved);
-    setMessage(null);
+  function resetToDefaults() {
+    if (!canEdit || !draft) return;
+    setHexInput(DEFAULT_PHARMACY_APPEARANCE.accent);
+    change({ ...DEFAULT_PHARMACY_APPEARANCE });
   }
 
-  async function save() {
-    if (!saved || !draft) return;
+  async function save(): Promise<boolean> {
+    if (!canEdit || !saved || !draft) return true;
+    // A typed colour that can't be saved is refused, even when the swatches are unchanged.
+    if (hexProblem !== null) return false;
+    if (!dirty) return true;
     setSaving(true);
     setMessage(null);
     try {
       const brand = await savePharmacyBrand(saved.version, draft);
       adoptPharmacyBrand(brand);
       setMessage({ kind: "ok", text: "Saved for everyone at the pharmacy." });
+      return true;
     } catch (e) {
       if (e instanceof ApiError && e.status === 409) {
         const latest = await fetchPharmacyBrand().catch(() => null);
@@ -160,10 +195,13 @@ export function PharmacyBrandCard({ user }: { user: AuthUser | null }) {
           text: e instanceof Error ? e.message : "Could not save the brand.",
         });
       }
+      return false;
     } finally {
       setSaving(false);
     }
   }
+
+  useImperativeHandle(ref, () => ({ save, resetToDefaults }));
 
   const disabled = !canEdit || !draft || saving;
   const presetHit = draft
@@ -171,11 +209,12 @@ export function PharmacyBrandCard({ user }: { user: AuthUser | null }) {
     : undefined;
 
   return (
-    <div className={css.card} aria-labelledby="pharmacy-brand-title">
+    <section className={css.card} aria-labelledby="pharmacy-brand-title">
       <div className={css.cardHead}>
         <div>
           <h2 className={css.cardTitle} id="pharmacy-brand-title">
             <IconShield size={16} /> Pharmacy brand
+            <span className={css.scopeChip}>Everyone · owner only</span>
           </h2>
           <p className={css.cardDesc}>
             The colours everyone at the pharmacy sees, on every computer. Light
@@ -336,33 +375,11 @@ export function PharmacyBrandCard({ user }: { user: AuthUser | null }) {
         change when someone next signs in, or within five minutes.
       </p>
 
-      {canEdit && (
-        <div className={css.saveRow}>
-          {message && (
-            <span
-              className={message.kind === "ok" ? css.saveOk : css.saveError}
-            >
-              {message.text}
-            </span>
-          )}
-          {!message && dirty && (
-            <span className={css.rowHint}>Previewing. Not saved yet.</span>
-          )}
-          <ActionButton
-            variant="secondary"
-            onClick={undo}
-            disabled={!dirty || saving}
-          >
-            Undo changes
-          </ActionButton>
-          <ActionButton
-            onClick={save}
-            disabled={!dirty || saving || hexProblem !== null}
-          >
-            {saving ? "Saving…" : "Save for the pharmacy"}
-          </ActionButton>
-        </div>
+      {message && (
+        <p className={message.kind === "ok" ? css.saveOk : css.saveError} role="status">
+          {message.text}
+        </p>
       )}
-    </div>
+    </section>
   );
-}
+});
