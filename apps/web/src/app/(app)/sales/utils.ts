@@ -1,31 +1,67 @@
-import { PAYMENT_METHOD_LABELS } from "./constants";
-import type { PaymentMethod } from "./types";
+import type { SaleChannel } from "@pharmaceylon/shared";
 import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
+import { CHANNEL_LABELS } from "./constants";
+import { PAYMENT_METHOD_LABELS } from "./constants";
+import type { PaymentMethod, SaleListRow } from "./types";
 
-export function formatDate(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleDateString(DISPLAY_LOCALE, { day: "numeric", month: "short", year: "numeric" });
+export const BUSINESS_TIME_ZONE = "Asia/Colombo";
+
+export function channelLabel(channel: SaleChannel): string {
+  return CHANNEL_LABELS[channel] ?? channel;
 }
 
-export function formatTime(iso: string): string {
+export const DASH = "—";
+
+type DateTimeOpts = { timeZone?: string };
+
+export function formatDate(iso: string, { timeZone = BUSINESS_TIME_ZONE }: DateTimeOpts = {}): string {
   const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleTimeString(DISPLAY_LOCALE, { hour: "2-digit", minute: "2-digit" });
+  if (Number.isNaN(d.getTime())) return DASH;
+  return d.toLocaleDateString(DISPLAY_LOCALE, {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    timeZone,
+  });
 }
 
-export function formatDateTime(iso: string): string {
-  return `${formatDate(iso)}, ${formatTime(iso)}`;
+export function formatTime(iso: string, { timeZone = BUSINESS_TIME_ZONE }: DateTimeOpts = {}): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return DASH;
+  return d.toLocaleTimeString(DISPLAY_LOCALE, {
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+    timeZone,
+  });
+}
+
+export function formatDateTime(iso: string, opts?: DateTimeOpts): string {
+  return `${formatDate(iso, opts)}, ${formatTime(iso, opts)}`;
+}
+
+export function formatShiftRange(shift: NonNullable<SaleListRow["shift"]>): string {
+  const opened = formatTime(shift.openedAt);
+  const closed = shift.closedAt ? formatTime(shift.closedAt) : "open";
+  return `${opened}–${closed}`;
+}
+
+export function formatShiftDetail(shift: NonNullable<SaleListRow["shift"]>): string {
+  const started = formatDateTime(shift.openedAt);
+  if (!shift.closedAt) {
+    return `Started ${started} ${BUSINESS_TIME_ZONE} · still open`;
+  }
+  return `Started ${started} ${BUSINESS_TIME_ZONE} · closed ${formatDateTime(shift.closedAt)}`;
 }
 
 /** `2027-06-30` → `06/2027`, the way a pack prints it. */
 export function formatExpiry(dateKey: string): string {
   const [year, month] = dateKey.split("-");
-  return year && month ? `${month}/${year}` : "—";
+  return year && month ? `${month}/${year}` : DASH;
 }
 
 export function paymentMethodsLabel(methods: PaymentMethod[]): string {
-  if (methods.length === 0) return "—";
+  if (methods.length === 0) return DASH;
   return methods.map((method) => PAYMENT_METHOD_LABELS[method] ?? method).join(" + ");
 }
 

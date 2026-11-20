@@ -19,6 +19,125 @@
   background: var(--pc-card-bg);
 }
 
+.listToolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.receiptSearch {
+  display: flex;
+  align-items: stretch;
+  flex: 1 1 240px;
+  min-width: min(100%, 220px);
+  max-width: 28rem;
+  height: 2.5rem;
+  border: 1px solid var(--ui-line-strong);
+  border-radius: var(--pc-radius-sm);
+  background: var(--ui-field);
+  overflow: hidden;
+}
+
+.receiptSearchField {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+}
+
+.receiptSearchInput {
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  padding: 0 0.75rem 0 2.1rem;
+  border: 0;
+  background: transparent;
+  color: var(--ui-text);
+  font-family: inherit;
+  font-size: 0.85rem;
+}
+
+.receiptSearchInput:focus {
+  outline: none;
+}
+
+.receiptScope {
+  display: flex;
+  align-items: center;
+  border-left: 1px solid var(--ui-line);
+  background: var(--ui-surface-raised);
+}
+
+.receiptScopeSelect {
+  min-width: 7.5rem;
+}
+
+.tableStage {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.loadingFoot {
+  margin: 0;
+  padding: 0 0.15rem;
+  color: var(--ui-text-muted);
+  font-size: 0.8rem;
+}
+
+.filterPanelActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.35rem;
+}
+
+.filterPanelGhost,
+.filterPanelApply {
+  height: 2rem;
+  padding: 0 0.85rem;
+  border-radius: var(--pc-radius-sm);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.filterPanelGhost {
+  border: 0;
+  background: transparent;
+  color: var(--ui-accent);
+}
+
+.filterPanelApply {
+  border: 1px solid var(--ui-accent);
+  background: var(--ui-accent);
+  color: var(--ui-accent-ink);
+}
+
+.receiptCard {
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm);
+  background: var(--pc-card-bg);
+}
+
+.receiptCardPrimary {
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.receiptCardLinked {
+  margin-top: 0.35rem;
+  color: var(--pc-muted-fg);
+  font-size: 0.8rem;
+}
+
 .searchWrap {
   position: relative;
   flex: 1 1 220px;

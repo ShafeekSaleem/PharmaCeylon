@@ -1,33 +1,72 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Alert } from "@/components/alert";
 import { IconReceipt, IconSearch } from "@/components/icons";
 import {
   ActiveFilterBanner,
   DataTable,
-  DateRangeField,
+  FilterChips,
   PageHeader,
   StatusBadge,
+  rowMenuColumn,
   type Column,
   type FilterPill,
+  type RowMenuAction,
 } from "@/components/ui";
 import { formatMoney } from "@/lib/money";
 import { useAuth } from "@/lib/use-auth";
+import type { SaleChannel } from "@pharmaceylon/shared";
 import { InventoryFilterSelect } from "../inventory/components/inventory-filter-select";
-import { DEFAULT_FILTERS, PAGE_SIZE, PAYMENT_METHOD_LABELS, PAYMENT_METHOD_OPTIONS } from "./constants";
+import {
+  SalesFilterPanel,
+  salesPanelFiltersAreActive,
+  salesPanelFiltersFrom,
+  type SalesPanelFilters,
+} from "./components/sales-filter-panel";
+import {
+  BRANCH_SCOPED_FILTER_DEFAULTS,
+  CHANNEL_CHIP_ORDER,
+  CHANNEL_LABELS,
+  DEFAULT_FILTERS,
+  PAGE_SIZE,
+  PAYMENT_METHOD_LABELS,
+} from "./constants";
+import { useSalesChannelCounts } from "./hooks/use-sales-channel-counts";
 import { useSalesHistory, useSalesHistoryOptions } from "./hooks/use-sales-history";
-import type { SaleListRow, SalesFilters } from "./types";
-import { formatDate, formatTime, localDateKey, paymentMethodsLabel } from "./utils";
+import { receiptScopeOptions, registersForPicker, tillLabelForId, type RegisterPickOption } from "./register-options";
+import { saleTillCell } from "./till-display";
+import type { SaleListRow, SalesChannelChip, SalesFilters } from "./types";
+import {
+  DASH,
+  channelLabel,
+  formatDate,
+  formatShiftRange,
+  formatTime,
+  paymentMethodsLabel,
+} from "./utils";
 import css from "./sales.module.css";
 
+function listStatusCell(status: SaleListRow["status"]) {
+  if (status === "posted") return null;
+  const variant = status === "voided" ? "danger" : "info";
+  return <StatusBadge status={status} variant={variant} />;
+}
+
+function salesFiltersAreActive(filters: SalesFilters): boolean {
+  return (
+    salesPanelFiltersAreActive(salesPanelFiltersFrom(filters)) ||
+    filters.channel !== "all" ||
+    Boolean(filters.invoiceNo.trim())
+  );
+}
+
 /**
- * Sales history for the back office: every sale at the branches the caller may view, paged and
- * filtered on the server, each opening its detail and a receipt copy. Read-only — ringing up,
- * voiding and refunding stay at the counter.
+ * Sales history for the back office (W4 #66 Phase B, filter option B): channel chips with
+ * counts, receipt search with counter scope, and panel filters for counter/till/shift/staff/payment.
  */
-export default function SalesPage() {
+export default function SalesHistory() {
   const router = useRouter();
   const { branchId } = useAuth();
   const [filters, setFilters] = useState<SalesFilters>(DEFAULT_FILTERS);
@@ -35,8 +74,22 @@ export default function SalesPage() {
   const [page, setPage] = useState(1);
   const options = useSalesHistoryOptions();
   const history = useSalesHistory(filters, page, branchId);
+  const channelCounts = useSalesChannelCounts(filters, branchId);
+  const prevBranchId = useRef<string | null>(null);
 
-  // Typing an invoice number shouldn't send a request per keystroke.
+  const registerPicks = useMemo(
+    () => registersForPicker(options.registers, branchId, options.branches),
+    [options.registers, options.branches, branchId],
+  );
+
+  const counterScopeOptions = useMemo(() => receiptScopeOptions(registerPicks), [registerPicks]);
+
+  const registerPicksById = useMemo(() => {
+    const map = new Map<string, RegisterPickOption>();
+    for (const pick of registerPicks) map.set(pick.registerId, pick);
+    return map;
+  }, [registerPicks]);
+
   useEffect(() => {
     const timer = window.setTimeout(() => {
       setFilters((f) => (f.invoiceNo === invoiceInput ? f : { ...f, invoiceNo: invoiceInput }));
@@ -45,64 +98,122 @@ export default function SalesPage() {
   }, [invoiceInput]);
 
   useEffect(() => {
+    if (prevBranchId.current !== null && prevBranchId.current !== branchId) {
+      setFilters((f) => ({ ...f, ...BRANCH_SCOPED_FILTER_DEFAULTS }));
+    }
+    prevBranchId.current = branchId;
     setPage(1);
-  }, [filters, branchId]);
+  }, [branchId]);
 
-  const activeBranchName = options.branches.find((b) => b.id === branchId)?.name;
-  const branchOptions = useMemo(
-    () => [
-      { value: "current", label: activeBranchName ? `This branch (${activeBranchName})` : "This branch" },
-      ...(options.branches.length > 1 ? [{ value: "all", label: "All my branches" }] : []),
-      ...options.branches.filter((b) => b.id !== branchId).map((b) => ({ value: b.id, label: b.name })),
-    ],
-    [activeBranchName, branchId, options.branches],
-  );
-  const sellerOptions = useMemo(
-    () => [
-      { value: "all", label: "All staff" },
-      ...options.sellers.map((s) => ({ value: s.id, label: s.fullName })),
-    ],
-    [options.sellers],
-  );
+  useEffect(() => {
+    setPage(1);
+  }, [filters]);
 
-  const today = localDateKey();
-  const todayOnly = filters.from === today && filters.to === today;
-  const showBranch = filters.branch !== "current";
+  const panelCounterActive = filters.registerId !== "all";
+  const shiftOptions = options.shifts ?? [];
 
   const pills: FilterPill[] = [
-    ...(filters.branch !== "current"
-      ? [{ key: "branch", label: branchOptions.find((o) => o.value === filters.branch)?.label ?? "Branch" }]
+    ...(filters.channel !== "all"
+      ? [{ key: "channel", label: CHANNEL_LABELS[filters.channel as SaleChannel] }]
       : []),
     ...(filters.from || filters.to
       ? [
           {
             key: "date",
-            label: todayOnly
-              ? "Today"
-              : `${filters.from ? formatDate(filters.from) : "Any"} → ${filters.to ? formatDate(filters.to) : "Any"}`,
+            label: `${filters.from ? formatDate(filters.from) : "Any"} → ${filters.to ? formatDate(filters.to) : "Any"}`,
           },
         ]
       : []),
+    ...(filters.registerId !== "all"
+      ? [
+          {
+            key: "counter",
+            label: registerPicksById.get(filters.registerId)?.counterLabel ?? "Counter",
+          },
+        ]
+      : []),
+    ...(filters.tillId !== "all"
+      ? [
+          {
+            key: "till",
+            label: tillLabelForId(filters.tillId, registerPicks) ?? "Till",
+          },
+        ]
+      : []),
+    ...(filters.shiftId !== "all" && shiftOptions.length > 0
+      ? [{ key: "shift", label: shiftOptions.find((s) => s.shiftId === filters.shiftId)?.label ?? "Shift" }]
+      : []),
     ...(filters.soldBy !== "all"
-      ? [{ key: "staff", label: sellerOptions.find((o) => o.value === filters.soldBy)?.label ?? "Staff" }]
+      ? [
+          {
+            key: "staff",
+            label:
+              [{ value: "all", label: "All staff" }, ...options.sellers.map((s) => ({
+                value: s.id,
+                label: s.fullName,
+              }))].find((o) => o.value === filters.soldBy)?.label ?? "Staff",
+          },
+        ]
       : []),
     ...(filters.paymentMethod !== "all"
       ? [{ key: "payment", label: PAYMENT_METHOD_LABELS[filters.paymentMethod] }]
       : []),
-    ...(filters.invoiceNo.trim() ? [{ key: "invoice", label: `Invoice: ${filters.invoiceNo.trim()}` }] : []),
+    ...(filters.invoiceNo.trim()
+      ? [{ key: "invoice", label: `Receipt: ${filters.invoiceNo.trim()}` }]
+      : []),
+    ...(filters.receiptCounterScope !== "any" &&
+    filters.invoiceNo.trim() &&
+    !panelCounterActive
+      ? [
+          {
+            key: "scope",
+            label:
+              counterScopeOptions.find((o) => o.value === filters.receiptCounterScope)?.label ??
+              "Counter scope",
+          },
+        ]
+      : []),
   ];
-  const filtered = pills.length > 0;
+  const filtered = salesFiltersAreActive(filters);
 
   function clearFilters() {
     setInvoiceInput("");
     setFilters(DEFAULT_FILTERS);
   }
 
+  function applyPanel(panel: SalesPanelFilters) {
+    setFilters((f) => ({
+      ...f,
+      ...panel,
+      receiptCounterScope: panel.registerId !== "all" ? "any" : f.receiptCounterScope,
+    }));
+  }
+
+  function clearPanel() {
+    setFilters((f) => ({
+      ...f,
+      ...salesPanelFiltersFrom(DEFAULT_FILTERS),
+      receiptCounterScope: "any",
+    }));
+  }
+
+  const rowActions = (row: SaleListRow): RowMenuAction[] => [
+    { label: "View sale", onClick: () => router.push(`/sales/${row.id}`) },
+    {
+      label: "Receipt copy",
+      onClick: () => router.push(`/sales/${row.id}?receipt=1`),
+    },
+    {
+      label: "Prepare refund",
+      onClick: () => router.push(`/sales/${row.id}`),
+    },
+  ];
+
   const columns: Column<SaleListRow>[] = [
     {
-      key: "invoiceNo",
-      header: "Invoice",
-      width: "14rem",
+      key: "receipt",
+      header: "Receipt",
+      width: "11rem",
       render: (row) => (
         <span className={css.cellStack}>
           <span className={css.cellMain}>{row.invoiceNo}</span>
@@ -115,7 +226,7 @@ export default function SalesPage() {
     {
       key: "soldAt",
       header: "Date",
-      width: "9rem",
+      width: "8.5rem",
       render: (row) => (
         <span className={css.cellStack}>
           <span>{formatDate(row.soldAt)}</span>
@@ -123,107 +234,113 @@ export default function SalesPage() {
         </span>
       ),
     },
-    ...(showBranch
-      ? [
-          {
-            key: "branch",
-            header: "Branch",
-            width: "9rem",
-            render: (row: SaleListRow) => row.branch.name,
-          },
-        ]
-      : []),
     {
-      key: "customer",
-      header: "Customer",
-      render: (row) => row.customerName ?? <span className={css.muted}>Walk-in</span>,
+      key: "counter",
+      header: "Counter",
+      width: "7.5rem",
+      render: (row) => row.register?.label ?? DASH,
+    },
+    {
+      key: "till",
+      header: "Till",
+      width: "6.5rem",
+      render: (row) => saleTillCell(row),
+    },
+    {
+      key: "shift",
+      header: "Shift",
+      width: "8.5rem",
+      render: (row) => (row.shift ? formatShiftRange(row.shift) : DASH),
+    },
+    {
+      key: "channel",
+      header: "Channel",
+      width: "7rem",
+      render: (row) => channelLabel(row.channel),
     },
     {
       key: "seller",
       header: "Sold by",
-      width: "10rem",
+      width: "9rem",
       render: (row) => row.sellerName,
     },
     {
       key: "payment",
       header: "Payment",
-      width: "9rem",
+      width: "8.5rem",
       render: (row) => paymentMethodsLabel(row.paymentMethods),
     },
     {
       key: "grandTotal",
       header: "Total",
-      width: "9rem",
+      width: "8.5rem",
       align: "right",
       render: (row) => <span className={css.amount}>{formatMoney(row.grandTotal)}</span>,
     },
     {
       key: "status",
       header: "Status",
-      width: "9.5rem",
-      render: (row) => <StatusBadge status={row.status} label={row.status === "posted" ? "Completed" : undefined} />,
+      width: "8rem",
+      render: (row) => listStatusCell(row.status),
     },
+    rowMenuColumn(rowActions, (row) => row.invoiceNo),
   ];
+
+  const activeChannelChip: SalesChannelChip = filters.channel;
 
   return (
     <div className={css.page}>
       <PageHeader
         subtitleOnly
-        description="Every sale at the branches you can view, newest first. Open one for its items, payments and a receipt copy."
+        description="Every sale at this branch, newest first. Open one for its items, payments and a receipt copy."
       />
 
       {history.error ? <Alert variant="error">{history.error}</Alert> : null}
 
-      <div className={css.toolbar}>
-        <div className={css.searchWrap}>
-          <IconSearch size={15} className={css.searchIcon} />
-          <input
-            type="search"
-            className={css.searchInput}
-            value={invoiceInput}
-            onChange={(e) => setInvoiceInput(e.target.value)}
-            placeholder="Invoice number…"
-            aria-label="Search by invoice number"
-          />
+      <div className={css.listToolbar}>
+        <FilterChips<SalesChannelChip>
+          label="Sales channel"
+          chips={CHANNEL_CHIP_ORDER.map((id) => ({
+            id,
+            label: id === "all" ? "All" : CHANNEL_LABELS[id],
+            count: channelCounts[id],
+          }))}
+          active={activeChannelChip}
+          onChange={(id) => setFilters((f) => ({ ...f, channel: id }))}
+        />
+
+        <div className={css.receiptSearch} role="search">
+          <div className={css.receiptSearchField}>
+            <IconSearch size={15} className={css.searchIcon} aria-hidden />
+            <input
+              type="search"
+              className={css.receiptSearchInput}
+              value={invoiceInput}
+              onChange={(e) => setInvoiceInput(e.target.value)}
+              placeholder="Receipt or invoice number"
+              aria-label="Search by receipt or invoice number"
+            />
+          </div>
+          <div className={css.receiptScope}>
+            <InventoryFilterSelect
+              label="Counter scope"
+              value={filters.receiptCounterScope}
+              options={counterScopeOptions}
+              className={css.receiptScopeSelect}
+              disabled={panelCounterActive}
+              onChange={(v) =>
+                setFilters((f) => ({ ...f, receiptCounterScope: v || "any" }))
+              }
+            />
+          </div>
         </div>
-        <InventoryFilterSelect
-          label="Branch"
-          value={filters.branch}
-          options={branchOptions}
-          onChange={(v) => setFilters((f) => ({ ...f, branch: v || "current" }))}
-        />
-        <InventoryFilterSelect
-          label="Staff"
-          value={filters.soldBy}
-          options={sellerOptions}
-          searchable
-          searchPlaceholder="Find a person…"
-          onChange={(v) => setFilters((f) => ({ ...f, soldBy: v || "all" }))}
-        />
-        <InventoryFilterSelect
-          label="Payment"
-          value={filters.paymentMethod}
-          options={PAYMENT_METHOD_OPTIONS}
-          onChange={(v) =>
-            setFilters((f) => ({ ...f, paymentMethod: (v || "all") as SalesFilters["paymentMethod"] }))
-          }
-        />
-        <button
-          type="button"
-          className={css.quickRange}
-          aria-pressed={todayOnly}
-          onClick={() =>
-            setFilters((f) => (todayOnly ? { ...f, from: "", to: "" } : { ...f, from: today, to: today }))
-          }
-        >
-          Today
-        </button>
-        <DateRangeField
-          label="Sale dates"
-          from={filters.from}
-          to={filters.to}
-          onFromChange={(from) => setFilters((f) => ({ ...f, from }))}
-          onToChange={(to) => setFilters((f) => ({ ...f, to }))}
+
+        <SalesFilterPanel
+          applied={salesPanelFiltersFrom(filters)}
+          options={options}
+          registerPicks={registerPicks}
+          onApply={applyPanel}
+          onClear={clearPanel}
         />
       </div>
 
@@ -232,26 +349,40 @@ export default function SalesPage() {
         summary={`Filtered · ${history.total} sale${history.total === 1 ? "" : "s"}`}
         pills={pills}
         onClear={clearFilters}
-        clearTooltip="Show this branch's sales again"
+        clearTooltip="Clear all filters"
       />
 
-      <DataTable
-        columns={columns}
-        data={history.items}
-        rowKey={(row) => row.id}
-        loading={history.loading}
-        page={page}
-        pageSize={PAGE_SIZE}
-        total={history.total}
-        onPageChange={setPage}
-        onRowClick={(row) => router.push(`/sales/${row.id}`)}
-        fixedLayout
-        emptyIcon={<IconReceipt size={40} />}
-        emptyTitle={filtered ? "No sales match these filters" : "No sales yet"}
-        emptyDescription={
-          filtered ? "Try a wider date range, or clear the filters." : "Sales rung up at the counter appear here."
-        }
-      />
+      <div className={css.tableStage}>
+        {history.error ? null : (
+          <DataTable
+            variant="list"
+            minTableWidth="1100px"
+            columns={columns}
+            data={history.items}
+            rowKey={(row) => row.id}
+            loading={history.loading}
+            page={page}
+            pageSize={PAGE_SIZE}
+            total={history.total}
+            onPageChange={setPage}
+            onRowClick={(row) => router.push(`/sales/${row.id}`)}
+            fixedLayout
+            stickyHeader
+            emptyIcon={<IconReceipt size={40} />}
+            emptyTitle={filtered ? "No sales match these filters" : "No sales yet"}
+            emptyDescription={
+              filtered
+                ? "Try a wider date range, or clear the filters."
+                : "Sales rung up at the counter appear here."
+            }
+          />
+        )}
+        {history.loading ? (
+          <p className={css.loadingFoot} role="status">
+            Loading sales…
+          </p>
+        ) : null}
+      </div>
     </div>
   );
 }

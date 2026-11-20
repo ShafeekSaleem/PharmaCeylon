@@ -46,7 +46,13 @@ export function useSalesHistory(filters: SalesFilters, page: number, branchId: s
 
 /** Branches the caller can view sales at, and the staff who sold there — for the filters. */
 export function useSalesHistoryOptions() {
-  const [options, setOptions] = useState<SalesHistoryOptions>({ branches: [], sellers: [] });
+  const [options, setOptions] = useState<SalesHistoryOptions>({
+    branches: [],
+    sellers: [],
+    registers: [],
+    terminals: [],
+    shifts: [],
+  });
 
   useEffect(() => {
     let cancelled = false;
