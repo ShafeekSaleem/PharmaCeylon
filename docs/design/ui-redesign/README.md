@@ -198,6 +198,14 @@ Settings home and navigation (Phase 2, decision 3).
 - **Search** matches every word of the query against the page name, its description and the field names inside it, so "refund limit" finds Approval Rules ("Includes “refund limit”") and "colour" or "color" both find Appearance. Name matches come first; a polite live line says how many matched and which one Enter opens; Escape clears. Search only finds pages the person can open.
 - Screenshots: `screenshots/pr-settings-shell/` (menu) and `screenshots/pr-settings-home/` (home and search; "before" is My Profile, where `/settings` used to land).
 
+### Appearance
+
+- **Two sections, one Save.** "Your display" (only your account): theme (Light, Dark, Match device), density and text size, as segmented choices. "Pharmacy brand" (everyone, owner only) keeps every control and its contrast check from the brand PR. The page has one Save and one "Reset to defaults"; the brand card saves through the page (a ref handle), no longer with its own button.
+- **Live, then kept.** Every choice shows at once on the whole page and in the preview, and is kept only on Save. Reset puts the PharmaCeylon defaults in the form (and, for an owner, the default brand); nothing changes until Save. Leaving without saving puts back what was saved. Closing or reloading the tab, or following a link in the app, asks first (`lib/use-unsaved-changes.ts`); the browser's back button isn't caught.
+- **Preview of real components:** a sidebar in the brand's sidebar style, the app's primary and secondary buttons, status chips, a link, a bar chart in the chart colours and a checkbox. It reads the same tokens as every page, so it shows the draft. It's a picture: none of it is in the tab order. Below about 46 rem of content width it moves under the form.
+- **The top-bar switch** saves a theme from outside the page; it becomes the saved theme here and replaces a theme picked but not saved, keeping the other unsaved choices.
+- Screenshots: `screenshots/pr-appearance/` (before and after in light and dark at 1440 × 900 and 1366 × 768, 390 px, and `unsaved-preview`: Compact, Plum, Tinted sidebar and Distinct colours chosen but not saved).
+
 ## Not done yet
 
 These items in #205 come in later PRs:

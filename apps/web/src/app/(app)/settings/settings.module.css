@@ -488,3 +488,14 @@
   height: 14px;
   border-radius: 2px;
 }
+
+/* Who a section's settings apply to, beside its title (UI1 #205 Appearance). */
+.scopeChip {
+  margin-left: 0.25rem;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  background: var(--pc-muted-bg);
+  color: var(--pc-muted-fg);
+  font-size: 0.72rem;
+  font-weight: 600;
+}
