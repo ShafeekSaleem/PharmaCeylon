@@ -3,13 +3,19 @@
 import Link from "next/link";
 import { useEffect, useRef } from "react";
 import { IconChevronLeft, IconSettings } from "@/components/icons";
-import { groupSettingsItems, visibleSettingsItems } from "@/lib/settings-menu";
+import {
+  groupSettingsItems,
+  settingsGroupScope,
+  settingsItemCovers,
+  visibleSettingsItems,
+} from "@/lib/settings-menu";
 import styles from "./app-shell.module.css";
 
 type Props = {
   pathname: string;
-  /** Where "Back to app" returns: the last page outside Settings. */
-  backHref: string;
+  /** Where "Back to app" returns: the last page outside Settings. Null hides the link, for
+   *  someone with nowhere in the web app to go back to. */
+  backHref: string | null;
   isAdmin: boolean;
   personalOnly: boolean;
   collapsed: boolean;
@@ -43,17 +49,19 @@ export function SettingsMenu({
 
   return (
     <nav ref={navRef} className={styles.sidebarNav} aria-label="Settings">
-      <Link
-        href={backHref}
-        className={`${styles.navItem} ${styles.settingsBack}`}
-        onClick={onNavigate}
-        {...tip("Back to app")}
-      >
-        <span className={styles.navItemIcon}>
-          <IconChevronLeft size={18} />
-        </span>
-        <span className={styles.navItemLabel}>Back to app</span>
-      </Link>
+      {backHref && (
+        <Link
+          href={backHref}
+          className={`${styles.navItem} ${styles.settingsBack}`}
+          onClick={onNavigate}
+          {...tip("Back to app")}
+        >
+          <span className={styles.navItemIcon}>
+            <IconChevronLeft size={18} />
+          </span>
+          <span className={styles.navItemLabel}>Back to app</span>
+        </Link>
+      )}
 
       <Link
         href="/settings"
@@ -73,14 +81,14 @@ export function SettingsMenu({
           key={group.key}
           className={styles.navGroup}
           role="group"
-          aria-label={`${group.label}: ${group.scope}`}
+          aria-label={`${group.label}: ${settingsGroupScope(group)}`}
         >
-          <span className={styles.navGroupLabel} aria-hidden>
+          <span className={styles.navGroupLabel} aria-hidden title={group.scopeNote}>
             {group.label}
             <span className={styles.settingsScope}> · {group.scope}</span>
           </span>
           {items.map((item) => {
-            const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+            const active = settingsItemCovers(item, pathname);
             return (
               <Link
                 key={item.href}

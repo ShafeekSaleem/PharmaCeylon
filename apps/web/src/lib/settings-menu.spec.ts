@@ -3,6 +3,7 @@ import {
   SETTINGS_ITEMS,
   groupSettingsItems,
   searchSettings,
+  settingsGroupScope,
   settingsItemFor,
   visibleSettingsItems,
 } from "./settings-menu";
@@ -22,7 +23,11 @@ describe("settings menu (UI1 #205)", () => {
   });
 
   it("states the scope once per group", () => {
-    expect(SETTINGS_GROUPS.find((g) => g.key === "you")?.scope).toBe("Only your account");
+    // Password & Login and Appearance hold owner settings too, so "You" does not say "only".
+    const you = SETTINGS_GROUPS.find((g) => g.key === "you");
+    expect(you && settingsGroupScope(you)).toBe(
+      "Your account (owner settings for everyone are marked on the page)",
+    );
     for (const g of SETTINGS_GROUPS.filter((g) => g.key !== "you"))
       expect(g.scope).toBe("Everyone");
   });
@@ -66,5 +71,8 @@ describe("settings menu (UI1 #205)", () => {
   it("maps a sub-page to its parent item", () => {
     expect(settingsItemFor("/settings/branches/hours")?.label).toBe("Branches");
     expect(settingsItemFor("/settings")).toBeUndefined();
+    // Profitability folded into Catalog and redirects there.
+    expect(settingsItemFor("/settings/profitability")?.label).toBe("Catalog");
+    expect(settingsItemFor("/settings/alerts-recipients")?.label).toBe("Recipients & Channels");
   });
 });
