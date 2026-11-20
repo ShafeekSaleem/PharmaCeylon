@@ -1,5 +1,5 @@
 import { SALE_CHANNELS, type SaleChannel } from "@pharmaceylon/shared";
-import type { PaymentMethod, SalesChannelChip, SalesFilters } from "./types";
+import type { OfflineSyncStateOption, PaymentMethod, SalesChannelChip, SalesFilters } from "./types";
 
 export const PAGE_SIZE = 25;
 
@@ -26,15 +26,19 @@ export const DEFAULT_FILTERS: SalesFilters = {
   offlineSyncState: "all",
 };
 
-export const OFFLINE_SYNC_FILTER_OPTIONS: {
-  value: SalesFilters["offlineSyncState"];
-  label: string;
-}[] = [
-  { value: "all", label: "All sync states" },
-  { value: "accepted", label: "Accepted" },
-  { value: "pending_stock_posting", label: "Pending stock posting" },
-  { value: "held", label: "Held" },
+/** Matches `offlineSyncStates` on `GET /sales/history/options` (PR #247 / shared catalog). */
+export const OFFLINE_SYNC_STATE_OPTIONS_FALLBACK: OfflineSyncStateOption[] = [
+  { value: "accepted", label: "Synced — stock posted" },
+  { value: "pending_stock_posting", label: "Synced — stock pending" },
+  { value: "held", label: "Stock case open" },
 ];
+
+export function offlineSyncFilterOptions(
+  fromApi: OfflineSyncStateOption[] | undefined,
+): { value: SalesFilters["offlineSyncState"]; label: string }[] {
+  const states = fromApi?.length ? fromApi : OFFLINE_SYNC_STATE_OPTIONS_FALLBACK;
+  return [{ value: "all", label: "All sync states" }, ...states];
+}
 
 /** Branch-only attribution filters to reset when the top-bar branch changes. */
 export const BRANCH_SCOPED_FILTER_DEFAULTS: Pick<

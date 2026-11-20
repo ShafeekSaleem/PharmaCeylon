@@ -29,7 +29,7 @@ import {
   CHANNEL_CHIP_ORDER,
   CHANNEL_LABELS,
   DEFAULT_FILTERS,
-  OFFLINE_SYNC_FILTER_OPTIONS,
+  offlineSyncFilterOptions,
   PAGE_SIZE,
   PAYMENT_METHOD_LABELS,
 } from "./constants";
@@ -38,6 +38,7 @@ import { offlineSyncBadge, saleStatusBadge } from "./sync-badges";
 import { useSalesChannelCounts } from "./hooks/use-sales-channel-counts";
 import { useSalesHistory, useSalesHistoryOptions } from "./hooks/use-sales-history";
 import { receiptScopeOptions, registersForPicker, tillLabelForId, type RegisterPickOption } from "./register-options";
+import { shiftOptionLabel } from "./shift-options";
 import { saleTillCell } from "./till-display";
 import type { SaleListRow, SalesChannelChip, SalesFilters } from "./types";
 import {
@@ -138,7 +139,15 @@ export default function SalesHistory() {
         ]
       : []),
     ...(filters.shiftId !== "all" && shiftOptions.length > 0
-      ? [{ key: "shift", label: shiftOptions.find((s) => s.shiftId === filters.shiftId)?.label ?? "Shift" }]
+      ? [
+          {
+            key: "shift",
+            label:
+              shiftOptions
+                .filter((s) => s.shiftId === filters.shiftId)
+                .map(shiftOptionLabel)[0] ?? "Shift",
+          },
+        ]
       : []),
     ...(filters.soldBy !== "all"
       ? [
@@ -160,8 +169,9 @@ export default function SalesHistory() {
           {
             key: "sync",
             label:
-              OFFLINE_SYNC_FILTER_OPTIONS.find((o) => o.value === filters.offlineSyncState)?.label ??
-              "Sync",
+              offlineSyncFilterOptions(options.offlineSyncStates).find(
+                (o) => o.value === filters.offlineSyncState,
+              )?.label ?? "Sync",
           },
         ]
       : []),

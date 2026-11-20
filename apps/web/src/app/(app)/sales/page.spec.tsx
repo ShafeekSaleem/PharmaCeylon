@@ -304,7 +304,7 @@ it("applies the sync filter from the Filters panel", async () => {
 
   fireEvent.click(screen.getByRole("button", { name: "Filters" }));
   fireEvent.click(screen.getByRole("button", { name: /^Sync/ }));
-  fireEvent.click(await screen.findByRole("option", { name: "Pending stock posting" }));
+  fireEvent.click(await screen.findByRole("option", { name: "Synced — stock pending" }));
   fireEvent.click(screen.getByRole("button", { name: "Apply" }));
 
   await waitFor(() =>

@@ -208,7 +208,25 @@ it("shows a C1R receipt without the same-number line and no Till row without a t
   expect(within(details).queryByText("Till", { selector: "dt" })).not.toBeInTheDocument();
 });
 
-it("shows sync pills and a held reconciliation note", async () => {
+it("shows the held reconciliation note whenever offlineSyncState is held", async () => {
+  mockApi(
+    sale({
+      status: "posted",
+      offlineSyncState: "held",
+      reconciliationCaseId: null,
+      offlineReceipt: null,
+    }),
+  );
+  render(<SaleDetailPage />);
+  const details = await screen.findByRole("region", { name: "Sale details" });
+  expect(within(details).getByText("Held")).toBeInTheDocument();
+  expect(
+    screen.getByText(/held on an open reconciliation case/i),
+  ).toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: "Open reconciliation case" })).not.toBeInTheDocument();
+});
+
+it("links the reconciliation case when reconciliationCaseId is set", async () => {
   mockApi(
     sale({
       status: "posted",

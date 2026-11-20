@@ -258,17 +258,21 @@ export default function SaleDetailPage() {
                 Stock for this offline sale is still waiting to post after sync.
               </p>
             ) : null}
-            {sale.offlineSyncState === "held" && sale.reconciliationCaseId ? (
+            {sale.offlineSyncState === "held" ? (
               <div className={css.heldNote} role="note">
                 <p>
                   Stock posting for this sale is held on an open reconciliation case. Resolve the
                   case at the counter before stock can post.
                 </p>
-                <p>
-                  <Link href={`/inventory/stock-cases?caseId=${encodeURIComponent(sale.reconciliationCaseId)}`}>
-                    Open reconciliation case
-                  </Link>
-                </p>
+                {sale.reconciliationCaseId ? (
+                  <p>
+                    <Link
+                      href={`/inventory/stock-cases?caseId=${encodeURIComponent(sale.reconciliationCaseId)}`}
+                    >
+                      Open reconciliation case
+                    </Link>
+                  </p>
+                ) : null}
               </div>
             ) : null}
           </section>

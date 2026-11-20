@@ -56,7 +56,8 @@ export function saleStatusBadge(status: SaleStatus) {
   );
 }
 
-export function incidentNoteStatusBadge(status: string) {
+/** `accepted` on the incident queue row is an open note (#247). */
+export function incidentNoteStatusBadge(status: "accepted" | "held" | string) {
   if (status === "held") {
     return <StatusBadge status="held" label="Held" variant="warning" />;
   }

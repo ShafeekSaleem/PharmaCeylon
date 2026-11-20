@@ -1,7 +1,7 @@
 import type { SaleChannel } from "@pharmaceylon/shared";
 import type { SalesWorkspaceView } from "./sales-views";
 
-/** Mirrors `@pharmaceylon/shared` once API PR #247 merges. */
+/** Mirrors `@pharmaceylon/shared` / API PR #247 (`417144c`). Server-derived; UI never recomputes. */
 export type OfflineSaleSyncState = "accepted" | "pending_stock_posting" | "held";
 
 export type SaleStatus = "posted" | "voided" | "refunded" | "partially_refunded";
@@ -65,7 +65,12 @@ export type SalesHistoryRegisterOption = {
 
 export type SalesHistoryShiftOption = {
   shiftId: string;
-  label: string;
+  shiftNumber: string;
+  branchId: string;
+  registerId: string;
+  registerLabel: string;
+  openedAt: string;
+  closedAt: string | null;
 };
 
 export type SalesHistoryTerminalOption = {
@@ -160,6 +165,7 @@ export type SalesQueuePage<T> = {
   asOf: string;
 };
 
+/** `GET /sales/incident-notes` item (#247). */
 export type SaleIncidentNoteRow = {
   id: string;
   recordId: string;
@@ -167,7 +173,8 @@ export type SaleIncidentNoteRow = {
   terminalId: string;
   terminalLabel: string;
   registerLabel: string | null;
-  status: string;
+  /** Row status from the server (`accepted` = open queue row, `held` = held). */
+  status: "accepted" | "held";
   heldReason: string | null;
   incidentCategory: string;
   description: string;
@@ -179,6 +186,7 @@ export type SaleIncidentNoteRow = {
   href: string | null;
 };
 
+/** `GET /sales/payment-recovery` item (#247). */
 export type PaymentRecoveryRow = {
   attemptId: string;
   branchId: string;
@@ -197,6 +205,7 @@ export type PaymentRecoveryRow = {
   clearsOnUpload: boolean;
 };
 
+/** `GET /sales/collected-money` item (#247). */
 export type CollectedMoneyRow = {
   id: string;
   branchId: string;

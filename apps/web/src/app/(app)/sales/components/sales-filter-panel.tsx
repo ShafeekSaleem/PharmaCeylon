@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { DateRangeField, FilterPopover, FilterRow } from "@/components/ui";
 import { InventoryFilterSelect } from "../../inventory/components/inventory-filter-select";
-import { DEFAULT_FILTERS, OFFLINE_SYNC_FILTER_OPTIONS, PAYMENT_METHOD_OPTIONS } from "../constants";
+import { DEFAULT_FILTERS, offlineSyncFilterOptions, PAYMENT_METHOD_OPTIONS } from "../constants";
+import { shiftOptionLabel } from "../shift-options";
 import {
   counterFilterOptions,
   hasTillFilterOptions,
@@ -76,17 +77,16 @@ export function SalesFilterPanel({ applied, options, registerPicks, onApply, onC
 
   const shiftOptions: SalesHistoryShiftOption[] = options.shifts ?? [];
   const shiftSelectOptions = useMemo(
-    () => [{ value: "all", label: "All shifts" }, ...shiftOptions.map((s) => ({ value: s.shiftId, label: s.label }))],
+    () => [
+      { value: "all", label: "All shifts" },
+      ...shiftOptions.map((s) => ({ value: s.shiftId, label: shiftOptionLabel(s) })),
+    ],
     [shiftOptions],
   );
   const showShiftFilter = shiftOptions.length > 0;
   const syncOptions = useMemo(
-    () =>
-      OFFLINE_SYNC_FILTER_OPTIONS.map((o) => ({
-        value: o.value,
-        label: o.label,
-      })),
-    [],
+    () => offlineSyncFilterOptions(options.offlineSyncStates),
+    [options.offlineSyncStates],
   );
 
   const active = salesPanelFiltersAreActive(applied);
