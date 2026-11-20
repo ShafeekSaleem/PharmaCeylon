@@ -982,7 +982,10 @@ export class StocktakesService {
     await this.prisma.$transaction(async (tx) => {
       // Stamp the count with the database clock, the same one that stamps stock movements
       // (occurred_at defaults to now()), so "before/after the count" never depends on app clock skew.
-      const [{ now }] = await tx.$queryRaw<Array<{ now: Date }>>`SELECT now() AS now`;
+      // The DB clock, as UTC wall time: the columns are `timestamp` (no zone) holding UTC, and the
+      // driver reads `now()`'s timestamptz shifted by the server's timezone, so on a server not
+      // set to UTC every count landed hours off and later sales counted as before it.
+      const [{ now }] = await tx.$queryRaw<Array<{ now: Date }>>`SELECT (now() AT TIME ZONE 'UTC') AS now`;
       for (const input of dto.lines) {
         const existing = lineByBatchId.get(input.batchId);
         if (!existing) {
