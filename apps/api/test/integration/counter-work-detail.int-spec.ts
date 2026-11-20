@@ -88,8 +88,10 @@ afterAll(async () => { await prisma.$disconnect(); });
 describe("counter reads: the lines behind one Counter work item", () => {
   it("reads a held delivery's approved lines, why it was held, and the same approval check as the list", async () => {
     const delivery = await approvedDelivery();
-    const detail = await details.detail(await caller(fx.ownerId), branch(), "held_delivery", delivery.id);
-    const listed = (await work.list(await caller(fx.ownerId), branch())).find((i) => i.id === delivery.id)!;
+    // One clock for both reads, as the controller stamps one per response.
+    const asOf = new Date().toISOString();
+    const detail = await details.detail(await caller(fx.ownerId), branch(), "held_delivery", delivery.id, asOf);
+    const listed = (await work.list(await caller(fx.ownerId), branch(), asOf)).find((i) => i.id === delivery.id)!;
 
     expect(detail).toMatchObject({
       kind: "held_delivery",
@@ -112,11 +114,24 @@ describe("counter reads: the lines behind one Counter work item", () => {
 
   it("withholds costs from someone without costs.view", async () => {
     const delivery = await approvedDelivery();
-    const detail = await details.detail(await caller(fx.clerkId), branch(), "held_delivery", delivery.id);
-    if (detail.kind !== "held_delivery") throw new Error("kind");
-    expect(detail.amount).toBeNull();
-    expect(detail.lines[0].unitCost).toBeNull();
-    expect(detail.lines[0].receivedQty).toBe(2);
+    // Built-in clerks see costs by default, so receive with a role that may receive but not see costs.
+    await prisma.permission.createMany({ data: [{ key: "purchasing.receive", module: "purchasing",
+      label: "purchasing.receive", description: "Integration test permission" }], skipDuplicates: true });
+    const role = await prisma.role.create({ data: { tenantId: fx.tenantId, key: `receive-only-${randomUUID()}`,
+      name: "Receive only", permissions: { create: [{ tenantId: fx.tenantId, permissionKey: "purchasing.receive" }] } } });
+    const before = await prisma.userBranchRole.findMany({ where: { tenantId: fx.tenantId, userId: fx.clerkId } });
+    await prisma.userBranchRole.updateMany({ where: { tenantId: fx.tenantId, userId: fx.clerkId }, data: { roleId: role.id } });
+    try {
+      const detail = await details.detail(await caller(fx.clerkId), branch(), "held_delivery", delivery.id);
+      if (detail.kind !== "held_delivery") throw new Error("kind");
+      expect(detail.amount).toBeNull();
+      expect(detail.lines[0].unitCost).toBeNull();
+      expect(detail.lines[0].packCost).toBeNull();
+      expect(detail.lines[0].receivedQty).toBe(2);
+    } finally {
+      for (const row of before)
+        await prisma.userBranchRole.update({ where: { id: row.id }, data: { roleId: row.roleId } });
+    }
   });
 
   it("refuses without the operation's permission, and 404s outside this branch's queue", async () => {
