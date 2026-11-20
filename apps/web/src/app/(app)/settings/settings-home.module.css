@@ -89,6 +89,13 @@
   color: var(--ui-warn-ink);
 }
 
+/* A check that could not run: not a problem, so not coloured, but not an all-clear either. */
+.attentionIconQuiet {
+  display: flex;
+  flex-shrink: 0;
+  color: var(--ui-text-muted);
+}
+
 /* ── Groups and cards ── */
 
 .group {
@@ -188,6 +195,12 @@
 
 .results {
   margin-bottom: 1.5rem;
+}
+
+.resultCount {
+  margin: 0 0 0.6rem;
+  font-size: 0.85rem;
+  color: var(--ui-text-muted);
 }
 
 .resultList {

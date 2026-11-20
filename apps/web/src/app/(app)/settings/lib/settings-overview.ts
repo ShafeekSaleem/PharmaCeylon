@@ -1,5 +1,6 @@
 import type { AppearancePrefs } from "@/lib/appearance";
 import type { NotificationPreferences } from "@/lib/notifications-client";
+import { APPROVAL_RULES } from "../approval-rules/rules";
 import type { TenantSettings } from "./tenant-settings";
 
 /**
@@ -11,6 +12,8 @@ export type SettingsOverview = {
   user?: { fullName: string; email: string };
   appearance?: AppearancePrefs;
   notifications?: NotificationPreferences;
+  /** The alert types this person has a toggle for (the Notifications page's rows). */
+  notificationKeys?: (keyof NotificationPreferences)[];
   settings?: TenantSettings;
   organization?: { displayName: string; hasLogo: boolean };
   branchCount?: number;
@@ -23,7 +26,35 @@ export type SettingsOverview = {
   restoresWaiting?: number;
   /** Counter journal recoveries waiting for approval (not stale). */
   recoveriesWaiting?: number;
+  /** Recoveries waiting on the counter to report its journal again before anyone can approve. */
+  recoveriesStale?: number;
+  /** The "Needs attention" checks this person may run. Only these are checked or claimed. */
+  checks?: AttentionCheck[];
+  /** No branch is selected, so the branch checks could not run. */
+  noBranch?: boolean;
+  /** Checks that should have run and did not: a read failed, or no branch was selected. */
+  unchecked?: AttentionCheck[];
 };
+
+/** The things "Needs attention" looks at. */
+export type AttentionCheck = "restores" | "recoveries" | "counters" | "logo";
+
+const CHECK_NAMES: Record<AttentionCheck, string> = {
+  restores: "restored counters",
+  recoveries: "counter journal recoveries",
+  counters: "counters",
+  logo: "the pharmacy logo",
+};
+
+const CHECK_PAGES: Record<AttentionCheck, string> = {
+  restores: "/settings/offline-policy",
+  recoveries: "/settings/offline-policy",
+  counters: "/settings/counters",
+  logo: "/settings/tenant-profile",
+};
+
+/** Checks that look at the selected branch only, so their rows name it. */
+const BRANCH_CHECKS: AttentionCheck[] = ["restores", "recoveries", "counters"];
 
 const THEME: Record<AppearancePrefs["theme"], string> = {
   system: "Match device",
@@ -42,16 +73,6 @@ const FONT: Record<AppearancePrefs["fontSize"], string> = {
 
 const PAPER: Record<string, string> = { "80mm": "80 mm", "58mm": "58 mm", a4: "A4" };
 
-const NOTIFICATION_KEYS: (keyof NotificationPreferences)[] = [
-  "inventoryEnabled",
-  "expiryEnabled",
-  "purchasingEnabled",
-  "transfersEnabled",
-  "stocktakesEnabled",
-  "complianceEnabled",
-  "systemEnabled",
-];
-
 function plural(n: number, one: string, many = `${one}s`): string {
   return `${n} ${n === 1 ? one : many}`;
 }
@@ -64,10 +85,10 @@ export function settingsValues(o: SettingsOverview): Partial<Record<string, stri
   if (o.user) values["/settings/my-profile"] = `${o.user.fullName} · ${o.user.email}`;
   if (s) {
     values["/settings/password-login"] =
-      `Passwords at least ${plural(s.passwordMinLength, "character")}`;
+      `Pharmacy rule: passwords at least ${plural(s.passwordMinLength, "character")}`;
   }
-  if (o.notifications) {
-    const off = NOTIFICATION_KEYS.filter((key) => !o.notifications?.[key]).length;
+  if (o.notifications && o.notificationKeys) {
+    const off = o.notificationKeys.filter((key) => !o.notifications?.[key]).length;
     values["/settings/notifications"] =
       off === 0 ? "All alerts on" : `${plural(off, "alert type")} turned off`;
   }
@@ -93,16 +114,8 @@ export function settingsValues(o: SettingsOverview): Partial<Record<string, stri
       s.vatRatePercent === null ? "VAT at the standard rate" : `VAT ${s.vatRatePercent}%`;
     values["/settings/operations"] =
       `Low stock at ${plural(s.lowStockThresholdUnits, "unit")} · expiry warning ${plural(s.expiryWarningDays, "day")}`;
-    // Controlled substance sales always need approval, so it counts as one rule that is on.
-    const on =
-      1 +
-      [
-        s.approvalRequiredPurchaseOrderThreshold !== null,
-        s.approvalRequiredForBranchTransfers,
-        s.approvalRequiredReturnThreshold !== null,
-        s.approvalRequiredWriteOffThreshold !== null,
-      ].filter(Boolean).length;
-    values["/settings/approval-rules"] = `${on} of 5 rules on`;
+    const on = APPROVAL_RULES.filter((rule) => rule.isOn(s)).length;
+    values["/settings/approval-rules"] = `${on} of ${APPROVAL_RULES.length} rules on`;
   }
   return values;
 }
@@ -113,37 +126,67 @@ export type AttentionItem = {
   title: string;
   /** What to do about it. */
   detail: string;
+  /** A check that could not run, shown quietly: it is not a problem, but not an all-clear. */
+  unchecked?: boolean;
 };
 
-/** Settings that are waiting on someone, most pressing first. Admin reads only. */
+/**
+ * Settings that are waiting on someone, most pressing first, then any check that could not
+ * run. An empty list is an all-clear, so it only comes back empty when every check this
+ * person may run did run.
+ */
 export function needsAttention(o: SettingsOverview): AttentionItem[] {
+  const checks = o.checks ?? [];
+  const unchecked = new Set(o.unchecked ?? []);
+  const ran = (check: AttentionCheck) => checks.includes(check) && !unchecked.has(check);
+  const at = o.branchName ? ` at ${o.branchName}` : " at this branch";
   const items: AttentionItem[] = [];
-  if (o.restoresWaiting) {
+
+  if (ran("restores") && o.restoresWaiting) {
     items.push({
-      href: "/settings/offline-policy",
-      title: `${plural(o.restoresWaiting, "restored counter")} waiting for you`,
+      href: CHECK_PAGES.restores,
+      title: `${plural(o.restoresWaiting, "restored counter")}${at} waiting for you`,
       detail: "Acknowledge the restore before the counter sells offline again.",
     });
   }
-  if (o.recoveriesWaiting) {
+  if (ran("recoveries") && o.recoveriesWaiting) {
     items.push({
-      href: "/settings/offline-policy",
-      title: `${plural(o.recoveriesWaiting, "counter journal recovery", "counter journal recoveries")} waiting for approval`,
+      href: CHECK_PAGES.recoveries,
+      title: `${plural(o.recoveriesWaiting, "counter journal recovery", "counter journal recoveries")}${at} waiting for approval`,
       detail: "Check what the counter recorded, then approve the recovery.",
     });
   }
-  if (o.counterCount === 0 && o.desktopLive) {
+  if (ran("recoveries") && o.recoveriesStale) {
     items.push({
-      href: "/settings/counters",
-      title: o.branchName ? `No counters at ${o.branchName}` : "No counters at this branch",
+      href: CHECK_PAGES.recoveries,
+      title: `${plural(o.recoveriesStale, "counter journal recovery", "counter journal recoveries")}${at} out of date`,
+      detail: "Needs the counter to report again before anyone can approve it.",
+    });
+  }
+  if (ran("counters") && o.counterCount === 0 && o.desktopLive) {
+    items.push({
+      href: CHECK_PAGES.counters,
+      title: `No counters${at}`,
       detail: "Add a counter and enroll its computer before selling on PharmaCeylon POS.",
     });
   }
-  if (o.organization && !o.organization.hasLogo) {
+  if (ran("logo") && o.organization && !o.organization.hasLogo) {
     items.push({
-      href: "/settings/tenant-profile",
+      href: CHECK_PAGES.logo,
       title: "No pharmacy logo",
       detail: "Add your logo so receipts and documents can carry it.",
+    });
+  }
+  for (const check of checks) {
+    if (!unchecked.has(check)) continue;
+    const where = BRANCH_CHECKS.includes(check) ? at : "";
+    items.push({
+      href: CHECK_PAGES[check],
+      title: `Couldn't check ${CHECK_NAMES[check]}${where}`,
+      detail: o.noBranch
+        ? "Choose a branch to check it."
+        : "Open the page to check it yourself, or try again later.",
+      unchecked: true,
     });
   }
   return items;
