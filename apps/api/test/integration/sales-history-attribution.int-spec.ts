@@ -194,6 +194,8 @@ beforeAll(async () => {
       { tenantId: fx.tenantId, branchId: fx.mainBranchId, userId: fx.clerkId, role: RoleName.cashier },
       { tenantId: fx.tenantId, branchId: fx.mainBranchId, userId: fx.ownerId, role: RoleName.owner },
       { tenantId: fx.tenantId, branchId: fx.mainBranchId, userId: fx.managerId, role: RoleName.manager },
+      { tenantId: fx.tenantId, branchId: fx.otherBranchId, userId: fx.ownerId, role: RoleName.owner },
+      { tenantId: fx.tenantId, branchId: fx.otherBranchId, userId: fx.clerkId, role: RoleName.cashier },
       { tenantId: other.tenantId, branchId: other.mainBranchId, userId: other.clerkId, role: RoleName.cashier },
       { tenantId: other.tenantId, branchId: other.mainBranchId, userId: other.ownerId, role: RoleName.owner },
     ],
