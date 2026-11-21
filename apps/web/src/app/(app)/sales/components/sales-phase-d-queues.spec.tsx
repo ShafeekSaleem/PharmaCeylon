@@ -98,6 +98,19 @@ describe("incident notes queue", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
+  it("does not show a sort-order footer label", async () => {
+    jest.mocked(apiJson).mockResolvedValue({
+      items: [incidentRow()],
+      total: 1,
+      page: 1,
+      pageSize: 25,
+      asOf: "2026-11-20T12:00:00.000Z",
+    });
+    render(<SalesIncidentNotes />);
+    await screen.findByText("Till 1");
+    expect(screen.queryByText("Oldest first")).not.toBeInTheDocument();
+  });
+
   it("requests open notes by default and switches to held on the status toggle", async () => {
     jest.mocked(apiJson).mockResolvedValue({
       items: [incidentRow()],

@@ -154,7 +154,6 @@ export default function SalesIncidentNotes() {
           {loading ? "Loading incident notes…" : `${data.total} in the queue`}
         </span>
       </div>
-      <p className={css.queueLater}>Oldest first</p>
       <DataTable
         variant="list"
         columns={columns}
