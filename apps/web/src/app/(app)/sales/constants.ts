@@ -1,4 +1,8 @@
-import { SALE_CHANNELS, type SaleChannel } from "@pharmaceylon/shared";
+import {
+  OFFLINE_SALE_SYNC_STATE_OPTIONS,
+  SALE_CHANNELS,
+  type SaleChannel,
+} from "@pharmaceylon/shared";
 import type { OfflineSyncStateOption, PaymentMethod, SalesChannelChip, SalesFilters } from "./types";
 
 export const PAGE_SIZE = 25;
@@ -26,11 +30,9 @@ export const DEFAULT_FILTERS: SalesFilters = {
   offlineSyncState: "all",
 };
 
-/** Matches `offlineSyncStates` on `GET /sales/history/options` (PR #247 / shared catalog). */
+/** Matches `offlineSyncStates` on `GET /sales/history/options` (merged #247 / shared catalog). */
 export const OFFLINE_SYNC_STATE_OPTIONS_FALLBACK: OfflineSyncStateOption[] = [
-  { value: "accepted", label: "Synced — stock posted" },
-  { value: "pending_stock_posting", label: "Synced — stock pending" },
-  { value: "held", label: "Stock case open" },
+  ...OFFLINE_SALE_SYNC_STATE_OPTIONS,
 ];
 
 export function offlineSyncFilterOptions(

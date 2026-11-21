@@ -1,28 +1,27 @@
+import type { OfflineSaleSyncState } from "@pharmaceylon/shared";
 import { StatusBadge, type BadgeVariant } from "@/components/ui";
 import type { SaleStatus } from "./types";
 
-export type OfflineSyncState = "accepted" | "pending_stock_posting" | "held";
-
-const SYNC_LIST_LABELS: Record<OfflineSyncState, string> = {
+const SYNC_LIST_LABELS: Record<OfflineSaleSyncState, string> = {
   accepted: "Accepted",
   pending_stock_posting: "Pending stock",
   held: "Held",
 };
 
-const SYNC_DETAIL_LABELS: Record<OfflineSyncState, string> = {
+const SYNC_DETAIL_LABELS: Record<OfflineSaleSyncState, string> = {
   accepted: "Accepted",
   pending_stock_posting: "Pending stock posting",
   held: "Held",
 };
 
-const SYNC_VARIANTS: Record<OfflineSyncState, BadgeVariant> = {
+const SYNC_VARIANTS: Record<OfflineSaleSyncState, BadgeVariant> = {
   accepted: "success",
   pending_stock_posting: "warning",
   held: "danger",
 };
 
 export function offlineSyncBadge(
-  state: OfflineSyncState | null | undefined,
+  state: OfflineSaleSyncState | null | undefined,
   mode: "list" | "detail" = "list",
 ) {
   if (!state) return null;

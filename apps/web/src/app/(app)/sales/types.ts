@@ -1,8 +1,7 @@
-import type { SaleChannel } from "@pharmaceylon/shared";
+import type { OfflineSaleSyncState, SaleChannel } from "@pharmaceylon/shared";
 import type { SalesWorkspaceView } from "./sales-views";
 
-/** Mirrors `@pharmaceylon/shared` / API PR #247 (`417144c`). Server-derived; UI never recomputes. */
-export type OfflineSaleSyncState = "accepted" | "pending_stock_posting" | "held";
+export type { OfflineSaleSyncState };
 
 export type SaleStatus = "posted" | "voided" | "refunded" | "partially_refunded";
 
@@ -133,7 +132,7 @@ export type SaleDetail = SaleAttribution & {
   offlineCommandId?: string | null;
   offlineSyncState?: OfflineSaleSyncState | null;
   reconciliationCaseId?: string | null;
-  offlineReceipt?: { receiptNumber: string; recordedAt: string } | null;
+  offlineReceipt?: { receiptNumber: string; recordedAt: string; syncedAt: string } | null;
 };
 
 export type SalesChannelChip = "all" | SaleChannel;
