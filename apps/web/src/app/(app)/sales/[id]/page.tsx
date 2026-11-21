@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Alert } from "@/components/alert";
 import { IconChevronLeft, IconPackage, IconReceipt } from "@/components/icons";
-import { ActionButton, DataTable, PageHeader, StatusBadge, type Column } from "@/components/ui";
+import { ActionButton, DataTable, PageHeader, type Column } from "@/components/ui";
 import { formatMoney } from "@/lib/money";
 import { usePageChrome } from "@/lib/page-chrome-context";
 import { SaleReceiptCopy } from "../components/sale-receipt-copy";
@@ -13,6 +13,7 @@ import { SaleRefundPanel } from "../components/sale-refund-panel";
 import { PAYMENT_METHOD_LABELS } from "../constants";
 import { useSaleDetail } from "../hooks/use-sale-detail";
 import type { SaleDetail } from "../types";
+import { offlineSyncBadge, saleStatusBadge } from "../sync-badges";
 import { saleTillLabel } from "../till-display";
 import {
   BUSINESS_TIME_ZONE,
@@ -118,6 +119,12 @@ export default function SaleDetailPage() {
 
   const refundedTotal = sale.refunds.reduce((sum, refund) => sum + Number(refund.amount), 0);
   const tillLabel = saleTillLabel(sale);
+  const receiptNo = sale.offlineReceipt?.receiptNumber ?? sale.invoiceNo;
+  const linkedInvoice =
+    sale.offlineReceipt?.receiptNumber &&
+    sale.offlineReceipt.receiptNumber !== sale.invoiceNo
+      ? sale.invoiceNo
+      : null;
 
   return (
     <div className={css.page}>
@@ -145,24 +152,57 @@ export default function SaleDetailPage() {
           <section className={css.card} aria-label="Receipt">
             <h2 className={css.cardTitle}>Receipt</h2>
             <div className={css.receiptCard}>
-              <div className={css.receiptCardPrimary}>{sale.invoiceNo}</div>
-              {sale.invoiceNo.toUpperCase().startsWith("INV-") ? (
+              <div className={css.receiptCardPrimary}>{receiptNo}</div>
+              {sale.offlineReceipt?.recordedAt ? (
                 <p className={css.receiptCardLinked}>
-                  Receipt and invoice use the same number.
+                  Recorded {formatDateTime(sale.offlineReceipt.recordedAt)} {BUSINESS_TIME_ZONE}
                 </p>
+              ) : null}
+              {sale.offlineReceipt?.syncedAt ? (
+                <p className={css.receiptCardLinked}>
+                  Synced {formatDateTime(sale.offlineReceipt.syncedAt)} {BUSINESS_TIME_ZONE}
+                </p>
+              ) : null}
+              {linkedInvoice ? (
+                <p className={css.receiptCardLinked}>Invoice {linkedInvoice}</p>
+              ) : sale.invoiceNo.toUpperCase().startsWith("INV-") ? (
+                <p className={css.receiptCardLinked}>Receipt and invoice use the same number.</p>
               ) : null}
             </div>
           </section>
 
           <section className={css.card} aria-label="Sale details">
             <h2 className={css.cardTitle}>Sale</h2>
+            {sale.offlineSyncState === "held" ? (
+              <div className={css.heldNote} role="note">
+                <p>
+                  This sale is synced. Stock posting is waiting on an open reconciliation case.
+                  {sale.reconciliationCaseId ? (
+                    <>
+                      {" "}
+                      Reconciliation case{" "}
+                      <Link
+                        href={`/inventory/stock-cases?caseId=${encodeURIComponent(sale.reconciliationCaseId)}`}
+                      >
+                        {sale.reconciliationCaseId}
+                      </Link>{" "}
+                      (read only).
+                    </>
+                  ) : null}
+                </p>
+              </div>
+            ) : null}
             <dl className={css.facts}>
               <div className={css.fact}>
                 <dt>Status</dt>
-                <dd>
-                  <StatusBadge status={sale.status} label={sale.status === "posted" ? "Completed" : undefined} />
-                </dd>
+                <dd>{saleStatusBadge(sale.status)}</dd>
               </div>
+              {sale.offlineSyncState ? (
+                <div className={css.fact}>
+                  <dt>Sync</dt>
+                  <dd>{offlineSyncBadge(sale.offlineSyncState, "detail")}</dd>
+                </div>
+              ) : null}
               <div className={css.fact}>
                 <dt>Sold</dt>
                 <dd>
@@ -237,6 +277,11 @@ export default function SaleDetailPage() {
               </div>
             </dl>
             {sale.notes ? <p className={css.cellSub}>Note: {sale.notes}</p> : null}
+            {sale.offlineSyncState === "pending_stock_posting" ? (
+              <p className={css.syncNote} role="note">
+                Stock for this offline sale is still waiting to post after sync.
+              </p>
+            ) : null}
           </section>
 
           <section className={css.card} aria-label="Items">

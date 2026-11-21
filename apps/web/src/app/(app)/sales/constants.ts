@@ -1,5 +1,9 @@
-import { SALE_CHANNELS, type SaleChannel } from "@pharmaceylon/shared";
-import type { PaymentMethod, SalesChannelChip, SalesFilters } from "./types";
+import {
+  OFFLINE_SALE_SYNC_STATE_OPTIONS,
+  SALE_CHANNELS,
+  type SaleChannel,
+} from "@pharmaceylon/shared";
+import type { OfflineSyncStateOption, PaymentMethod, SalesChannelChip, SalesFilters } from "./types";
 
 export const PAGE_SIZE = 25;
 
@@ -23,17 +27,31 @@ export const DEFAULT_FILTERS: SalesFilters = {
   registerId: "all",
   tillId: "all",
   shiftId: "all",
+  offlineSyncState: "all",
 };
+
+/** Matches `offlineSyncStates` on `GET /sales/history/options` (merged #247 / shared catalog). */
+export const OFFLINE_SYNC_STATE_OPTIONS_FALLBACK: OfflineSyncStateOption[] = [
+  ...OFFLINE_SALE_SYNC_STATE_OPTIONS,
+];
+
+export function offlineSyncFilterOptions(
+  fromApi: OfflineSyncStateOption[] | undefined,
+): { value: SalesFilters["offlineSyncState"]; label: string }[] {
+  const states = fromApi?.length ? fromApi : OFFLINE_SYNC_STATE_OPTIONS_FALLBACK;
+  return [{ value: "all", label: "All sync states" }, ...states];
+}
 
 /** Branch-only attribution filters to reset when the top-bar branch changes. */
 export const BRANCH_SCOPED_FILTER_DEFAULTS: Pick<
   SalesFilters,
-  "registerId" | "tillId" | "shiftId" | "receiptCounterScope"
+  "registerId" | "tillId" | "shiftId" | "receiptCounterScope" | "offlineSyncState"
 > = {
   registerId: "all",
   tillId: "all",
   shiftId: "all",
   receiptCounterScope: "any",
+  offlineSyncState: "all",
 };
 
 export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {

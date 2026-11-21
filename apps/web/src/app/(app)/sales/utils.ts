@@ -1,5 +1,6 @@
 import type { SaleChannel } from "@pharmaceylon/shared";
 import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
+import { formatMoney } from "@/lib/money";
 import { CHANNEL_LABELS } from "./constants";
 import { PAYMENT_METHOD_LABELS } from "./constants";
 import type { PaymentMethod, SaleListRow } from "./types";
@@ -65,10 +66,44 @@ export function paymentMethodsLabel(methods: PaymentMethod[]): string {
   return methods.map((method) => PAYMENT_METHOD_LABELS[method] ?? method).join(" + ");
 }
 
+export function minorToMoney(minor: number | null | undefined): string {
+  if (minor === null || minor === undefined) return DASH;
+  return formatMoney(minor / 100);
+}
+
 /** `YYYY-MM-DD` for a local calendar day, `offset` days from today. */
 export function localDateKey(offset = 0): string {
   const d = new Date();
   d.setDate(d.getDate() + offset);
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+const DAY_MS = 86_400_000;
+
+function calendarDayKey(at: Date, timeZone: string): string {
+  return at.toLocaleDateString("en-CA", { timeZone });
+}
+
+/** Age copy for the incident notes list (`asOf` from the queue page). */
+export function incidentNoteAge(
+  receivedAt: string,
+  asOf: string,
+  timeZone: string = BUSINESS_TIME_ZONE,
+): { text: string; late: boolean } {
+  const now = new Date(asOf);
+  const received = new Date(receivedAt);
+  if (Number.isNaN(now.getTime()) || Number.isNaN(received.getTime())) {
+    return { text: DASH, late: false };
+  }
+  const days = Math.round(
+    (Date.parse(calendarDayKey(now, timeZone)) - Date.parse(calendarDayKey(received, timeZone))) /
+      DAY_MS,
+  );
+  if (days >= 2) {
+    return { text: `${days} days late`, late: true };
+  }
+  if (days === 1) return { text: "1 day waiting", late: false };
+  if (days === 0) return { text: "Today", late: false };
+  return { text: DASH, late: false };
 }

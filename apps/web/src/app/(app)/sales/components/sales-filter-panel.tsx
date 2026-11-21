@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { DateRangeField, FilterPopover, FilterRow } from "@/components/ui";
 import { InventoryFilterSelect } from "../../inventory/components/inventory-filter-select";
-import { DEFAULT_FILTERS, PAYMENT_METHOD_OPTIONS } from "../constants";
+import { DEFAULT_FILTERS, offlineSyncFilterOptions, PAYMENT_METHOD_OPTIONS } from "../constants";
+import { shiftOptionLabel, shiftsForPicker } from "../shift-options";
 import {
   counterFilterOptions,
   hasTillFilterOptions,
@@ -15,7 +16,7 @@ import css from "../sales.module.css";
 
 export type SalesPanelFilters = Pick<
   SalesFilters,
-  "from" | "to" | "soldBy" | "paymentMethod" | "registerId" | "tillId" | "shiftId"
+  "from" | "to" | "soldBy" | "paymentMethod" | "registerId" | "tillId" | "shiftId" | "offlineSyncState"
 >;
 
 export function salesPanelFiltersAreActive(filters: SalesPanelFilters): boolean {
@@ -25,7 +26,8 @@ export function salesPanelFiltersAreActive(filters: SalesPanelFilters): boolean 
     filters.paymentMethod !== "all" ||
     filters.registerId !== "all" ||
     filters.tillId !== "all" ||
-    filters.shiftId !== "all"
+    filters.shiftId !== "all" ||
+    filters.offlineSyncState !== "all"
   );
 }
 
@@ -38,6 +40,7 @@ export function salesPanelFiltersFrom(filters: SalesFilters): SalesPanelFilters 
     registerId: filters.registerId,
     tillId: filters.tillId,
     shiftId: filters.shiftId,
+    offlineSyncState: filters.offlineSyncState,
   };
 }
 
@@ -45,11 +48,19 @@ type Props = {
   applied: SalesPanelFilters;
   options: SalesHistoryOptions;
   registerPicks: RegisterPickOption[];
+  branchId: string | null;
   onApply: (next: SalesPanelFilters) => void;
   onClear: () => void;
 };
 
-export function SalesFilterPanel({ applied, options, registerPicks, onApply, onClear }: Props) {
+export function SalesFilterPanel({
+  applied,
+  options,
+  registerPicks,
+  branchId,
+  onApply,
+  onClear,
+}: Props) {
   const [draft, setDraft] = useState(applied);
 
   useEffect(() => {
@@ -72,12 +83,25 @@ export function SalesFilterPanel({ applied, options, registerPicks, onApply, onC
   const tillOptions = useMemo(() => tillFilterOptions(registerPicks), [registerPicks]);
   const showTillFilter = hasTillFilterOptions(registerPicks);
 
-  const shiftOptions: SalesHistoryShiftOption[] = options.shifts ?? [];
+  const shiftOptions: SalesHistoryShiftOption[] = useMemo(
+    () => shiftsForPicker(options.shifts ?? [], branchId),
+    [options.shifts, branchId],
+  );
   const shiftSelectOptions = useMemo(
-    () => [{ value: "all", label: "All shifts" }, ...shiftOptions.map((s) => ({ value: s.shiftId, label: s.label }))],
-    [shiftOptions],
+    () => [
+      { value: "all", label: "All shifts" },
+      ...shiftOptions.map((s) => ({
+        value: s.shiftId,
+        label: shiftOptionLabel(s, branchId, options.branches),
+      })),
+    ],
+    [shiftOptions, branchId, options.branches],
   );
   const showShiftFilter = shiftOptions.length > 0;
+  const syncOptions = useMemo(
+    () => offlineSyncFilterOptions(options.offlineSyncStates),
+    [options.offlineSyncStates],
+  );
 
   const active = salesPanelFiltersAreActive(applied);
 
@@ -173,6 +197,24 @@ export function SalesFilterPanel({ applied, options, registerPicks, onApply, onC
             setDraft((d) => ({
               ...d,
               paymentMethod: (v || "all") as SalesFilters["paymentMethod"],
+            }))
+          }
+        />
+      </FilterRow>
+
+      <FilterRow
+        label="Sync"
+        hasSelection={draft.offlineSyncState !== "all"}
+        onClear={() => setDraft((d) => ({ ...d, offlineSyncState: "all" }))}
+      >
+        <InventoryFilterSelect
+          label="Sync"
+          value={draft.offlineSyncState}
+          options={syncOptions}
+          onChange={(v) =>
+            setDraft((d) => ({
+              ...d,
+              offlineSyncState: (v || "all") as SalesFilters["offlineSyncState"],
             }))
           }
         />
