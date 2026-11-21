@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Responsive, WidthProvider, type Layout } from "react-grid-layout";
 import "react-grid-layout/css/styles.css";
 import type { DashboardData } from "../hooks/use-dashboard-data";
@@ -12,6 +12,7 @@ import {
 import { WidgetFrame } from "./widget-frame";
 import { widgetDataSources } from "../lib/widget-data-sources";
 import { packDashboardLayout } from "../lib/responsive-layout";
+import { CANVAS_MARGIN_Y, CANVAS_ROW_HEIGHT, rowsForHeight } from "../lib/content-rows";
 import css from "../dashboard.module.css";
 
 const ResponsiveGridLayout = WidthProvider(Responsive);
@@ -38,9 +39,12 @@ type Props = {
 /** The customizable middle section of the dashboard. Renders the same way in
  * view and edit mode — only drag interactivity toggles — so a user's saved
  * arrangement looks the same whether or not they're editing. Widget size is
- * always fixed (derived from the registry, never stored/resizable) — only
- * position is user-controlled. Mobile (`sm` breakpoint) always renders
- * read-only, stacked, regardless of `isEditing`. */
+ * never stored or resizable — only position is user-controlled. Width comes
+ * from the registry; height is the card's measured content (UI1 #205), with
+ * the registry's row count only until the first measurement, so a card never
+ * scrolls inside itself or stands empty below its content, and vertical
+ * compaction closes the gap a shorter neighbour used to leave. Mobile (`sm`
+ * breakpoint) always renders read-only, stacked, regardless of `isEditing`. */
 export function DashboardCanvas({
   catalog,
   layout,
@@ -56,6 +60,13 @@ export function DashboardCanvas({
       : "lg",
   );
   const isMobile = breakpoint === MOBILE_BREAKPOINT;
+  // Each card's natural height in px, measured by its frame.
+  const [heights, setHeights] = useState<Record<string, number>>({});
+  const onHeight = useCallback((key: string, px: number) => {
+    setHeights((prev) =>
+      Math.abs((prev[key] ?? -1) - px) < 1 ? prev : { ...prev, [key]: px },
+    );
+  }, []);
 
   const catalogByKey = useMemo(
     () => new Map(catalog.map((w) => [w.key, w])),
@@ -70,19 +81,22 @@ export function DashboardCanvas({
     () =>
       visibleLayout.map((item) => {
         const def = catalogByKey.get(item.key)!;
+        const measured = heights[item.key];
         return {
           i: item.key,
           x: item.x,
           y: item.y,
           w: WIDGET_WIDTH_COLS[def.width],
           h:
-            item.key.endsWith(".recent-transactions") &&
-            data.todaySales.length === 0
-              ? 7
-              : def.rows,
+            measured !== undefined
+              ? rowsForHeight(measured)
+              : item.key.endsWith(".recent-transactions") &&
+                  data.todaySales.length === 0
+                ? 7
+                : def.rows,
         };
       }),
-    [visibleLayout, catalogByKey, data.todaySales.length],
+    [visibleLayout, catalogByKey, data.todaySales.length, heights],
   );
   const responsiveLayouts = useMemo(
     () => ({
@@ -90,7 +104,10 @@ export function DashboardCanvas({
       md: packDashboardLayout(rglLayout, 8),
       sm: packDashboardLayout(
         rglLayout.map((item) =>
-          item.i.endsWith(".business-overview")
+          // Measured cards already have their stacked height; these are first-paint guesses.
+          heights[item.i] !== undefined
+            ? item
+            : item.i.endsWith(".business-overview")
             ? { ...item, h: 28 }
             : item.i.endsWith(".cash-flow")
               ? { ...item, h: 20 }
@@ -101,7 +118,7 @@ export function DashboardCanvas({
         1,
       ),
     }),
-    [rglLayout],
+    [rglLayout, heights],
   );
 
   function handleLayoutChange(next: Layout[]) {
@@ -116,8 +133,8 @@ export function DashboardCanvas({
         layouts={responsiveLayouts}
         breakpoints={BREAKPOINTS}
         cols={COLS}
-        rowHeight={12}
-        margin={[14, 14]}
+        rowHeight={CANVAS_ROW_HEIGHT}
+        margin={[14, CANVAS_MARGIN_Y]}
         containerPadding={[0, 0]}
         compactType="vertical"
         isDraggable={false}
@@ -140,8 +157,8 @@ export function DashboardCanvas({
       layouts={responsiveLayouts}
       breakpoints={BREAKPOINTS}
       cols={COLS}
-      rowHeight={12}
-      margin={[14, 14]}
+      rowHeight={CANVAS_ROW_HEIGHT}
+      margin={[14, CANVAS_MARGIN_Y]}
       containerPadding={[0, 0]}
       compactType="vertical"
       isDraggable={isEditing && !isMobile}
@@ -164,6 +181,7 @@ export function DashboardCanvas({
               title={def.title}
               isEditing={isEditing && !isMobile}
               onRemove={onRemoveWidget}
+              onHeight={onHeight}
             >
               {unavailable.length > 0 ? (
                 <div className={css.widgetErrorState} role="status">

@@ -27,9 +27,8 @@ export type WidgetDef = {
   /** Grouping label in the Add Widget drawer. */
   category: string;
   width: WidgetWidth;
-  /** Fixed grid-row height (1 row = 12px + margin, see dashboard-canvas.tsx),
-   * sized to fit the widget's actual rendered content so it never scrolls
-   * internally — not user-resizable. */
+  /** First-paint grid-row height (1 row = 12px + margin, see dashboard-canvas.tsx), used until
+   * the card has been measured; after that the canvas sizes it from its content (UI1 #205). */
   rows: number;
   /** Only meaningful while the branch sells from the web POS: hidden at a live branch (W9). */
   webPosOnly?: boolean;
