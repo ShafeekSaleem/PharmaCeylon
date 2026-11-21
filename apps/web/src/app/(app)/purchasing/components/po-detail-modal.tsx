@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { Alert } from "@/components/alert";
+import { CounterMismatchNotes } from "@/components/counter-mismatch-notes";
 import {
   CounterHandoff,
   DatePicker,
@@ -1241,8 +1242,12 @@ export function PoDetailModal({
 
               {!receiveMode
                 ? (detail.heldDeliveries ?? []).map((held) => (
+                    <Fragment key={held.id}>
+                    {held.status === "approved" ? (
+                      <CounterMismatchNotes kind="held_delivery" documentId={held.id} canAnswer={canApprovePo}
+                        onAnswered={() => void reload()} />
+                    ) : null}
                     <HeldDeliveryBanner
-                      key={held.id}
                       held={held}
                       order={detail}
                       canDecide={canApprovePo}
@@ -1255,6 +1260,7 @@ export function PoDetailModal({
                       }}
                       onReject={() => setRejectHeld(held)}
                     />
+                    </Fragment>
                   ))
                 : null}
 

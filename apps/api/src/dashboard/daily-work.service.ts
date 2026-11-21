@@ -221,6 +221,43 @@ export class DailyWorkService {
           AND ((${actor.has("inventory.resolve_stock_cases")} AND NOT ${ready})
             OR (${actor.has("inventory.manage")} AND ${ready}))`);
     }
+    // P6 #52 decision 1: the counter says an approved document doesn't match what is in front
+    // of it. Listed to the document's approvers while the report is open and still about the
+    // approval the document carries: approving a corrected version replaces that approval, and
+    // the row goes. A transfer in is listed while it is still on the way.
+    if (actor.has("purchasing.approve") || actor.has("transfers.approve")) {
+      const purchasing = actor.has("purchasing.approve");
+      const transfers = actor.has("transfers.approve");
+      sources.push(Prisma.sql`
+        SELECT 'mismatch:' || m.id, 'counter_mismatch.review',
+          CASE WHEN m.kind = 'prepared_receipt' OR m.kind = 'held_delivery' THEN 'purchasing' ELSE 'transfers' END,
+          CASE WHEN m.problem = 'cannot_pick' THEN 'Counter can''t pick all of it' ELSE 'Counter says something doesn''t match' END,
+          concat_ws(' · ', COALESCE(m.line_label, 'Not on the delivery note'),
+            CASE m.problem WHEN 'fewer_arrived' THEN 'Fewer arrived' WHEN 'more_arrived' THEN 'More arrived'
+              WHEN 'different_batch_or_expiry' THEN 'Different batch or expiry' WHEN 'damaged' THEN 'Damaged'
+              WHEN 'not_on_note' THEN 'Not on the delivery note' ELSE 'Can''t pick all of it' END
+              || CASE WHEN m.counted_qty IS NULL THEN '' ELSE ': ' || m.counted_qty || ' ' || COALESCE(m.count_unit, 'units') END,
+            m.note),
+          m.reference, m.problem::text,
+          CASE WHEN m.kind = 'prepared_receipt' THEN '/purchasing?po=' || pr.purchase_order_id
+            WHEN m.kind = 'held_delivery' THEN '/purchasing?po=' || hd.purchase_order_id || '&held=' || hd.id
+            ELSE '/transfers?transfer=' || t.id END,
+          'Review report', m.reported_at, NULL::timestamp,
+          COALESCE(approver.full_name, 'Branch approvers'),
+          COALESCE(a.approved_by_user_id = ${uid}::uuid, false), true,
+          (m.reported_by = ${uid}::uuid AND NOT ${actor.canSelfApprove}), 0
+        FROM counter_mismatch_report m
+          LEFT JOIN prepared_receipt pr ON m.kind = 'prepared_receipt' AND pr.tenant_id = m.tenant_id AND pr.branch_id = m.branch_id AND pr.id = m.document_id
+          LEFT JOIN held_delivery hd ON m.kind = 'held_delivery' AND hd.tenant_id = m.tenant_id AND hd.branch_id = m.branch_id AND hd.id = m.document_id
+          LEFT JOIN transfer t ON (m.kind = 'transfer_ship' OR m.kind = 'transfer_receive') AND t.tenant_id = m.tenant_id AND t.id = m.document_id
+          LEFT JOIN management_approval a ON a.tenant_id = m.tenant_id AND a.id = m.approval_id
+          LEFT JOIN app_user approver ON approver.id = a.approved_by_user_id
+        WHERE m.tenant_id = ${tenant}::uuid AND m.branch_id = ${branchId}::uuid AND m.status = 'open' AND (
+          (${purchasing} AND m.kind = 'prepared_receipt' AND pr.status = 'approved' AND pr.execution_approval_id IS NOT DISTINCT FROM m.approval_id) OR
+          (${purchasing} AND m.kind = 'held_delivery' AND hd.status = 'approved' AND hd.execution_approval_id IS NOT DISTINCT FROM m.approval_id) OR
+          (${transfers} AND m.kind = 'transfer_ship' AND t.from_branch_id = m.branch_id AND t.status = 'approved' AND t.execution_approval_id IS NOT DISTINCT FROM m.approval_id) OR
+          (${transfers} AND m.kind = 'transfer_receive' AND t.to_branch_id = m.branch_id AND t.status IN ('in_transit', 'partially_received')))`);
+    }
     // P5 #51: a current counter's offline journal stopped on an entry the server rejected.
     // Nothing after it can be accepted, so its later offline sales stay off the server until the
     // entry is settled. Conflicts and revoked or retired counters are D11 recovery's (#154).

@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { TransferShortCloseReason } from "@pharmaceylon/shared";
 import { Alert } from "@/components/alert";
+import { CounterMismatchNotes } from "@/components/counter-mismatch-notes";
 import {
   ApprovalEvidencePanel,
   CounterHandoff,
@@ -56,6 +58,9 @@ export function TransferDetailModal({
   const [actionError, setActionError] = useState<string | null>(null);
   const [receiveMode, setReceiveMode] = useState(false);
   const [receiveQtys, setReceiveQtys] = useState<Record<string, string>>({});
+  const [closeMode, setCloseMode] = useState(false);
+  const [closeReason, setCloseReason] = useState<TransferShortCloseReason>("lost_in_transit");
+  const [closeNote, setCloseNote] = useState("");
   const idempotencyKeys = useRef<Record<string, string>>({});
   const atSource = !!branchId && transfer?.fromBranchId === branchId;
   const canApproveRole = canApproveTransfer(user, branchId);
@@ -70,6 +75,9 @@ export function TransferDetailModal({
     setBusy(false);
     setActionError(null);
     setReceiveMode(false);
+    setCloseMode(false);
+    setCloseReason("lost_in_transit");
+    setCloseNote("");
     if (!transfer) {
       setReceiveQtys({});
       return;
@@ -84,7 +92,7 @@ export function TransferDetailModal({
   const remainingTotal = useMemo(() => {
     if (!transfer) return 0;
     return transfer.items.reduce(
-      (sum, line) => sum + Math.max(0, line.qty - (line.receivedQty ?? 0)),
+      (sum, line) => sum + Math.max(0, line.qty - (line.receivedQty ?? 0) - (line.closedQty ?? 0)),
       0,
     );
   }, [transfer]);
@@ -120,6 +128,11 @@ export function TransferDetailModal({
     !!branchId && canReceive(transfer.status, transfer.toBranchId, branchId);
   const showShip = canWrite && readyToShip && physicalOnWeb;
   const showReceive = canWrite && awaitingHere && physicalOnWeb;
+  // Decision 2: a manager at either branch closes what is still on the way, on the web.
+  const atDestination = !!branchId && transfer.toBranchId === branchId;
+  const onTheWay = transfer.status === "in_transit" || transfer.status === "partially_received";
+  const showCloseShort =
+    canWrite && canApproveRole && onTheWay && (atSource || atDestination) && remainingTotal > 0;
   const needsSourceBranch =
     canWrite &&
     needsSourceBranchForSourceActions(transfer.status, transfer.fromBranchId, branchId);
@@ -212,6 +225,22 @@ export function TransferDetailModal({
     }
   }
 
+  async function submitCloseShort() {
+    const note = closeNote.trim();
+    if (note.length < 3) {
+      setActionError("Say what happened to the rest");
+      return;
+    }
+    // Pins what this screen showed still on the way; anything received since is refused (409).
+    const remaining = transfer!.items
+      .map((line) => ({
+        transferItemId: line.id,
+        qty: line.qty - (line.receivedQty ?? 0) - (line.closedQty ?? 0),
+      }))
+      .filter((line) => line.qty > 0);
+    await runAction("close-short", { reason: closeReason, note, remaining });
+  }
+
   async function submitShip() {
     const idem = mutationKey("ship");
     // Pins the approval the dispatcher saw (null only when approval is waived).
@@ -230,7 +259,28 @@ export function TransferDetailModal({
       canDismiss={!busy}
       footer={
         <ModalFooter className={layoutCss.detailFooter}>
-          {receiveMode ? (
+          {closeMode ? (
+            <>
+              <ModalButton
+                variant="secondary"
+                onClick={() => {
+                  setCloseMode(false);
+                  setActionError(null);
+                }}
+                disabled={busy}
+              >
+                Back
+              </ModalButton>
+              <ModalButton
+                variant="danger"
+                onClick={() => void submitCloseShort()}
+                loading={busy}
+                disabled={busy || closeNote.trim().length < 3}
+              >
+                Close the rest ({remainingTotal} units)
+              </ModalButton>
+            </>
+          ) : receiveMode ? (
             <>
               <ModalButton
                 variant="secondary"
@@ -300,6 +350,19 @@ export function TransferDetailModal({
                   Ship / dispatch
                 </ModalButton>
               )}
+              {showCloseShort && (
+                <ModalButton
+                  variant="secondary"
+                  onClick={() => {
+                    setActionError(null);
+                    setCloseReason(atSource ? closeReason : "lost_in_transit");
+                    setCloseMode(true);
+                  }}
+                  disabled={busy}
+                >
+                  Close the rest
+                </ModalButton>
+              )}
               {showReceive && (
                 <>
                   <ModalButton
@@ -356,6 +419,75 @@ export function TransferDetailModal({
           action="Count and receive the goods"
           whoCan={["Inventory clerk", "Manager"]}
         />
+      ) : null}
+
+      {atSource && transfer.status === "approved" ? (
+        <CounterMismatchNotes
+          kind="transfer_ship"
+          documentId={transfer.id}
+          canAnswer={canWrite && canApproveRole}
+          onAnswered={onChanged}
+        />
+      ) : null}
+      {atDestination && onTheWay ? (
+        <CounterMismatchNotes
+          kind="transfer_receive"
+          documentId={transfer.id}
+          canAnswer={canWrite && canApproveRole}
+          onAnswered={onChanged}
+        />
+      ) : null}
+
+      {transfer.shortClosedAt ? (
+        <Alert variant="info" className={layoutCss.modalAlert}>
+          {transfer.closedQty ?? 0} units were closed short on {formatDate(transfer.shortClosedAt)}:{" "}
+          {transfer.shortCloseReason === "never_left_source"
+            ? `they never left ${transfer.fromBranch.name} and went back into its stock`
+            : "lost in transit and written off"}
+          {transfer.shortCloseNote ? <> &mdash; &ldquo;{transfer.shortCloseNote}&rdquo;</> : null}
+        </Alert>
+      ) : null}
+
+      {closeMode ? (
+        <div className={tcss.notesBlock}>
+          <p style={{ marginTop: 0 }}>
+            <strong>Close the {remainingTotal} units still on the way.</strong> Nothing more can be received on
+            this transfer afterwards.
+          </p>
+          <label style={{ display: "block", marginBottom: "0.35rem" }}>
+            <input
+              type="radio"
+              name="close-reason"
+              checked={closeReason === "lost_in_transit"}
+              onChange={() => setCloseReason("lost_in_transit")}
+              disabled={busy}
+            />{" "}
+            Lost in transit: write them off as lost at {transfer.fromBranch.name}
+          </label>
+          <label
+            style={{ display: "block", marginBottom: "0.6rem" }}
+            data-tooltip={atSource ? undefined : `Only ${transfer.fromBranch.name} can say this`}
+          >
+            <input
+              type="radio"
+              name="close-reason"
+              checked={closeReason === "never_left_source"}
+              onChange={() => setCloseReason("never_left_source")}
+              disabled={busy || !atSource}
+            />{" "}
+            They never left {transfer.fromBranch.name}: put them back into its stock
+          </label>
+          <textarea
+            className={layoutCss.textarea}
+            rows={2}
+            maxLength={500}
+            placeholder="What happened to them"
+            value={closeNote}
+            onChange={(e) => setCloseNote(e.target.value)}
+            disabled={busy}
+            aria-label="Why the rest is being closed"
+          />
+        </div>
       ) : null}
 
       {receiveMode ? (
@@ -440,7 +572,7 @@ export function TransferDetailModal({
         </thead>
         <tbody>
           {transfer.items.map((line) => {
-            const remaining = Math.max(0, line.qty - (line.receivedQty ?? 0));
+            const remaining = Math.max(0, line.qty - (line.receivedQty ?? 0) - (line.closedQty ?? 0));
             return (
               <tr key={line.id}>
                 <td>

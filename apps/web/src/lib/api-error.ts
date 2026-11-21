@@ -15,6 +15,8 @@ export const COUNTER_BOUNDARY_MESSAGES = {
   SELF_APPROVAL_DENIED: "You raised this, so someone else needs to approve it.",
   PAYMENT_EVIDENCE_REQUIRED: "Attach the payment evidence to record this payment.",
   PHARMACIST_REQUIRED: "A pharmacist has to verify this at the counter.",
+  MISMATCH_REPORTED:
+    "The counter said this doesn't match. Approve a corrected version, or keep it as approved.",
 } as const satisfies Partial<Record<OperationPolicyErrorCode, string>>;
 
 export type CounterBoundaryCode = keyof typeof COUNTER_BOUNDARY_MESSAGES;

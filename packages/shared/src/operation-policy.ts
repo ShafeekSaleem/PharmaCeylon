@@ -28,7 +28,9 @@ export type OperationPolicyErrorCode =
   | "APPROVAL_INVALID"
   | "APPROVAL_STALE"
   | "APPROVAL_EXPIRED"
-  | "SELF_APPROVAL_DENIED";
+  | "SELF_APPROVAL_DENIED"
+  /** P6 #52 decision 1: the counter sent "something doesn't match" against this approval. */
+  | "MISMATCH_REPORTED";
 
 /** Derive these facts from authenticated server state and verified execution context.
  * Effects are declared by the server for the complete transaction, never chosen by a client.

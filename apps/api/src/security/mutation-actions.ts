@@ -45,6 +45,10 @@ export const MUTATION_ACTIONS = Object.freeze({
   "POST /api/v1/catalog-tasks/:id/reopen": "management",
   "POST /api/v1/catalog-tasks/apply-safe": "management",
   "POST /api/v1/catalog-tasks/refresh": "management",
+  // P6 #52 decision 1: the counter's "something doesn't match" note and the approver's answer.
+  // Records only: nothing posts, and the held approval still executes through its signed route.
+  "POST /api/v1/counter-work/mismatches": "management",
+  "POST /api/v1/counter-work/mismatches/:id/dismiss": "management",
   "POST /api/v1/customers": "management",
   "PATCH /api/v1/customers/:id": "management",
   "DELETE /api/v1/dashboard/layout": "personalization",
@@ -283,6 +287,9 @@ export const MUTATION_ACTIONS = Object.freeze({
     "management",
   "POST /api/v1/transfers": "reservation",
   "POST /api/v1/transfers/:id/approve": "reservation",
+  // P6 #52 decision 2: a manager's decision on the web about units nobody holds any more. The
+  // stock rows it writes correct the books at the source; nothing is handled at a counter.
+  "POST /api/v1/transfers/:id/close-short": "management",
   "POST /api/v1/transfers/:id/cancel": "reservation",
   "POST /api/v1/transfers/:id/receive": "stock",
   "POST /api/v1/transfers/:id/reject": "management",

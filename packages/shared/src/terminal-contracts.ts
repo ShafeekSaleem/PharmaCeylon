@@ -372,6 +372,8 @@ export const TERMINAL_ERROR_RETRYABLE = {
   APPROVAL_STALE: false,
   APPROVAL_EXPIRED: false,
   SELF_APPROVAL_DENIED: false,
+  // The counter reported a mismatch against this approval: wait for a new approval (P6 #52).
+  MISMATCH_REPORTED: false,
   // Counter sign-in, enrollment and PINs
   COUNTER_SESSION_ONLY: false,
   COUNTER_OCCUPIED: false,

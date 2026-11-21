@@ -4,6 +4,8 @@ import type { PreparedReceipt, PurchaseOrderDetail } from "../types";
 import { PreparedReceiptPanel } from "./prepared-receipt-panel";
 
 jest.mock("@/lib/auth-client", () => ({ apiJson: jest.fn() }));
+// The counter's mismatch reports load on their own; covered by counter-mismatch-notes.spec.tsx.
+jest.mock("@/components/counter-mismatch-notes", () => ({ CounterMismatchNotes: () => null }));
 
 const order = {
   id: "po-1", poNumber: "PO-1", status: "issued",

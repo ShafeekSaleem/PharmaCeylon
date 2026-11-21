@@ -6,6 +6,8 @@ import type { TransferListItem } from "../types";
 import { TransferDetailModal } from "./transfer-detail-modal";
 
 jest.mock("@/lib/auth-client", () => ({ apiJson: jest.fn() }));
+// The counter's mismatch reports load on their own; covered by counter-mismatch-notes.spec.tsx.
+jest.mock("@/components/counter-mismatch-notes", () => ({ CounterMismatchNotes: () => null }));
 jest.mock("@/lib/branch-rollout", () => ({ useBranchRollout: jest.fn() }));
 jest.mock("@/lib/permissions", () => ({ usePermissions: () => ({ canSelfApprove: true }) }));
 
@@ -175,5 +177,26 @@ describe("TransferDetailModal", () => {
     const [path, init] = jest.mocked(apiJson).mock.calls[0]!;
     expect(path).toBe("/transfers/transfer-1/receive");
     expect(JSON.parse(String((init as RequestInit).body))).toEqual({ dispatchApprovalId: "approval-1" });
+  });
+
+  it("closes what is still on the way at a live destination, pinned to the remainder on screen", async () => {
+    const row = { ...approved(), status: "partially_received" as const,
+      items: [{ ...transfer().items[0]!, receivedQty: 3 }] };
+    renderModal(row, DESTINATION, "live");
+    fireEvent.click(screen.getByRole("button", { name: "Close the rest" }));
+    // Only the sending branch can say the units never left it.
+    expect((screen.getByLabelText(/They never left Colombo/) as HTMLInputElement).disabled).toBe(true);
+    const confirm = screen.getByRole("button", { name: "Close the rest (2 units)" }) as HTMLButtonElement;
+    expect(confirm.disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText("Why the rest is being closed"), { target: { value: "Carton lost by courier" } });
+    fireEvent.click(confirm);
+    await waitFor(() => expect(apiJson).toHaveBeenCalled());
+    const [path, init] = jest.mocked(apiJson).mock.calls[0]!;
+    expect(path).toBe("/transfers/transfer-1/close-short");
+    expect(JSON.parse(String((init as RequestInit).body))).toEqual({
+      reason: "lost_in_transit",
+      note: "Carton lost by courier",
+      remaining: [{ transferItemId: "item-1", qty: 2 }],
+    });
   });
 });

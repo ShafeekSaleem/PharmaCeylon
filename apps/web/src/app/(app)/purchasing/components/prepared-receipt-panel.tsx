@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { ApprovalEvidencePanel, CounterHandoff, ModalButton } from "@/components/ui";
+import { CounterMismatchNotes } from "@/components/counter-mismatch-notes";
 import { apiJson } from "@/lib/auth-client";
 import { ConfirmDialog } from "../../products/components/confirm-dialog";
 import type { PreparedReceipt, PurchaseOrderDetail } from "../types";
@@ -218,6 +219,11 @@ export function PreparedReceiptPanel({
           </tbody>
         </table>
       </div>
+
+      {approved ? (
+        <CounterMismatchNotes kind="prepared_receipt" documentId={receipt.id} canAnswer={canApprove}
+          onAnswered={() => void onChanged()} />
+      ) : null}
 
       <ApprovalEvidencePanel
         approvedVersion={approved ? receipt.approvalVersion : null}

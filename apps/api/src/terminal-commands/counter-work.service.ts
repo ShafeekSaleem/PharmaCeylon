@@ -10,6 +10,7 @@ import {
   TransferStatus,
 } from "@prisma/client";
 import {
+  type CounterMismatchReport,
   type CounterWorkDetailKind,
   type CounterWorkKind,
   type CounterWorkTask,
@@ -29,6 +30,7 @@ import { saleRefundMaterial } from "../security/sale-refund-approval-material";
 import { stocktakeApprovalMaterial } from "../security/stocktake-approval-material";
 import { transferApprovalMaterial } from "../security/transfer-approval-material";
 import { describeMaterialChanges } from "./counter-work-changes";
+import { currentMismatches } from "./counter-mismatch.service";
 import { StockCasesService } from "../stock-cases/stock-cases.service";
 import {
   storedAllocations,
@@ -80,9 +82,14 @@ export type CounterWorkItem = {
   task: CounterWorkTask;
   /** Held write-off lifecycle for read-only counter rows (#173). */
   heldAdjustmentStatus?: HeldAdjustmentCounterStatus;
+  /**
+   * Decision 1: "Something doesn't match" reports this branch sent about this item that are
+   * still open. Any with `holding` keeps it from posting until a corrected version is approved.
+   */
+  mismatches: CounterMismatchReport[];
 };
 
-type CounterWorkItemCore = Omit<CounterWorkItem, "task"> & {
+type CounterWorkItemCore = Omit<CounterWorkItem, "task" | "mismatches"> & {
   heldAdjustmentStatus?: HeldAdjustmentCounterStatus;
 };
 
@@ -168,7 +175,7 @@ export class CounterWorkService {
       may("stock_case") && this.stockCases ? this.stockCasePlans(tenantId, branchId) : [],
       may("supplier_cash_payout") ? this.supplierCashPayouts(tenantId, branchId) : [],
     ]);
-    const items = await this.project(tenantId, parts.flat(), asOf);
+    const items = await this.project(tenantId, branchId, parts.flat(), asOf);
     return items.sort((a, b) => b.readyAt.localeCompare(a.readyAt));
   }
 
@@ -200,15 +207,23 @@ export class CounterWorkService {
         case "import_stock": return this.stagedImports(tenantId, branchId, id);
       }
     })();
-    const [item] = await this.project(tenantId, rows, asOf);
+    const [item] = await this.project(tenantId, branchId, rows, asOf);
     if (!item) throw new NotFoundException("This is not waiting in this branch's Counter work.");
     return item;
   }
 
-  private async project(tenantId: string, rows: CounterWorkItemCore[], asOf: string): Promise<CounterWorkItem[]> {
+  private async project(
+    tenantId: string,
+    branchId: string,
+    rows: CounterWorkItemCore[],
+    asOf: string,
+  ): Promise<CounterWorkItem[]> {
     await this.name(tenantId, rows);
+    const reports = await currentMismatches(this.prisma, tenantId, branchId,
+      rows.map((row) => ({ kind: row.kind, id: row.id, evidenceId: row.approval.evidenceId })));
     const items: CounterWorkItem[] = [];
     for (const row of rows) {
+      const mismatches = reports.get(`${row.kind}:${row.id}`) ?? [];
       const task = projectCounterWorkTask({
         kind: row.kind,
         id: row.id,
@@ -217,9 +232,11 @@ export class CounterWorkService {
         readyAt: row.readyAt,
         asOf,
         heldAdjustmentStatus: row.heldAdjustmentStatus,
+        mismatchReported: mismatches.some((report) => report.holding),
       });
       items.push({
         ...row,
+        mismatches,
         operation: COUNTER_WORK_OPERATION[row.kind],
         task,
         ...(row.heldAdjustmentStatus ? { heldAdjustmentStatus: row.heldAdjustmentStatus } : {}),

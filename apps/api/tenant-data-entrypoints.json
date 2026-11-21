@@ -124,6 +124,11 @@
   "backgroundWorkers": [],
   "rawSqlReview": [
     {
+      "path": "src/terminal-commands/counter-mismatch.service.ts",
+      "mode": "scoped-domain-lock",
+      "reason": "Locks one counter mismatch report by tenant, branch and id before the approver dismisses it, so two answers cannot both apply."
+    },
+    {
       "path": "src/security/approval-documents.ts",
       "mode": "scoped-domain-lock",
       "reason": "Locks the exact PO, source-branch transfer or return by tenant, branch and document id before fetching approval material and through execution."
@@ -306,7 +311,7 @@
     {
       "path": "src/transfers/transfers.service.ts",
       "mode": "scoped-domain-lock",
-      "reason": "Locks one tenant transfer through its source branch (approval, dispatch) or destination branch (receipt); approval evidence, StockService effects and success audit share the caller transaction."
+      "reason": "Locks one tenant transfer through its source branch (approval, dispatch), destination branch (receipt), or either of them (closing short on the web, P6 #52); approval evidence, StockService effects and success audit share the caller transaction."
     },
     {
       "path": "src/sales/sales.service.ts",

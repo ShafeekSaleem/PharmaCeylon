@@ -7,6 +7,8 @@ import type { HeldDelivery, PurchaseOrderDetail } from "../types";
 jest.mock("../hooks/use-purchase-orders", () => ({ usePurchaseOrderDetail: jest.fn() }));
 jest.mock("../hooks/use-batch-lookup", () => ({ useBatchLookup: () => ({ results: {}, lookup: jest.fn() }) }));
 jest.mock("@/lib/auth-client", () => ({ apiJson: jest.fn() }));
+// The counter's mismatch reports load on their own; covered by counter-mismatch-notes.spec.tsx.
+jest.mock("@/components/counter-mismatch-notes", () => ({ CounterMismatchNotes: () => null }));
 jest.mock("@/lib/branch-rollout", () => ({
   useBranchRollout: () => ({ rollout: { state: "not_live", liveSince: null, fallback: null }, loading: false, resolved: true, failed: false }),
 }));

@@ -1,0 +1,59 @@
+.panel {
+  margin-bottom: 0.85rem;
+}
+
+.lead {
+  margin: 0.25rem 0 0.5rem;
+  font-size: 0.85rem;
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.item {
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--pc-border);
+}
+
+.what {
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
+.note {
+  font-size: 0.85rem;
+  margin-top: 0.15rem;
+}
+
+.meta {
+  font-size: 0.75rem;
+  color: var(--pc-muted-fg);
+  margin-top: 0.15rem;
+}
+
+.answer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.4rem;
+  align-items: center;
+}
+
+.input {
+  flex: 1 1 14rem;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm);
+  background: var(--pc-input-bg, var(--pc-card-bg));
+  color: var(--pc-foreground);
+  font-family: inherit;
+  font-size: 0.85rem;
+}
