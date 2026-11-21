@@ -38,7 +38,7 @@ import { offlineSyncBadge, saleStatusBadge } from "./sync-badges";
 import { useSalesChannelCounts } from "./hooks/use-sales-channel-counts";
 import { useSalesHistory, useSalesHistoryOptions } from "./hooks/use-sales-history";
 import { receiptScopeOptions, registersForPicker, tillLabelForId, type RegisterPickOption } from "./register-options";
-import { shiftOptionLabel } from "./shift-options";
+import { shiftOptionLabel, shiftsForPicker } from "./shift-options";
 import { saleTillCell } from "./till-display";
 import type { SaleListRow, SalesChannelChip, SalesFilters } from "./types";
 import {
@@ -108,7 +108,10 @@ export default function SalesHistory() {
   }, [filters]);
 
   const panelCounterActive = filters.registerId !== "all";
-  const shiftOptions = options.shifts ?? [];
+  const shiftOptions = useMemo(
+    () => shiftsForPicker(options.shifts ?? [], branchId),
+    [options.shifts, branchId],
+  );
 
   const pills: FilterPill[] = [
     ...(filters.channel !== "all"
@@ -145,7 +148,7 @@ export default function SalesHistory() {
             label:
               shiftOptions
                 .filter((s) => s.shiftId === filters.shiftId)
-                .map(shiftOptionLabel)[0] ?? "Shift",
+                .map((s) => shiftOptionLabel(s, branchId, options.branches))[0] ?? "Shift",
           },
         ]
       : []),
@@ -376,6 +379,7 @@ export default function SalesHistory() {
           applied={salesPanelFiltersFrom(filters)}
           options={options}
           registerPicks={registerPicks}
+          branchId={branchId}
           onApply={applyPanel}
           onClear={clearPanel}
         />

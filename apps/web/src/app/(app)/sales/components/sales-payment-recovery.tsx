@@ -9,6 +9,7 @@ import { isSalesQueueForbidden, SalesQueueAccessDenied } from "./sales-queue-acc
 import { fetchPaymentRecovery } from "../services/sales-api";
 import { clearsOnUploadBadge } from "../sync-badges";
 import type { PaymentRecoveryRow } from "../types";
+import { supportHeldReasonLabel } from "../support-labels";
 import { formatDateTime, minorToMoney } from "../utils";
 import { SalesReadOnlyDrawer } from "./sales-read-only-drawer";
 import css from "../sales.module.css";
@@ -23,35 +24,44 @@ export default function SalesPaymentRecovery() {
   const [error, setError] = useState<string | null>(null);
   const [permissionDenied, setPermissionDenied] = useState(false);
   const [selected, setSelected] = useState<PaymentRecoveryRow | null>(null);
-  const alive = useRef(true);
+  const loadGen = useRef(0);
+  const prevBranchId = useRef<string | null>(branchId);
+
+  useEffect(() => {
+    if (prevBranchId.current === branchId) return;
+    prevBranchId.current = branchId;
+    loadGen.current += 1;
+    setPage(1);
+    setSelected(null);
+    setData({ items: [], total: 0 });
+    setError(null);
+    setPermissionDenied(false);
+  }, [branchId]);
 
   const reload = useCallback(async () => {
     if (!branchId) return;
+    const generation = ++loadGen.current;
     setLoading(true);
     setError(null);
     setPermissionDenied(false);
     try {
       const next = await fetchPaymentRecovery(page, PAGE_SIZE);
-      if (!alive.current) return;
+      if (generation !== loadGen.current) return;
       setData({ items: next.items, total: next.total });
     } catch (err) {
-      if (!alive.current) return;
+      if (generation !== loadGen.current) return;
       if (isSalesQueueForbidden(err)) {
         setPermissionDenied(true);
         return;
       }
       setError(err instanceof Error ? err.message : "Couldn't load payment recovery");
     } finally {
-      if (alive.current) setLoading(false);
+      if (generation === loadGen.current) setLoading(false);
     }
   }, [branchId, page]);
 
   useEffect(() => {
-    alive.current = true;
     void reload();
-    return () => {
-      alive.current = false;
-    };
   }, [reload]);
 
   const columns: Column<PaymentRecoveryRow>[] = [
@@ -60,7 +70,7 @@ export default function SalesPaymentRecovery() {
       key: "reason",
       header: "Held reason",
       width: "9rem",
-      render: (row) => row.heldReason || "—",
+      render: (row) => supportHeldReasonLabel(row.heldReason),
     },
     {
       key: "amount",
@@ -151,7 +161,7 @@ export default function SalesPaymentRecovery() {
             </div>
             <div className={css.fact}>
               <dt>Held reason</dt>
-              <dd>{selected.heldReason || "—"}</dd>
+              <dd>{supportHeldReasonLabel(selected.heldReason)}</dd>
             </div>
             <div className={`${css.fact} ${css.factSpan}`}>
               <dt>Explanation</dt>

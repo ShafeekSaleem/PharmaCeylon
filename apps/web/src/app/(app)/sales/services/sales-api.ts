@@ -66,13 +66,27 @@ export function fetchSalesHistoryOptions(): Promise<SalesHistoryOptions> {
   }));
 }
 
-export function fetchIncidentNotes(page: number, pageSize = PAGE_SIZE): Promise<SalesQueuePage<SaleIncidentNoteRow>> {
-  const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
+export type IncidentNotesQueueStatus = "open" | "held";
+
+export function fetchIncidentNotes(
+  page: number,
+  pageSize = PAGE_SIZE,
+  status: IncidentNotesQueueStatus = "open",
+  sort: "recordedAt" | "receivedAt" = "recordedAt",
+): Promise<SalesQueuePage<SaleIncidentNoteRow>> {
+  const params = new URLSearchParams({
+    page: String(page),
+    pageSize: String(pageSize),
+    status,
+    sort,
+  });
   return apiJson(`/sales/incident-notes?${params}`);
 }
 
-export function fetchIncidentNotesTotal(): Promise<number> {
-  const params = new URLSearchParams({ page: "1", pageSize: "1" });
+export function fetchIncidentNotesTotal(
+  status: IncidentNotesQueueStatus = "open",
+): Promise<number> {
+  const params = new URLSearchParams({ page: "1", pageSize: "1", status });
   return apiJson<SalesQueuePage<SaleIncidentNoteRow>>(`/sales/incident-notes?${params}`).then((p) => p.total);
 }
 

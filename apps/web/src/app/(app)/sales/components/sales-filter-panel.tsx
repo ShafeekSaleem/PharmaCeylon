@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { DateRangeField, FilterPopover, FilterRow } from "@/components/ui";
 import { InventoryFilterSelect } from "../../inventory/components/inventory-filter-select";
 import { DEFAULT_FILTERS, offlineSyncFilterOptions, PAYMENT_METHOD_OPTIONS } from "../constants";
-import { shiftOptionLabel } from "../shift-options";
+import { shiftOptionLabel, shiftsForPicker } from "../shift-options";
 import {
   counterFilterOptions,
   hasTillFilterOptions,
@@ -48,11 +48,19 @@ type Props = {
   applied: SalesPanelFilters;
   options: SalesHistoryOptions;
   registerPicks: RegisterPickOption[];
+  branchId: string | null;
   onApply: (next: SalesPanelFilters) => void;
   onClear: () => void;
 };
 
-export function SalesFilterPanel({ applied, options, registerPicks, onApply, onClear }: Props) {
+export function SalesFilterPanel({
+  applied,
+  options,
+  registerPicks,
+  branchId,
+  onApply,
+  onClear,
+}: Props) {
   const [draft, setDraft] = useState(applied);
 
   useEffect(() => {
@@ -75,13 +83,19 @@ export function SalesFilterPanel({ applied, options, registerPicks, onApply, onC
   const tillOptions = useMemo(() => tillFilterOptions(registerPicks), [registerPicks]);
   const showTillFilter = hasTillFilterOptions(registerPicks);
 
-  const shiftOptions: SalesHistoryShiftOption[] = options.shifts ?? [];
+  const shiftOptions: SalesHistoryShiftOption[] = useMemo(
+    () => shiftsForPicker(options.shifts ?? [], branchId),
+    [options.shifts, branchId],
+  );
   const shiftSelectOptions = useMemo(
     () => [
       { value: "all", label: "All shifts" },
-      ...shiftOptions.map((s) => ({ value: s.shiftId, label: shiftOptionLabel(s) })),
+      ...shiftOptions.map((s) => ({
+        value: s.shiftId,
+        label: shiftOptionLabel(s, branchId, options.branches),
+      })),
     ],
-    [shiftOptions],
+    [shiftOptions, branchId, options.branches],
   );
   const showShiftFilter = shiftOptions.length > 0;
   const syncOptions = useMemo(

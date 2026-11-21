@@ -8,6 +8,7 @@ import { isSalesQueueForbidden, SalesQueueAccessDenied } from "./sales-queue-acc
 import { fetchCollectedMoney } from "../services/sales-api";
 import { unresolvedMoneyStatusBadge } from "../sync-badges";
 import type { CollectedMoneyRow } from "../types";
+import { paymentMethodLabel } from "../support-labels";
 import { formatDateTime, minorToMoney } from "../utils";
 import { SalesReadOnlyDrawer } from "./sales-read-only-drawer";
 import css from "../sales.module.css";
@@ -22,35 +23,44 @@ export default function SalesCollectedMoney() {
   const [error, setError] = useState<string | null>(null);
   const [permissionDenied, setPermissionDenied] = useState(false);
   const [selected, setSelected] = useState<CollectedMoneyRow | null>(null);
-  const alive = useRef(true);
+  const loadGen = useRef(0);
+  const prevBranchId = useRef<string | null>(branchId);
+
+  useEffect(() => {
+    if (prevBranchId.current === branchId) return;
+    prevBranchId.current = branchId;
+    loadGen.current += 1;
+    setPage(1);
+    setSelected(null);
+    setData({ items: [], total: 0 });
+    setError(null);
+    setPermissionDenied(false);
+  }, [branchId]);
 
   const reload = useCallback(async () => {
     if (!branchId) return;
+    const generation = ++loadGen.current;
     setLoading(true);
     setError(null);
     setPermissionDenied(false);
     try {
       const next = await fetchCollectedMoney(page, PAGE_SIZE);
-      if (!alive.current) return;
+      if (generation !== loadGen.current) return;
       setData({ items: next.items, total: next.total });
     } catch (err) {
-      if (!alive.current) return;
+      if (generation !== loadGen.current) return;
       if (isSalesQueueForbidden(err)) {
         setPermissionDenied(true);
         return;
       }
       setError(err instanceof Error ? err.message : "Couldn't load unresolved money");
     } finally {
-      if (alive.current) setLoading(false);
+      if (generation === loadGen.current) setLoading(false);
     }
   }, [branchId, page]);
 
   useEffect(() => {
-    alive.current = true;
     void reload();
-    return () => {
-      alive.current = false;
-    };
   }, [reload]);
 
   const columns: Column<CollectedMoneyRow>[] = [
@@ -61,7 +71,12 @@ export default function SalesCollectedMoney() {
       align: "right",
       render: (row) => <span className={css.amount}>{minorToMoney(row.amountMinor)}</span>,
     },
-    { key: "method", header: "Method", width: "7rem", render: (row) => row.method },
+    {
+      key: "method",
+      header: "Method",
+      width: "7rem",
+      render: (row) => paymentMethodLabel(row.method),
+    },
     {
       key: "status",
       header: "Status",
@@ -144,7 +159,7 @@ export default function SalesCollectedMoney() {
             </div>
             <div className={css.fact}>
               <dt>Method</dt>
-              <dd>{selected.method}</dd>
+              <dd>{paymentMethodLabel(selected.method)}</dd>
             </div>
             <div className={css.fact}>
               <dt>Status</dt>

@@ -63,6 +63,14 @@ it("shows recovery queue tabs with tenant.management", () => {
   expect(screen.getByRole("link", { name: /Unresolved money/ })).toBeInTheDocument();
 });
 
+it("falls back to sales history for an unknown view query", () => {
+  mockKeys = ["sales.view"];
+  mockParams = new URLSearchParams("view=not-a-real-tab");
+  render(<SalesPage />);
+  expect(screen.getByText("History content")).toBeInTheDocument();
+  expect(screen.queryByText("Incident queue")).not.toBeInTheDocument();
+});
+
 it("deep links open Phase D tabs with matching hrefs", () => {
   render(<SalesPage />);
   expect(screen.getByRole("link", { name: /Incident notes/ })).toHaveAttribute(

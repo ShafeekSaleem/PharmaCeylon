@@ -158,6 +158,11 @@ export default function SaleDetailPage() {
                   Recorded {formatDateTime(sale.offlineReceipt.recordedAt)} {BUSINESS_TIME_ZONE}
                 </p>
               ) : null}
+              {sale.offlineReceipt?.syncedAt ? (
+                <p className={css.receiptCardLinked}>
+                  Synced {formatDateTime(sale.offlineReceipt.syncedAt)} {BUSINESS_TIME_ZONE}
+                </p>
+              ) : null}
               {linkedInvoice ? (
                 <p className={css.receiptCardLinked}>Invoice {linkedInvoice}</p>
               ) : sale.invoiceNo.toUpperCase().startsWith("INV-") ? (
@@ -168,6 +173,25 @@ export default function SaleDetailPage() {
 
           <section className={css.card} aria-label="Sale details">
             <h2 className={css.cardTitle}>Sale</h2>
+            {sale.offlineSyncState === "held" ? (
+              <div className={css.heldNote} role="note">
+                <p>
+                  This sale is synced. Stock posting is waiting on an open reconciliation case.
+                  {sale.reconciliationCaseId ? (
+                    <>
+                      {" "}
+                      Reconciliation case{" "}
+                      <Link
+                        href={`/inventory/stock-cases?caseId=${encodeURIComponent(sale.reconciliationCaseId)}`}
+                      >
+                        {sale.reconciliationCaseId}
+                      </Link>{" "}
+                      (read only).
+                    </>
+                  ) : null}
+                </p>
+              </div>
+            ) : null}
             <dl className={css.facts}>
               <div className={css.fact}>
                 <dt>Status</dt>
@@ -257,23 +281,6 @@ export default function SaleDetailPage() {
               <p className={css.syncNote} role="note">
                 Stock for this offline sale is still waiting to post after sync.
               </p>
-            ) : null}
-            {sale.offlineSyncState === "held" ? (
-              <div className={css.heldNote} role="note">
-                <p>
-                  Stock posting for this sale is held on an open reconciliation case. Resolve the
-                  case at the counter before stock can post.
-                </p>
-                {sale.reconciliationCaseId ? (
-                  <p>
-                    <Link
-                      href={`/inventory/stock-cases?caseId=${encodeURIComponent(sale.reconciliationCaseId)}`}
-                    >
-                      Open reconciliation case
-                    </Link>
-                  </p>
-                ) : null}
-              </div>
             ) : null}
           </section>
 

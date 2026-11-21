@@ -202,10 +202,26 @@ it("shows a C1R receipt without the same-number line and no Till row without a t
   expect(await screen.findByRole("heading", { name: "INV-2610-000186" })).toBeInTheDocument();
   const receipt = screen.getByRole("region", { name: "Receipt" });
   expect(within(receipt).getByText("C1R-000186")).toBeInTheDocument();
-  expect(within(receipt).getByText(/Recorded .+ Asia\/Colombo/)).toBeInTheDocument();
+  expect(within(receipt).getByText(/Recorded .+ 09:18 Asia\/Colombo/)).toBeInTheDocument();
   expect(within(receipt).getByText("Invoice INV-2610-000186")).toBeInTheDocument();
   const details = screen.getByRole("region", { name: "Sale details" });
   expect(within(details).queryByText("Till", { selector: "dt" })).not.toBeInTheDocument();
+});
+
+it("shows syncedAt on the receipt card when the API provides it", async () => {
+  mockApi(
+    sale({
+      invoiceNo: "INV-2610-000186",
+      offlineReceipt: {
+        receiptNumber: "C1R-000186",
+        recordedAt: "2026-10-20T03:48:00.000Z",
+        syncedAt: "2026-10-20T04:30:00.000Z",
+      },
+    }),
+  );
+  render(<SaleDetailPage />);
+  const receipt = await screen.findByRole("region", { name: "Receipt" });
+  expect(within(receipt).getByText(/Synced .+ 10:00 Asia\/Colombo/)).toBeInTheDocument();
 });
 
 it("shows the held reconciliation note whenever offlineSyncState is held", async () => {
@@ -221,9 +237,9 @@ it("shows the held reconciliation note whenever offlineSyncState is held", async
   const details = await screen.findByRole("region", { name: "Sale details" });
   expect(within(details).getByText("Held")).toBeInTheDocument();
   expect(
-    screen.getByText(/held on an open reconciliation case/i),
+    screen.getByText(/This sale is synced\. Stock posting is waiting on an open reconciliation case\./),
   ).toBeInTheDocument();
-  expect(screen.queryByRole("link", { name: "Open reconciliation case" })).not.toBeInTheDocument();
+  expect(screen.queryByText(/read only/)).not.toBeInTheDocument();
 });
 
 it("links the reconciliation case when reconciliationCaseId is set", async () => {
@@ -235,6 +251,7 @@ it("links the reconciliation case when reconciliationCaseId is set", async () =>
       offlineReceipt: {
         receiptNumber: "C1R-000186",
         recordedAt: "2026-10-20T03:48:00.000Z",
+        syncedAt: "2026-10-20T04:30:00.000Z",
       },
     }),
   );
@@ -242,10 +259,12 @@ it("links the reconciliation case when reconciliationCaseId is set", async () =>
   const details = await screen.findByRole("region", { name: "Sale details" });
   expect(within(details).getByText("Completed")).toBeInTheDocument();
   expect(within(details).getByText("Held")).toBeInTheDocument();
-  expect(screen.getByRole("link", { name: "Open reconciliation case" })).toHaveAttribute(
+  expect(screen.getByText(/Reconciliation case/)).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "case-2148" })).toHaveAttribute(
     "href",
     "/inventory/stock-cases?caseId=case-2148",
   );
+  expect(screen.getByText(/\(read only\)\./)).toBeInTheDocument();
 });
 
 it("opens receipt copy from a list deep link", async () => {

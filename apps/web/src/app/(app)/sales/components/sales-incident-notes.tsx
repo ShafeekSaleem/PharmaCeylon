@@ -3,69 +3,95 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Alert } from "@/components/alert";
-import { ActionButton, DataTable, PageHeader, type Column } from "@/components/ui";
+import { ActionButton, DataTable, PageHeader, SegmentedTabs, type Column } from "@/components/ui";
 import { useAuth } from "@/lib/use-auth";
 import { isSalesQueueForbidden, SalesQueueAccessDenied } from "./sales-queue-access";
-import { fetchIncidentNotes } from "../services/sales-api";
+import { fetchIncidentNotes, type IncidentNotesQueueStatus } from "../services/sales-api";
 import { incidentNoteStatusBadge } from "../sync-badges";
+import { supportHeldReasonLabel } from "../support-labels";
 import type { SaleIncidentNoteRow } from "../types";
-import { formatDateTime } from "../utils";
+import { formatDateTime, incidentNoteAge } from "../utils";
 import { SalesReadOnlyDrawer } from "./sales-read-only-drawer";
 import css from "../sales.module.css";
 
 const PAGE_SIZE = 25;
 
+const STATUS_TABS: { value: IncidentNotesQueueStatus; label: string }[] = [
+  { value: "open", label: "Open" },
+  { value: "held", label: "Held" },
+];
+
 export default function SalesIncidentNotes() {
   const { branchId } = useAuth();
+  const [status, setStatus] = useState<IncidentNotesQueueStatus>("open");
   const [page, setPage] = useState(1);
-  const [data, setData] = useState({ items: [] as SaleIncidentNoteRow[], total: 0 });
+  const [data, setData] = useState({
+    items: [] as SaleIncidentNoteRow[],
+    total: 0,
+    asOf: "",
+  });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [permissionDenied, setPermissionDenied] = useState(false);
   const [selected, setSelected] = useState<SaleIncidentNoteRow | null>(null);
-  const alive = useRef(true);
+  const loadGen = useRef(0);
+  const prevBranchId = useRef<string | null>(branchId);
+
+  useEffect(() => {
+    if (prevBranchId.current === branchId) return;
+    prevBranchId.current = branchId;
+    loadGen.current += 1;
+    setPage(1);
+    setSelected(null);
+    setData({ items: [], total: 0, asOf: "" });
+    setError(null);
+    setPermissionDenied(false);
+  }, [branchId]);
 
   const reload = useCallback(async () => {
     if (!branchId) return;
+    const generation = ++loadGen.current;
     setLoading(true);
     setError(null);
     setPermissionDenied(false);
     try {
-      const next = await fetchIncidentNotes(page, PAGE_SIZE);
-      if (!alive.current) return;
-      setData({ items: next.items, total: next.total });
+      const next = await fetchIncidentNotes(page, PAGE_SIZE, status, "recordedAt");
+      if (generation !== loadGen.current) return;
+      setData({ items: next.items, total: next.total, asOf: next.asOf });
     } catch (err) {
-      if (!alive.current) return;
+      if (generation !== loadGen.current) return;
       if (isSalesQueueForbidden(err)) {
         setPermissionDenied(true);
         return;
       }
       setError(err instanceof Error ? err.message : "Couldn't load incident notes");
     } finally {
-      if (alive.current) setLoading(false);
+      if (generation === loadGen.current) setLoading(false);
     }
-  }, [branchId, page]);
+  }, [branchId, page, status]);
 
   useEffect(() => {
-    alive.current = true;
     void reload();
-    return () => {
-      alive.current = false;
-    };
   }, [reload]);
+
+  const onStatusChange = (next: IncidentNotesQueueStatus) => {
+    setStatus(next);
+    setPage(1);
+    setSelected(null);
+  };
 
   const columns: Column<SaleIncidentNoteRow>[] = [
     {
       key: "terminal",
-      header: "Counter",
-      render: (row) => (
-        <span className={css.cellStack}>
-          <span>{row.registerLabel ?? row.terminalLabel}</span>
-          {row.registerLabel ? (
-            <span className={css.cellSub}>{row.terminalLabel}</span>
-          ) : null}
-        </span>
-      ),
+      header: "Terminal",
+      width: "8rem",
+      render: (row) => row.terminalLabel,
+    },
+    {
+      key: "till",
+      header: "Till",
+      width: "8rem",
+      render: (row) => row.registerLabel ?? "—",
     },
     {
       key: "status",
@@ -74,34 +100,21 @@ export default function SalesIncidentNotes() {
       render: (row) => incidentNoteStatusBadge(row.status),
     },
     {
-      key: "category",
-      header: "Category",
-      width: "9rem",
-      render: (row) => row.incidentCategory || "—",
-    },
-    {
-      key: "description",
-      header: "Description",
-      render: (row) => row.description || "—",
-    },
-    {
-      key: "received",
-      header: "Received",
+      key: "recorded",
+      header: "Recorded",
       width: "10rem",
-      render: (row) => formatDateTime(row.receivedAt),
+      render: (row) => formatDateTime(row.recordedAt),
     },
     {
-      key: "sale",
-      header: "Linked sale",
-      width: "9rem",
-      render: (row) =>
-        row.sale ? (
-          <Link href={`/sales/${row.sale.id}`} onClick={(e) => e.stopPropagation()}>
-            {row.sale.invoiceNo}
-          </Link>
-        ) : (
-          "—"
-        ),
+      key: "age",
+      header: "Age",
+      width: "8rem",
+      render: (row) => {
+        const age = incidentNoteAge(row.receivedAt, data.asOf || new Date().toISOString());
+        return (
+          <span className={age.late ? css.queueAgeLate : undefined}>{age.text}</span>
+        );
+      },
     },
   ];
 
@@ -126,13 +139,22 @@ export default function SalesIncidentNotes() {
       />
       {error ? <Alert variant="error">{error}</Alert> : null}
       <div className={css.toolbar}>
-        <ActionButton variant="secondary" onClick={() => void reload()} disabled={loading}>
-          Refresh
-        </ActionButton>
+        <div className={css.queueStatusToggle}>
+          <SegmentedTabs
+            active={status}
+            items={STATUS_TABS.map((tab) => ({ id: tab.value, label: tab.label }))}
+            onChange={onStatusChange}
+            ariaLabel="Incident note status"
+          />
+          <ActionButton variant="secondary" onClick={() => void reload()} disabled={loading}>
+            Refresh
+          </ActionButton>
+        </div>
         <span role="status">
           {loading ? "Loading incident notes…" : `${data.total} in the queue`}
         </span>
       </div>
+      <p className={css.queueLater}>Oldest first</p>
       <DataTable
         variant="list"
         columns={columns}
@@ -155,12 +177,12 @@ export default function SalesIncidentNotes() {
         {selected ? (
           <dl className={css.facts}>
             <div className={css.fact}>
-              <dt>Counter</dt>
-              <dd>{selected.registerLabel ?? selected.terminalLabel}</dd>
+              <dt>Terminal</dt>
+              <dd>{selected.terminalLabel}</dd>
             </div>
             <div className={css.fact}>
               <dt>Till</dt>
-              <dd>{selected.registerLabel ? selected.terminalLabel : "—"}</dd>
+              <dd>{selected.registerLabel ?? "—"}</dd>
             </div>
             <div className={css.fact}>
               <dt>Status</dt>
@@ -169,7 +191,7 @@ export default function SalesIncidentNotes() {
             {selected.status === "held" && selected.heldReason ? (
               <div className={`${css.fact} ${css.factSpan}`}>
                 <dt>Held reason</dt>
-                <dd>{selected.heldReason}</dd>
+                <dd>{supportHeldReasonLabel(selected.heldReason)}</dd>
               </div>
             ) : null}
             <div className={css.fact}>

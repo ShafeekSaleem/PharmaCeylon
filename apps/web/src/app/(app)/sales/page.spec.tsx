@@ -52,7 +52,26 @@ const OPTIONS = {
     { terminalId: "term-1", label: "Front desk", branchId: "branch-a" },
     { terminalId: "term-2", label: "Front desk", branchId: "branch-b" },
   ],
-  shifts: [],
+  shifts: [
+    {
+      shiftId: "shift-a",
+      shiftNumber: "S-1",
+      branchId: "branch-a",
+      registerId: "reg-1",
+      registerLabel: "Counter 1 Floor 2",
+      openedAt: "2026-10-20T08:14:00.000Z",
+      closedAt: null,
+    },
+    {
+      shiftId: "shift-b",
+      shiftNumber: "S-2",
+      branchId: "branch-b",
+      registerId: "reg-2",
+      registerLabel: "Counter 1",
+      openedAt: "2026-10-20T09:00:00.000Z",
+      closedAt: null,
+    },
+  ],
 };
 
 let historyPages: SalesHistoryPage[];
@@ -112,6 +131,16 @@ it("lists sales with Phase B columns and channel chip counts", async () => {
   expect(query.get("page")).toBe("1");
   expect(query.get("pageSize")).toBe("25");
   expect(query.has("branchId")).toBe(false);
+});
+
+it("only offers shifts from the active branch", async () => {
+  render(<SalesHistory />);
+  await screen.findByText("INV-2610-000042");
+
+  fireEvent.click(screen.getByRole("button", { name: "Filters" }));
+  fireEvent.click(screen.getByRole("button", { name: /^Shift/ }));
+  expect(screen.getByRole("option", { name: /Counter 1 Floor 2 · S-1/ })).toBeInTheDocument();
+  expect(screen.queryByRole("option", { name: /Counter 1 · S-2/ })).not.toBeInTheDocument();
 });
 
 it("only offers counters from the active branch", async () => {
