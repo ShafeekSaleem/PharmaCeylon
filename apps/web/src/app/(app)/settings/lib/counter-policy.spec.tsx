@@ -1,11 +1,11 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { defaultCounterPolicy } from "@pharmaceylon/shared";
 import { apiJson } from "@/lib/auth-client";
-import { OfflinePolicyCard } from "../offline-policy/offline-policy-card";
-import { OfflineManagersCard } from "../offline-policy/offline-managers-card";
+import { OfflinePolicyCard } from "../offline-selling/offline-policy-card";
+import { OfflineManagersCard } from "../offline-selling/offline-managers-card";
 import { PaymentsCard } from "../payments/payments-card";
-import { RegisterNumberingCard } from "../main/register-numbering-card";
-import OfflinePolicySettingsPage from "../offline-policy/page";
+import { RegisterNumberingCard } from "../receipts/register-numbering-card";
+import OfflineSellingSettingsPage from "../offline-selling/page";
 
 let branchId: string | null = "branch-a";
 jest.mock("@/lib/use-auth", () => ({ useAuth: () => ({ branchId }) }));
@@ -53,7 +53,7 @@ describe("offline policy", () => {
   it("shows safe disabled defaults, the fixed rules read-only and the sync wording", async () => {
     render(<OfflinePolicyCard />);
     expect(await screen.findByRole("switch", offlineSwitch)).not.toBeChecked();
-    expect(screen.getByText(/one is assigned in Counters & devices/)).toBeInTheDocument();
+    expect(screen.getByText(/one is assigned in Counters/)).toBeInTheDocument();
     expect(screen.getByText(/Applies to counters after their next sync/)).toBeInTheDocument();
     expect(screen.getByText(/instantly revoke/)).toBeInTheDocument();
     expect(screen.getByText("Offline permission lasts 24 hours")).toBeInTheDocument();
@@ -102,14 +102,22 @@ describe("offline policy", () => {
         ? new Promise((resolve) => {
             finishA = resolve;
           })
-        : Promise.resolve({ ...view, branchId: "branch-b", branchName: "Galle", version: 2 }),
+        : Promise.resolve({
+            ...view,
+            branchId: "branch-b",
+            branchName: "Galle",
+            version: 2,
+          }),
     );
     const { rerender } = render(<OfflinePolicyCard />);
     branchId = "branch-b";
     rerender(<OfflinePolicyCard />);
     await screen.findByText("Offline selling — Galle");
     await act(async () =>
-      finishA({ ...view, policy: { ...defaultCounterPolicy(), offlineEnabled: true } }),
+      finishA({
+        ...view,
+        policy: { ...defaultCounterPolicy(), offlineEnabled: true },
+      }),
     );
     expect(screen.getByRole("switch", offlineSwitch)).not.toBeChecked();
     fireEvent.click(screen.getByRole("button", { name: "Save offline policy" }));
@@ -134,13 +142,20 @@ describe("offline policy", () => {
   });
 
   it("re-reads the offline managers after the policy on the same page saves", async () => {
-    const managers = (offlineEnabled: boolean) => ({ offlineEnabled, offlineManagers: [] });
+    const managers = (offlineEnabled: boolean) => ({
+      offlineEnabled,
+      offlineManagers: [],
+    });
     let enabled = false;
     (apiJson as jest.Mock).mockImplementation((path: string, init?: { method?: string }) => {
       if (path.endsWith("/counter-settings")) return Promise.resolve(managers(enabled));
       // The page's journal card (D11) reads its own list.
       if (path === "/offline-journal-recoveries")
-        return Promise.resolve({ branchId: "branch-a", recoveries: [], offlineCounter: null });
+        return Promise.resolve({
+          branchId: "branch-a",
+          recoveries: [],
+          offlineCounter: null,
+        });
       // And its restored-counters card (P5 #51) reads its own.
       if (path === "/offline-counter-restores") return Promise.resolve({ branchId: "branch-a", restores: [] });
       if (init?.method === "PUT") {
@@ -149,7 +164,7 @@ describe("offline policy", () => {
       }
       return Promise.resolve(view);
     });
-    render(<OfflinePolicySettingsPage />);
+    render(<OfflineSellingSettingsPage />);
     expect(await screen.findByText(/Offline selling is off at this branch/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("switch", offlineSwitch));
     fireEvent.click(screen.getByRole("button", { name: "Save offline policy" }));
@@ -190,8 +205,12 @@ describe("payments", () => {
     fireEvent.click(screen.getByRole("switch", { name: "Accept customer credit online" }));
     fireEvent.click(screen.getByRole("switch", cardSwitch));
     fireEvent.click(screen.getByRole("button", { name: "Add card merchant" }));
-    fireEvent.change(screen.getByLabelText("Provider 1"), { target: { value: " Bank " } });
-    fireEvent.change(screen.getByLabelText("Merchant ID 1"), { target: { value: " MID-1 " } });
+    fireEvent.change(screen.getByLabelText("Provider 1"), {
+      target: { value: " Bank " },
+    });
+    fireEvent.change(screen.getByLabelText("Merchant ID 1"), {
+      target: { value: " MID-1 " },
+    });
     (apiJson as jest.Mock).mockResolvedValue({ ...view, version: 5 });
     fireEvent.click(screen.getByRole("button", { name: "Save payments" }));
     await waitFor(() => expect(puts()).toBe(1));
@@ -210,12 +229,18 @@ describe("payments", () => {
 
   it("says when a branch's counters fall back to cash from the tenant default", async () => {
     route(
-      { ...view, policy: { ...defaultCounterPolicy(), onlinePaymentMethods: ["mobile_wallet"] } },
+      {
+        ...view,
+        policy: {
+          ...defaultCounterPolicy(),
+          onlinePaymentMethods: ["mobile_wallet"],
+        },
+      },
       { "/tenant/settings": { posDefaultPaymentMethod: "card" } },
     );
     render(<PaymentsCard />);
     expect(await screen.findByText(/start on cash instead/)).toHaveTextContent(
-      "Counters & receipts: Card.",
+      "default payment method above: Card.",
     );
     // Turning card on removes the fallback.
     fireEvent.click(screen.getByRole("switch", { name: "Accept card online" }));
@@ -246,7 +271,9 @@ describe("register numbering", () => {
     fireEvent.change(await screen.findByLabelText("Front receipt prefix"), {
       target: { value: "c1r-" },
     });
-    fireEvent.change(screen.getByLabelText("Front invoice prefix"), { target: { value: "c1i-" } });
+    fireEvent.change(screen.getByLabelText("Front invoice prefix"), {
+      target: { value: "c1i-" },
+    });
     expect(screen.getByLabelText("Old till (retired) receipt prefix")).toBeDisabled();
     expect(screen.getByLabelText("Old till (retired) receipt prefix")).toHaveValue("OLD-R");
     fireEvent.click(screen.getByRole("button", { name: "Save numbering" }));
@@ -266,14 +293,19 @@ describe("register numbering", () => {
     fireEvent.change(await screen.findByLabelText("Front receipt prefix"), {
       target: { value: "INV-1" },
     });
-    fireEvent.change(screen.getByLabelText("Front invoice prefix"), { target: { value: "B" } });
+    fireEvent.change(screen.getByLabelText("Front invoice prefix"), {
+      target: { value: "B" },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Save numbering" }));
     expect(await screen.findByText(/overlaps the online invoice series/)).toBeInTheDocument();
     expect(puts()).toBe(0);
   });
 
   it("names the register and the missing field when only one prefix is filled", async () => {
-    route({ ...view, registers: [{ registerId: reg1, label: "Front", isActive: true }] });
+    route({
+      ...view,
+      registers: [{ registerId: reg1, label: "Front", isActive: true }],
+    });
     render(<RegisterNumberingCard />);
     fireEvent.change(await screen.findByLabelText("Front receipt prefix"), {
       target: { value: "C1R-" },

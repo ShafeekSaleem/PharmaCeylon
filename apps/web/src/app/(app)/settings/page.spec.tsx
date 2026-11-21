@@ -4,6 +4,7 @@ import { fetchTenantBranches } from "@/lib/auth-client";
 import { fetchTenantSettings } from "./lib/tenant-settings";
 import { fetchTenantProfile } from "./tenant-profile/api";
 import { countersApi } from "./counters/counters-api";
+import { fetchCounterPolicy } from "./lib/counter-policy";
 
 const push = jest.fn();
 jest.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
@@ -46,13 +47,16 @@ jest.mock("@/lib/notifications-client", () => ({
 }));
 jest.mock("./lib/tenant-settings", () => ({ fetchTenantSettings: jest.fn() }));
 jest.mock("./tenant-profile/api", () => ({ fetchTenantProfile: jest.fn() }));
-jest.mock("./counters/counters-api", () => ({ countersApi: { counters: jest.fn() } }));
+jest.mock("./counters/counters-api", () => ({
+  countersApi: { counters: jest.fn() },
+}));
+jest.mock("./lib/counter-policy", () => ({ fetchCounterPolicy: jest.fn() }));
 const mockRestoreList = jest.fn();
-jest.mock("./offline-policy/counter-restore-api", () => ({
+jest.mock("./offline-selling/counter-restore-api", () => ({
   counterRestoreApi: () => ({ list: () => mockRestoreList() }),
 }));
 const mockRecoveryList = jest.fn();
-jest.mock("./offline-policy/journal-recovery-api", () => ({
+jest.mock("./offline-selling/journal-recovery-api", () => ({
   journalRecoveryApi: () => ({ list: () => mockRecoveryList() }),
 }));
 
@@ -67,6 +71,8 @@ beforeEach(() => {
     passwordMinLength: 8,
     receiptPaperSize: "80mm",
     posMaxDiscountPercent: 10,
+    posAutoPrintReceipt: true,
+    posDefaultPaymentMethod: "card",
     vatRatePercent: 18,
     lowStockThresholdUnits: 10,
     expiryWarningDays: 90,
@@ -82,11 +88,27 @@ beforeEach(() => {
   });
   (fetchTenantBranches as jest.Mock).mockReset();
   (fetchTenantBranches as jest.Mock).mockResolvedValue([
-    { id: "b-1", code: "MAIN", name: "Colombo", city: null, timezone: "Asia/Colombo" },
-    { id: "b-2", code: "KDY", name: "Kandy", city: null, timezone: "Asia/Colombo" },
+    {
+      id: "b-1",
+      code: "MAIN",
+      name: "Colombo",
+      city: null,
+      timezone: "Asia/Colombo",
+    },
+    {
+      id: "b-2",
+      code: "KDY",
+      name: "Kandy",
+      city: null,
+      timezone: "Asia/Colombo",
+    },
   ]);
   (countersApi.counters as jest.Mock).mockReset();
   (countersApi.counters as jest.Mock).mockResolvedValue([]);
+  (fetchCounterPolicy as jest.Mock).mockReset();
+  (fetchCounterPolicy as jest.Mock).mockResolvedValue({
+    policy: { onlinePaymentMethods: ["mobile_wallet"], offlineEnabled: true },
+  });
   mockRestoreList.mockReset();
   mockRestoreList.mockResolvedValue({
     restores: [{ status: "awaiting_acknowledgement" }, { status: "acknowledged" }],
@@ -123,7 +145,12 @@ it("groups the cards, states each group's scope and shows current values", async
   expect(card("Approval Rules")).toHaveTextContent("3 of 5 rules on");
   // Only the toggles this person sees count: Inventory and Expiry, and Branch & Tenant.
   expect(card("Notifications")).toHaveTextContent("1 alert type turned off");
-  expect(card("Counters & devices")).toHaveTextContent("No counters at Colombo");
+  // "Counters & receipts" and "Counters & devices" are four pages now, each with its value.
+  expect(card("Counters")).toHaveTextContent("No counters at Colombo");
+  expect(card("Receipts")).toHaveTextContent("80 mm receipts · printed after every sale");
+  // The pharmacy starts on card, but Colombo doesn't take card, so its counters start on cash.
+  expect(card("Payments")).toHaveTextContent("Cash and mobile wallet at Colombo · starts on cash");
+  expect(card("Offline selling")).toHaveTextContent("Allowed at Colombo");
 });
 
 it("names the branch it checked, lists what needs attention, and flags stale recoveries", async () => {
@@ -149,7 +176,10 @@ it("asks for counters at a branch live on the desktop app", async () => {
 });
 
 it("says all clear, at the branch it checked, only when every check ran", async () => {
-  (fetchTenantProfile as jest.Mock).mockResolvedValue({ displayName: "A", logoUrl: "/logo.png" });
+  (fetchTenantProfile as jest.Mock).mockResolvedValue({
+    displayName: "A",
+    logoUrl: "/logo.png",
+  });
   mockRestoreList.mockResolvedValue({ restores: [] });
   mockRecoveryList.mockResolvedValue({ recoveries: [] });
   render(<SettingsHomePage />);
@@ -159,7 +189,10 @@ it("says all clear, at the branch it checked, only when every check ran", async 
 });
 
 it("never says all clear when a check could not run", async () => {
-  (fetchTenantProfile as jest.Mock).mockResolvedValue({ displayName: "A", logoUrl: "/logo.png" });
+  (fetchTenantProfile as jest.Mock).mockResolvedValue({
+    displayName: "A",
+    logoUrl: "/logo.png",
+  });
   mockRestoreList.mockRejectedValue(new Error("Forbidden"));
   mockRecoveryList.mockResolvedValue({ recoveries: [] });
   render(<SettingsHomePage />);
@@ -172,7 +205,10 @@ it("never says all clear when a check could not run", async () => {
 
 it("says the branch checks could not run without a branch", async () => {
   selectedBranch = null;
-  (fetchTenantProfile as jest.Mock).mockResolvedValue({ displayName: "A", logoUrl: "/logo.png" });
+  (fetchTenantProfile as jest.Mock).mockResolvedValue({
+    displayName: "A",
+    logoUrl: "/logo.png",
+  });
   render(<SettingsHomePage />);
   const attention = attentionRegion();
   expect(

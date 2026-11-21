@@ -1,0 +1,229 @@
+/* Settings › Counters as cards (UI1 #205): one card per counter, one primary action each. */
+
+.headerActions {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.branchPicker {
+  min-width: 12rem;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.counterCard {
+  background: var(--pc-card-bg);
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-md, 10px);
+  padding: 1rem 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.counterCardRetired {
+  background: var(--pc-muted-bg);
+}
+
+.head {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.8rem;
+}
+
+.iconTile {
+  flex: 0 0 auto;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--pc-primary-soft);
+  color: var(--pc-primary);
+}
+
+.identity {
+  flex: 1;
+  min-width: 0;
+}
+
+.nameRow {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.name {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--pc-foreground);
+  overflow-wrap: anywhere;
+}
+
+.computer {
+  margin: 0.2rem 0 0;
+  font-size: 0.8rem;
+  color: var(--pc-muted-fg);
+  overflow-wrap: anywhere;
+}
+
+.actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.similar {
+  margin: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+  padding: 0.5rem 0.7rem;
+  border-radius: 8px;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  color: var(--pc-alert-warning-text);
+  background: var(--pc-alert-warning-bg);
+  border: 1px solid var(--pc-alert-warning-border);
+}
+
+.similar svg {
+  flex: 0 0 auto;
+  margin-top: 0.1rem;
+  color: var(--pc-alert-warning-icon);
+}
+
+.facts {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+  padding: 0.75rem 0 0;
+  border-top: 1px solid var(--pc-border);
+}
+
+.fact dt {
+  font-size: 0.72rem;
+  color: var(--pc-muted-fg);
+  margin-bottom: 0.2rem;
+}
+
+.fact dd {
+  margin: 0;
+  font-size: 0.83rem;
+  color: var(--pc-foreground);
+  overflow-wrap: anywhere;
+}
+
+.muted {
+  color: var(--pc-muted-fg);
+}
+
+.steps {
+  padding: 0.75rem 0 0;
+  border-top: 1px solid var(--pc-border);
+  font-size: 0.82rem;
+  color: var(--pc-foreground);
+}
+
+.steps ol {
+  margin: 0;
+  padding-left: 1.2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  line-height: 1.45;
+}
+
+.codeRow {
+  margin-top: 0.7rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  font-size: 0.8rem;
+  color: var(--pc-muted-fg);
+}
+
+.quietRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  padding-top: 0.65rem;
+  border-top: 1px dashed var(--pc-border);
+  font-size: 0.78rem;
+  color: var(--pc-muted-fg);
+}
+
+.quietActions {
+  display: inline-flex;
+  gap: 1rem;
+}
+
+.linkBtn {
+  border: none;
+  background: none;
+  padding: 0.15rem 0;
+  font: inherit;
+  font-weight: 600;
+  color: var(--pc-foreground);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.linkBtn:focus-visible {
+  outline: 2px solid var(--ui-accent, var(--pc-primary));
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+.linkDanger {
+  color: var(--pc-destructive);
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem 1.5rem;
+  flex-wrap: wrap;
+  font-size: 0.8rem;
+  color: var(--pc-muted-fg);
+}
+
+.empty {
+  margin: 0;
+  padding: 1.25rem;
+  text-align: center;
+  font-size: 0.85rem;
+  color: var(--pc-muted-fg);
+  border: 1px dashed var(--pc-border);
+  border-radius: var(--pc-radius-md, 10px);
+}
+
+@media (max-width: 640px) {
+  .head {
+    flex-wrap: wrap;
+  }
+  .actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+  .facts {
+    grid-template-columns: 1fr;
+  }
+}

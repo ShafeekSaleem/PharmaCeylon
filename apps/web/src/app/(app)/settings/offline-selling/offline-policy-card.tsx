@@ -38,7 +38,7 @@ export function OfflinePolicyCard({ onSaved }: { onSaved?: () => void }) {
           <p className={css.cardDesc}>
             Whether one prepared counter at this branch may keep selling through an internet
             outage. Turning it off never stops online selling. Turning it on doesn&apos;t pick the
-            counter: one is assigned in Counters &amp; devices and then activated at that computer.
+            counter: one is assigned in Counters and then activated at that computer.
           </p>
           <SyncNote>
             Turning it off can&apos;t instantly revoke permission already saved on a disconnected

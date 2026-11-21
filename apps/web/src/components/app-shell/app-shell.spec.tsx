@@ -424,7 +424,7 @@ describe("#205 settings menu replaces the main sidebar", () => {
   it("names settings pages by their display name", () => {
     expect(buildBreadcrumbs("/settings/counters")).toEqual([
       { label: "Settings", href: "/settings" },
-      { label: "Counters & devices" },
+      { label: "Counters" },
     ]);
     expect(buildBreadcrumbs("/settings/tenant-profile").at(-1)).toEqual({
       label: "Organization Profile",

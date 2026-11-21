@@ -14,10 +14,15 @@ import css from "../settings.module.css";
 import { CounterPolicySection, SyncNote } from "../lib/counter-policy";
 import { fetchTenantSettings } from "../lib/tenant-settings";
 
-const DEFAULT_LABELS: Record<string, string> = { cash: "Cash", card: "Card", split: "Split" };
+const DEFAULT_LABELS: Record<string, string> = {
+  cash: "Cash",
+  card: "Card",
+  split: "Split",
+};
 
-export function PaymentsCard() {
-  // The default payment method is tenant-wide (Counters & receipts); card is this branch's choice.
+/** `refreshKey` re-reads the tenant default after the default payment method card saves. */
+export function PaymentsCard({ refreshKey = 0 }: { refreshKey?: number } = {}) {
+  // The default payment method is tenant-wide (the card above); card is this branch's choice.
   const [tenantDefault, setTenantDefault] = useState<string | null>(null);
   useEffect(() => {
     let cancelled = false;
@@ -32,7 +37,7 @@ export function PaymentsCard() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [refreshKey]);
 
   return (
     <CounterPolicySection
@@ -100,7 +105,7 @@ export function PaymentsCard() {
             {!policy.offlineEnabled ? (
               <p className={css.rowHint}>
                 Offline selling is off for this branch. Turn it on in{" "}
-                <Link href="/settings/offline-policy">Offline policy</Link> first.
+                <Link href="/settings/offline-selling">Offline selling</Link> first.
               </p>
             ) : null}
             <p className={css.rowHint}>
@@ -179,8 +184,7 @@ function DefaultMethodNote({
   const chosen = DEFAULT_LABELS[tenantDefault] ?? tenantDefault;
   return (
     <p className={css.rowHint}>
-      Sales start on the default payment method from{" "}
-      <Link href="/settings/main">Counters &amp; receipts</Link>: {chosen}.
+      Sales start on the default payment method above: {chosen}.
       {effective !== tenantDefault
         ? ` This branch doesn't take card, so its counters start on cash instead.`
         : null}
