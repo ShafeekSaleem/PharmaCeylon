@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   COUNTER_MISMATCH_PROBLEM_LABEL,
+  DISPLAY_LOCALE,
   type CounterMismatchKind,
   type CounterMismatchReport,
 } from "@pharmaceylon/shared";
@@ -21,7 +22,7 @@ type Props = {
 };
 
 const when = (at: string | null) =>
-  at ? new Date(at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : "";
+  at ? new Date(at).toLocaleString(DISPLAY_LOCALE, { dateStyle: "medium", timeStyle: "short" }) : "";
 
 function what(report: CounterMismatchReport) {
   const label = COUNTER_MISMATCH_PROBLEM_LABEL[report.problem];
