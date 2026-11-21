@@ -6,7 +6,9 @@ import { ApproverCoSignService } from "./approver-cosign.service";
 import { PharmacistApprovalService } from "./pharmacist-approval.service";
 import { PosService } from "./pos.service";
 import { RefundRequestsController } from "./refund-requests.controller";
+import { SalesQueuesController } from "./sales-queues.controller";
 import { RefundRequestsService } from "./refund-requests.service";
+import { SalesQueuesService } from "./sales-queues.service";
 import { SaleReadService } from "./sale-read.service";
 import { SalesController } from "./sales.controller";
 import { SalesService } from "./sales.service";
@@ -18,7 +20,7 @@ import { ClinicalModule } from "../clinical/clinical.module";
 @Module({
   imports: [CatalogModule, SetupModule, OperationalAuthorizationModule, TerminalsModule, ClinicalModule],
   // Refund requests first: `/sales/refund-requests` must not reach `GET /sales/:id`.
-  controllers: [RefundRequestsController, SalesController],
+  controllers: [RefundRequestsController, SalesQueuesController, SalesController],
   providers: [
     SalesService,
     CheckoutResolutionService,
@@ -28,6 +30,7 @@ import { ClinicalModule } from "../clinical/clinical.module";
     PharmacistApprovalService,
     ApproverCoSignService,
     RefundRequestsService,
+    SalesQueuesService,
   ],
   exports: [SaleReadService, RefundRequestsService, PharmacistApprovalService],
 })

@@ -275,9 +275,12 @@ describe("sales history attribution and filters (#66 Phase B)", () => {
     const detail = await reads.detail(owner(fx), counterSaleId);
     expect(detail).toMatchObject({
       channel: "desktop_online",
-      terminal: { id: terminalId },
-      register: { id: registerId, tillId },
+      terminal: { id: terminalId, label: expect.any(String) },
+      register: { id: registerId, tillId, label: expect.any(String) },
       shift: expect.objectContaining({ id: shiftId }),
+      offlineSyncState: null,
+      offlineCommandId: null,
+      offlineReceipt: null,
     });
   });
 
@@ -426,9 +429,98 @@ describe("sales history attribution and filters (#66 Phase B)", () => {
     expect(errors.map((e) => e.property).sort()).toEqual(["channel", "terminalId"]);
   });
 
-  it("options lists registers and terminals for the branch", async () => {
+  it("options lists registers, terminals and shifts for the branch", async () => {
     const options = await reads.historyOptions(owner(fx));
     expect(options.registers?.some((row) => row.registerId === registerId)).toBe(true);
     expect(options.terminals?.some((row) => row.terminalId === terminalId)).toBe(true);
+    expect(options.shifts?.some((row) => row.shiftId === shiftId)).toBe(true);
+    expect(options.offlineSyncStates?.map((s) => s.value)).toEqual([
+      "accepted",
+      "pending_stock_posting",
+      "held",
+    ]);
+  });
+
+  it("shift options exclude hidden-branch and other-tenant shifts", async () => {
+    const scoped = await reads.historyOptions(mainBranchManager(fx));
+    const shiftIds = scoped.shifts?.map((row) => row.shiftId) ?? [];
+    expect(shiftIds).toContain(shiftId);
+    expect(shiftIds).not.toContain(otherBranchIds.shiftId);
+    expect(shiftIds).not.toContain(otherTenantIds.shiftId);
+  });
+
+  it("filters accepted and pending_stock_posting without online checkout rows", async () => {
+    const accepted = await reads.history(owner(fx), fx.mainBranchId, { offlineSyncState: "accepted" });
+    expect(accepted.items.some((row) => row.id === offlineSaleId)).toBe(true);
+    expect(accepted.items.some((row) => row.id === counterSaleId)).toBe(false);
+    await prisma.sale.update({
+      where: { id: offlineSaleId },
+      data: { stockPosting: "pending_reconciliation" },
+    });
+    const pending = await reads.history(owner(fx), fx.mainBranchId, {
+      offlineSyncState: "pending_stock_posting",
+    });
+    expect(pending.items.some((row) => row.id === offlineSaleId)).toBe(true);
+    expect(pending.items.every((row) => row.offlineSyncState === "pending_stock_posting")).toBe(true);
+    await prisma.sale.update({ where: { id: offlineSaleId }, data: { stockPosting: "posted" } });
+  });
+
+  it("labels offline sales with mutually exclusive sync states", async () => {
+    const offline = await reads.history(owner(fx), fx.mainBranchId, { channel: "offline" });
+    const row = offline.items.find((item) => item.id === offlineSaleId)!;
+    expect(row.offlineSyncState).toBe("accepted");
+
+    await prisma.sale.update({
+      where: { id: offlineSaleId },
+      data: { stockPosting: "pending_reconciliation" },
+    });
+    let again = await reads.history(owner(fx), fx.mainBranchId, { invoiceNo: row.invoiceNo });
+    expect(again.items[0]).toMatchObject({
+      offlineSyncState: "pending_stock_posting",
+      reconciliationCaseId: null,
+    });
+
+    const sale = await prisma.sale.findFirstOrThrow({ where: { id: offlineSaleId } });
+    const enrollment = await prisma.terminalEnrollment.findFirstOrThrow({
+      where: { tenantId: fx.tenantId, branchId: fx.mainBranchId, terminalId },
+    });
+    const caseId = randomUUID();
+    await prisma.offlineStockDiscrepancy.create({
+      data: {
+        id: caseId,
+        tenantId: fx.tenantId,
+        branchId: fx.mainBranchId,
+        terminalId,
+        enrollmentId: enrollment.id,
+        keyId: enrollment.keyId,
+        commandId: sale.offlineCommandId!,
+        saleId: offlineSaleId,
+        snapshotId: randomUUID(),
+        snapshotVersion: 1,
+        status: "open",
+      },
+    });
+    again = await reads.history(owner(fx), fx.mainBranchId, { invoiceNo: row.invoiceNo });
+    expect(again.items[0]).toMatchObject({
+      offlineSyncState: "held",
+      reconciliationCaseId: caseId,
+    });
+    const heldOnly = await reads.history(owner(fx), fx.mainBranchId, { offlineSyncState: "held" });
+    expect(heldOnly.items.some((item) => item.id === offlineSaleId)).toBe(true);
+
+    await prisma.offlineStockDiscrepancy.update({
+      where: { id: caseId },
+      data: { status: "resolved", resolvedAt: new Date() },
+    });
+    again = await reads.history(owner(fx), fx.mainBranchId, { invoiceNo: row.invoiceNo });
+    expect(again.items[0]?.offlineSyncState).toBe("pending_stock_posting");
+    expect(again.items[0]?.reconciliationCaseId).toBeNull();
+
+    await prisma.sale.update({
+      where: { id: offlineSaleId },
+      data: { stockPosting: "posted" },
+    });
+    again = await reads.history(owner(fx), fx.mainBranchId, { invoiceNo: row.invoiceNo });
+    expect(again.items[0]?.offlineSyncState).toBe("accepted");
   });
 });

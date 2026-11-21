@@ -1,5 +1,12 @@
 import { BadRequestException, ForbiddenException, NotFoundException } from "@nestjs/common";
-import { DesktopPosRollout, PaymentMethod, Prisma, RoleName, SaleStatus } from "@prisma/client";
+import {
+  DesktopPosRollout,
+  PaymentMethod,
+  Prisma,
+  RoleName,
+  SaleStatus,
+  SaleStockPosting,
+} from "@prisma/client";
 import { plainToInstance } from "class-transformer";
 import { validate } from "class-validator";
 import { PERMISSION_KEY } from "../security/decorators/require-permission.decorator";
@@ -47,6 +54,7 @@ function summaryRow(id: string, branchId = "branch-a") {
     tillId: null,
     shiftId: null,
     offlineCommandId: null,
+    stockPosting: SaleStockPosting.posted,
     shift: null,
     branch: branchRollout(branchId),
     customer: null,
@@ -71,6 +79,7 @@ function detailRow(branchId = "branch-b") {
     tillId: null,
     shiftId: null,
     offlineCommandId: null,
+    stockPosting: SaleStockPosting.posted,
     shift: null,
     subtotal: dec("1000"),
     discountTotal: dec("50"),
@@ -156,6 +165,15 @@ function setup() {
       findMany: jest.fn().mockResolvedValue([]),
     },
     operationalTerminal: {
+      findMany: jest.fn().mockResolvedValue([]),
+    },
+    offlineStockDiscrepancy: {
+      findMany: jest.fn().mockResolvedValue([]),
+    },
+    terminalCommandReceipt: {
+      findFirst: jest.fn().mockResolvedValue(null),
+    },
+    tillShift: {
       findMany: jest.fn().mockResolvedValue([]),
     },
     $queryRaw: jest.fn().mockResolvedValue([]),
@@ -501,6 +519,36 @@ describe("SaleReadService.history — finding a sale without the receipt", () =>
 });
 
 describe("SaleReadService.historyOptions", () => {
+  it("loads shift options from till_shift (most recent first, capped)", async () => {
+    const { prisma, service } = setup();
+    prisma.tillShift.findMany.mockResolvedValue([
+      {
+        id: "shift-1",
+        shiftNumber: "S-1",
+        branchId: "branch-a",
+        registerId: "reg-1",
+        openedAt: new Date("2026-10-02T00:00:00.000Z"),
+        closedAt: null,
+        counter: { label: "Front" },
+      },
+    ]);
+
+    const options = await service.historyOptions(multiBranch);
+
+    expect(prisma.tillShift.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          tenantId: "tenant-1",
+          branchId: { in: expect.arrayContaining(["branch-a", "branch-b"]) },
+          sales: { some: {} },
+        }),
+        orderBy: { openedAt: "desc" },
+        take: 200,
+      }),
+    );
+    expect(options.shifts?.[0]).toMatchObject({ shiftId: "shift-1", registerLabel: "Front" });
+  });
+
   it("offers only viewable branches, and sellers from those branches", async () => {
     const { prisma, service } = setup();
     prisma.sale.findMany.mockResolvedValue([
@@ -511,7 +559,7 @@ describe("SaleReadService.historyOptions", () => {
     const options = await service.historyOptions(multiBranch);
 
     expect(options.branches.map((b) => b.id).sort()).toEqual(["branch-a", "branch-b"]);
-    expect(lastWhere(prisma.sale.findMany)).toEqual({
+    expect(prisma.sale.findMany.mock.calls[0][0].where).toEqual({
       tenantId: "tenant-1",
       branchId: { in: expect.arrayContaining(["branch-a", "branch-b"]) },
     });
