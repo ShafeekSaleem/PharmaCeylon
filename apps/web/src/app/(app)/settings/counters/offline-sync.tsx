@@ -76,12 +76,15 @@ export function CounterOfflineSales({
   timeZone,
   failed,
   now = new Date(),
+  brief = false,
 }: {
   counter: TerminalCounterView;
   journal: ReadonlyArray<CounterJournalSyncView> | null;
   timeZone: string;
   failed: boolean;
   now?: Date;
+  /** Leave the time out of "All on the server": the counter card shows it on its own. */
+  brief?: boolean;
 }) {
   if (failed) return <span className={css.rowHint}>Couldn&apos;t check</span>;
   if (journal === null) return <span className={css.rowHint}>Checking…</span>;
@@ -93,7 +96,7 @@ export function CounterOfflineSales({
     (v) => !v.current && v.registerId === counter.registerId,
   );
   if (!current && earlier.length === 0)
-    return <span className={css.rowHint}>—</span>;
+    return <span className={css.rowHint}>{brief ? "None yet" : "—"}</span>;
 
   const summary = current ? offlineSyncSummary(current, timeZone, now) : null;
   const hint = current ? stoppedHint(current, timeZone, now) : null;
@@ -101,7 +104,9 @@ export function CounterOfflineSales({
     <div>
       {summary ? (
         summary.tone === "ok" || summary.tone === "none" ? (
-          <span>{summary.text}</span>
+          <span>
+            {!brief ? summary.text : summary.tone === "ok" ? "All on the server" : "None yet"}
+          </span>
         ) : (
           <StatusBadge
             status={summary.tone === "review" ? "needs_review" : "waiting"}
