@@ -53,6 +53,8 @@ let fx: TenantFixture;
 let other: TenantFixture;
 let batchId: string;
 let mainTerminalId: string;
+let mainTillId: string;
+let mainWorkSessionId: string;
 let mainShiftId: string;
 let mainSaleId: string;
 let hiddenSaleId: string;
@@ -107,7 +109,7 @@ async function enrollAndSell(
   ownerId: string,
   clerkId: string,
   amount: string,
-): Promise<{ terminalId: string; shiftId: string; saleId: string }> {
+): Promise<{ terminalId: string; tillId: string; workSessionId: string; shiftId: string; saleId: string }> {
   const device = terminalDevice();
   const ownerUser = requestUser(tenant.tenantId, ownerId);
   const clerkUser = requestUser(tenant.tenantId, clerkId);
@@ -161,7 +163,13 @@ async function enrollAndSell(
     randomUUID(),
     { user: clerkUser, workSessionId: session.workSessionId },
   );
-  return { terminalId: identity.terminalId, shiftId, saleId: sale!.id };
+  return {
+    terminalId: identity.terminalId,
+    tillId: identity.tillId,
+    workSessionId: session.workSessionId,
+    shiftId,
+    saleId: sale!.id,
+  };
 }
 
 beforeAll(async () => {
@@ -186,6 +194,8 @@ beforeAll(async () => {
 
   const main = await enrollAndSell(fx, fx.mainBranchId, fx.ownerId, fx.clerkId, "40.00");
   mainTerminalId = main.terminalId;
+  mainTillId = main.tillId;
+  mainWorkSessionId = main.workSessionId;
   mainShiftId = main.shiftId;
   mainSaleId = main.saleId;
 
@@ -233,6 +243,8 @@ beforeAll(async () => {
       soldAt: new Date(soldAt),
       offlineCommandId,
       terminalId: mainTerminalId,
+      tillId: mainTillId,
+      workSessionId: mainWorkSessionId,
       shiftId: mainShiftId,
       soldBy: fx.clerkId,
       subtotal: "20",
