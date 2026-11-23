@@ -893,16 +893,6 @@ export class ReportsService {
     };
   }
 
-  /** Completed customer returns in the window, shaped for every Profitability method to net out
-   *  of its own revenue/cost accumulation — the same way each already adds `SaleItem` rows, just
-   *  subtracting instead. Windowed by the return's own `createdAt` (not the original sale's date),
-   *  matching `returnsAndDiscounts`/`salesDaily`'s existing convention so these netted figures
-   *  don't visibly disagree with those reports for the same range. Only `status: completed` returns
-   *  are netted — earlier workflow states (draft/pending_approval/...) never moved stock or cash
-   *  (see `returns.service.ts`'s `completeReturn`), so netting them would subtract a return that
-   *  hasn't actually happened yet. Revenue reversal uses `unitPrice * qty` (the refunded sale
-   *  price — `GoodsReturnItem` doesn't retain the original line's tax/discount split); cost
-   *  reversal uses the same batch's `costPrice` the original sale was costed at, when known. */
   private async netCustomerReturnItemsForSalesReport(
     tenantId: string,
     branchId: string | null,
@@ -929,6 +919,16 @@ export class ReportsService {
     return items.filter((it) => allowed.has(it.goodsReturn.id));
   }
 
+  /** Completed customer returns in the window, shaped for every Profitability method to net out
+   *  of its own revenue/cost accumulation — the same way each already adds `SaleItem` rows, just
+   *  subtracting instead. Windowed by the return's own `createdAt` (not the original sale's date),
+   *  matching `returnsAndDiscounts`/`salesDaily`'s existing convention so these netted figures
+   *  don't visibly disagree with those reports for the same range. Only `status: completed` returns
+   *  are netted — earlier workflow states (draft/pending_approval/...) never moved stock or cash
+   *  (see `returns.service.ts`'s `completeReturn`), so netting them would subtract a return that
+   *  hasn't actually happened yet. Revenue reversal uses `unitPrice * qty` (the refunded sale
+   *  price — `GoodsReturnItem` doesn't retain the original line's tax/discount split); cost
+   *  reversal uses the same batch's `costPrice` the original sale was costed at, when known. */
   private async netCustomerReturnItems(tenantId: string, branchId: string | null, since: Date) {
     return this.prisma.goodsReturnItem.findMany({
       where: {
@@ -2833,7 +2833,14 @@ export class ReportsService {
       returnsRaw,
     );
 
-    const discountItems =
+    const discountItemSelect = {
+      productId: true,
+      discountAmount: true,
+      product: { select: { sku: true, name: true } },
+      sale: { select: { id: true, soldAt: true, offlineCommandId: true } },
+    } as const;
+
+    let discountItems =
       filtersActive && scopedSaleIds.length === 0
         ? []
         : filtersActive
@@ -2843,12 +2850,7 @@ export class ReportsService {
                 discountAmount: { gt: 0 },
                 saleId: { in: scopedSaleIds },
               },
-              select: {
-                productId: true,
-                discountAmount: true,
-                product: { select: { sku: true, name: true } },
-                sale: { select: { id: true, soldAt: true, offlineCommandId: true } },
-              },
+              select: discountItemSelect,
             })
           : await this.prisma.saleItem.findMany({
               where: {
@@ -2860,13 +2862,23 @@ export class ReportsService {
                   soldAt: { gte: window.paddedSince, lt: window.paddedBefore },
                 },
               },
-              select: {
-                productId: true,
-                discountAmount: true,
-                product: { select: { sku: true, name: true } },
-                sale: { select: { id: true, soldAt: true, offlineCommandId: true } },
-              },
+              select: discountItemSelect,
             });
+
+    if (!filtersActive && discountItems.length) {
+      const offlineIds = discountItems
+        .map((it) => it.sale.offlineCommandId)
+        .filter((id): id is string => Boolean(id))
+        .filter((id) => !occurredAtByCommandId.has(id));
+      const extraOccurred =
+        offlineIds.length > 0
+          ? await this.salesScope.occurredAtByCommandId(tenantId, offlineIds)
+          : new Map<string, number>();
+      const occurred = new Map([...occurredAtByCommandId, ...extraOccurred]);
+      discountItems = discountItems.filter((it) =>
+        this.salesScope.inEffectiveWindow(it.sale, window, occurred),
+      );
+    }
 
     const totalReturnValue = returnsInScope.reduce((s, r) => s + Number(r.amount), 0);
     const totalDiscount = discountItems.reduce((s, i) => s + Number(i.discountAmount), 0);
@@ -2916,29 +2928,47 @@ export class ReportsService {
       }
     }
     const returnedProductIds = [...byReturnedProduct.keys()];
-    const soldQtyWhere =
-      filtersActive && scopedSaleIds.length === 0
-        ? null
-        : filtersActive
-          ? { tenantId, productId: { in: returnedProductIds }, saleId: { in: scopedSaleIds } }
-          : {
+    let soldQtyMap = new Map<string, number>();
+    if (returnedProductIds.length && !(filtersActive && scopedSaleIds.length === 0)) {
+      if (filtersActive) {
+        const soldQtyByProduct = await this.prisma.saleItem.groupBy({
+          by: ["productId"],
+          where: { tenantId, productId: { in: returnedProductIds }, saleId: { in: scopedSaleIds } },
+          _sum: { qty: true },
+        });
+        soldQtyMap = new Map(soldQtyByProduct.map((g) => [g.productId, g._sum.qty ?? 0]));
+      } else {
+        const saleLines = await this.prisma.saleItem.findMany({
+          where: {
+            tenantId,
+            productId: { in: returnedProductIds },
+            sale: {
               tenantId,
-              productId: { in: returnedProductIds },
-              sale: {
-                tenantId,
-                ...(branchId ? { branchId } : {}),
-                soldAt: { gte: window.paddedSince, lt: window.paddedBefore },
-              },
-            };
-    const soldQtyByProduct =
-      returnedProductIds.length && soldQtyWhere
-        ? await this.prisma.saleItem.groupBy({
-            by: ["productId"],
-            where: soldQtyWhere,
-            _sum: { qty: true },
-          })
-        : [];
-    const soldQtyMap = new Map(soldQtyByProduct.map((g) => [g.productId, g._sum.qty ?? 0]));
+              ...(branchId ? { branchId } : {}),
+              soldAt: { gte: window.paddedSince, lt: window.paddedBefore },
+            },
+          },
+          select: {
+            productId: true,
+            qty: true,
+            sale: { select: { soldAt: true, offlineCommandId: true } },
+          },
+        });
+        const offlineIds = saleLines
+          .map((it) => it.sale.offlineCommandId)
+          .filter((id): id is string => Boolean(id))
+          .filter((id) => !occurredAtByCommandId.has(id));
+        const extraOccurred =
+          offlineIds.length > 0
+            ? await this.salesScope.occurredAtByCommandId(tenantId, offlineIds)
+            : new Map<string, number>();
+        const occurred = new Map([...occurredAtByCommandId, ...extraOccurred]);
+        for (const line of saleLines) {
+          if (!this.salesScope.inEffectiveWindow(line.sale, window, occurred)) continue;
+          soldQtyMap.set(line.productId, (soldQtyMap.get(line.productId) ?? 0) + line.qty);
+        }
+      }
+    }
 
     const returnTrendByDay = new Map<string, number>();
     for (const r of returnsInScope) {

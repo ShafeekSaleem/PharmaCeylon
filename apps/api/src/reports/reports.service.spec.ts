@@ -1074,7 +1074,11 @@ describe("ReportsService.returnsAndDiscounts", () => {
         items: [{ productId: "p1", qty: 1, unitPrice: new Prisma.Decimal(20), product: { sku: "SKU1", name: "Product 1" } }],
       },
     ]);
-    prisma.saleItem.groupBy.mockResolvedValue([{ productId: "p1", _sum: { qty: 10 } }]);
+    prisma.saleItem.findMany
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        { productId: "p1", qty: 10, sale: { soldAt: new Date(), offlineCommandId: null } },
+      ]);
 
     const result = await service.returnsAndDiscounts(tenantId, null, 30);
 

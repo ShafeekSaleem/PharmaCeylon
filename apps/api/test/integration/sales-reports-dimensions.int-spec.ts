@@ -520,4 +520,62 @@ describe("sales report return scoping (W10 #72 review)", () => {
     const unfiltered = await reports.salesByCategory(fx.tenantId, fx.mainBranchId, 365, "commercial");
     expect(unfiltered.categories.some((c) => Number(c.revenue) < 0)).toBe(true);
   });
+
+  it("excludes discounts and sold qty outside the effective 1-day window", async () => {
+    const soldAt = new Date(Date.now() - 36 * 3_600_000);
+    const stale = await prisma.sale.create({
+      data: {
+        tenantId: fx.tenantId,
+        branchId: fx.mainBranchId,
+        invoiceNo: `DISC-OLD-${randomUUID().slice(0, 6)}`,
+        status: "posted",
+        soldAt,
+        subtotal: "50",
+        grandTotal: "45",
+        discountTotal: "5",
+        amountPaid: "45",
+        soldBy: fx.clerkId,
+        items: {
+          create: {
+            tenantId: fx.tenantId,
+            productId: fx.productId,
+            batchId,
+            qty: 10,
+            unitPrice: "50",
+            lineTotal: "45",
+            discountAmount: "5",
+          },
+        },
+        payments: { create: { tenantId: fx.tenantId, method: PaymentMethod.cash, amount: "45" } },
+      },
+    });
+    await prisma.goodsReturn.create({
+      data: {
+        tenantId: fx.tenantId,
+        branchId: fx.mainBranchId,
+        returnNumber: `RT-DEN-${randomUUID().slice(0, 6)}`,
+        type: "customer",
+        status: GoodsReturnStatus.completed,
+        saleId: stale.id,
+        amount: "5.00",
+        requestedBy: fx.clerkId,
+        processedBy: fx.clerkId,
+        createdAt: new Date(),
+        items: {
+          create: {
+            tenantId: fx.tenantId,
+            productId: fx.productId,
+            batchId,
+            qty: 1,
+            unitPrice: "5.00",
+          },
+        },
+      },
+    });
+
+    const oneDay = await reports.returnsAndDiscounts(fx.tenantId, fx.mainBranchId, 1);
+    expect(oneDay.totalDiscount).toBe(0);
+    const row = oneDay.topReturnedProducts.find((p) => p.productId === fx.productId);
+    expect(row?.soldQty ?? 0).toBe(0);
+  });
 });
