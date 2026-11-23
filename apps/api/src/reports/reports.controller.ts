@@ -6,6 +6,7 @@ import { RequireBranchId } from "../security/decorators/require-branch.decorator
 import { RequestUser } from "../security/interfaces/authenticated-request.interface";
 import { CategoryReportGroupBy, MovementGranularity, MovementTypeFilterKey, ReportsService } from "./reports.service";
 import { ReportSyncFreshnessService } from "./report-sync-freshness.service";
+import { parseSalesReportQuery } from "./sales-report-query";
 
 const CATEGORY_GROUP_BY_VALUES: CategoryReportGroupBy[] = [
   "commercial",
@@ -47,13 +48,15 @@ export class ReportsController {
   salesSummary(
     @CurrentUser() user: RequestUser,
     @RequireBranchId() branchId: string,
-    @Query("days") days?: string,
-    @Query("scope") scope?: string,
+    @Query() query: Record<string, string | undefined>,
   ) {
+    const days = query.days;
+    const scope = query.scope;
     return this.reports.salesSummary(
       user.tenantId,
       this.tenantScope(user, scope) ? null : branchId,
       days ? Number(days) : 30,
+      parseSalesReportQuery(query),
     );
   }
 
@@ -239,17 +242,23 @@ export class ReportsController {
   salesByCategory(
     @CurrentUser() user: RequestUser,
     @RequireBranchId() branchId: string,
-    @Query("days") days?: string,
-    @Query("scope") scope?: string,
-    @Query("groupBy") groupBy?: string,
+    @Query() query: Record<string, string | undefined>,
   ) {
+    const categoryGroupBy = query.groupBy;
+    const reportGroupBy = query.reportGroupBy;
+    const scope = query.scope;
+    const parsed = parseSalesReportQuery({
+      ...query,
+      groupBy: reportGroupBy ?? query.reportGroupBy,
+    });
     return this.reports.salesByCategory(
       user.tenantId,
       this.tenantScope(user, scope) ? null : branchId,
-      days ? Number(days) : 30,
-      CATEGORY_GROUP_BY_VALUES.includes(groupBy as CategoryReportGroupBy)
-        ? (groupBy as CategoryReportGroupBy)
+      query.days ? Number(query.days) : 30,
+      CATEGORY_GROUP_BY_VALUES.includes(categoryGroupBy as CategoryReportGroupBy)
+        ? (categoryGroupBy as CategoryReportGroupBy)
         : "commercial",
+      parsed,
     );
   }
 
@@ -273,13 +282,14 @@ export class ReportsController {
   salesDaily(
     @CurrentUser() user: RequestUser,
     @RequireBranchId() branchId: string,
-    @Query("days") days?: string,
-    @Query("scope") scope?: string,
+    @Query() query: Record<string, string | undefined>,
   ) {
+    const scope = query.scope;
     return this.reports.salesDaily(
       user.tenantId,
       this.tenantScope(user, scope) ? null : branchId,
-      days ? Number(days) : 30,
+      query.days ? Number(query.days) : 30,
+      parseSalesReportQuery(query),
     );
   }
 
@@ -288,13 +298,14 @@ export class ReportsController {
   salesByCashier(
     @CurrentUser() user: RequestUser,
     @RequireBranchId() branchId: string,
-    @Query("days") days?: string,
-    @Query("scope") scope?: string,
+    @Query() query: Record<string, string | undefined>,
   ) {
+    const scope = query.scope;
     return this.reports.salesByCashier(
       user.tenantId,
       this.tenantScope(user, scope) ? null : branchId,
-      days ? Number(days) : 30,
+      query.days ? Number(query.days) : 30,
+      parseSalesReportQuery(query),
     );
   }
 
@@ -303,13 +314,14 @@ export class ReportsController {
   salesByPaymentMethod(
     @CurrentUser() user: RequestUser,
     @RequireBranchId() branchId: string,
-    @Query("days") days?: string,
-    @Query("scope") scope?: string,
+    @Query() query: Record<string, string | undefined>,
   ) {
+    const scope = query.scope;
     return this.reports.salesByPaymentMethod(
       user.tenantId,
       this.tenantScope(user, scope) ? null : branchId,
-      days ? Number(days) : 30,
+      query.days ? Number(query.days) : 30,
+      parseSalesReportQuery(query),
     );
   }
 
@@ -318,13 +330,14 @@ export class ReportsController {
   returnsAndDiscounts(
     @CurrentUser() user: RequestUser,
     @RequireBranchId() branchId: string,
-    @Query("days") days?: string,
-    @Query("scope") scope?: string,
+    @Query() query: Record<string, string | undefined>,
   ) {
+    const scope = query.scope;
     return this.reports.returnsAndDiscounts(
       user.tenantId,
       this.tenantScope(user, scope) ? null : branchId,
-      days ? Number(days) : 30,
+      query.days ? Number(query.days) : 30,
+      parseSalesReportQuery(query),
     );
   }
 
@@ -333,13 +346,14 @@ export class ReportsController {
   salesByHour(
     @CurrentUser() user: RequestUser,
     @RequireBranchId() branchId: string,
-    @Query("days") days?: string,
-    @Query("scope") scope?: string,
+    @Query() query: Record<string, string | undefined>,
   ) {
+    const scope = query.scope;
     return this.reports.salesByHour(
       user.tenantId,
       this.tenantScope(user, scope) ? null : branchId,
-      days ? Number(days) : 30,
+      query.days ? Number(query.days) : 30,
+      parseSalesReportQuery(query),
     );
   }
 

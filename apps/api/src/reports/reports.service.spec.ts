@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { CategoryTaxonomyService } from "../catalog/category-taxonomy.service";
 import { UNCLASSIFIED_MEDICINES_CANONICAL_KEY } from "../catalog/commercial-category-template";
 import { ReportsService } from "./reports.service";
+import { mockSalesReportScope } from "./reports-test-scope.mock";
 
 type PrismaMock = {
   saleItem: { findMany: jest.Mock };
@@ -46,7 +47,11 @@ describe("ReportsService.salesByCategory", () => {
       primaryCommercialCategoryByProductIds: jest.fn().mockResolvedValue(new Map()),
       regulatoryCategoryByProductIds: jest.fn().mockResolvedValue(new Map()),
     };
-    service = new ReportsService(prisma as never, taxonomy as unknown as CategoryTaxonomyService);
+    service = new ReportsService(
+      prisma as never,
+      taxonomy as unknown as CategoryTaxonomyService,
+      mockSalesReportScope(),
+    );
   });
 
   it("rolls up the primary COMMERCIAL category to its parent department, carrying the leaf as a child", async () => {
@@ -260,7 +265,11 @@ describe("ReportsService.marginTrendByCategory", () => {
   beforeEach(() => {
     prisma = { saleItem: { findMany: jest.fn() }, goodsReturnItem: { findMany: jest.fn().mockResolvedValue([]) } };
     taxonomy = { primaryCommercialCategoryByProductIds: jest.fn().mockResolvedValue(new Map()) };
-    service = new ReportsService(prisma as never, taxonomy as unknown as CategoryTaxonomyService);
+    service = new ReportsService(
+      prisma as never,
+      taxonomy as unknown as CategoryTaxonomyService,
+      mockSalesReportScope(),
+    );
   });
 
   it("rolls a leaf category up to its parent department and keys points by (date, departmentId)", async () => {
@@ -363,7 +372,11 @@ describe("ReportsService profitability reconciliation", () => {
       primaryCommercialCategoryByProductIds: jest.fn(),
       regulatoryCategoryByProductIds: jest.fn().mockResolvedValue(new Map()),
     };
-    service = new ReportsService(prisma as never, taxonomy as unknown as CategoryTaxonomyService);
+    service = new ReportsService(
+      prisma as never,
+      taxonomy as unknown as CategoryTaxonomyService,
+      mockSalesReportScope(),
+    );
   });
 
   it("marginByProduct's summed gross profit equals salesByCategory's (commercial) total gross profit", async () => {
@@ -593,7 +606,7 @@ describe("ReportsService.branchMargin", () => {
       saleItem: { findMany: jest.fn().mockResolvedValue([]) },
       goodsReturnItem: { findMany: jest.fn().mockResolvedValue([]) },
     };
-    service = new ReportsService(prisma as never, {} as unknown as CategoryTaxonomyService);
+    service = new ReportsService(prisma as never, {} as unknown as CategoryTaxonomyService, mockSalesReportScope());
   });
 
   it("returns every active branch, including one with zero activity in the window, instead of only branches with sales", async () => {
@@ -662,7 +675,7 @@ describe("ReportsService.branchMarginTrend", () => {
       saleItem: { findMany: jest.fn().mockResolvedValue([]) },
       goodsReturnItem: { findMany: jest.fn().mockResolvedValue([]) },
     };
-    service = new ReportsService(prisma as never, {} as unknown as CategoryTaxonomyService);
+    service = new ReportsService(prisma as never, {} as unknown as CategoryTaxonomyService, mockSalesReportScope());
   });
 
   it("keys points by (date, branchId), keeping two branches on the same day as separate points", async () => {
@@ -721,7 +734,7 @@ describe("ReportsService.branchSales", () => {
       goodsReturnItem: { findMany: jest.fn().mockResolvedValue([]) },
       sale: { groupBy: jest.fn().mockResolvedValue([]) },
     };
-    service = new ReportsService(prisma as never, {} as unknown as CategoryTaxonomyService);
+    service = new ReportsService(prisma as never, {} as unknown as CategoryTaxonomyService, mockSalesReportScope());
   });
 
   it("returns every active branch, including one with zero activity in the window, instead of only branches with sales", async () => {
@@ -803,7 +816,7 @@ describe("ReportsService.branchSalesTrend", () => {
       saleItem: { findMany: jest.fn().mockResolvedValue([]) },
       goodsReturnItem: { findMany: jest.fn().mockResolvedValue([]) },
     };
-    service = new ReportsService(prisma as never, {} as unknown as CategoryTaxonomyService);
+    service = new ReportsService(prisma as never, {} as unknown as CategoryTaxonomyService, mockSalesReportScope());
   });
 
   it("keys points by (date, branchId), keeping two branches on the same day as separate points", async () => {
@@ -845,27 +858,65 @@ describe("ReportsService.branchSalesTrend", () => {
 
 describe("ReportsService.salesSummary", () => {
   const tenantId = "tenant-1";
-  let prisma: { sale: { findMany: jest.Mock } };
+  let scope: ReturnType<typeof mockSalesReportScope>;
   let service: ReportsService;
 
   beforeEach(() => {
-    prisma = { sale: { findMany: jest.fn().mockResolvedValue([]) } };
-    service = new ReportsService(prisma as never, {} as unknown as CategoryTaxonomyService);
+    scope = mockSalesReportScope([]);
+    service = new ReportsService({} as never, {} as unknown as CategoryTaxonomyService, scope);
   });
 
-  it("only requests posted/partially_refunded sales — a voided sale never reaches the count/total", async () => {
+  it("loads posted sales through the report scope service", async () => {
     await service.salesSummary(tenantId, "branch-1", 30);
-
-    expect(prisma.sale.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: expect.objectContaining({ status: { in: ["posted", "partially_refunded"] } }) }),
-    );
+    expect(scope.loadPostedSales).toHaveBeenCalled();
   });
 
-  it("sums grandTotal and counts rows from whatever the (now status-filtered) query returns", async () => {
-    prisma.sale.findMany.mockResolvedValue([
-      { grandTotal: new Prisma.Decimal(100), soldAt: new Date(), invoiceNo: "INV-1" },
-      { grandTotal: new Prisma.Decimal(50), soldAt: new Date(), invoiceNo: "INV-2" },
+  it("sums grandTotal and counts rows from scoped posted sales", async () => {
+    scope = mockSalesReportScope([
+      {
+        id: "s1",
+        soldAt: new Date(),
+        grandTotal: new Prisma.Decimal(100),
+        discountTotal: new Prisma.Decimal(0),
+        status: "posted",
+        terminalId: null,
+        tillId: null,
+        shiftId: null,
+        offlineCommandId: null,
+        stockPosting: "posted",
+        branchId: "branch-1",
+        branch: {
+          id: "branch-1",
+          desktopPosRollout: "not_live",
+          desktopPosLiveAt: null,
+          posFallbackStartedAt: null,
+          posFallbackEndsAt: null,
+        },
+        shift: null,
+      },
+      {
+        id: "s2",
+        soldAt: new Date(),
+        grandTotal: new Prisma.Decimal(50),
+        discountTotal: new Prisma.Decimal(0),
+        status: "posted",
+        terminalId: null,
+        tillId: null,
+        shiftId: null,
+        offlineCommandId: null,
+        stockPosting: "posted",
+        branchId: "branch-1",
+        branch: {
+          id: "branch-1",
+          desktopPosRollout: "not_live",
+          desktopPosLiveAt: null,
+          posFallbackStartedAt: null,
+          posFallbackEndsAt: null,
+        },
+        shift: null,
+      },
     ]);
+    service = new ReportsService({} as never, {} as unknown as CategoryTaxonomyService, scope);
 
     const result = await service.salesSummary(tenantId, null, 30);
 
@@ -883,7 +934,7 @@ describe("ReportsService.salesByCashier", () => {
       sale: { findMany: jest.fn().mockResolvedValue([]) },
       appUser: { findMany: jest.fn().mockResolvedValue([]) },
     };
-    service = new ReportsService(prisma as never, {} as unknown as CategoryTaxonomyService);
+    service = new ReportsService(prisma as never, {} as unknown as CategoryTaxonomyService, mockSalesReportScope());
   });
 
   it("excludes a voided sale's discount from discountTotal, but still counts it toward corrections", async () => {
@@ -911,22 +962,47 @@ describe("ReportsService.salesByPaymentMethod", () => {
 
   beforeEach(() => {
     prisma = { salePayment: { findMany: jest.fn().mockResolvedValue([]) } };
-    service = new ReportsService(prisma as never, {} as unknown as CategoryTaxonomyService);
+    service = new ReportsService(prisma as never, {} as unknown as CategoryTaxonomyService, mockSalesReportScope());
   });
 
-  it("only requests posted/partially_refunded sales — a voided sale's tender never counts as revenue or a transaction", async () => {
+  it("loads scoped posted sales before reading payments", async () => {
+    const scope = mockSalesReportScope();
+    service = new ReportsService(prisma as never, {} as unknown as CategoryTaxonomyService, scope);
     await service.salesByPaymentMethod(tenantId, "branch-1", 30);
-
-    expect(prisma.salePayment.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({ sale: expect.objectContaining({ status: { in: ["posted", "partially_refunded"] } }) }),
-      }),
-    );
+    expect(scope.loadPostedSales).toHaveBeenCalled();
   });
 
   it("a partially_refunded sale's tender still counts toward refundedAtThisMethod", async () => {
+    const saleRow = {
+      id: "s1",
+      soldAt: new Date(),
+      grandTotal: new Prisma.Decimal(100),
+      discountTotal: new Prisma.Decimal(0),
+      status: "partially_refunded" as const,
+      terminalId: null,
+      tillId: null,
+      shiftId: null,
+      offlineCommandId: null,
+      stockPosting: "posted" as const,
+      branchId: "branch-1",
+      branch: {
+        id: "branch-1",
+        desktopPosRollout: "not_live" as const,
+        desktopPosLiveAt: null,
+        posFallbackStartedAt: null,
+        posFallbackEndsAt: null,
+      },
+      shift: null,
+    };
+    const scope = mockSalesReportScope([saleRow]);
+    service = new ReportsService(prisma as never, {} as unknown as CategoryTaxonomyService, scope);
     prisma.salePayment.findMany.mockResolvedValue([
-      { method: "cash", amount: new Prisma.Decimal(100), saleId: "s1", sale: { status: "partially_refunded", soldAt: new Date() } },
+      {
+        method: "cash",
+        amount: new Prisma.Decimal(100),
+        saleId: "s1",
+        sale: { status: "partially_refunded", soldAt: new Date(), offlineCommandId: null },
+      },
     ]);
 
     const result = await service.salesByPaymentMethod(tenantId, null, 30);
@@ -945,7 +1021,7 @@ describe("ReportsService.returnsAndDiscounts", () => {
       goodsReturn: { findMany: jest.fn().mockResolvedValue([]) },
       saleItem: { findMany: jest.fn().mockResolvedValue([]), groupBy: jest.fn().mockResolvedValue([]) },
     };
-    service = new ReportsService(prisma as never, {} as unknown as CategoryTaxonomyService);
+    service = new ReportsService(prisma as never, {} as unknown as CategoryTaxonomyService, mockSalesReportScope());
   });
 
   it("only requests completed customer returns — a draft/pending_approval return is excluded", async () => {
@@ -1027,7 +1103,7 @@ describe("ReportsService.salesDaily", () => {
       sale: { findMany: jest.fn().mockResolvedValue([]) },
       goodsReturnItem: { findMany: jest.fn().mockResolvedValue([]) },
     };
-    service = new ReportsService(prisma as never, {} as unknown as CategoryTaxonomyService);
+    service = new ReportsService(prisma as never, {} as unknown as CategoryTaxonomyService, mockSalesReportScope());
   });
 
   it("only requests completed customer returns for the returns column", async () => {
@@ -1041,13 +1117,35 @@ describe("ReportsService.salesDaily", () => {
   });
 
   it("netSales is grandTotal-based (tax-inclusive) minus netted returns — discounts no longer subtracted a second time", async () => {
-    // "Yesterday" rather than a hardcoded date literal — comfortably inside a 5-day window
-    // regardless of the machine's local timezone vs. the service's UTC-ISO day-key bucketing
-    // (summing across every row below, rather than asserting on one exact day-key, is what
-    // actually makes this test timezone-safe — the two together avoid a flaky boundary case).
     const recent = new Date();
     recent.setDate(recent.getDate() - 1);
-    prisma.sale.findMany.mockResolvedValue([{ soldAt: recent, grandTotal: new Prisma.Decimal(115), discountTotal: new Prisma.Decimal(5) }]);
+    const scope = mockSalesReportScope([
+      {
+        id: "s1",
+        soldAt: recent,
+        grandTotal: new Prisma.Decimal(115),
+        discountTotal: new Prisma.Decimal(5),
+        status: "posted",
+        terminalId: null,
+        tillId: null,
+        shiftId: null,
+        offlineCommandId: null,
+        stockPosting: "posted",
+        branchId: "branch-1",
+        branch: {
+          id: "branch-1",
+          desktopPosRollout: "not_live",
+          desktopPosLiveAt: null,
+          posFallbackStartedAt: null,
+          posFallbackEndsAt: null,
+        },
+        shift: null,
+      },
+    ]);
+    jest
+      .mocked(scope.businessDateKey)
+      .mockImplementation((_tz: string, sale: { soldAt: Date }) => sale.soldAt.toISOString().slice(0, 10));
+    service = new ReportsService(prisma as never, {} as unknown as CategoryTaxonomyService, scope);
     prisma.goodsReturnItem.findMany.mockResolvedValue([
       { ...returnItem("p1", 1, 20, 8), goodsReturn: { createdAt: recent, branchId: "branch-1" } },
     ]);
@@ -1110,7 +1208,11 @@ describe("ReportsService.nearExpiry", () => {
       ),
       commercialCanonicalIds: jest.fn().mockResolvedValue(new Map([["MEDICINES", "cat-medicines"]])),
     };
-    service = new ReportsService(prisma as never, taxonomy as unknown as CategoryTaxonomyService);
+    service = new ReportsService(
+      prisma as never,
+      taxonomy as unknown as CategoryTaxonomyService,
+      mockSalesReportScope(),
+    );
   });
 
   it("computes valueAtRisk and daysLeft from the current stock quantity", async () => {
@@ -1358,7 +1460,11 @@ describe("ReportsService.stockAgeing", () => {
       ),
       commercialCanonicalIds: jest.fn().mockResolvedValue(new Map([["MEDICINES", "cat-medicines"]])),
     };
-    service = new ReportsService(prisma as never, taxonomy as unknown as CategoryTaxonomyService);
+    service = new ReportsService(
+      prisma as never,
+      taxonomy as unknown as CategoryTaxonomyService,
+      mockSalesReportScope(),
+    );
     mockConstantQty({ b1: 20 });
   });
 
@@ -1637,7 +1743,11 @@ describe("ReportsService.inventorySummary", () => {
         new Map([["p1", { id: "cat-pain-fever", name: "Pain & Fever", parentCategoryId: "cat-medicines", canonicalKey: "MEDICINES_PAIN_FEVER", parent: { id: "cat-medicines", name: "Medicines" } }]]),
       ),
     };
-    service = new ReportsService(prisma as never, taxonomy as unknown as CategoryTaxonomyService);
+    service = new ReportsService(
+      prisma as never,
+      taxonomy as unknown as CategoryTaxonomyService,
+      mockSalesReportScope(),
+    );
     mockConstantQty({ b1: 20 });
   });
 
@@ -1990,7 +2100,11 @@ describe("ReportsService.deadStock", () => {
         new Map([["p1", { id: "cat-pain-fever", name: "Pain & Fever", parentCategoryId: "cat-medicines", canonicalKey: "MEDICINES_PAIN_FEVER", parent: { id: "cat-medicines", name: "Medicines" } }]]),
       ),
     };
-    service = new ReportsService(prisma as never, taxonomy as unknown as CategoryTaxonomyService);
+    service = new ReportsService(
+      prisma as never,
+      taxonomy as unknown as CategoryTaxonomyService,
+      mockSalesReportScope(),
+    );
     mockConstantQty({ b1: 20 });
   });
 
@@ -2345,7 +2459,11 @@ describe("ReportsService.stockHealth", () => {
         new Map([["p1", { id: "cat-pain-fever", name: "Pain & Fever", parentCategoryId: "cat-medicines", canonicalKey: "MEDICINES_PAIN_FEVER", parent: { id: "cat-medicines", name: "Medicines" } }]]),
       ),
     };
-    service = new ReportsService(prisma as never, taxonomy as unknown as CategoryTaxonomyService);
+    service = new ReportsService(
+      prisma as never,
+      taxonomy as unknown as CategoryTaxonomyService,
+      mockSalesReportScope(),
+    );
     mockConstantQty({ b1: 20 });
   });
 
@@ -2566,7 +2684,11 @@ describe("ReportsService.stockMovement", () => {
       goodsReceiptItem: { findMany: jest.fn().mockResolvedValue([]) },
     };
     taxonomy = { primaryCommercialCategoryByProductIds: jest.fn().mockResolvedValue(new Map()) };
-    service = new ReportsService(prisma as never, taxonomy as unknown as CategoryTaxonomyService);
+    service = new ReportsService(
+      prisma as never,
+      taxonomy as unknown as CategoryTaxonomyService,
+      mockSalesReportScope(),
+    );
     mockProducts([{ id: "p1", reorderLevel: 10 }]);
     mockCategories({ p1: { id: "cat-medicines", name: "Medicines", parentId: null } });
   });
@@ -3046,7 +3168,11 @@ describe("ReportsService.transfersReport", () => {
       saleItem: { groupBy: jest.fn().mockResolvedValue([]) },
     };
     taxonomy = { primaryCommercialCategoryByProductIds: jest.fn().mockResolvedValue(new Map()) };
-    service = new ReportsService(prisma as never, taxonomy as unknown as CategoryTaxonomyService);
+    service = new ReportsService(
+      prisma as never,
+      taxonomy as unknown as CategoryTaxonomyService,
+      mockSalesReportScope(),
+    );
   });
 
   it("returns the empty shape for a single-branch tenant without querying transfers at all", async () => {
@@ -3254,7 +3380,11 @@ describe("ReportsService.stocktakesReport", () => {
       product: { findMany: jest.fn().mockResolvedValue([]) },
     };
     taxonomy = { primaryCommercialCategoryByProductIds: jest.fn().mockResolvedValue(new Map()) };
-    service = new ReportsService(prisma as never, taxonomy as unknown as CategoryTaxonomyService);
+    service = new ReportsService(
+      prisma as never,
+      taxonomy as unknown as CategoryTaxonomyService,
+      mockSalesReportScope(),
+    );
   });
 
   it("returns the empty shape when there are no stocktakes or counted lines at all", async () => {
@@ -3452,7 +3582,11 @@ describe("ReportsService.purchaseSummary", () => {
       saleItem: { groupBy: jest.fn().mockResolvedValue([]) },
     };
     taxonomy = { primaryCommercialCategoryByProductIds: jest.fn().mockResolvedValue(new Map()) };
-    service = new ReportsService(prisma as never, taxonomy as unknown as CategoryTaxonomyService);
+    service = new ReportsService(
+      prisma as never,
+      taxonomy as unknown as CategoryTaxonomyService,
+      mockSalesReportScope(),
+    );
   });
 
   it("computes Purchase Spend (ordered value) and Received Value (capped at ordered qty) at PO unit cost", async () => {
@@ -3549,7 +3683,11 @@ describe("ReportsService.supplierSpend", () => {
 
     prisma = { purchaseOrder: { findMany: jest.fn().mockResolvedValue([]) }, supplier: { findMany: jest.fn().mockResolvedValue([]) } };
     taxonomy = { primaryCommercialCategoryByProductIds: jest.fn().mockResolvedValue(new Map()) };
-    service = new ReportsService(prisma as never, taxonomy as unknown as CategoryTaxonomyService);
+    service = new ReportsService(
+      prisma as never,
+      taxonomy as unknown as CategoryTaxonomyService,
+      mockSalesReportScope(),
+    );
   });
 
   it("ranks suppliers by spend, computing share % and cumulative % correctly", async () => {
@@ -3647,7 +3785,11 @@ describe("ReportsService.supplierPerformance", () => {
       goodsReturn: { findMany: jest.fn().mockResolvedValue([]) },
     };
     taxonomy = { primaryCommercialCategoryByProductIds: jest.fn().mockResolvedValue(new Map()) };
-    service = new ReportsService(prisma as never, taxonomy as unknown as CategoryTaxonomyService);
+    service = new ReportsService(
+      prisma as never,
+      taxonomy as unknown as CategoryTaxonomyService,
+      mockSalesReportScope(),
+    );
   });
 
   it("computes On-Time %, Fill Rate % and Price Variance % from real PO vs. receipt/batch data", async () => {

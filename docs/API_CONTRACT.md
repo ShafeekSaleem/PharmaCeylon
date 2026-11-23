@@ -1215,6 +1215,39 @@ with no approval is still refused with `APPROVAL_REQUIRED`. The till refund
 - `GET /api/v1/sales/payment-recovery` — Query: `page`, `pageSize`, `heldReason` (optional manager-held card reason), `sort` (`receivedAt` default | `recordedAt`). One row per non-null card `attemptId` (deduped by latest `receivedAt` per attempt). Considers at most **500** held card rows per branch (same cap as `SupportEvidenceReconciler.listHeld`); older rows may be omitted from the queue. `clearsOnUpload: false` on each item because only manager-held reasons are listed. Returns `{ items, total, page, pageSize, asOf }`.
 - `GET /api/v1/sales/collected-money` — Query: `page`, `pageSize`, optional `shiftId`. Lists immutable `offline_collected_payment` rows (card money collected but not sold), including provider references and approval codes. Each item includes `status: "unresolved"` (placeholder until counter resolution exists). Returns `{ items, total, page, pageSize, asOf }`.
 
+**Sales reports (W10 #72)** — permission **`reports.view`**, branch via **`x-branch-id`** (owners may pass `scope=tenant` on the same routes as today). Filter options reuse **`GET /api/v1/sales/history/options`** (`terminals`, `registers`, `shifts`, `offlineSyncStates`); do not add parallel report-only option endpoints.
+
+Shared query params on **`GET /api/v1/reports/sales-summary`**, **`sales-daily`**, **`sales-by-category`**, **`sales-by-cashier`**, **`sales-by-payment-method`**, **`sales-by-hour`**, **`returns-and-discounts`**:
+
+| Param | Notes |
+| --- | --- |
+| `terminalId` | Enrolled counter (`operational_terminal.id`) |
+| `registerId` | Counter register (`terminal_counter.id`); resolves the till |
+| `shiftId` | Till shift (`till_shift.id`) |
+| `channel` | `web_legacy` \| `desktop_online` \| `offline` \| `fallback` (same rules as sales history) |
+| `offlineSyncState` | `accepted` \| `pending_stock_posting` \| `held` (offline-replayed sales only) |
+| `reportGroupBy` | Optional breakdown dimension on the response: `terminal` \| `shift` \| `channel`. On **`sales-by-category`**, the existing category `groupBy` query (`commercial`, `dosageForm`, …) is unchanged — use `reportGroupBy` for counter/shift/channel breakdowns. |
+
+**Offline sale dating:** report day buckets use the counter's journal `occurredAt` when `offlineCommandId` is set (loaded from `terminal_command_receipt.command`), not the server `soldAt` / sync instant. Calendar days follow the tenant timezone (branch timezone when scoped to one branch).
+
+**`freshness` on each sales report response** (object, does not change totals):
+
+| Field | Meaning |
+| --- | --- |
+| `generatedAt` | ISO time when the report response was built |
+| `latestSyncedAt` | Latest accepted offline-journal sync instant among counters in scope, or `null` if none |
+| `pendingOfflineCount` | Offline-replayed sales in the report window that still have open stock cases or `stock_posting = pending_reconciliation` |
+
+**`breakdown`** (when `reportGroupBy` is set) — rows `{ key, label, count, grandTotal, … }` whose `grandTotal` and `count` sum to the unfiltered report totals for the same `days` and filters:
+
+| `reportGroupBy` | Extra fields |
+| --- | --- |
+| `terminal` | `terminal: { id, label }`, `register: { id, tillId, label }` (nullable when absent) |
+| `shift` | `shift: { id, shiftNumber, registerId, registerLabel, openedAt, closedAt }` |
+| `channel` | `channel` (`web_legacy`, `desktop_online`, `offline`, `fallback`) |
+
+`GET /api/v1/reports/offline-sync-freshness` (existing P5 caveat banner) is unchanged; the inline `freshness` block above is a lighter per-report slice for Oliver.
+
 **Controlled products** (`Product.isControlled`): checkout requires **pharmacist**, **manager**, or **owner** effective on the branch (owners may be recognized tenant-wide per service rules).
 
 ## Approval thresholds (server-enforced)
