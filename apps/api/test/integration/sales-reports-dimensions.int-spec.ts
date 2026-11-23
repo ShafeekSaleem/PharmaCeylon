@@ -165,7 +165,7 @@ async function enrollAndSell(
   );
   return {
     terminalId: identity.terminalId,
-    tillId: identity.tillId,
+    tillId: session.tillId,
     workSessionId: session.workSessionId,
     shiftId,
     saleId: sale!.id,
