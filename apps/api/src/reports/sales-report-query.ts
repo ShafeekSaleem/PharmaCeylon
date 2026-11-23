@@ -25,6 +25,16 @@ export type SalesReportQuery = Readonly<{
 
 export const EMPTY_SALES_REPORT_QUERY: SalesReportQuery = { filters: {} };
 
+export function salesReportFiltersActive(filters: SalesReportFilters): boolean {
+  return Boolean(
+    filters.terminalId ||
+      filters.registerId ||
+      filters.shiftId ||
+      filters.channel ||
+      filters.offlineSyncState,
+  );
+}
+
 export function parseSalesReportQuery(
   query: Record<string, string | undefined>,
 ): SalesReportQuery {
@@ -65,11 +75,11 @@ export function parseSalesReportQuery(
     filters.offlineSyncState = syncRaw as OfflineSaleSyncState;
   }
 
-  const groupByRaw = query.groupBy?.trim();
+  const groupByRaw = query.reportGroupBy?.trim();
   let groupBy: SalesReportGroupBy | undefined;
   if (groupByRaw) {
     if (!GROUP_BY_VALUES.includes(groupByRaw as SalesReportGroupBy)) {
-      throw new BadRequestException(`groupBy must be one of: ${GROUP_BY_VALUES.join(", ")}`);
+      throw new BadRequestException(`reportGroupBy must be one of: ${GROUP_BY_VALUES.join(", ")}`);
     }
     groupBy = groupByRaw as SalesReportGroupBy;
   }

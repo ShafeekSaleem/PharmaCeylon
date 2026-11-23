@@ -26,7 +26,11 @@ import {
   offlineCommandOccurredAt,
   type SaleInstantRow,
 } from "./sales-report-effective-time";
-import type { SalesReportFilters, SalesReportGroupBy } from "./sales-report-query";
+import {
+  salesReportFiltersActive,
+  type SalesReportFilters,
+  type SalesReportGroupBy,
+} from "./sales-report-query";
 
 const NO_SUCH_TILL = "00000000-0000-4000-8000-000000000000";
 const MS_PER_DAY = 86_400_000;
@@ -388,7 +392,12 @@ export class SalesReportScopeService {
     groupBy: SalesReportGroupBy,
     occurredAtByCommandId: ReadonlyMap<string, number>,
   ): Promise<SalesReportBreakdownRow[]> {
-    const historical = await this.fallbackHistoryForSales(sales);
+    const historical = sales.length
+      ? await this.fallbackHistoryForBranchIds(
+          tenantId,
+          [...new Set(sales.map((s) => s.branchId))],
+        )
+      : new Map();
     const terminalIds = [...new Set(sales.map((s) => s.terminalId).filter((id): id is string => Boolean(id)))];
     const tillIds = [...new Set(sales.map((s) => s.tillId).filter((id): id is string => Boolean(id)))];
 
@@ -502,22 +511,93 @@ export class SalesReportScopeService {
       .sort((a, b) => Number(b.grandTotal) - Number(a.grandTotal));
   }
 
-  private async fallbackHistoryForSales(
-    sales: readonly SalesReportSaleRow[],
-  ): Promise<Map<string, import("@pharmaceylon/shared").FallbackWindow[]>> {
-    if (!sales.length) return new Map();
-    const tenantId = (
-      await this.prisma.sale.findFirst({
-        where: { id: sales[0]!.id },
-        select: { tenantId: true },
-      })
-    )?.tenantId;
-    if (!tenantId) return new Map();
+  /**
+   * Completed customer returns in the report window always count when no dimension filters are set.
+   * With filters, a return matches when its original sale would match the same filters (any sale
+   * status — including fully refunded), or when it has no linked sale and its own `shiftId` matches
+   * a `shiftId` filter.
+   */
+  async filterCustomerReturnsForReport<T extends { saleId: string | null; shiftId: string | null }>(
+    tenantId: string,
+    branchId: string | null,
+    filters: SalesReportFilters,
+    returns: readonly T[],
+  ): Promise<T[]> {
+    if (!salesReportFiltersActive(filters) || !returns.length) return [...returns];
+
+    const saleIds = [...new Set(returns.map((r) => r.saleId).filter((id): id is string => Boolean(id)))];
+    const sales =
+      saleIds.length > 0
+        ? await this.prisma.sale.findMany({
+            where: { tenantId, id: { in: saleIds } },
+            select: SALES_REPORT_SALE_SELECT,
+          })
+        : [];
+    const saleById = new Map(sales.map((s) => [s.id, s]));
     const branchIds = [...new Set(sales.map((s) => s.branchId))];
+    const historical = await this.fallbackHistoryForBranchIds(tenantId, branchIds);
+    const openCases = await this.openDiscrepancySaleIds(tenantId, saleIds);
+
+    let registerTillId: string | null = null;
+    if (filters.registerId) {
+      const register = await this.prisma.terminalCounter.findFirst({
+        where: {
+          tenantId,
+          id: filters.registerId,
+          ...(branchId ? { branchId } : {}),
+        },
+        select: { tillId: true },
+      });
+      registerTillId = register?.tillId ?? NO_SUCH_TILL;
+    }
+
+    return returns.filter((r) =>
+      this.returnMatchesReportFilters(r, r.saleId ? saleById.get(r.saleId) : undefined, filters, {
+        registerTillId,
+        historical,
+        openCases,
+      }),
+    );
+  }
+
+  private returnMatchesReportFilters(
+    ret: { saleId: string | null; shiftId: string | null },
+    sale: SalesReportSaleRow | undefined,
+    filters: SalesReportFilters,
+    ctx: {
+      registerTillId: string | null;
+      historical: Map<string, import("@pharmaceylon/shared").FallbackWindow[]>;
+      openCases: ReadonlySet<string>;
+    },
+  ): boolean {
+    if (ret.saleId) {
+      if (!sale) return false;
+      if (filters.terminalId && sale.terminalId !== filters.terminalId) return false;
+      if (filters.shiftId && sale.shiftId !== filters.shiftId && ret.shiftId !== filters.shiftId) return false;
+      if (filters.registerId && sale.tillId !== ctx.registerTillId) return false;
+      if (filters.channel) {
+        const channel = deriveSaleChannel(sale, sale.branch, ctx.historical.get(sale.branchId) ?? []);
+        if (channel !== filters.channel) return false;
+      }
+      if (filters.offlineSyncState) {
+        const state = this.deriveOfflineSyncState(sale, ctx.openCases, sale.id);
+        if (state !== filters.offlineSyncState) return false;
+      }
+      return true;
+    }
+    if (filters.shiftId && ret.shiftId === filters.shiftId) return true;
+    return false;
+  }
+
+  private async fallbackHistoryForBranchIds(
+    tenantId: string,
+    branchIds: readonly string[],
+  ): Promise<Map<string, import("@pharmaceylon/shared").FallbackWindow[]>> {
+    if (!branchIds.length) return new Map();
     const rows = await this.prisma.auditEvent.findMany({
       where: {
         tenantId,
-        branchId: { in: branchIds },
+        branchId: { in: [...branchIds] },
         eventName: { in: [...FALLBACK_AUDIT_EVENTS] },
       },
       select: { branchId: true, eventName: true, payload: true, createdAt: true },
@@ -525,6 +605,7 @@ export class SalesReportScopeService {
     });
     return fallbackWindowsFromAudit(rows);
   }
+
 }
 
 function channelLabel(channel: SaleChannel): string {

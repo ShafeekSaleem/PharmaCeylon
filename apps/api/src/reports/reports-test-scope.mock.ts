@@ -57,5 +57,11 @@ export function mockSalesReportScope(
     openDiscrepancySaleIds: jest.fn().mockResolvedValue(new Set()),
     deriveOfflineSyncState: jest.fn().mockReturnValue(null),
     resolveTimeZone: jest.fn().mockResolvedValue("Asia/Colombo"),
+    filterCustomerReturnsForReport: jest
+      .fn()
+      .mockImplementation(
+        (_tenantId: string, _branchId: string | null, _filters: unknown, returns: unknown[]) =>
+          Promise.resolve([...returns]),
+      ),
   } as unknown as SalesReportScopeService;
 }

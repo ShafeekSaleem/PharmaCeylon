@@ -1042,6 +1042,7 @@ describe("ReportsService.returnsAndDiscounts", () => {
         amount: new Prisma.Decimal(40),
         createdAt: new Date(),
         saleId: "s1",
+        shiftId: null,
         items: [{ productId: "p1", qty: 1, unitPrice: new Prisma.Decimal(40), product: { sku: "SKU1", name: "Product 1" } }],
       },
     ]);
@@ -1060,6 +1061,7 @@ describe("ReportsService.returnsAndDiscounts", () => {
         amount: new Prisma.Decimal(40),
         createdAt: new Date(),
         saleId: "s1",
+        shiftId: null,
         items: [{ productId: "p1", qty: 2, unitPrice: new Prisma.Decimal(20), product: { sku: "SKU1", name: "Product 1" } }],
       },
       {
@@ -1068,6 +1070,7 @@ describe("ReportsService.returnsAndDiscounts", () => {
         amount: new Prisma.Decimal(20),
         createdAt: new Date(),
         saleId: "s2",
+        shiftId: null,
         items: [{ productId: "p1", qty: 1, unitPrice: new Prisma.Decimal(20), product: { sku: "SKU1", name: "Product 1" } }],
       },
     ]);

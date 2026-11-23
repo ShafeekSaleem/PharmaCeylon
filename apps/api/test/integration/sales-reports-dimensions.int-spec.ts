@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import * as bcrypt from "bcrypt";
-import { PaymentMethod, Prisma, RoleName } from "@prisma/client";
+import { GoodsReturnStatus, PaymentMethod, Prisma, RoleName } from "@prisma/client";
 import type { LocalAttendanceAttestation, TerminalEnrollmentCommand, TerminalIdentity, TerminalSessionCommand } from "@pharmaceylon/shared";
 import { addDays, businessDateKey, businessToday, startOfBusinessDay } from "../../src/common/business-date.util";
 import { CategoryTaxonomyService } from "../../src/catalog/category-taxonomy.service";
@@ -279,6 +279,110 @@ beforeAll(async () => {
     where: { id: hiddenSaleId },
     data: { soldAt: new Date() },
   });
+
+  await prisma.sale.update({ where: { id: mainSaleId }, data: { status: "refunded" } });
+  await prisma.goodsReturn.create({
+    data: {
+      tenantId: fx.tenantId,
+      branchId: fx.mainBranchId,
+      returnNumber: `CR-${randomUUID().slice(0, 6)}`,
+      type: "customer",
+      status: GoodsReturnStatus.completed,
+      saleId: mainSaleId,
+      shiftId: mainShiftId,
+      amount: "30.00",
+      requestedBy: fx.clerkId,
+      processedBy: fx.clerkId,
+      createdAt: new Date(),
+      items: {
+        create: {
+          tenantId: fx.tenantId,
+          productId: fx.productId,
+          batchId,
+          qty: 1,
+          unitPrice: "30.00",
+        },
+      },
+    },
+  });
+
+  await prisma.goodsReturn.create({
+    data: {
+      tenantId: fx.tenantId,
+      branchId: fx.mainBranchId,
+      returnNumber: `CR-U-${randomUUID().slice(0, 6)}`,
+      type: "customer",
+      status: GoodsReturnStatus.completed,
+      saleId: null,
+      shiftId: mainShiftId,
+      amount: "15.00",
+      requestedBy: fx.clerkId,
+      processedBy: fx.clerkId,
+      createdAt: new Date(),
+      items: {
+        create: {
+          tenantId: fx.tenantId,
+          productId: fx.productId,
+          batchId,
+          qty: 1,
+          unitPrice: "15.00",
+        },
+      },
+    },
+  });
+
+  const priorSale = await prisma.sale.create({
+    data: {
+      tenantId: fx.tenantId,
+      branchId: fx.mainBranchId,
+      invoiceNo: `OLD-${randomUUID().slice(0, 6)}`,
+      status: "posted",
+      soldAt: new Date(Date.now() - 120 * 24 * 3_600_000),
+      terminalId: mainTerminalId,
+      tillId: mainTillId,
+      workSessionId: mainWorkSessionId,
+      shiftId: mainShiftId,
+      soldBy: fx.clerkId,
+      subtotal: "25",
+      grandTotal: "25",
+      amountPaid: "25",
+      items: {
+        create: {
+          tenantId: fx.tenantId,
+          productId: fx.productId,
+          batchId,
+          qty: 1,
+          unitPrice: "25",
+          lineTotal: "25",
+        },
+      },
+      payments: { create: { tenantId: fx.tenantId, method: PaymentMethod.cash, amount: "25" } },
+    },
+  });
+  await prisma.goodsReturn.create({
+    data: {
+      tenantId: fx.tenantId,
+      branchId: fx.mainBranchId,
+      returnNumber: `CR-O-${randomUUID().slice(0, 6)}`,
+      type: "customer",
+      status: GoodsReturnStatus.completed,
+      saleId: priorSale.id,
+      shiftId: mainShiftId,
+      amount: "25.00",
+      requestedBy: fx.clerkId,
+      processedBy: fx.clerkId,
+      createdAt: new Date(),
+      items: {
+        create: {
+          tenantId: fx.tenantId,
+          productId: fx.productId,
+          batchId,
+          qty: 1,
+          unitPrice: "25.00",
+        },
+      },
+    },
+  });
 });
 
 afterAll(() => prisma.$disconnect());
@@ -378,5 +482,42 @@ describe("sales report dimensions (W10 #72)", () => {
       latestSyncedAt: null,
       pendingOfflineCount: expect.any(Number),
     });
+  });
+});
+
+describe("sales report return scoping (W10 #72 review)", () => {
+  it("returns-and-discounts without filters includes fully refunded, unlinked and older-sale returns", async () => {
+    const result = await reports.returnsAndDiscounts(fx.tenantId, fx.mainBranchId, 365);
+    expect(result.totalReturnValue).toBeGreaterThanOrEqual(30);
+    expect(Number(result.totalReturnValue)).toBeGreaterThanOrEqual(70);
+  });
+
+  it("returns-and-discounts with a non-matching terminal filter yields zero return value", async () => {
+    const result = await reports.returnsAndDiscounts(fx.tenantId, fx.mainBranchId, 365, {
+      filters: { terminalId: hiddenTerminalId },
+    });
+    expect(result.totalReturnValue).toBe(0);
+    expect(result.returnedItemCount).toBe(0);
+  });
+
+  it("sales-daily subtracts only returns that match dimension filters", async () => {
+    const syncKey = businessDateKey(TZ);
+    const filtered = await reports.salesDaily(fx.tenantId, fx.mainBranchId, 60, {
+      filters: { terminalId: hiddenTerminalId },
+    });
+    const row = filtered.rows.find((r) => r.date === syncKey);
+    expect(row?.returns).toBe("0");
+    const unfiltered = await reports.salesDaily(fx.tenantId, fx.mainBranchId, 60);
+    const baseRow = unfiltered.rows.find((r) => r.date === syncKey);
+    expect(Number(baseRow?.returns ?? 0)).toBeGreaterThan(0);
+  });
+
+  it("sales-by-category nets only matching returns under dimension filters", async () => {
+    const filtered = await reports.salesByCategory(fx.tenantId, fx.mainBranchId, 365, "commercial", {
+      filters: { terminalId: hiddenTerminalId },
+    });
+    expect(filtered.categories.some((c) => Number(c.revenue) < 0)).toBe(false);
+    const unfiltered = await reports.salesByCategory(fx.tenantId, fx.mainBranchId, 365, "commercial");
+    expect(unfiltered.categories.some((c) => Number(c.revenue) < 0)).toBe(true);
   });
 });

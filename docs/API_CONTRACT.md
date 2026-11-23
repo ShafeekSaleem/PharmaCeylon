@@ -1228,7 +1228,9 @@ Shared query params on **`GET /api/v1/reports/sales-summary`**, **`sales-daily`*
 | `offlineSyncState` | `accepted` \| `pending_stock_posting` \| `held` (offline-replayed sales only) |
 | `reportGroupBy` | Optional breakdown dimension on the response: `terminal` \| `shift` \| `channel`. On **`sales-by-category`**, the existing category `groupBy` query (`commercial`, `dosageForm`, …) is unchanged — use `reportGroupBy` for counter/shift/channel breakdowns. |
 
-**Offline sale dating:** report day buckets use the counter's journal `occurredAt` when `offlineCommandId` is set (loaded from `terminal_command_receipt.command`), not the server `soldAt` / sync instant. Calendar days follow the tenant timezone (branch timezone when scoped to one branch).
+**Offline sale dating:** report day buckets use the counter's journal `occurredAt` when `offlineCommandId` is set (loaded from `terminal_command_receipt.command`), not the server `soldAt` / sync instant. Calendar days follow the tenant timezone (branch timezone when scoped to one branch). The window is **N calendar days including today** in that timezone (not a rolling `now − days` instant).
+
+**Return netting (`returns-and-discounts`, `sales-daily`, `sales-by-category`):** completed customer returns are bucketed by the return's own `createdAt` in the report window (the original sale may be older or fully refunded). **Without** dimension filters, every such return in the branch counts — same as pre–W10 #72 behaviour (fully refunded, unlinked, and cross-window originals included). **With** filters, a return counts only when its **original sale** matches the same `terminalId` / `registerId` / `shiftId` / `channel` / `offlineSyncState` rules as posted sales (sale status ignored), or when it has **no** linked sale and its own `shiftId` matches a `shiftId` filter. If filters match no sales, totals stay **zero** — nothing falls back to unfiltered branch data.
 
 **`freshness` on each sales report response** (object, does not change totals):
 

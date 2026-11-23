@@ -5,6 +5,8 @@ import { PrismaService } from "../prisma/prisma.service";
 import { CategoryTaxonomyService } from "../catalog/category-taxonomy.service";
 import {
   EMPTY_SALES_REPORT_QUERY,
+  salesReportFiltersActive,
+  type SalesReportFilters,
   type SalesReportQuery,
 } from "./sales-report-query";
 import { effectiveSaleInstant } from "./sales-report-effective-time";
@@ -901,6 +903,32 @@ export class ReportsService {
    *  hasn't actually happened yet. Revenue reversal uses `unitPrice * qty` (the refunded sale
    *  price — `GoodsReturnItem` doesn't retain the original line's tax/discount split); cost
    *  reversal uses the same batch's `costPrice` the original sale was costed at, when known. */
+  private async netCustomerReturnItemsForSalesReport(
+    tenantId: string,
+    branchId: string | null,
+    since: Date,
+    filters: SalesReportFilters,
+  ) {
+    const items = await this.netCustomerReturnItems(tenantId, branchId, since);
+    if (!salesReportFiltersActive(filters)) return items;
+    const headers: { id: string; saleId: string | null; shiftId: string | null }[] = [];
+    const seen = new Set<string>();
+    for (const it of items) {
+      const id = it.goodsReturn.id;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      headers.push({
+        id,
+        saleId: it.goodsReturn.saleId,
+        shiftId: it.goodsReturn.shiftId,
+      });
+    }
+    const allowed = new Set(
+      (await this.salesScope.filterCustomerReturnsForReport(tenantId, branchId, filters, headers)).map((h) => h.id),
+    );
+    return items.filter((it) => allowed.has(it.goodsReturn.id));
+  }
+
   private async netCustomerReturnItems(tenantId: string, branchId: string | null, since: Date) {
     return this.prisma.goodsReturnItem.findMany({
       where: {
@@ -919,7 +947,9 @@ export class ReportsService {
         batchId: true,
         batch: { select: { costPrice: true } },
         product: { select: { sku: true, name: true, brandName: true, schedule: true } },
-        goodsReturn: { select: { createdAt: true, branchId: true } },
+        goodsReturn: {
+          select: { id: true, createdAt: true, branchId: true, saleId: true, shiftId: true },
+        },
       },
     });
   }
@@ -2069,7 +2099,7 @@ export class ReportsService {
             product: { select: { schedule: true } },
           },
         }),
-        this.netCustomerReturnItems(tenantId, branchId, since),
+        this.netCustomerReturnItemsForSalesReport(tenantId, branchId, since, query.filters),
       ]);
 
       const byGroup = new Map<
@@ -2139,7 +2169,7 @@ export class ReportsService {
         },
         select: { productId: true, qty: true, lineTotal: true, batch: { select: { costPrice: true } } },
       }),
-      this.netCustomerReturnItems(tenantId, branchId, since),
+      this.netCustomerReturnItemsForSalesReport(tenantId, branchId, since, query.filters),
     ]);
     // Includes returned products even when their sale falls outside this window (see
     // `netCustomerReturnItems`'s doc comment) so their category still resolves instead of
@@ -2770,61 +2800,73 @@ export class ReportsService {
       window,
       query.filters,
     );
-    const scopedSaleIds = new Set(scoped.map((s) => s.id));
+    const scopedSaleIds = scoped.map((s) => s.id);
+    const filtersActive = salesReportFiltersActive(query.filters);
     const freshness = await this.salesScope.freshness(tenantId, branchId, window, query.filters);
 
-    const [returns, discountItems] = await Promise.all([
-      this.prisma.goodsReturn.findMany({
-        // completed only — matches netCustomerReturnItems' convention: a draft/pending_approval/
-        // rejected/cancelled return never actually moved stock or cash, so counting it here would
-        // overstate returns vs. every other report that nets returns out of revenue.
-        where: { tenantId, type: "customer", status: GoodsReturnStatus.completed, ...(branchId ? { branchId } : {}), createdAt: { gte: since } },
-        select: {
-          id: true,
-          reason: true,
-          amount: true,
-          createdAt: true,
-          saleId: true,
-          items: { select: { productId: true, qty: true, unitPrice: true, product: { select: { sku: true, name: true } } } },
-        },
-      }),
-      scopedSaleIds.size
-        ? this.prisma.saleItem.findMany({
-            where: {
-              tenantId,
-              discountAmount: { gt: 0 },
-              saleId: { in: [...scopedSaleIds] },
-            },
-            select: {
-              productId: true,
-              discountAmount: true,
-              product: { select: { sku: true, name: true } },
-              sale: { select: { id: true, soldAt: true, offlineCommandId: true } },
-            },
-          })
-        : this.prisma.saleItem.findMany({
-            where: {
-              tenantId,
-              discountAmount: { gt: 0 },
-              sale: {
-                tenantId,
-                ...(branchId ? { branchId } : {}),
-                soldAt: { gte: window.paddedSince, lt: window.paddedBefore },
-              },
-            },
-            select: {
-              productId: true,
-              discountAmount: true,
-              product: { select: { sku: true, name: true } },
-              sale: { select: { id: true, soldAt: true, offlineCommandId: true } },
-            },
-          }),
-    ]);
+    const returnsRaw = await this.prisma.goodsReturn.findMany({
+      // completed only — matches netCustomerReturnItems' convention: a draft/pending_approval/
+      // rejected/cancelled return never actually moved stock or cash, so counting it here would
+      // overstate returns vs. every other report that nets returns out of revenue.
+      where: {
+        tenantId,
+        type: "customer",
+        status: GoodsReturnStatus.completed,
+        ...(branchId ? { branchId } : {}),
+        createdAt: { gte: since },
+      },
+      select: {
+        id: true,
+        reason: true,
+        amount: true,
+        createdAt: true,
+        saleId: true,
+        shiftId: true,
+        items: { select: { productId: true, qty: true, unitPrice: true, product: { select: { sku: true, name: true } } } },
+      },
+    });
 
-    const returnsInScope =
-      scopedSaleIds.size > 0
-        ? returns.filter((r) => r.saleId && scopedSaleIds.has(r.saleId))
-        : returns;
+    const returnsInScope = await this.salesScope.filterCustomerReturnsForReport(
+      tenantId,
+      branchId,
+      query.filters,
+      returnsRaw,
+    );
+
+    const discountItems =
+      filtersActive && scopedSaleIds.length === 0
+        ? []
+        : filtersActive
+          ? await this.prisma.saleItem.findMany({
+              where: {
+                tenantId,
+                discountAmount: { gt: 0 },
+                saleId: { in: scopedSaleIds },
+              },
+              select: {
+                productId: true,
+                discountAmount: true,
+                product: { select: { sku: true, name: true } },
+                sale: { select: { id: true, soldAt: true, offlineCommandId: true } },
+              },
+            })
+          : await this.prisma.saleItem.findMany({
+              where: {
+                tenantId,
+                discountAmount: { gt: 0 },
+                sale: {
+                  tenantId,
+                  ...(branchId ? { branchId } : {}),
+                  soldAt: { gte: window.paddedSince, lt: window.paddedBefore },
+                },
+              },
+              select: {
+                productId: true,
+                discountAmount: true,
+                product: { select: { sku: true, name: true } },
+                sale: { select: { id: true, soldAt: true, offlineCommandId: true } },
+              },
+            });
 
     const totalReturnValue = returnsInScope.reduce((s, r) => s + Number(r.amount), 0);
     const totalDiscount = discountItems.reduce((s, i) => s + Number(i.discountAmount), 0);
@@ -2874,25 +2916,28 @@ export class ReportsService {
       }
     }
     const returnedProductIds = [...byReturnedProduct.keys()];
-    const soldQtyByProduct = returnedProductIds.length
-      ? await this.prisma.saleItem.groupBy({
-          by: ["productId"],
-          where: {
-            tenantId,
-            productId: { in: returnedProductIds },
-            ...(scopedSaleIds.size > 0
-              ? { saleId: { in: [...scopedSaleIds] } }
-              : {
-                  sale: {
-                    tenantId,
-                    ...(branchId ? { branchId } : {}),
-                    soldAt: { gte: window.paddedSince, lt: window.paddedBefore },
-                  },
-                }),
-          },
-          _sum: { qty: true },
-        })
-      : [];
+    const soldQtyWhere =
+      filtersActive && scopedSaleIds.length === 0
+        ? null
+        : filtersActive
+          ? { tenantId, productId: { in: returnedProductIds }, saleId: { in: scopedSaleIds } }
+          : {
+              tenantId,
+              productId: { in: returnedProductIds },
+              sale: {
+                tenantId,
+                ...(branchId ? { branchId } : {}),
+                soldAt: { gte: window.paddedSince, lt: window.paddedBefore },
+              },
+            };
+    const soldQtyByProduct =
+      returnedProductIds.length && soldQtyWhere
+        ? await this.prisma.saleItem.groupBy({
+            by: ["productId"],
+            where: soldQtyWhere,
+            _sum: { qty: true },
+          })
+        : [];
     const soldQtyMap = new Map(soldQtyByProduct.map((g) => [g.productId, g._sum.qty ?? 0]));
 
     const returnTrendByDay = new Map<string, number>();
@@ -3003,7 +3048,7 @@ export class ReportsService {
     const window = await this.salesScope.reportWindow(tenantId, branchId, days);
     const [{ sales, occurredAtByCommandId }, returnItems, freshness] = await Promise.all([
       this.salesScope.loadPostedSales(tenantId, branchId, window, query.filters),
-      this.netCustomerReturnItems(tenantId, branchId, window.since),
+      this.netCustomerReturnItemsForSalesReport(tenantId, branchId, window.since, query.filters),
       this.salesScope.freshness(tenantId, branchId, window, query.filters),
     ]);
 

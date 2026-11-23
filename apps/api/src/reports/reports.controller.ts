@@ -245,12 +245,8 @@ export class ReportsController {
     @Query() query: Record<string, string | undefined>,
   ) {
     const categoryGroupBy = query.groupBy;
-    const reportGroupBy = query.reportGroupBy;
     const scope = query.scope;
-    const parsed = parseSalesReportQuery({
-      ...query,
-      groupBy: reportGroupBy ?? query.reportGroupBy,
-    });
+    const parsed = parseSalesReportQuery(query);
     return this.reports.salesByCategory(
       user.tenantId,
       this.tenantScope(user, scope) ? null : branchId,
