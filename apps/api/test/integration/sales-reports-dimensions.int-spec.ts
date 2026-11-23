@@ -310,15 +310,19 @@ describe("sales report dimensions (W10 #72)", () => {
     const occurredRow = daily.rows.find((row) => row.date === OFFLINE_DAY);
     const syncRow = daily.rows.find((row) => row.date === SYNC_DAY);
     expect(occurredRow?.transactions).toBeGreaterThanOrEqual(1);
-    const soldAtKey = scope.businessDateKey("Asia/Colombo", {
-      soldAt: new Date(startOfBusinessDay("Asia/Colombo", SYNC_DAY).getTime() + 4 * 3_600_000),
-      offlineCommandId: (
-        await prisma.sale.findFirstOrThrow({
-          where: { id: offlineDaySaleId },
-          select: { offlineCommandId: true },
-        })
-      ).offlineCommandId,
-    });
+    const soldAtKey = scope.businessDateKey(
+      "Asia/Colombo",
+      {
+        soldAt: new Date(startOfBusinessDay("Asia/Colombo", SYNC_DAY).getTime() + 4 * 3_600_000),
+        offlineCommandId: (
+          await prisma.sale.findFirstOrThrow({
+            where: { id: offlineDaySaleId },
+            select: { offlineCommandId: true },
+          })
+        ).offlineCommandId,
+      },
+      new Map(),
+    );
     expect(soldAtKey).toBe(SYNC_DAY);
     const window = await scope.reportWindow(fx.tenantId, fx.mainBranchId, 60);
     const { occurredAtByCommandId } = await scope.loadPostedSales(
