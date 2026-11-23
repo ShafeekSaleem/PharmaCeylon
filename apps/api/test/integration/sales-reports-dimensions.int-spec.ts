@@ -11,6 +11,7 @@ import { ReportsService } from "../../src/reports/reports.service";
 import { SalesReportScopeService } from "../../src/reports/sales-report-scope.service";
 import { SalesService } from "../../src/sales/sales.service";
 import { AccessService } from "../../src/security/access.service";
+import type { RequestUser } from "../../src/security/interfaces/authenticated-request.interface";
 import { AttendanceProofsService } from "../../src/terminals/attendance-proofs.service";
 import { LocalAttendanceVerifier } from "../../src/terminals/local-attendance.verifier";
 import { OperatingHoursEvidence } from "../../src/terminals/operating-hours.evidence";
@@ -63,6 +64,18 @@ const SYNC_DAY = "2026-07-11";
 const tx = <T>(run: (client: Prisma.TransactionClient) => Promise<T>) => prisma.$transaction(run, { timeout: 15_000 });
 type Device = ReturnType<typeof terminalDevice>;
 
+function requestUser(tenantId: string, userId: string): RequestUser {
+  return {
+    userId,
+    tenantId,
+    tokenVersion: 0,
+    email: "t@it.test",
+    fullName: "IT",
+    authMethod: "bearer",
+    branchRoles: [],
+  };
+}
+
 function attestation(
   challenge: TerminalEnrollmentCommand | TerminalSessionCommand,
   purpose: "enrollment" | "session",
@@ -96,13 +109,13 @@ async function enrollAndSell(
   amount: string,
 ): Promise<{ terminalId: string; shiftId: string; saleId: string }> {
   const device = terminalDevice();
-  const ownerUser = { userId: ownerId, tenantId: tenant.tenantId };
-  const clerkUser = { userId: clerkId, tenantId: tenant.tenantId };
+  const ownerUser = requestUser(tenant.tenantId, ownerId);
+  const clerkUser = requestUser(tenant.tenantId, clerkId);
   const created = await tx((c) =>
-    trust.createCounter(c, ownerUser as never, branchId, `Till ${randomUUID().slice(0, 4)}`),
+    trust.createCounter(c, ownerUser, branchId, `Till ${randomUUID().slice(0, 4)}`),
   );
   const challenge = await tx((c) =>
-    trust.beginEnrollment(c, ownerUser as never, branchId, {
+    trust.beginEnrollment(c, ownerUser, branchId, {
       registerId: created.id,
       keyId: randomUUID(),
       publicKeyHex: device.publicKeyHex,
@@ -110,24 +123,24 @@ async function enrollAndSell(
     }),
   );
   const proof = await proofs.record(
-    ownerUser as never,
+    ownerUser,
     branchId,
     device.sign(attestation(challenge, "enrollment", ownerId, challenge.identity), challenge.identity.keyId, "attendance"),
   );
   const identity = await tx((c) =>
-    trust.finishEnrollment(c, ownerUser as never, branchId, device.sign(challenge, challenge.identity.keyId), proof.proofId),
+    trust.finishEnrollment(c, ownerUser, branchId, device.sign(challenge, challenge.identity.keyId), proof.proofId),
   );
-  const sessionChallenge = await tx((c) => trust.beginSession(c, clerkUser as never, branchId, identity));
+  const sessionChallenge = await tx((c) => trust.beginSession(c, clerkUser, branchId, identity));
   const sessionProof = await proofs.record(
-    clerkUser as never,
+    clerkUser,
     branchId,
     device.sign(attestation(sessionChallenge, "session", clerkId, identity), identity.keyId, "attendance"),
   );
   const session = await tx((c) =>
-    trust.finishSession(c, clerkUser as never, branchId, device.sign(sessionChallenge, identity.keyId), sessionProof.proofId),
+    trust.finishSession(c, clerkUser, branchId, device.sign(sessionChallenge, identity.keyId), sessionProof.proofId),
   );
   const shiftId = randomUUID();
-  await shifts.open(clerkUser as never, branchId, session.workSessionId, {
+  await shifts.open(clerkUser, branchId, session.workSessionId, {
     shiftId,
     pin: PIN,
     openingCount: { totalMinor: 500_000, lines: [{ denominationMinor: 100, count: 5000 }] },
@@ -146,7 +159,7 @@ async function enrollAndSell(
       payments: [{ method: PaymentMethod.cash, amount }],
     } as never,
     randomUUID(),
-    { user: clerkUser as never, workSessionId: session.workSessionId },
+    { user: clerkUser, workSessionId: session.workSessionId },
   );
   return { terminalId: identity.terminalId, shiftId, saleId: sale!.id };
 }
