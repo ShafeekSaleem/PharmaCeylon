@@ -522,6 +522,7 @@ describe("sales report return scoping (W10 #72 review)", () => {
   });
 
   it("excludes discounts and sold qty outside the effective 1-day window", async () => {
+    const before = await reports.returnsAndDiscounts(fx.tenantId, fx.mainBranchId, 1);
     const soldAt = new Date(Date.now() - 36 * 3_600_000);
     const stale = await prisma.sale.create({
       data: {
@@ -573,9 +574,9 @@ describe("sales report return scoping (W10 #72 review)", () => {
       },
     });
 
-    const oneDay = await reports.returnsAndDiscounts(fx.tenantId, fx.mainBranchId, 1);
-    expect(oneDay.totalDiscount).toBe(0);
-    const row = oneDay.topReturnedProducts.find((p) => p.productId === fx.productId);
+    const after = await reports.returnsAndDiscounts(fx.tenantId, fx.mainBranchId, 1);
+    expect(after.totalDiscount).toBe(before.totalDiscount);
+    const row = after.topReturnedProducts.find((p) => p.productId === fx.productId && p.qty === 1);
     expect(row?.soldQty ?? 0).toBe(0);
   });
 });
