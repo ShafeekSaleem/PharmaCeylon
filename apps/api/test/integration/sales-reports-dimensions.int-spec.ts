@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import * as bcrypt from "bcrypt";
 import { PaymentMethod, Prisma, RoleName } from "@prisma/client";
 import type { LocalAttendanceAttestation, TerminalEnrollmentCommand, TerminalIdentity, TerminalSessionCommand } from "@pharmaceylon/shared";
-import { startOfBusinessDay } from "../../src/common/business-date.util";
+import { addDays, businessDateKey, businessToday, startOfBusinessDay } from "../../src/common/business-date.util";
 import { CategoryTaxonomyService } from "../../src/catalog/category-taxonomy.service";
 import { AuditService } from "../../src/audit/audit.service";
 import { StockService } from "../../src/inventory/stock/stock.service";
@@ -48,6 +48,7 @@ const taxonomy = new CategoryTaxonomyService(prisma as never);
 const scope = new SalesReportScopeService(prisma as never);
 const reports = new ReportsService(prisma as never, taxonomy, scope);
 
+const TZ = "Asia/Colombo";
 const PIN = "4826";
 let fx: TenantFixture;
 let other: TenantFixture;
@@ -58,10 +59,11 @@ let mainWorkSessionId: string;
 let mainShiftId: string;
 let mainSaleId: string;
 let hiddenSaleId: string;
+let hiddenTerminalId: string;
 let otherTenantSaleId: string;
 let offlineDaySaleId: string;
-const OFFLINE_DAY = "2026-07-10";
-const SYNC_DAY = "2026-07-11";
+let offlineBusinessDay: string;
+let syncBusinessDay: string;
 
 const tx = <T>(run: (client: Prisma.TransactionClient) => Promise<T>) => prisma.$transaction(run, { timeout: 15_000 });
 type Device = ReturnType<typeof terminalDevice>;
@@ -173,6 +175,9 @@ async function enrollAndSell(
 }
 
 beforeAll(async () => {
+  syncBusinessDay = businessDateKey(TZ);
+  offlineBusinessDay = businessDateKey(TZ, addDays(businessToday(TZ), -1));
+
   fx = await createTenant(prisma, "sales-reports-dim");
   other = await createTenant(prisma, "sales-reports-dim-other");
   await prisma.userBranchRole.createMany({
@@ -201,6 +206,7 @@ beforeAll(async () => {
 
   const hidden = await enrollAndSell(fx, fx.otherBranchId, fx.ownerId, fx.clerkId, "55.00");
   hiddenSaleId = hidden.saleId;
+  hiddenTerminalId = hidden.terminalId;
 
   const foreign = await enrollAndSell(other, other.mainBranchId, other.ownerId, other.clerkId, "99.00");
   otherTenantSaleId = foreign.saleId;
@@ -214,8 +220,8 @@ beforeAll(async () => {
     },
   });
   const offlineCommandId = randomUUID();
-  const occurredAt = startOfBusinessDay("Asia/Colombo", OFFLINE_DAY).getTime() + 4 * 3_600_000;
-  const soldAt = startOfBusinessDay("Asia/Colombo", SYNC_DAY).getTime() + 4 * 3_600_000;
+  const occurredAt = startOfBusinessDay(TZ, offlineBusinessDay).getTime() + 4 * 3_600_000;
+  const soldAt = startOfBusinessDay(TZ, syncBusinessDay).getTime() + 4 * 3_600_000;
   await prisma.terminalCommandReceipt.create({
     data: {
       tenantId: fx.tenantId,
@@ -284,10 +290,12 @@ describe("sales report dimensions (W10 #72)", () => {
       filters: { terminalId: mainTerminalId },
     });
     expect(filtered.count).toBeGreaterThan(0);
-    expect(filtered.count).toBeLessThan(base.count);
-    expect(filtered.grandTotal).not.toBe(base.grandTotal);
-    expect(Number(filtered.grandTotal)).toBeGreaterThanOrEqual(60);
-    expect(Number(base.grandTotal)).toBeGreaterThan(Number(filtered.grandTotal));
+    expect(filtered.count).toBe(base.count);
+    expect(Number(filtered.grandTotal)).toBeCloseTo(Number(base.grandTotal), 2);
+    const otherBranchTerminalOnMain = await reports.salesSummary(fx.tenantId, fx.mainBranchId, 365, {
+      filters: { terminalId: hiddenTerminalId },
+    });
+    expect(otherBranchTerminalOnMain.count).toBe(0);
     const otherTenantSummary = await reports.salesSummary(other.tenantId, other.mainBranchId, 365, {
       filters: { terminalId: mainTerminalId },
     });
@@ -332,13 +340,13 @@ describe("sales report dimensions (W10 #72)", () => {
 
   it("counts an offline sale on the counter business day, not the sync day", async () => {
     const daily = await reports.salesDaily(fx.tenantId, fx.mainBranchId, 60);
-    const occurredRow = daily.rows.find((row) => row.date === OFFLINE_DAY);
-    const syncRow = daily.rows.find((row) => row.date === SYNC_DAY);
+    const occurredRow = daily.rows.find((row) => row.date === offlineBusinessDay);
+    const syncRow = daily.rows.find((row) => row.date === syncBusinessDay);
     expect(occurredRow?.transactions).toBeGreaterThanOrEqual(1);
     const soldAtKey = scope.businessDateKey(
-      "Asia/Colombo",
+      TZ,
       {
-        soldAt: new Date(startOfBusinessDay("Asia/Colombo", SYNC_DAY).getTime() + 4 * 3_600_000),
+        soldAt: new Date(startOfBusinessDay(TZ, syncBusinessDay).getTime() + 4 * 3_600_000),
         offlineCommandId: (
           await prisma.sale.findFirstOrThrow({
             where: { id: offlineDaySaleId },
@@ -348,7 +356,7 @@ describe("sales report dimensions (W10 #72)", () => {
       },
       new Map(),
     );
-    expect(soldAtKey).toBe(SYNC_DAY);
+    expect(soldAtKey).toBe(syncBusinessDay);
     const window = await scope.reportWindow(fx.tenantId, fx.mainBranchId, 60);
     const { occurredAtByCommandId } = await scope.loadPostedSales(
       fx.tenantId,
@@ -360,7 +368,7 @@ describe("sales report dimensions (W10 #72)", () => {
       soldAt: Date;
       offlineCommandId: string | null;
     };
-    expect(scope.businessDateKey("Asia/Colombo", offline, occurredAtByCommandId)).toBe(OFFLINE_DAY);
+    expect(scope.businessDateKey(TZ, offline, occurredAtByCommandId)).toBe(offlineBusinessDay);
   });
 
   it("includes freshness on sales-summary", async () => {
