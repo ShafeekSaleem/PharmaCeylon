@@ -1,4 +1,19 @@
+import type { SaleChannel } from "@pharmaceylon/shared";
 export type Scope = "branch" | "tenant";
+
+export type SalesBreakdownGroupBy = "terminal" | "shift" | "channel";
+
+/** One `breakdown` row from a sales report sent `reportGroupBy` (W10 #72). */
+export type SalesBreakdownRow = {
+  key: string;
+  label: string;
+  count: number;
+  grandTotal: string;
+  channel?: SaleChannel;
+  terminal?: { id: string; label: string } | null;
+  register?: { id: string; tillId: string; label: string } | null;
+  shift?: { id: string; shiftNumber: string; registerId: string; registerLabel: string; openedAt: string; closedAt: string | null } | null;
+};
 
 export type SalesSummary = {
   days: number;
@@ -6,6 +21,8 @@ export type SalesSummary = {
   grandTotal: string;
   branchId: string | null;
   scope: "branch" | "tenant";
+  groupBy?: SalesBreakdownGroupBy;
+  breakdown?: SalesBreakdownRow[];
 };
 
 export type MarginRow = {

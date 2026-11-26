@@ -14,6 +14,10 @@ import { SalesReportScopeService } from "./sales-report-scope.service";
 import { UNCLASSIFIED_MEDICINES_CANONICAL_KEY } from "../catalog/commercial-category-template";
 import { resolveStockStatus, stockQtyByProductId } from "../products/stock-qty.util";
 
+/** Sale ids per `saleId IN (...)` when a profit report is filtered (Postgres allows 32,767 bind
+ *  parameters per statement). */
+const PROFIT_SALE_ID_CHUNK = 5_000;
+
 export type CategoryReportGroupBy = "commercial" | "dosageForm" | "schedule" | "registrationType";
 
 export type CategoryReportRow = {
@@ -954,29 +958,83 @@ export class ReportsService {
     });
   }
 
-  async marginByProduct(tenantId: string, branchId: string | null, days = 30) {
-    const since = new Date();
-    since.setDate(since.getDate() - days);
-
-    const [items, returnItems] = await Promise.all([
-      this.prisma.saleItem.findMany({
-        where: {
-          tenantId,
-          sale: {
+  /**
+   * Which sale lines and returns a profit report adds up. With no counter, shift or channel
+   * filter this is the long-standing rolling `days` window on `soldAt`, so those figures do not
+   * move. With a filter (W10 #72) it is the sales reports' own selection: the business-day window,
+   * offline sales on the day they happened, and returns that belong to the filtered sales.
+   */
+  private async profitSaleScope(
+    tenantId: string,
+    branchId: string | null,
+    days: number,
+    filters: SalesReportFilters,
+  ): Promise<{
+    /** One clause per query to run. The filtered path splits its sale ids into chunks so a long
+     *  window at a busy branch stays under Postgres' bind-parameter limit. */
+    saleItemWheres: Prisma.SaleItemWhereInput[];
+    returnItems: Awaited<ReturnType<ReportsService["netCustomerReturnItems"]>>;
+    saleInstant: (sale: { id: string; soldAt: Date }) => Date;
+  }> {
+    if (!salesReportFiltersActive(filters)) {
+      const since = new Date();
+      since.setDate(since.getDate() - days);
+      return {
+        saleItemWheres: [
+          {
             tenantId,
-            ...(branchId ? { branchId } : {}),
-            soldAt: { gte: since },
-            status: { in: ["posted", "partially_refunded"] },
+            sale: {
+              tenantId,
+              ...(branchId ? { branchId } : {}),
+              soldAt: { gte: since },
+              status: { in: ["posted", "partially_refunded"] },
+            },
           },
-        },
-        include: {
-          product: { select: { id: true, sku: true, name: true, brandName: true } },
-          batch: { select: { costPrice: true } },
-          sale: { select: { id: true, soldAt: true } },
-        },
-      }),
-      this.netCustomerReturnItems(tenantId, branchId, since),
+        ],
+        returnItems: await this.netCustomerReturnItems(tenantId, branchId, since),
+        saleInstant: (sale) => sale.soldAt,
+      };
+    }
+    const window = await this.salesScope.reportWindow(tenantId, branchId, days);
+    const [{ sales, occurredAtByCommandId }, returnItems] = await Promise.all([
+      this.salesScope.loadPostedSales(tenantId, branchId, window, filters),
+      this.netCustomerReturnItemsForSalesReport(tenantId, branchId, window.since, filters),
     ]);
+    const instantById = new Map(sales.map((s) => [s.id, effectiveSaleInstant(s, occurredAtByCommandId)]));
+    const ids = sales.map((s) => s.id);
+    const saleItemWheres: Prisma.SaleItemWhereInput[] = [];
+    for (let i = 0; i < ids.length; i += PROFIT_SALE_ID_CHUNK) {
+      saleItemWheres.push({ tenantId, saleId: { in: ids.slice(i, i + PROFIT_SALE_ID_CHUNK) } });
+    }
+    return {
+      saleItemWheres,
+      returnItems,
+      saleInstant: (sale) => instantById.get(sale.id) ?? sale.soldAt,
+    };
+  }
+
+  async marginByProduct(
+    tenantId: string,
+    branchId: string | null,
+    days = 30,
+    filters: SalesReportFilters = EMPTY_SALES_REPORT_QUERY.filters,
+  ) {
+    const scope = await this.profitSaleScope(tenantId, branchId, days, filters);
+    const returnItems = scope.returnItems;
+    const items = (
+      await Promise.all(
+        scope.saleItemWheres.map((where) =>
+          this.prisma.saleItem.findMany({
+            where,
+            include: {
+              product: { select: { id: true, sku: true, name: true, brandName: true } },
+              batch: { select: { costPrice: true } },
+              sale: { select: { id: true, soldAt: true } },
+            },
+          }),
+        ),
+      )
+    ).flat();
 
     const byProduct = new Map<
       string,
@@ -2313,26 +2371,30 @@ export class ReportsService {
   /** Daily revenue/cost per top-level COMMERCIAL department, for Margin by Category's trend
    *  chart — same product→department rollup as `salesByCategory`'s `groupBy=commercial`
    *  branch, just keyed by (date, departmentId) instead of collapsing the date dimension away. */
-  async marginTrendByCategory(tenantId: string, branchId: string | null, days = 30) {
-    const since = new Date();
-    since.setDate(since.getDate() - days);
-
-    const [items, returnItems] = await Promise.all([
-      this.prisma.saleItem.findMany({
-        where: {
-          tenantId,
-          sale: { tenantId, ...(branchId ? { branchId } : {}), soldAt: { gte: since }, status: { in: ["posted", "partially_refunded"] } },
-        },
-        select: {
-          productId: true,
-          qty: true,
-          lineTotal: true,
-          batch: { select: { costPrice: true } },
-          sale: { select: { soldAt: true } },
-        },
-      }),
-      this.netCustomerReturnItems(tenantId, branchId, since),
-    ]);
+  async marginTrendByCategory(
+    tenantId: string,
+    branchId: string | null,
+    days = 30,
+    filters: SalesReportFilters = EMPTY_SALES_REPORT_QUERY.filters,
+  ) {
+    const scope = await this.profitSaleScope(tenantId, branchId, days, filters);
+    const returnItems = scope.returnItems;
+    const items = (
+      await Promise.all(
+        scope.saleItemWheres.map((where) =>
+          this.prisma.saleItem.findMany({
+            where,
+            select: {
+              productId: true,
+              qty: true,
+              lineTotal: true,
+              batch: { select: { costPrice: true } },
+              sale: { select: { id: true, soldAt: true } },
+            },
+          }),
+        ),
+      )
+    ).flat();
     const productIds = [...new Set([...items.map((it) => it.productId), ...returnItems.map((it) => it.productId)])];
     const categoryByProduct = await this.categoryTaxonomy.primaryCommercialCategoryByProductIds(
       tenantId,
@@ -2354,7 +2416,8 @@ export class ReportsService {
       byKey.set(key, cur);
     };
     for (const it of items) {
-      applyToTrend(it.productId, it.sale.soldAt.toISOString().slice(0, 10), it.lineTotal, it.batch.costPrice.mul(it.qty));
+      // Same UTC day key as before; with a filter, an offline sale is keyed by when it happened.
+      applyToTrend(it.productId, scope.saleInstant(it.sale).toISOString().slice(0, 10), it.lineTotal, it.batch.costPrice.mul(it.qty));
     }
     // Netted on the return's own date (not the original sale's), same convention as
     // `netCustomerReturnItems` — so a day's bucket reflects the actual net cash/COGS impact.
