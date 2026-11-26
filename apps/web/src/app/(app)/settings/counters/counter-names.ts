@@ -7,11 +7,11 @@
  */
 export function normaliseCounterName(name: string): string {
   return name
-    .toLowerCase()
+    .toLocaleLowerCase()
     .trim()
     .replace(/\s*\(\d+\)\s*$/, "")
     .replace(/\s+copy$/, "")
-    .replace(/[^a-z0-9]+/g, "");
+    .replace(/[^\p{L}\p{N}]+/gu, "");
 }
 
 /** The first other counter whose name is close enough to `name` to confuse; null when none. */

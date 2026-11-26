@@ -30,4 +30,10 @@ describe("near-duplicate counter names (UI1 #205)", () => {
     expect(nearDuplicateOf("  ", [{ label: "" }])).toBeNull();
     expect(nearDuplicateOf("--", [{ label: "?" }])).toBeNull();
   });
+
+  it("tells Sinhala and Tamil names apart instead of dropping them", () => {
+    expect(normaliseCounterName("කවුන්ටරය A")).not.toBe(normaliseCounterName("දෙවන A"));
+    expect(nearDuplicateOf("කවුන්ටරය 1", [{ label: "කවුන්ටරය 1" }])).not.toBeNull();
+    expect(nearDuplicateOf("கவுண்டர் 2", [{ label: "கவுண்டர் 1" }])).toBeNull();
+  });
 });
