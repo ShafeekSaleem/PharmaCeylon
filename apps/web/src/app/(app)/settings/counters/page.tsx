@@ -1,21 +1,33 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import type {
   CounterJournalSyncStatus,
   TerminalCounterView,
   TerminalEnrollmentCodeIssued,
   TerminalEnrollmentCodeView,
 } from "@pharmaceylon/shared";
+import { formatDisplayDateTime } from "@pharmaceylon/shared";
 import { Alert } from "@/components/alert";
-import { FormField, Modal, ModalButton, ModalFooter, PageHeader, StatusBadge } from "@/components/ui";
+import { IconPlus } from "@/components/icons";
+import {
+  ActionButton,
+  FormField,
+  Modal,
+  ModalButton,
+  ModalFooter,
+  PageHeader,
+  SelectField,
+} from "@/components/ui";
+import { fetchTenantBranches, type TenantBranch } from "@/lib/auth-client";
 import { useAuth } from "@/lib/use-auth";
 import css from "../settings.module.css";
+import cardCss from "./counters.module.css";
+import { CounterCard, type CounterCardAction } from "./counter-card";
 import { countersApi } from "./counters-api";
 import { CounterDefaultsCard } from "./counter-defaults-card";
-import { CounterOfflineSales } from "./offline-sync";
-import { formatDisplayDate, formatDisplayDateTime, formatDisplayTime } from "@pharmaceylon/shared";
+import { nearDuplicateOf } from "./counter-names";
 
 const CODE_LIFETIMES = [
   { minutes: 30, label: "30 minutes" },
@@ -33,58 +45,87 @@ type CounterEdit =
   | { kind: "stop"; counter: TerminalCounterView }
   | { kind: "delete"; counter: TerminalCounterView };
 
-/** Why a counter cannot be stopped yet, in words for staff; null when it can. */
-function stopBlocker(counter: TerminalCounterView): string | null {
-  if (counter.terminal) return "A computer is still set up here. Retire it first.";
-  if (counter.hasOpenShift) return "A shift is still open here. Close it first.";
-  return null;
-}
-/** Why a counter cannot be deleted; null when it has never been used. */
-const deleteBlocker = (counter: TerminalCounterView): string | null =>
-  counter.hasHistory ? "Used before, so its records are kept. Stop using it instead." : null;
-
 const message = (err: unknown, fallback: string) =>
   err instanceof Error && err.message ? err.message : fallback;
 
-function counterStatus(counter: TerminalCounterView): {
-  status: string;
-  label: string;
-  variant: "success" | "warning" | "default";
-} {
-  if (!counter.isActive) return { status: "inactive", label: "Inactive", variant: "default" };
-  if (!counter.terminal) return { status: "empty", label: "No computer", variant: "default" };
-  if (!counter.terminal.enrollmentId)
-    return { status: "revoked", label: "Key revoked", variant: "warning" };
-  return { status: "enrolled", label: "Enrolled", variant: "success" };
-}
-
 /**
- * W6 Counters: the registers at the selected branch, the computer enrolled on each, and the
+ * W6 Counters: the registers at the chosen branch, the computer enrolled on each, and the
  * one-time codes that enroll a new one. Enrollment itself happens on the computer (P2); the web
- * issues codes and takes a lost or retired computer out of service.
+ * issues codes and takes a lost or retired computer out of service. One card per counter
+ * (UI1 #205).
  */
 export default function CountersSettingsPage() {
   const { branchId } = useAuth();
+  const [adding, setAdding] = useState(false);
   return (
     <div>
       <PageHeader
         title="Counters"
-        description="The checkout counters at this branch, the computer enrolled on each, and codes for enrolling a new one."
+        description="Each counter is one computer running PharmaCeylon POS."
+        actions={
+          <div className={cardCss.headerActions}>
+            <BranchPicker />
+            <ActionButton onClick={() => setAdding(true)} disabled={!branchId}>
+              <IconPlus size={14} /> Add counter
+            </ActionButton>
+          </div>
+        }
       />
       <div className={css.panel}>
-        {branchId ? <Counters key={branchId} /> : null}
+        {branchId ? (
+          <Counters key={branchId} adding={adding} onAddClose={() => setAdding(false)} />
+        ) : null}
         <CounterDefaultsCard />
       </div>
     </div>
   );
 }
 
-function Counters() {
+/**
+ * Counters belong to a branch, and every counters call is scoped by the selected branch, so
+ * choosing one here is the same switch as the top bar's.
+ */
+function BranchPicker() {
+  const { user, branchId, setBranchId } = useAuth();
+  const [branches, setBranches] = useState<TenantBranch[] | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    fetchTenantBranches().then(
+      (list) => {
+        if (!cancelled) setBranches(list);
+      },
+      () => {
+        if (!cancelled) setBranches([]);
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  // Only branches the person works at: anywhere else the API refuses every counters call.
+  const mine = useMemo(() => {
+    if (!branches || !user) return [];
+    if (user.branchRoles.some((r) => r.role === "owner")) return branches;
+    const ids = new Set(user.branchRoles.map((r) => r.branchId));
+    return branches.filter((b) => ids.has(b.id));
+  }, [branches, user]);
+  if (mine.length < 2 || !branchId) return null;
+  return (
+    <SelectField
+      className={cardCss.branchPicker}
+      label="Branch"
+      value={branchId}
+      onChange={(id) => setBranchId(id)}
+      options={mine.map((b) => ({ value: b.id, label: b.name }))}
+      fullWidth={false}
+    />
+  );
+}
+
+function Counters({ adding, onAddClose }: { adding: boolean; onAddClose: () => void }) {
   const [counters, setCounters] = useState<TerminalCounterView[] | null>(null);
   const [codes, setCodes] = useState<TerminalEnrollmentCodeView[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [newLabel, setNewLabel] = useState("");
-  const [adding, setAdding] = useState(false);
   const [issueFor, setIssueFor] = useState<TerminalCounterView | null>(null);
   const [issued, setIssued] = useState<TerminalEnrollmentCodeIssued | null>(null);
   const [pending, setPending] = useState<PendingAction | null>(null);
@@ -104,7 +145,10 @@ function Counters() {
       () => setJournalFailed(true),
     );
     try {
-      const [list, codeList] = await Promise.all([countersApi.counters(showInactive), countersApi.codes()]);
+      const [list, codeList] = await Promise.all([
+        countersApi.counters(showInactive),
+        countersApi.codes(),
+      ]);
       setCounters(list);
       setCodes(codeList);
     } catch (err) {
@@ -115,22 +159,6 @@ function Counters() {
   useEffect(() => {
     void load();
   }, [load]);
-
-  async function addCounter(event: FormEvent) {
-    event.preventDefault();
-    if (!newLabel.trim()) return;
-    setAdding(true);
-    setError(null);
-    try {
-      await countersApi.createCounter(newLabel.trim());
-      setNewLabel("");
-      await load();
-    } catch (err) {
-      setError(message(err, "Couldn't add the counter."));
-    } finally {
-      setAdding(false);
-    }
-  }
 
   async function reactivate(counter: TerminalCounterView) {
     setError(null);
@@ -156,194 +184,81 @@ function Counters() {
     }
   }
 
+  function act(counter: TerminalCounterView, action: CounterCardAction) {
+    switch (action) {
+      case "issue-code":
+        return setIssueFor(counter);
+      case "reactivate":
+        return void reactivate(counter);
+      case "rename":
+      case "stop":
+      case "delete":
+        return setEdit({ kind: action, counter });
+      case "report-lost":
+        return setPending({ kind: "revoke", counter });
+      case "retire":
+        return setPending({ kind: "retire", counter });
+    }
+  }
+
   const outstanding = codes.filter((c) => c.status === "outstanding");
-  const outstandingFor = (registerId: string) => outstanding.find((c) => c.registerId === registerId);
+  const active = (counters ?? []).filter((c) => c.isActive);
+  // Only counters still in use can be mixed up at the till.
+  const similarTo = (counter: TerminalCounterView) =>
+    counter.isActive
+      ? (nearDuplicateOf(
+          counter.label,
+          active.filter((c) => c.registerId !== counter.registerId),
+        )?.label ?? null)
+      : null;
 
   return (
     <>
-      <section className={css.card} aria-label="Counters at this branch">
-        <h2 className={css.cardTitle}>Counters</h2>
-        <p className={css.cardDesc}>
-          Each counter takes one computer running PharmaCeylon POS. To enroll one, issue a code
-          here and enter it on the computer, or sign in there as a manager and choose the counter.
-        </p>
+      <section className={cardCss.list} aria-label="Counters at this branch">
         {error ? <Alert variant="error">{error}</Alert> : null}
-        <label className={css.rowHint}>
-          <input
-            type="checkbox"
-            checked={showInactive}
-            onChange={(e) => setShowInactive(e.target.checked)}
-          />{" "}
-          Show counters no longer in use
-        </label>
         {counters === null && !error ? <p className={css.rowHint}>Loading…</p> : null}
         {counters && counters.length === 0 ? (
-          <p className={css.rowHint}>No counters yet. Add the first one below.</p>
+          <p className={cardCss.empty}>No counters here yet. Add the first one with Add counter.</p>
         ) : null}
-        {counters && counters.length > 0 ? (
-          <table className={css.table}>
-            <thead>
-              <tr>
-                <th>Counter</th>
-                <th>Computer</th>
-                <th>Status</th>
-                <th>Offline sales</th>
-                <th aria-label="Actions" />
-              </tr>
-            </thead>
-            <tbody>
-              {counters.map((counter) => {
-                const status = counterStatus(counter);
-                const code = outstandingFor(counter.registerId);
-                return (
-                  <tr key={counter.registerId}>
-                    <td>{counter.label}</td>
-                    <td>
-                      {counter.terminal ? (
-                        <>
-                          {counter.terminal.label}
-                          {counter.terminal.enrolledAt ? (
-                            <div className={css.rowHint}>
-                              Enrolled {formatDisplayDate(counter.terminal.enrolledAt)}
-                            </div>
-                          ) : null}
-                        </>
-                      ) : code ? (
-                        <span className={css.rowHint}>
-                          Code waiting, expires {formatDisplayTime(code.expiresAt)}
-                        </span>
-                      ) : (
-                        <span className={css.rowHint}>—</span>
-                      )}
-                    </td>
-                    <td>
-                      <StatusBadge status={status.status} label={status.label} variant={status.variant} />
-                    </td>
-                    <td>
-                      <CounterOfflineSales
-                        counter={counter}
-                        journal={journal?.enrollments ?? null}
-                        timeZone={journal?.timezone ?? "Asia/Colombo"}
-                        failed={journalFailed}
-                      />
-                    </td>
-                    <td>
-                      <div className={css.chipRow}>
-                        {!counter.terminal && counter.isActive ? (
-                          <ModalButton variant="secondary" onClick={() => setIssueFor(counter)}>
-                            Enrollment code
-                          </ModalButton>
-                        ) : null}
-                        {counter.terminal?.enrollmentId ? (
-                          <ModalButton
-                            variant="secondary"
-                            onClick={() => setPending({ kind: "revoke", counter })}
-                          >
-                            Report lost
-                          </ModalButton>
-                        ) : null}
-                        {counter.terminal ? (
-                          <ModalButton
-                            variant="danger"
-                            onClick={() => setPending({ kind: "retire", counter })}
-                          >
-                            Retire computer
-                          </ModalButton>
-                        ) : null}
-                        <ModalButton
-                          variant="secondary"
-                          onClick={() => setEdit({ kind: "rename", counter })}
-                        >
-                          Rename
-                        </ModalButton>
-                        {counter.isActive ? (
-                          <ModalButton
-                            variant="secondary"
-                            disabled={stopBlocker(counter) !== null}
-                            onClick={() => setEdit({ kind: "stop", counter })}
-                          >
-                            Stop using
-                          </ModalButton>
-                        ) : (
-                          <ModalButton variant="secondary" onClick={() => void reactivate(counter)}>
-                            Use again
-                          </ModalButton>
-                        )}
-                        <ModalButton
-                          variant="danger"
-                          disabled={deleteBlocker(counter) !== null}
-                          onClick={() => setEdit({ kind: "delete", counter })}
-                        >
-                          Delete
-                        </ModalButton>
-                      </div>
-                      {counter.isActive && stopBlocker(counter) ? (
-                        <div className={css.rowHint}>Stop using: {stopBlocker(counter)}</div>
-                      ) : null}
-                      {deleteBlocker(counter) ? (
-                        <div className={css.rowHint}>Delete: {deleteBlocker(counter)}</div>
-                      ) : null}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        ) : null}
-        <form className={css.saveRow} onSubmit={addCounter} aria-label="Add a counter">
-          <FormField
-            label="New counter"
-            value={newLabel}
-            onChange={(e) => setNewLabel(e.target.value)}
-            placeholder="e.g. Front counter"
-            maxLength={120}
+        {counters?.map((counter) => (
+          <CounterCard
+            key={counter.registerId}
+            counter={counter}
+            code={outstanding.find((c) => c.registerId === counter.registerId)}
+            journal={journal}
+            journalFailed={journalFailed}
+            similarTo={similarTo(counter)}
+            revokingCode={revoking !== null}
+            onAction={(action) => act(counter, action)}
+            onRevokeCode={(codeId) => void revokeCode(codeId)}
           />
-          <ModalButton type="submit" variant="primary" loading={adding} disabled={!newLabel.trim()}>
-            Add counter
-          </ModalButton>
-        </form>
-        {counters && counters.length > 0 ? (
-          <p className={css.rowHint}>
-            Offline sales shows what each counter has sent the server, with times in the
-            branch&apos;s timezone. &ldquo;Last received&rdquo; is the last upload that brought the
-            server something new; a counter that has sold nothing offline since sends nothing new.
-            A counter that is offline right now may still hold sales it hasn&apos;t sent, and when
-            a journal stops at an entry, nothing after it reaches the server, so the server
-            can&apos;t tell how many sales follow.
-          </p>
-        ) : null}
-        <p className={css.rowHint}>
-          Offline selling is set in <Link href="/settings/offline-selling">Offline selling</Link>.
-          Staff PINs and which counters each person has prepared are under each person in{" "}
-          <Link href="/users">Users</Link>.
-        </p>
+        ))}
+        <div className={cardCss.footer}>
+          <label>
+            <input
+              type="checkbox"
+              checked={showInactive}
+              onChange={(e) => setShowInactive(e.target.checked)}
+            />{" "}
+            Show counters no longer in use
+          </label>
+          <span>
+            Related: <Link href="/settings/offline-selling">Offline selling</Link> ·{" "}
+            <Link href="/settings/receipts">Receipts</Link> · Staff PINs are under each person in{" "}
+            <Link href="/users">Users</Link>
+          </span>
+        </div>
       </section>
 
-      {outstanding.length > 0 ? (
-        <section className={css.card} aria-label="Waiting enrollment codes">
-          <h2 className={css.cardTitle}>Waiting enrollment codes</h2>
-          <p className={css.cardDesc}>
-            A code enrolls one computer, once, before it expires. Revoke any you no longer need.
-          </p>
-          {outstanding.map((code) => (
-            <div key={code.codeId} className={css.rowItem}>
-              <span>{code.counterLabel}</span>
-              <span className={css.rowHint}>
-                Expires {formatDisplayDateTime(code.expiresAt)}
-              </span>
-              <ModalButton
-                variant="secondary"
-                onClick={() => void revokeCode(code.codeId)}
-                loading={revoking === code.codeId}
-                disabled={revoking !== null}
-              >
-                Revoke
-              </ModalButton>
-            </div>
-          ))}
-        </section>
-      ) : null}
-
+      <AddCounterModal
+        open={adding}
+        existing={active}
+        onClose={onAddClose}
+        onAdded={() => {
+          onAddClose();
+          void load();
+        }}
+      />
       <IssueCodeModal
         counter={issueFor}
         onClose={() => setIssueFor(null)}
@@ -356,6 +271,7 @@ function Counters() {
       <IssuedCodeModal issued={issued} onClose={() => setIssued(null)} />
       <EditCounterModal
         edit={edit}
+        others={active}
         onClose={() => setEdit(null)}
         onDone={() => {
           setEdit(null);
@@ -374,12 +290,102 @@ function Counters() {
   );
 }
 
+/** The near-duplicate warning while typing a counter's name. */
+function SimilarNameNote({ name, others }: { name: string; others: TerminalCounterView[] }) {
+  const close = nearDuplicateOf(name, others);
+  if (!close) return null;
+  return (
+    <p className={cardCss.similar} role="note">
+      The name is close to &ldquo;{close.label}&rdquo;. Choose one staff can tell apart.
+    </p>
+  );
+}
+
+function AddCounterModal({
+  open,
+  existing,
+  onClose,
+  onAdded,
+}: {
+  open: boolean;
+  existing: TerminalCounterView[];
+  onClose: () => void;
+  onAdded: () => void;
+}) {
+  const [label, setLabel] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    if (open) {
+      setLabel("");
+      setError(null);
+    }
+  }, [open]);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (!label.trim()) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await countersApi.createCounter(label.trim());
+      onAdded();
+    } catch (err) {
+      setError(message(err, "Couldn't add the counter."));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      canDismiss={!busy}
+      size="sm"
+      title="Add a counter"
+      description="Name it after where it stands, so staff know which computer is which."
+      footer={
+        <ModalFooter>
+          <ModalButton variant="secondary" onClick={onClose} disabled={busy}>
+            Cancel
+          </ModalButton>
+          <ModalButton
+            type="submit"
+            form="add-counter-form"
+            variant="primary"
+            loading={busy}
+            disabled={!label.trim()}
+          >
+            Add counter
+          </ModalButton>
+        </ModalFooter>
+      }
+    >
+      <form id="add-counter-form" onSubmit={submit} aria-label="Add a counter">
+        <FormField
+          label="Counter name"
+          value={label}
+          onChange={(e) => setLabel(e.target.value)}
+          placeholder="e.g. Front counter"
+          maxLength={120}
+        />
+      </form>
+      <SimilarNameNote name={label} others={existing} />
+      {error ? <Alert variant="error">{error}</Alert> : null}
+    </Modal>
+  );
+}
+
 function EditCounterModal({
   edit,
+  others,
   onClose,
   onDone,
 }: {
   edit: CounterEdit | null;
+  /** Counters in use, to warn when a new name is close to another's. */
+  others: TerminalCounterView[];
   onClose: () => void;
   onDone: () => void;
 }) {
@@ -458,6 +464,12 @@ function EditCounterModal({
           value={label}
           onChange={(e) => setLabel(e.target.value)}
           maxLength={120}
+        />
+      ) : null}
+      {edit?.kind === "rename" && label.trim() !== edit.counter.label.trim() ? (
+        <SimilarNameNote
+          name={label}
+          others={others.filter((c) => c.registerId !== edit.counter.registerId)}
         />
       ) : null}
       {error ? <Alert variant="error">{error}</Alert> : null}
@@ -565,9 +577,8 @@ function IssuedCodeModal({
             {issued.code}
           </p>
           <p className={css.rowHint}>
-            For {issued.view.counterLabel}. Expires{" "}
-            {formatDisplayDateTime(issued.view.expiresAt)}. This code is shown only now;
-            write it down or issue a new one later.
+            For {issued.view.counterLabel}. Expires {formatDisplayDateTime(issued.view.expiresAt)}.
+            This code is shown only now; write it down or issue a new one later.
           </p>
         </>
       ) : null}
@@ -616,7 +627,11 @@ function ReasonModal({
       onClose={onClose}
       canDismiss={!busy}
       size="sm"
-      title={retire ? `Retire ${terminal?.label ?? "this computer"}?` : `Report ${terminal?.label ?? "this computer"} lost?`}
+      title={
+        retire
+          ? `Retire ${terminal?.label ?? "this computer"}?`
+          : `Report ${terminal?.label ?? "this computer"} lost?`
+      }
       description={
         retire
           ? "The computer leaves service for good and the counter is free for another one. Its sales history stays."
