@@ -2196,6 +2196,20 @@ export const ipcContract = {
       }),
     ),
   },
+  /** Dispatch an approved transfer out at the counter: the signed command names only the transfer. */
+  dispatchCounterTransfer: {
+    channel: "pos:work:dispatch-transfer",
+    input: z.object({ id: uuid }),
+    output: result(
+      z.object({
+        reference: z.string(),
+        otherBranch: z.string().nullable(),
+        dispatchedQty: z.number().int(),
+        alreadyApplied: z.boolean(),
+        postedAt: z.string(),
+      }),
+    ),
+  },
   enroll: {
     channel: "pos:enrollment:enroll",
     input: z.object({ branchId: uuid, registerId: uuid, label }),

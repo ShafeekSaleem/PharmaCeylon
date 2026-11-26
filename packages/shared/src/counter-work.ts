@@ -69,7 +69,7 @@ export const COUNTER_WORK_DESTINATION_BY_KIND: Readonly<
 > = {
   prepared_receipt: { destination: "receiving", status: "available" },
   held_delivery: { destination: "held_delivery", status: "available" },
-  transfer_ship: { destination: "transfer_ship", status: "planned" },
+  transfer_ship: { destination: "transfer_ship", status: "available" },
   transfer_receive: { destination: "transfer_receive", status: "planned" },
   refund: { destination: "refund", status: "available" },
   stocktake: { destination: "stocktake", status: "planned" },

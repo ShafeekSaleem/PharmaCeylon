@@ -133,7 +133,7 @@ export function buildMismatchInput(
  * What a tick is kept against: the line exactly as approved. A corrected version that changes
  * the line gives a different fingerprint, so its tick drops; the lines it did not change keep theirs.
  */
-export function lineFingerprint(line: CounterWorkReceiptLine): string {
+export function lineFingerprint(line: CounterWorkReceiptLine | CounterWorkTransferLine): string {
   // Every field the server sends, so a change to a cost, a pack size or a batch also drops the tick.
   return JSON.stringify(line);
 }

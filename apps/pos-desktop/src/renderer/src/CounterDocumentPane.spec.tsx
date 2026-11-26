@@ -356,3 +356,125 @@ describe("posting the receiving", () => {
     expect(screen.queryByText(/Posted\./)).toBeNull();
   });
 });
+
+describe("dispatching a transfer out", () => {
+  function transferOut(overrides: Record<string, unknown> = {}): CounterWorkDetail {
+    return {
+      kind: "transfer_ship",
+      id: id(2),
+      reference: "TR-0101",
+      subject: "Bambalapitiya",
+      approval,
+      notes: [],
+      mismatches: [],
+      otherBranch: "Bambalapitiya",
+      lines: [
+        { transferItemId: id(7), productId: id(13), productName: "Ventolin Inhaler", packLabel: null, unitsPerPack: 1, batchId: id(31), batchNo: "V-1", expiryDate: "2027-01-31", qty: 12, receivedQty: 0, remainingQty: 12 },
+        { transferItemId: id(8), productId: id(14), productName: "Panadol 500mg", packLabel: null, unitsPerPack: 1, batchId: id(32), batchNo: "P-9", expiryDate: "2028-02-29", qty: 30, receivedQty: 0, remainingQty: 30 },
+      ],
+      ...overrides,
+    } as unknown as CounterWorkDetail;
+  }
+  const shipItem: CounterWorkItem = { ...item, kind: "transfer_ship", id: id(2), reference: "TR-0101" };
+  const dispatch = () => screen.getByRole("button", { name: /^Dispatch/ }) as HTMLButtonElement;
+  const pick = (name: string) => fireEvent.click(screen.getByRole("checkbox", { name: `Picked: ${name}` }));
+  const openShip = async (props: { online?: boolean; canPost?: boolean } = {}) => {
+    render(
+      <CounterDocumentPane
+        item={shipItem}
+        online={props.online ?? true}
+        canPost={props.canPost ?? true}
+        onReported={onReported}
+      />,
+    );
+    await screen.findByText("Ventolin Inhaler");
+  };
+
+  beforeEach(() => {
+    detail = transferOut();
+    pos.dispatchCounterTransfer = jest.fn(async () => ({
+      ok: true,
+      value: { reference: "TR-0101", otherBranch: "Bambalapitiya", dispatchedQty: 42, alreadyApplied: false, postedAt: "2026-11-26T08:49:00.000Z" },
+    }));
+  });
+
+  it("stays off until every line is picked, then dispatches only the transfer", async () => {
+    await openShip();
+    expect(screen.getByText(/42 units leave this branch for Bambalapitiya/)).toBeTruthy();
+    expect(dispatch().disabled).toBe(true);
+    pick("Ventolin Inhaler");
+    expect(dispatch().disabled).toBe(true);
+    pick("Panadol 500mg");
+    expect(dispatch().disabled).toBe(false);
+    fireEvent.click(dispatch());
+    await waitFor(() => expect(pos.dispatchCounterTransfer).toHaveBeenCalledTimes(1));
+    expect(pos.dispatchCounterTransfer).toHaveBeenCalledWith({ id: id(2) });
+    expect(await screen.findByText("Dispatched. 42 units are on the way to Bambalapitiya.")).toBeTruthy();
+    expect(onReported).toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: /^Dispatch/ })).toBeNull();
+  });
+
+  it("dispatches under a waived policy, and says approval is not needed", async () => {
+    detail = transferOut({ approval: { evidenceId: null, approvedVersion: null, currentVersion: 2, state: "not_needed", changes: [] } });
+    await openShip();
+    expect(screen.getByText(/Approval isn't needed at this branch/)).toBeTruthy();
+    pick("Ventolin Inhaler");
+    pick("Panadol 500mg");
+    expect(dispatch().disabled).toBe(false);
+  });
+
+  it("will not dispatch after the approval changed, while a report holds it, offline, or with an action unconfirmed", async () => {
+    const pickAll = () => {
+      pick("Ventolin Inhaler");
+      pick("Panadol 500mg");
+    };
+    detail = transferOut({ approval: { ...approval, state: "changed", changes: ["Line 1 quantity"] } });
+    await openShip();
+    pickAll();
+    expect(dispatch().disabled).toBe(true);
+    cleanup();
+    clearCheckedLines();
+    detail = transferOut({ mismatches: [{ id: id(73), problem: "cannot_pick", holding: true, reported: { name: "S", at: null } }] });
+    await openShip();
+    pickAll();
+    expect(dispatch().disabled).toBe(true);
+    cleanup();
+    clearCheckedLines();
+    detail = transferOut();
+    await openShip({ online: false });
+    pickAll();
+    expect(dispatch().disabled).toBe(true);
+    cleanup();
+    await openShip({ canPost: false });
+    expect(dispatch().disabled).toBe(true);
+    expect(pos.dispatchCounterTransfer).not.toHaveBeenCalled();
+  });
+
+  it("drops a pick tick when a corrected version changes that line", async () => {
+    await openShip();
+    pick("Ventolin Inhaler");
+    pick("Panadol 500mg");
+    cleanup();
+    const corrected = transferOut();
+    (corrected as unknown as { lines: Array<{ qty: number; batchId: string }> }).lines[0]!.batchId = id(39);
+    detail = corrected;
+    await openShip();
+    expect((screen.getByRole("checkbox", { name: "Picked: Ventolin Inhaler" }) as HTMLInputElement).checked).toBe(false);
+    expect((screen.getByRole("checkbox", { name: "Picked: Panadol 500mg" }) as HTMLInputElement).checked).toBe(true);
+  });
+
+  it("shows a refusal, keeps the picks and reads the transfer again", async () => {
+    pos.dispatchCounterTransfer!.mockImplementationOnce(async () => ({
+      ok: false,
+      error: { code: "APPROVAL_STALE", message: "This transfer changed since it was approved." },
+    }));
+    await openShip();
+    pick("Ventolin Inhaler");
+    pick("Panadol 500mg");
+    fireEvent.click(dispatch());
+    expect(await screen.findByText("This transfer changed since it was approved.")).toBeTruthy();
+    await waitFor(() => expect(pos.counterWorkDetail).toHaveBeenCalledTimes(2));
+    expect((screen.getByRole("checkbox", { name: "Picked: Ventolin Inhaler" }) as HTMLInputElement).checked).toBe(true);
+    expect(screen.queryByText(/^Dispatched\./)).toBeNull();
+  });
+});

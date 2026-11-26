@@ -30,7 +30,7 @@ import { invoke } from "./invoke";
 import ui from "./ui.module.css";
 import { cx } from "./useAction";
 
-/** Ticks kept on this computer: `documentId:lineIndex` to the line as approved when it was ticked. */
+/** Ticks kept on this computer: `documentId:lineKey` to the line as approved when it was ticked. */
 const tickStore = new Map<string, string>();
 
 /** Forget every tick kept on this computer (used between tests). */
@@ -96,11 +96,23 @@ function ReceiptLines({
   );
 }
 
-function TransferLines({ lines }: { lines: ReadonlyArray<CounterWorkTransferLine> }) {
+function TransferLines({
+  lines,
+  pick,
+}: {
+  lines: ReadonlyArray<CounterWorkTransferLine>;
+  /** A transfer out: each line is ticked as it is picked. */
+  pick?: {
+    ticked: (line: CounterWorkTransferLine) => boolean;
+    onToggle: (line: CounterWorkTransferLine) => void;
+    disabled: boolean;
+  };
+}) {
   return (
     <table className={styles.lines}>
       <thead>
         <tr>
+          {pick && <th aria-label="Picked" />}
           <th>Product</th>
           <th>Batch</th>
           <th>Expiry</th>
@@ -112,6 +124,17 @@ function TransferLines({ lines }: { lines: ReadonlyArray<CounterWorkTransferLine
       <tbody>
         {lines.map((l) => (
           <tr key={l.transferItemId}>
+            {pick && (
+              <td>
+                <input
+                  type="checkbox"
+                  aria-label={`Picked: ${l.productName}`}
+                  checked={pick.ticked(l)}
+                  disabled={pick.disabled}
+                  onChange={() => pick.onToggle(l)}
+                />
+              </td>
+            )}
             <td>
               {l.productName}
               {l.packLabel && <small>{l.packLabel}</small>}
@@ -184,7 +207,7 @@ export function CounterDocumentPane({
   const [, setTickVersion] = useState(0);
   const [posting, setPosting] = useState(false);
   const [postError, setPostError] = useState<string | null>(null);
-  const [posted, setPosted] = useState<{ reference: string; alreadyApplied: boolean } | null>(null);
+  const [posted, setPosted] = useState<{ message: string } | null>(null);
 
   const load = useCallback(() => {
     const mine = ++readId.current;
@@ -263,38 +286,71 @@ export function CounterDocumentPane({
     detail.kind === "prepared_receipt" || detail.kind === "held_delivery"
       ? (detail.lines as ReadonlyArray<CounterWorkReceiptLine>)
       : null;
-  const ticks = receiptLines
-    ? receiptLines.filter((l) => tickStore.get(`${detail.id}:${l.index}`) === lineFingerprint(l)).length
-    : 0;
-  const allTicked = receiptLines !== null && ticks === receiptLines.length;
+  const shipLines =
+    detail.kind === "transfer_ship" ? (detail.lines as ReadonlyArray<CounterWorkTransferLine>) : null;
+  const otherBranch = "otherBranch" in detail ? detail.otherBranch : null;
+  // The lines this screen ticks before its one action, each with its key on this computer.
+  const tickLines: ReadonlyArray<{ key: string; fingerprint: string }> | null = receiptLines
+    ? receiptLines.map((l) => ({ key: `${detail.id}:${l.index}`, fingerprint: lineFingerprint(l) }))
+    : shipLines
+      ? shipLines.map((l) => ({ key: `${detail.id}:${l.transferItemId}`, fingerprint: lineFingerprint(l) }))
+      : null;
+  const isTicked = (key: string, fingerprint: string) => tickStore.get(key) === fingerprint;
+  const toggle = (key: string, fingerprint: string) => {
+    if (isTicked(key, fingerprint)) tickStore.delete(key);
+    else tickStore.set(key, fingerprint);
+    setTickVersion((v) => v + 1);
+  };
+  const ticks = tickLines?.filter((l) => isTicked(l.key, l.fingerprint)).length ?? 0;
+  const allTicked = tickLines !== null && ticks === tickLines.length;
   const unitsToStock = receiptLines?.reduce((n, l) => n + l.unitsToStock, 0) ?? 0;
   const damaged = receiptLines?.reduce((n, l) => n + l.damagedQty, 0) ?? 0;
+  const unitsToShip = shipLines?.reduce((n, l) => n + l.qty, 0) ?? 0;
+  // A transfer out under a waived dispatch policy has no approval; everything else needs a matching one.
+  const approvalReady =
+    detail.approval.state === "matches" ||
+    (detail.kind === "transfer_ship" && detail.approval.state === "not_needed");
   const canPostNow =
-    receiptLines !== null &&
-    receiptLines.length > 0 &&
+    tickLines !== null &&
+    tickLines.length > 0 &&
     allTicked &&
     online &&
     canPost &&
     !posting &&
-    detail.approval.state === "matches" &&
+    approvalReady &&
     !holding;
+  const actionLabel = shipLines ? "Dispatch" : "Post receiving";
+  const busyLabel = shipLines ? "Dispatching…" : "Posting…";
 
   const post = async () => {
-    if (!receiptLines || !canPostNow) return;
-    const kindToPost = detail.kind as "prepared_receipt" | "held_delivery";
+    if (!tickLines || !canPostNow) return;
     setPosting(true);
     setPostError(null);
-    const result = await invoke(() => window.pos.postCounterReceipt({ kind: kindToPost, id: detail.id }));
+    let message: string | null = null;
+    if (detail.kind === "transfer_ship") {
+      const result = await invoke(() => window.pos.dispatchCounterTransfer({ id: detail.id }));
+      if (result.ok) {
+        const v = result.value;
+        message = v.alreadyApplied
+          ? `Already dispatched. ${v.reference} is on the way.`
+          : `Dispatched. ${v.dispatchedQty} ${v.dispatchedQty === 1 ? "unit is" : "units are"} on the way${v.otherBranch ? ` to ${v.otherBranch}` : ""}.`;
+      } else setPostError(result.error.message);
+    } else {
+      const kindToPost = detail.kind as "prepared_receipt" | "held_delivery";
+      const result = await invoke(() => window.pos.postCounterReceipt({ kind: kindToPost, id: detail.id }));
+      if (result.ok)
+        message = `${result.value.alreadyApplied ? "Already posted. " : "Posted. "}${result.value.reference} is in stock.`;
+      else setPostError(result.error.message);
+    }
     setPosting(false);
-    if (!result.ok) {
-      setPostError(result.error.message);
+    if (message === null) {
       // A changed approval or a new report shows on the document, so read it again.
       load();
       onReported();
       return;
     }
-    receiptLines.forEach((l) => tickStore.delete(`${detail.id}:${l.index}`));
-    setPosted({ reference: result.value.reference, alreadyApplied: result.value.alreadyApplied });
+    tickLines.forEach((l) => tickStore.delete(l.key));
+    setPosted({ message });
     onReported();
   };
 
@@ -359,21 +415,41 @@ export function CounterDocumentPane({
         </div>
       ))}
 
-      {detail.kind === "transfer_ship" || detail.kind === "transfer_receive" ? (
+      {shipLines ? (
+        <TransferLines
+          lines={shipLines}
+          pick={{
+            ticked: (l) => isTicked(`${detail.id}:${l.transferItemId}`, lineFingerprint(l)),
+            onToggle: (l) => toggle(`${detail.id}:${l.transferItemId}`, lineFingerprint(l)),
+            disabled: posting || posted !== null,
+          }}
+        />
+      ) : detail.kind === "transfer_receive" ? (
         <TransferLines lines={detail.lines as ReadonlyArray<CounterWorkTransferLine>} />
       ) : receiptLines ? (
         <ReceiptLines
           lines={receiptLines}
-          ticked={(l) => tickStore.get(`${detail.id}:${l.index}`) === lineFingerprint(l)}
-          onToggle={(l) => {
-            const key = `${detail.id}:${l.index}`;
-            if (tickStore.get(key) === lineFingerprint(l)) tickStore.delete(key);
-            else tickStore.set(key, lineFingerprint(l));
-            setTickVersion((v) => v + 1);
-          }}
+          ticked={(l) => isTicked(`${detail.id}:${l.index}`, lineFingerprint(l))}
+          onToggle={(l) => toggle(`${detail.id}:${l.index}`, lineFingerprint(l))}
           disabled={posting || posted !== null}
         />
       ) : null}
+      {shipLines && (
+        <div className={cx(ui.note, styles.waiting)} role="note">
+          <Icon name="truck" />
+          <div>
+            <b>
+              {unitsToShip} {unitsToShip === 1 ? "unit leaves" : "units leave"} this branch
+              {otherBranch ? ` for ${otherBranch}` : ""}
+            </b>
+            {detail.approval.state === "not_needed"
+              ? "Approval isn't needed at this branch. "
+              : "The approval names the batches, so the pick list is fixed. "}
+            Dispatch takes the stock out and puts it on the way.
+            {allTicked ? "" : ` Tick every line as you pick it (${ticks} of ${shipLines.length}).`}
+          </div>
+        </div>
+      )}
       {receiptLines && (
         <div className={cx(ui.note, styles.waiting)} role="note">
           <Icon name="package-check" />
@@ -389,8 +465,7 @@ export function CounterDocumentPane({
       )}
       {posted && (
         <p className={ui.okText} role="status">
-          {posted.alreadyApplied ? "Already posted. " : "Posted. "}
-          {posted.reference} is in stock.
+          {posted.message}
         </p>
       )}
       {postError && (
@@ -398,11 +473,13 @@ export function CounterDocumentPane({
           {postError}
         </p>
       )}
-      {receiptLines && !posted && (
+      {tickLines && !posted && (
         <div className={styles.actions}>
           {!canPost && <small className={styles.hint}>Confirm the action waiting at this counter first.</small>}
-          {canPost && receiptLines.length === 0 && (
-            <small className={styles.hint}>This delivery has no lines to post.</small>
+          {canPost && tickLines.length === 0 && (
+            <small className={styles.hint}>
+              {shipLines ? "This transfer has no lines to dispatch." : "This delivery has no lines to post."}
+            </small>
           )}
           <button
             type="button"
@@ -410,8 +487,8 @@ export function CounterDocumentPane({
             disabled={!canPostNow}
             onClick={() => void post()}
           >
-            <Icon name="check-circle" />
-            {posting ? "Posting…" : "Post receiving"}
+            <Icon name={shipLines ? "truck" : "check-circle"} />
+            {posting ? busyLabel : actionLabel}
           </button>
         </div>
       )}

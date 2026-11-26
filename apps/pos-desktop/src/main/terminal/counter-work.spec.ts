@@ -418,3 +418,86 @@ describe("posting an approved receiving at the counter", () => {
     }
   });
 });
+
+describe("dispatching an approved transfer out at the counter", () => {
+  const transferId = randomUUID();
+  const evidence = randomUUID();
+
+  function dispatching(detail: Record<string, unknown>, effect: "applied" | "already_applied" = "applied") {
+    const executed: { operation: string; body: unknown; evidence: string | null }[] = [];
+    const commands = {
+      execute: async (operation: string, body: unknown, approval: string | null) => {
+        executed.push({ operation, body, evidence: approval });
+        return {
+          recordedAt: Date.parse("2026-11-26T08:49:00.000Z"),
+          result: { dispatchedQty: 42, effect },
+        };
+      },
+    };
+    const reads: string[] = [];
+    const api = {
+      request: async (_method: string, path: string) => {
+        reads.push(path);
+        return detail;
+      },
+    };
+    return {
+      executed,
+      reads,
+      work: new CounterWorkService({
+        api: api as unknown as ApiSession,
+        terminal: { current: () => ({ identity: { branchId } }) } as unknown as TerminalService,
+        commands: commands as unknown as SignedCommandService,
+      }),
+    };
+  }
+
+  const base = {
+    reference: "TR-0101",
+    otherBranch: "Bambalapitiya",
+    approval: { evidenceId: evidence, approvedVersion: 2, currentVersion: 2, state: "matches", changes: [] },
+    mismatches: [],
+  };
+
+  it("reads the transfer again and signs only its id, pinned to the approval just read", async () => {
+    const { work, executed, reads } = dispatching(base);
+    const done = await work.dispatchTransfer(transferId);
+    expect(reads).toEqual([`/counter-work/transfer_ship/${transferId}`]);
+    expect(executed).toEqual([
+      { operation: "POST /api/v1/transfers/:id/ship", body: { transferId }, evidence },
+    ]);
+    expect(done).toEqual({
+      reference: "TR-0101",
+      otherBranch: "Bambalapitiya",
+      dispatchedQty: 42,
+      alreadyApplied: false,
+      postedAt: "2026-11-26T08:49:00.000Z",
+    });
+  });
+
+  it("carries no approval when the dispatch policy is waived at this branch", async () => {
+    const { work, executed } = dispatching({
+      ...base,
+      approval: { evidenceId: null, approvedVersion: null, currentVersion: 2, state: "not_needed", changes: [] },
+    });
+    await work.dispatchTransfer(transferId);
+    expect(executed[0]!.evidence).toBeNull();
+  });
+
+  it("signs nothing when the approval changed or was withdrawn, or a report holds the transfer", async () => {
+    for (const [patch, code] of [
+      [{ approval: { ...base.approval, state: "changed" } }, "APPROVAL_STALE"],
+      [{ approval: { ...base.approval, state: "revoked" } }, "APPROVAL_INVALID"],
+      [{ mismatches: [{ holding: true }] }, "MISMATCH_REPORTED"],
+    ] as const) {
+      const { work, executed } = dispatching({ ...base, ...patch });
+      await expect(work.dispatchTransfer(transferId)).rejects.toMatchObject({ code });
+      expect(executed).toEqual([]);
+    }
+  });
+
+  it("reports a replayed dispatch as already applied", async () => {
+    const { work } = dispatching(base, "already_applied");
+    await expect(work.dispatchTransfer(transferId)).resolves.toMatchObject({ alreadyApplied: true });
+  });
+});
