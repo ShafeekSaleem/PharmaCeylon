@@ -3784,6 +3784,7 @@ export class ReportsService {
       status: true,
       createdAt: true,
       updatedAt: true,
+      shortClosedAt: true,
       items: { select: { productId: true, qty: true, receivedQty: true, batchId: true } },
     } as const;
     const [currentTransfers, previousTransfers] = await Promise.all([
@@ -3810,7 +3811,8 @@ export class ReportsService {
       return Number(total);
     }
     function avgCompletionHoursOf(transfers: typeof currentTransfers): number | null {
-      const received = transfers.filter((t) => t.status === "received");
+      // A transfer closed short ended by a manager's decision, not by arriving.
+      const received = transfers.filter((t) => t.status === "received" && !t.shortClosedAt);
       if (received.length === 0) return null;
       const totalHours = received.reduce((s, t) => s + (t.updatedAt.getTime() - t.createdAt.getTime()) / 3_600_000, 0);
       return totalHours / received.length;
@@ -3818,7 +3820,7 @@ export class ReportsService {
     function successRatePctOf(transfers: typeof currentTransfers): number | null {
       const terminal = transfers.filter((t) => t.status === "received" || t.status === "rejected" || t.status === "cancelled");
       if (terminal.length === 0) return null;
-      return (terminal.filter((t) => t.status === "received").length / terminal.length) * 100;
+      return (terminal.filter((t) => t.status === "received" && !t.shortClosedAt).length / terminal.length) * 100;
     }
 
     const kpis: TransfersKpis = {

@@ -23,6 +23,7 @@ import {
 import { TerminalTrustService } from "../../src/terminals/terminal-trust.service";
 import { boundedCanonical, sha256 } from "../../src/terminals/terminal-wire";
 import { TransfersService } from "../../src/transfers/transfers.service";
+import { CounterMismatchService } from "../../src/terminal-commands/counter-mismatch.service";
 import { terminalDevice } from "../fixtures/terminal-device";
 import {
   actor,
@@ -432,5 +433,88 @@ describe("signed counter execution", () => {
     expect((await run(sourceCounter, ship.request)).replayed).toBe(false);
     expect((await batchTotals(prisma, t.batchId)).onHand).toBe(6);
     expect(await audits("transfer.shipped", t.id)).toBe(1);
+  });
+});
+
+const mismatches = new CounterMismatchService(proxy as never, access, audit, {} as never);
+/** A "Can't pick all of it" report as the counter sends it (the counter-read path is its own test). */
+const cantPick = (transferId: string, approvalId: string | null) =>
+  prisma.counterMismatchReport.create({ data: {
+    tenantId: fx.tenantId, branchId: source(), kind: "transfer_ship", documentId: transferId, reference: "TR",
+    approvalId, documentVersion: 1, problem: "cannot_pick", countedQty: 1, countUnit: "units", reportedBy: fx.clerkId,
+  } });
+
+describe("P6 #52 decision 1: a counter report holds the approval it names", () => {
+  it("refuses dispatch while held; a dismissal frees the same approval", async () => {
+    const t = await approvedTransfer(3, 9);
+    const report = await cantPick(t.id, t.approvalId);
+    await expect(transfers.ship(user(fx.managerId), source(), t.id, { approvalId: t.approvalId }))
+      .rejects.toMatchObject({ response: { code: "MISMATCH_REPORTED" } });
+    expect((await batchTotals(prisma, t.batchId)).onHand).toBe(9);
+
+    // The clerk who reported it can't answer it; a manager keeps the transfer as approved.
+    await expect(mismatches.dismiss(user(fx.clerkId), source(), report.id, { note: null }))
+      .rejects.toMatchObject({ status: 403 });
+    await mismatches.dismiss(user(fx.managerId), source(), report.id, { note: "Pick the 3 from aisle B" });
+    await transfers.ship(user(fx.managerId), source(), t.id, { approvalId: t.approvalId });
+    expect((await batchTotals(prisma, t.batchId)).onHand).toBe(6);
+  });
+
+  it("a report against an approval since replaced holds nothing", async () => {
+    const t = await approvedTransfer(2, 8);
+    await cantPick(t.id, randomUUID());
+    await transfers.ship(user(fx.managerId), source(), t.id, { approvalId: t.approvalId });
+    expect((await batchTotals(prisma, t.batchId)).onHand).toBe(6);
+  });
+
+  it("holds a transfer whose approval is waived", async () => {
+    await setApprovalRequired(false);
+    const t = await requestedTransfer(2, 7);
+    await cantPick(t.id, null);
+    await expect(transfers.ship(user(fx.managerId), source(), t.id, { approvalId: null }))
+      .rejects.toMatchObject({ response: { code: "MISMATCH_REPORTED" } });
+  });
+});
+
+describe("P6 #52 decision 2: a manager closes what is still on the way", () => {
+  const remaining = (itemId: string, qty: number) => [{ transferItemId: itemId, qty }];
+
+  it("lost in transit: written off as lost at the source; the transfer is finished", async () => {
+    const t = await dispatchedTransfer(5, 12);
+    await transfers.receive(user(fx.managerId), destination(), t.id,
+      { lines: [{ transferItemId: t.itemId, qty: 3, receivedQtyBefore: 0 }] });
+    const closed = await transfers.closeShort(user(fx.managerId), destination(), t.id,
+      { reason: "lost_in_transit", note: "Courier lost a carton", remaining: remaining(t.itemId, 2) });
+    expect(closed).toMatchObject({ status: "received", receivedQty: 3, inTransitQty: 0, closedQty: 2,
+      shortCloseReason: "lost_in_transit", shortClosedBy: fx.managerId });
+    // Source on-hand is unchanged; the loss is a write-off there.
+    expect((await batchTotals(prisma, t.batchId)).onHand).toBe(7);
+    const lost = await prisma.stockLedger.findMany({ where: { tenantId: fx.tenantId, referenceId: t.id,
+      movementType: "adjustment_out" } });
+    expect(lost).toEqual([expect.objectContaining({ branchId: source(), qtyDelta: -2, reasonCode: "lost" })]);
+    expect(await destinationOnHand(t.batchId)).toBe(3);
+    await expect(transfers.receive(user(fx.managerId), destination(), t.id, {})).rejects.toMatchObject({ status: 400 });
+    expect(await audits("transfer.closed_short", t.id)).toBe(1);
+  });
+
+  it("never left the source: back into the source batch, and only the source may say so", async () => {
+    const t = await dispatchedTransfer(4, 10);
+    const close = { reason: "never_left_source" as const, note: "Still on the shelf", remaining: remaining(t.itemId, 4) };
+    await expect(transfers.closeShort(user(fx.managerId), destination(), t.id, close))
+      .rejects.toMatchObject({ status: 403 });
+    const closed = await transfers.closeShort(user(fx.managerId), source(), t.id, close);
+    expect(closed).toMatchObject({ status: "received", inTransitQty: 0, closedQty: 4 });
+    expect((await batchTotals(prisma, t.batchId)).onHand).toBe(10);
+  });
+
+  it("refuses a stale remainder, an unauthorised manager and a finished transfer", async () => {
+    const t = await dispatchedTransfer(5, 12);
+    await expect(transfers.closeShort(user(fx.managerId), destination(), t.id,
+      { reason: "lost_in_transit", note: "Lost", remaining: remaining(t.itemId, 4) })).rejects.toMatchObject({ status: 409 });
+    await expect(transfers.closeShort(user(fx.clerkId), source(), t.id,
+      { reason: "lost_in_transit", note: "Lost", remaining: remaining(t.itemId, 5) })).rejects.toMatchObject({ status: 403 });
+    await transfers.receive(user(fx.managerId), destination(), t.id, {});
+    await expect(transfers.closeShort(user(fx.managerId), destination(), t.id,
+      { reason: "lost_in_transit", note: "Lost", remaining: remaining(t.itemId, 5) })).rejects.toMatchObject({ status: 400 });
   });
 });

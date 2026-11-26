@@ -49,6 +49,9 @@ These use signed commands but are not web-approved queue rows on this endpoint:
 | `GET /counter-work` | Executable documents plus read-only held write-offs (`awaiting_approval`; `rejected` for `COUNTER_REJECTED_HELD_WRITE_OFF_VISIBLE_DAYS`) |
 | `GET /counter-work/:kind/:id` | P6 counter read: one item's lines, trail and notes (see below) |
 | `GET /counter-work/imports` | P6 decision 5: imports this counter can still undo, with the stock each posted |
+| `POST /counter-work/mismatches` | P6 decision 1: "Something doesn't match" / "Can't pick all of it" from the counter (see below) |
+| `GET /counter-work/mismatches`, `POST /counter-work/mismatches/:id/dismiss` | Web: the reports on a document's page, and the approver keeping it as approved |
+| `POST /transfers/:id/close-short` | Web, P6 decision 2: a manager closes what is still on the way |
 | `GET /dashboard/counter-attention` | Counter route only: `batch.expiry_review` rows with `counterExecution` (signed quarantine, `reasonCode: expired`) |
 | `GET /tenant/my-permissions` | Effective permission keys at the branch for counter UI hints (`@CounterRoute()`) |
 | P6 desktop | Physical execution screens mapped by `task.destination` |
@@ -93,6 +96,52 @@ after building the lines and retries once if it moved (409 if it moves again): a
 approved version is never paired with another version's lines. Receipt lines resolve units per
 pack, quantity and unit cost exactly as receiving posts them (`purchasing/pack-math.ts`, then
 the order line and the supplier's price).
+
+## Mismatch reports (P6 #52 decision 1)
+
+The counter confirms approved documents as they stand. When what is in front of it doesn't
+match, it sends `POST /counter-work/mismatches` (`ReportCounterMismatchBody`, counter route,
+`Idempotency-Key`): the kind, the document, the `approval.evidenceId` and
+`approval.currentVersion` it shows, the line (`{ index }` on a delivery, `{ transferItemId }`
+on a transfer; null only for `not_on_note`), the problem, the count and a note. Nothing posts.
+
+- **Kinds and choices:** `COUNTER_MISMATCH_PROBLEMS_BY_KIND`. Receiving (prepared receipt, held
+  delivery): fewer arrived, more arrived, different batch or expiry, damaged, not on the note.
+  Transfer out: can't pick all of it, different batch or expiry, damaged. Transfer in: fewer,
+  more, different batch or expiry, damaged. Counts are in packs on a line delivered in packs,
+  otherwise units. A different batch, and anything not on the note, needs a note.
+- **Checks:** the item must be in this branch's Counter work (`GET /counter-work/:kind/:id`'s
+  gate, so the kind's execute permission), and the approval and version sent must still be the
+  item's (409 otherwise, or when it already waits for re-approval).
+- **The hold:** an open report holds the approval it names for deliveries and transfers out.
+  `ManagementApprovalsService.requireForExecution` refuses that approval with 403
+  `MISMATCH_REPORTED` (prepare and execute alike); a transfer out under a waived approval is
+  held by the same check in `dispatchInTransaction`. The list shows the item with
+  `task.blocker.code` `MISMATCH_REPORTED` and "Waiting for a corrected version", and each item
+  carries its open reports in `mismatches`. A transfer in is never held: the counter still
+  receives what arrived, and a manager closes the rest (decision 2).
+- **Clearing it:** approving a corrected version issues a new approval, which the report doesn't
+  name, so the hold ends and the report drops off the list and Daily work. Or the approver keeps
+  the document as approved on the web (`POST /counter-work/mismatches/:id/dismiss`, the
+  document's approve permission, never the person who reported it unless they may approve their
+  own requests).
+- **Daily work:** `counter_mismatch.review`, listed to the document's approvers (`mine` for the
+  approver of the held approval) while the report is open and still about the document's
+  current approval.
+
+## Closing a short transfer (P6 #52 decision 2)
+
+`POST /transfers/:id/close-short` (`CloseShortTransferBody`, `transfers.approve`, web only)
+closes everything still on the way on a transfer that is in transit or partly received.
+`remaining` pins each open line's quantity as the manager saw it; a receipt since is a 409.
+
+- `lost_in_transit` (either branch): written off as lost at the source, where the stock was last
+  held: an `adjustment_in` and an `adjustment_out` (`reasonCode: lost`) on the source batch, so
+  source on-hand is unchanged and the loss shows in its write-offs.
+- `never_left_source` (the sending branch only): an `adjustment_in` back into the source batch.
+- The lines' `closedQty` takes the rest, the transfer becomes `received` with
+  `shortClosedAt/By`, `shortCloseReason` and `shortCloseNote`, and nothing more can be received.
+  Audit `transfer.closed_short`.
 
 ## Signed evidence pinning
 

@@ -125,7 +125,8 @@ export type CounterWorkExecuteErrorCode =
   | "ONLINE_REQUIRED"
   | "TERMINAL_REQUIRED"
   | "REMOTE_SESSION_DENIED"
-  | "IDENTITY_MISMATCH";
+  | "IDENTITY_MISMATCH"
+  | "MISMATCH_REPORTED";
 
 export type CounterWorkExecuteError = Readonly<{
   /** prepare or execute — when the counter would see this refusal. */
@@ -134,7 +135,7 @@ export type CounterWorkExecuteError = Readonly<{
 }>;
 
 /** Row-level blockers on this list carry only approval-evidence failures; other codes appear at prepare/execute. */
-export type CounterWorkRowBlockerCode = "APPROVAL_STALE" | "APPROVAL_INVALID";
+export type CounterWorkRowBlockerCode = "APPROVAL_STALE" | "APPROVAL_INVALID" | "MISMATCH_REPORTED";
 
 export type CounterWorkBlocker = Readonly<{
   code: CounterWorkRowBlockerCode;
@@ -217,6 +218,8 @@ export type ProjectCounterWorkTaskInput = Readonly<{
   asOf: string;
   /** Read-only held write-off rows on the counter (#173). */
   heldAdjustmentStatus?: HeldAdjustmentCounterStatus;
+  /** Decision 1: an open mismatch report holds the approval this item would post. */
+  mismatchReported?: boolean;
 }>;
 
 const NEXT_ACTION_READY: Readonly<Record<CounterWorkKind, string>> = {
@@ -252,6 +255,12 @@ function blockerForApproval(
   }
   return null;
 }
+
+const MISMATCH_BLOCKER: CounterWorkBlocker = {
+  code: "MISMATCH_REPORTED",
+  message:
+    "Sent to the approver as not matching. It waits here until a corrected version is approved, or the approver keeps it as it is.",
+};
 
 function stageFor(blocker: CounterWorkBlocker | null): CounterWorkTaskStage {
   return blocker ? "blocked_approval" : "ready_for_execution";
@@ -478,6 +487,8 @@ type CounterWorkDetailBase<K extends CounterWorkDetailKind> = Readonly<{
   approved: CounterWorkPerson | null;
   dispatched: CounterWorkPerson | null;
   notes: ReadonlyArray<CounterWorkNote>;
+  /** Decision 1: reports this branch sent that are still open. */
+  mismatches: ReadonlyArray<CounterMismatchReport>;
 }>;
 
 export type CounterWorkReceiptDetail = CounterWorkDetailBase<"prepared_receipt"> &
@@ -570,7 +581,10 @@ export function projectCounterWorkTask(input: ProjectCounterWorkTaskInput): Coun
   const readOnlyHeld =
     kind === "held_adjustment" &&
     (heldAdjustmentStatus === "awaiting_approval" || heldAdjustmentStatus === "rejected");
-  const blocker = readOnlyHeld ? null : blockerForApproval(approval.state, approval.changes);
+  const blocker = readOnlyHeld
+    ? null
+    : (blockerForApproval(approval.state, approval.changes) ??
+      (input.mismatchReported ? MISMATCH_BLOCKER : null));
   const stage = readOnlyHeld ? "blocked_approval" : stageFor(blocker);
   const readyLabel = NEXT_ACTION_READY[kind];
 
@@ -591,7 +605,12 @@ export function projectCounterWorkTask(input: ProjectCounterWorkTaskInput): Coun
           executable: destinationStatus === "available",
         }
       : {
-          label: blocker.code === "APPROVAL_INVALID" ? "Approval withdrawn" : "Approve again on the web",
+          label:
+            blocker.code === "APPROVAL_INVALID"
+              ? "Approval withdrawn"
+              : blocker.code === "MISMATCH_REPORTED"
+                ? "Waiting for a corrected version"
+                : "Approve again on the web",
           executable: false,
         };
 
@@ -613,3 +632,123 @@ export function projectCounterWorkTask(input: ProjectCounterWorkTaskInput): Coun
     executeErrors: executeErrorsFor(blocker),
   };
 }
+
+/**
+ * P6 #52 decision 1: "Something doesn't match" (receiving, transfer in) and "Can't pick all of it"
+ * (transfer out), sent from the counter to the approver. Nothing posts from it.
+ */
+export const COUNTER_MISMATCH_KINDS = [
+  "prepared_receipt",
+  "held_delivery",
+  "transfer_ship",
+  "transfer_receive",
+] as const satisfies ReadonlyArray<CounterWorkDetailKind>;
+export type CounterMismatchKind = (typeof COUNTER_MISMATCH_KINDS)[number];
+
+export function isCounterMismatchKind(value: string): value is CounterMismatchKind {
+  return (COUNTER_MISMATCH_KINDS as readonly string[]).includes(value);
+}
+
+export const COUNTER_MISMATCH_PROBLEMS = [
+  "fewer_arrived",
+  "more_arrived",
+  "different_batch_or_expiry",
+  "damaged",
+  "not_on_note",
+  "cannot_pick",
+] as const;
+export type CounterMismatchProblem = (typeof COUNTER_MISMATCH_PROBLEMS)[number];
+
+/** The choices each screen offers under "What's wrong". */
+export const COUNTER_MISMATCH_PROBLEMS_BY_KIND: Readonly<
+  Record<CounterMismatchKind, ReadonlyArray<CounterMismatchProblem>>
+> = {
+  prepared_receipt: ["fewer_arrived", "more_arrived", "different_batch_or_expiry", "damaged", "not_on_note"],
+  held_delivery: ["fewer_arrived", "more_arrived", "different_batch_or_expiry", "damaged", "not_on_note"],
+  transfer_ship: ["cannot_pick", "different_batch_or_expiry", "damaged"],
+  transfer_receive: ["fewer_arrived", "more_arrived", "different_batch_or_expiry", "damaged"],
+};
+
+/** Problems that need the count ("Packs that arrived", "Units you can pick"). */
+export const COUNTER_MISMATCH_NEEDS_COUNT: ReadonlyArray<CounterMismatchProblem> = [
+  "fewer_arrived",
+  "more_arrived",
+  "damaged",
+  "cannot_pick",
+];
+
+/** Words for each problem, shared by the counter and the web. */
+export const COUNTER_MISMATCH_PROBLEM_LABEL: Readonly<Record<CounterMismatchProblem, string>> = {
+  fewer_arrived: "Fewer arrived",
+  more_arrived: "More arrived",
+  different_batch_or_expiry: "Different batch or expiry",
+  damaged: "Damaged",
+  not_on_note: "Not on the delivery note",
+  cannot_pick: "Can't pick all of it",
+};
+
+/**
+ * Whether an open report holds the item at the counter. A transfer in is never held: the counter
+ * still receives what arrived, and a manager closes the rest on the web (decision 2).
+ */
+export const COUNTER_MISMATCH_HOLDS: Readonly<Record<CounterMismatchKind, boolean>> = {
+  prepared_receipt: true,
+  held_delivery: true,
+  transfer_ship: true,
+  transfer_receive: false,
+};
+
+/** The line the report is about: a delivery line by its index, or a transfer line. */
+export type CounterMismatchLine = Readonly<{ index: number }> | Readonly<{ transferItemId: string }>;
+
+/** `POST /counter-work/mismatches`, sent with an `Idempotency-Key`. */
+export type ReportCounterMismatchBody = Readonly<{
+  kind: CounterMismatchKind;
+  documentId: string;
+  /** `approval.evidenceId` from the item the counter shows; null where it is null. */
+  approvalId: string | null;
+  /** `approval.currentVersion` from the same item. */
+  documentVersion: number;
+  /** Null only for "not_on_note". */
+  line: CounterMismatchLine | null;
+  problem: CounterMismatchProblem;
+  /** Required for the problems in `COUNTER_MISMATCH_NEEDS_COUNT`; packs where the line has packs. */
+  countedQty: number | null;
+  note: string | null;
+}>;
+
+/** `POST /counter-work/mismatches/:id/dismiss` on the web: keep the document as approved. */
+export type DismissCounterMismatchBody = Readonly<{ note: string | null }>;
+
+export type CounterMismatchReport = Readonly<{
+  id: string;
+  kind: CounterMismatchKind;
+  documentId: string;
+  reference: string;
+  approvalId: string | null;
+  documentVersion: number;
+  line: CounterMismatchLine | null;
+  /** The product, as the counter saw the line. */
+  lineLabel: string | null;
+  problem: CounterMismatchProblem;
+  countedQty: number | null;
+  countUnit: "packs" | "units" | null;
+  note: string | null;
+  status: "open" | "dismissed";
+  /** Open, and the approval it was raised against is still the document's (nothing replaced it). */
+  holding: boolean;
+  reported: CounterWorkPerson;
+  dismissed: CounterWorkPerson | null;
+  dismissNote: string | null;
+}>;
+
+/** P6 #52 decision 2: closing what is still on the way, on the web. */
+export const TRANSFER_SHORT_CLOSE_REASONS = ["never_left_source", "lost_in_transit"] as const;
+export type TransferShortCloseReason = (typeof TRANSFER_SHORT_CLOSE_REASONS)[number];
+
+/** `POST /transfers/:id/close-short`. `remaining` pins what the manager saw still on the way. */
+export type CloseShortTransferBody = Readonly<{
+  reason: TransferShortCloseReason;
+  note: string;
+  remaining: ReadonlyArray<Readonly<{ transferItemId: string; qty: number }>>;
+}>;

@@ -221,7 +221,7 @@ export class CounterWorkDetailService {
           where: { tenantId },
           orderBy: { id: "asc" },
           select: {
-            id: true, qty: true, receivedQty: true,
+            id: true, qty: true, receivedQty: true, closedQty: true,
             product: { select: { id: true, name: true, packLabel: true, unitsPerPack: true } },
             batch: { select: { id: true, batchNo: true, expiryDate: true } },
           },
@@ -236,7 +236,7 @@ export class CounterWorkDetailService {
       expiryDate: day(line.batch?.expiryDate),
       qty: line.qty,
       receivedQty: line.receivedQty,
-      remainingQty: Math.max(line.qty - line.receivedQty, 0),
+      remainingQty: Math.max(line.qty - line.receivedQty - line.closedQty, 0),
     }));
     const notes = await this.notes(tenantId, [
       { label: "Transfer note", text: row.notes, by: row.requestedBy, at: row.createdAt },
@@ -453,6 +453,7 @@ function base<K extends CounterWorkDetailKind>(item: CounterWorkItem, kind: K) {
     requested: item.requested,
     approved: item.approved,
     dispatched: item.dispatched,
+    mismatches: item.mismatches,
   };
 }
 

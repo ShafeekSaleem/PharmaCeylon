@@ -19,6 +19,10 @@ describe("counter-boundary refusals", () => {
     ["SELF_APPROVAL_DENIED", "You raised this, so someone else needs to approve it."],
     ["PAYMENT_EVIDENCE_REQUIRED", "Attach the payment evidence to record this payment."],
     ["PHARMACIST_REQUIRED", "A pharmacist has to verify this at the counter."],
+    [
+      "MISMATCH_REPORTED",
+      "The counter said this doesn't match. Approve a corrected version, or keep it as approved.",
+    ],
   ];
 
   it.each(copy)("shows %s as the target doc's message", (code, message) => {
@@ -27,7 +31,7 @@ describe("counter-boundary refusals", () => {
     expect(counterBoundaryMessage(code)).toBe(message);
   });
 
-  it("covers exactly the eight codes in the copy table", () => {
+  it("covers exactly the nine codes in the copy table", () => {
     expect(Object.keys(COUNTER_BOUNDARY_MESSAGES).sort()).toEqual(copy.map(([code]) => code).sort());
   });
 

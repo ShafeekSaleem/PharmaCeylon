@@ -43,6 +43,8 @@ export type TransferItem = {
   batchId: string | null;
   qty: number;
   receivedQty: number;
+  /** Units a manager closed short (P6 #52 decision 2). */
+  closedQty?: number;
   product: { id: string; sku: string; name: string };
   batch?: { id: string; batchNo: string } | null;
 };
@@ -85,6 +87,11 @@ export type TransferListItem = {
   dispatchedAt?: string | null;
   receivedAt?: string | null;
   dispatcher?: TransferUserRef | null;
+  /** P6 #52 decision 2: what was still on the way, closed by a manager. */
+  closedQty?: number;
+  shortClosedAt?: string | null;
+  shortCloseReason?: "never_left_source" | "lost_in_transit" | null;
+  shortCloseNote?: string | null;
 };
 
 export type CreateTransferLine = {
