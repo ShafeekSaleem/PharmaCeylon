@@ -1,0 +1,226 @@
+/* Settings › Appearance (UI1 #205): the form beside a live preview of real components. */
+
+.layout {
+  container-type: inline-size;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 17.5rem;
+  gap: 1rem;
+  align-items: start;
+}
+
+/* Narrow content: the preview goes under the form, still before the save bar's reach. */
+@container (max-width: 46rem) {
+  .grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.form {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.choiceRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+  padding: 0.75rem 0;
+  border-top: 1px solid var(--pc-border);
+}
+
+.choiceRow:first-of-type {
+  margin-top: 0.75rem;
+}
+
+.choiceLabel {
+  flex: 1 1 12rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.segmented {
+  display: inline-flex;
+  flex-wrap: wrap;
+  border: 1px solid var(--pc-tone-neutral-line);
+  border-radius: var(--pc-radius-sm);
+  overflow: hidden;
+}
+
+.segment {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 2.25rem;
+  padding: 0 0.85rem;
+  border: 0;
+  border-left: 1px solid var(--pc-border);
+  background: var(--pc-card-bg);
+  color: var(--pc-foreground);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.segment:first-child {
+  border-left: 0;
+}
+
+.segment:hover:not(:disabled) {
+  background: var(--pc-muted-bg);
+}
+
+/* The chosen option is the one filled segment; aria-pressed says it to screen readers too. */
+.segment[aria-pressed="true"] {
+  background: var(--pc-foreground);
+  color: var(--pc-card-bg);
+  font-weight: 600;
+}
+
+.segment:focus-visible {
+  outline: 2px solid var(--pc-primary);
+  outline-offset: -2px;
+}
+
+.saveBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+}
+
+.saveState {
+  font-size: 0.82rem;
+  color: var(--pc-muted-fg);
+}
+
+/* ── Preview ── */
+
+.preview {
+  position: sticky;
+  top: 1rem;
+  min-width: 0;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-md);
+  background: var(--pc-card-bg);
+  overflow: hidden;
+}
+
+.previewTitle {
+  margin: 0;
+  padding: 0.7rem 1rem;
+  border-bottom: 1px solid var(--pc-border);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--pc-muted-fg);
+}
+
+.previewBody {
+  display: flex;
+}
+
+/* The same surface the app's sidebar uses, including the owner's sidebar style. */
+.previewNav {
+  flex: 0 0 7.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0.6rem 0.4rem;
+  background: var(--pc-card-bg);
+  border-right: 1px solid var(--pc-border);
+  color: var(--pc-foreground);
+}
+
+:global(html[data-sidebar="tinted"]) .previewNav {
+  --pc-card-bg: var(--ui-accent-soft);
+  --pc-border: color-mix(in srgb, var(--ui-accent) 22%, var(--ui-accent-soft));
+  --pc-tone-neutral-line: color-mix(in srgb, var(--ui-accent) 35%, var(--ui-accent-soft));
+}
+
+:global(html[data-sidebar="dark"]) .previewNav {
+  --pc-card-bg: var(--pc-sidebar-dark-bg);
+  --pc-foreground: var(--pc-sidebar-dark-text);
+  --pc-border: var(--pc-sidebar-dark-line);
+  --pc-tone-neutral-line: var(--pc-sidebar-dark-line-strong);
+}
+
+.previewNavItem {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.45rem;
+  border: 1px solid transparent;
+  border-radius: var(--pc-radius-sm);
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.previewNavActive {
+  border-color: var(--pc-tone-neutral-line);
+  font-weight: 600;
+}
+
+.previewMain {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  padding: 0.75rem;
+}
+
+.previewRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.previewText {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--pc-foreground);
+}
+
+.previewChart {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.3rem;
+  height: 4.5rem;
+  border-bottom: 1px solid var(--pc-border);
+}
+
+.previewChart span {
+  flex: 1;
+  border-radius: 3px 3px 0 0;
+}
+
+.previewCheck {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.78rem;
+  color: var(--pc-foreground);
+}
+
+.previewCheck input {
+  accent-color: var(--pc-primary);
+  pointer-events: none;
+}
+
+.previewFoot {
+  margin: 0;
+  padding: 0.6rem 1rem;
+  border-top: 1px solid var(--pc-border);
+  background: var(--pc-muted-bg);
+  font-size: 0.75rem;
+  color: var(--pc-muted-fg);
+}

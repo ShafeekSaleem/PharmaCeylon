@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ActionButton, PageHeader } from "@/components/ui";
-import { IconMoon, IconSparkles, IconSun } from "@/components/icons";
+import { IconMoon, IconSparkles, IconSun, IconUser } from "@/components/icons";
 import { useAuth } from "@/lib/use-auth";
+import { useUnsavedChangesWarning } from "@/lib/use-unsaved-changes";
 import {
   APPEARANCE_CHANGED_EVENT,
+  applyAppearancePrefs,
   readAppearancePrefs,
   saveAppearancePrefs,
   DEFAULT_APPEARANCE_PREFS,
@@ -15,115 +17,222 @@ import {
   type Theme,
 } from "@/lib/appearance";
 import css from "../settings.module.css";
-import { PharmacyBrandCard } from "./pharmacy-brand-card";
+import page from "./appearance.module.css";
+import { AppearancePreview } from "./appearance-preview";
+import {
+  PharmacyBrandCard,
+  isOwner,
+  type PharmacyBrandHandle,
+  type PharmacyBrandState,
+} from "./pharmacy-brand-card";
 
-const THEME_CHOICES: { value: Theme; label: string; icon: React.ReactNode }[] = [
-  { value: "system", label: "Match device", icon: <IconSparkles size={14} /> },
+type Choice<T> = { value: T; label: string; icon?: React.ReactNode };
+
+const THEME_CHOICES: Choice<Theme>[] = [
   { value: "light", label: "Light", icon: <IconSun size={14} /> },
   { value: "dark", label: "Dark", icon: <IconMoon size={14} /> },
+  { value: "system", label: "Match device", icon: <IconSparkles size={14} /> },
+];
+const DENSITY_CHOICES: Choice<Density>[] = [
+  { value: "comfortable", label: "Comfortable" },
+  { value: "compact", label: "Compact" },
+];
+const TEXT_CHOICES: Choice<FontSize>[] = [
+  { value: "small", label: "Small" },
+  { value: "medium", label: "Default" },
+  { value: "large", label: "Large" },
 ];
 
+const samePrefs = (a: AppearancePrefs, b: AppearancePrefs) =>
+  a.theme === b.theme && a.density === b.density && a.fontSize === b.fontSize;
+
+/**
+ * Settings › Appearance (UI1 #205): the person's own display, and the pharmacy brand for owners.
+ * Every choice shows straight away, on the page and in the preview, and is kept only on Save.
+ * Leaving without saving puts back what was saved, and asks first.
+ */
 export default function AppearancePage() {
   const { user } = useAuth();
-  const [prefs, setPrefs] = useState(DEFAULT_APPEARANCE_PREFS);
+  const userId = user?.id;
+  const owner = isOwner(user);
+  const [saved, setSaved] = useState(DEFAULT_APPEARANCE_PREFS);
+  const [draft, setDraft] = useState(DEFAULT_APPEARANCE_PREFS);
   const [ready, setReady] = useState(false);
+  const [brand, setBrand] = useState<PharmacyBrandState>({ dirty: false, invalid: false });
+  const [saving, setSaving] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const brandRef = useRef<PharmacyBrandHandle>(null);
+  const savedRef = useRef(saved);
+  savedRef.current = saved;
 
   useEffect(() => {
-    setPrefs(readAppearancePrefs(user?.id));
+    const prefs = readAppearancePrefs(userId);
+    setSaved(prefs);
+    setDraft(prefs);
     setReady(true);
-    // The top-bar switch changes the theme from outside this page.
-    const onChange = (e: Event) => setPrefs((e as CustomEvent<AppearancePrefs>).detail);
+    // The top-bar switch saves a theme from outside this page: it becomes the saved theme here
+    // too, and replaces any theme picked but not saved, leaving the other choices as drafted.
+    const onChange = (e: Event) => {
+      const next = (e as CustomEvent<AppearancePrefs>).detail;
+      setSaved(next);
+      setDraft((d) => ({ ...d, theme: next.theme }));
+    };
     window.addEventListener(APPEARANCE_CHANGED_EVENT, onChange);
-    return () => window.removeEventListener(APPEARANCE_CHANGED_EVENT, onChange);
-  }, [user?.id]);
+    return () => {
+      window.removeEventListener(APPEARANCE_CHANGED_EVENT, onChange);
+      // Leaving with a display that wasn't saved puts the saved one back.
+      applyAppearancePrefs(savedRef.current);
+    };
+  }, [userId]);
 
-  function update(next: Partial<typeof prefs>) {
-    saveAppearancePrefs({ ...prefs, ...next }, user?.id);
+  // The draft is the live preview: the whole page shows it before it is saved.
+  useEffect(() => {
+    if (ready) applyAppearancePrefs(draft);
+  }, [draft, ready]);
+
+  const displayDirty = ready && !samePrefs(draft, saved);
+  const dirty = displayDirty || brand.dirty;
+  useUnsavedChangesWarning(dirty);
+
+  const onBrandState = useCallback((state: PharmacyBrandState) => setBrand(state), []);
+
+  function choose(next: Partial<AppearancePrefs>) {
+    setNotice(null);
+    setDraft((d) => ({ ...d, ...next }));
+  }
+
+  async function save() {
+    setSaving(true);
+    setNotice(null);
+    if (displayDirty) {
+      saveAppearancePrefs(draft, userId);
+      setSaved(draft);
+    }
+    // The brand card says itself whether the pharmacy's brand saved, and why not.
+    const brandSaved = brand.dirty ? await brandRef.current?.save() : true;
+    setSaving(false);
+    if (displayDirty) setNotice(brandSaved ? "Saved." : "Your display is saved.");
   }
 
   function reset() {
-    saveAppearancePrefs(DEFAULT_APPEARANCE_PREFS, user?.id);
+    setNotice(null);
+    setDraft(DEFAULT_APPEARANCE_PREFS);
+    brandRef.current?.resetToDefaults();
   }
+
+  const atDefaults = samePrefs(draft, DEFAULT_APPEARANCE_PREFS);
 
   return (
     <div>
       <PageHeader
         title="Appearance"
-        description="Your own display preferences on this device, and the pharmacy's brand colours."
-        actions={<ActionButton variant="secondary" onClick={reset} disabled={!ready}>Reset defaults</ActionButton>}
+        description="Changes show straight away, on this page and in the preview, and are kept when you press Save."
       />
 
-      <div className={css.card}>
-        <div className={css.cardHead}>
-          <div>
-            <h2 className={css.cardTitle}>
-              <IconSparkles size={16} /> Display
-            </h2>
+      <div className={page.layout}>
+        <div className={page.grid}>
+          <div className={page.form}>
+            <section className={css.card} aria-labelledby="your-display-title">
+              <h2 className={css.cardTitle} id="your-display-title">
+                <IconUser size={16} /> Your display
+                <span className={css.scopeChip}>Only your account</span>
+              </h2>
+              <p className={css.cardDesc}>
+                On this browser. Everyone at the pharmacy picks their own.
+              </p>
+
+              <ChoiceRow
+                label="Theme"
+                hint="Also on the top bar of every page."
+                choices={THEME_CHOICES}
+                value={draft.theme}
+                onChange={(theme) => choose({ theme })}
+                disabled={!ready}
+              />
+              <ChoiceRow
+                label="Density"
+                hint="Compact fits more rows in tables."
+                choices={DENSITY_CHOICES}
+                value={draft.density}
+                onChange={(density) => choose({ density })}
+                disabled={!ready}
+              />
+              <ChoiceRow
+                label="Text size"
+                choices={TEXT_CHOICES}
+                value={draft.fontSize}
+                onChange={(fontSize) => choose({ fontSize })}
+                disabled={!ready}
+              />
+            </section>
+
+            <PharmacyBrandCard ref={brandRef} user={user} onStateChange={onBrandState} />
+
+            <div className={page.saveBar}>
+              <ActionButton onClick={save} disabled={!dirty || saving || brand.invalid}>
+                {saving ? "Saving…" : "Save changes"}
+              </ActionButton>
+              <ActionButton
+                variant="secondary"
+                onClick={reset}
+                disabled={!ready || saving || (atDefaults && !owner)}
+              >
+                Reset to defaults
+              </ActionButton>
+              <span className={page.saveState} role="status">
+                {dirty ? "Unsaved changes" : notice}
+              </span>
+            </div>
+            <p className={css.rowHint}>
+              {owner
+                ? "Reset puts back the PharmaCeylon defaults for your display and the pharmacy brand. Nothing changes until you save."
+                : "Reset puts back the PharmaCeylon defaults for your display. Nothing changes until you save."}
+            </p>
           </div>
-        </div>
 
-        <p className={css.subLabel}>Theme</p>
-        <div className={css.pillRow}>
-          {THEME_CHOICES.map((choice) => (
-            <button
-              key={choice.value}
-              type="button"
-              aria-pressed={prefs.theme === choice.value}
-              className={`${css.pill}${prefs.theme === choice.value ? ` ${css.pillSelected}` : ""}`}
-              onClick={() => update({ theme: choice.value })}
-              disabled={!ready}
-            >
-              {choice.icon}
-              {choice.label}
-            </button>
-          ))}
-        </div>
-        <p className={css.rowHint}>
-          Match device follows your computer&apos;s setting and changes with it. The sun/moon button in the top bar switches straight to the other one.
-        </p>
-
-
-        <p className={css.subLabel}>Density</p>
-        <div className={css.pillRow}>
-          {(["comfortable", "compact"] as Density[]).map((d) => (
-            <button
-              key={d}
-              type="button"
-              className={`${css.pill}${prefs.density === d ? ` ${css.pillSelected}` : ""}`}
-              onClick={() => update({ density: d })}
-              disabled={!ready}
-            >
-              {d === "comfortable" ? "Comfortable" : "Compact"}
-            </button>
-          ))}
-        </div>
-
-        <p className={css.subLabel}>Font size</p>
-        <div className={css.pillRow}>
-          {(["small", "medium", "large"] as FontSize[]).map((f) => (
-            <button
-              key={f}
-              type="button"
-              className={`${css.pill}${prefs.fontSize === f ? ` ${css.pillSelected}` : ""}`}
-              onClick={() => update({ fontSize: f })}
-              disabled={!ready}
-            >
-              {f[0].toUpperCase() + f.slice(1)}
-            </button>
-          ))}
-        </div>
-
-        <div className={css.appearancePreview}>
-          <div>
-            <div className={css.avatarTitle}>Preview</div>
-            <div className={css.rowHint}>Changes apply immediately across forms, tables and navigation.</div>
-          </div>
-          <button type="button" className={css.previewPrimary}>Primary action</button>
-          <span className={`${css.chip} ${css.chipOn}`}>Active</span>
+          <AppearancePreview />
         </div>
       </div>
+    </div>
+  );
+}
 
-      <PharmacyBrandCard user={user} />
+function ChoiceRow<T extends string>({
+  label,
+  hint,
+  choices,
+  value,
+  onChange,
+  disabled,
+}: {
+  label: string;
+  hint?: string;
+  choices: Choice<T>[];
+  value: T;
+  onChange: (value: T) => void;
+  disabled: boolean;
+}) {
+  return (
+    <div className={page.choiceRow}>
+      <div className={page.choiceLabel}>
+        <span className={css.rowLabel}>{label}</span>
+        {hint ? <span className={css.rowHint}>{hint}</span> : null}
+      </div>
+      <div className={page.segmented} role="group" aria-label={label}>
+        {choices.map((choice) => (
+          <button
+            key={choice.value}
+            type="button"
+            aria-pressed={value === choice.value}
+            className={page.segment}
+            onClick={() => onChange(choice.value)}
+            disabled={disabled}
+          >
+            {choice.icon}
+            {choice.label}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }

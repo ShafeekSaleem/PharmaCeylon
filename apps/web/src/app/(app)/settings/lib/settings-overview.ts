@@ -74,7 +74,7 @@ const DENSITY: Record<AppearancePrefs["density"], string> = {
 };
 const FONT: Record<AppearancePrefs["fontSize"], string> = {
   small: "small text",
-  medium: "medium text",
+  medium: "default text",
   large: "large text",
 };
 
