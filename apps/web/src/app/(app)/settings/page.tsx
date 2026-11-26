@@ -20,10 +20,11 @@ import {
 import { useAuth } from "@/lib/use-auth";
 import { countersApi } from "./counters/counters-api";
 import { notificationKeysFor } from "./notifications/preference-rows";
-import { counterRestoreApi } from "./offline-policy/counter-restore-api";
-import { journalRecoveryApi } from "./offline-policy/journal-recovery-api";
+import { counterRestoreApi } from "./offline-selling/counter-restore-api";
+import { journalRecoveryApi } from "./offline-selling/journal-recovery-api";
 import { fetchTenantProfile } from "./tenant-profile/api";
 import { fetchTenantSettings } from "./lib/tenant-settings";
+import { fetchCounterPolicy } from "./lib/counter-policy";
 import {
   needsAttention,
   settingsValues,
@@ -276,6 +277,9 @@ function useSettingsOverview({
       reads.push(
         quiet(countersApi.counters(), desktopLive ? "counters" : undefined).then((counters) =>
           counters ? { counterCount: counters.length } : {},
+        ),
+        quiet(fetchCounterPolicy(branchId)).then((view) =>
+          view ? { counterPolicy: view.policy } : {},
         ),
       );
     }

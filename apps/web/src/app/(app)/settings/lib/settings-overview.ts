@@ -1,3 +1,8 @@
+import {
+  effectiveDefaultPaymentMethod,
+  ONLINE_PAYMENT_METHOD_LABELS,
+  type CounterPolicy,
+} from "@pharmaceylon/shared";
 import type { AppearancePrefs } from "@/lib/appearance";
 import type { NotificationPreferences } from "@/lib/notifications-client";
 import { APPROVAL_RULES } from "../approval-rules/rules";
@@ -20,6 +25,8 @@ export type SettingsOverview = {
   /** Counters in use at the selected branch. */
   counterCount?: number;
   branchName?: string;
+  /** The selected branch's counter policy: its payment methods and offline selling. */
+  counterPolicy?: CounterPolicy;
   /** The branch sells on PharmaCeylon POS (live or in a fallback), so it needs counters. */
   desktopLive?: boolean;
   /** Restored counters waiting for an owner or manager to acknowledge. */
@@ -47,8 +54,8 @@ const CHECK_NAMES: Record<AttentionCheck, string> = {
 };
 
 const CHECK_PAGES: Record<AttentionCheck, string> = {
-  restores: "/settings/offline-policy",
-  recoveries: "/settings/offline-policy",
+  restores: "/settings/offline-selling",
+  recoveries: "/settings/offline-selling",
   counters: "/settings/counters",
   logo: "/settings/tenant-profile",
 };
@@ -71,7 +78,26 @@ const FONT: Record<AppearancePrefs["fontSize"], string> = {
   large: "large text",
 };
 
-const PAPER: Record<string, string> = { "80mm": "80 mm", "58mm": "58 mm", a4: "A4" };
+const PAPER: Record<string, string> = {
+  "80mm": "80 mm",
+  "58mm": "58 mm",
+  a4: "A4",
+};
+const PAYMENT: Record<string, string> = {
+  cash: "cash",
+  card: "card",
+  split: "split",
+};
+
+/** "Cash and card", or a count once the list would not fit on a card. */
+function methodList(policy: CounterPolicy): string {
+  const names = [
+    "Cash",
+    ...policy.onlinePaymentMethods.map((m) => ONLINE_PAYMENT_METHOD_LABELS[m].toLowerCase()),
+  ];
+  if (names.length > 2) return `${names.length} ways to pay`;
+  return names.join(" and ");
+}
 
 function plural(n: number, one: string, many = `${one}s`): string {
   return `${n} ${n === 1 ? one : many}`;
@@ -100,14 +126,28 @@ export function settingsValues(o: SettingsOverview): Partial<Record<string, stri
   if (o.organization) values["/settings/tenant-profile"] = o.organization.displayName;
   if (o.branchCount !== undefined)
     values["/settings/branches"] = plural(o.branchCount, "branch", "branches");
-  if (s) {
-    values["/settings/main"] =
-      `${PAPER[s.receiptPaperSize] ?? s.receiptPaperSize} receipts · discounts up to ${s.posMaxDiscountPercent}% without approval`;
-  }
+  const where = o.branchName ? ` at ${o.branchName}` : " at this branch";
   if (o.counterCount !== undefined) {
-    const where = o.branchName ? ` at ${o.branchName}` : " at this branch";
     values["/settings/counters"] =
       o.counterCount === 0 ? `No counters${where}` : `${plural(o.counterCount, "counter")}${where}`;
+  }
+  if (s) {
+    values["/settings/receipts"] =
+      `${PAPER[s.receiptPaperSize] ?? s.receiptPaperSize} receipts · ${s.posAutoPrintReceipt ? "printed after every sale" : "printed on request"}`;
+  }
+  if (o.counterPolicy) {
+    // What the branch's counters actually start on: a branch without card starts on cash.
+    const method =
+      s &&
+      effectiveDefaultPaymentMethod(
+        s.posDefaultPaymentMethod,
+        o.counterPolicy.onlinePaymentMethods,
+      );
+    const start = method ? ` · starts on ${PAYMENT[method] ?? method}` : "";
+    values["/settings/payments"] = `${methodList(o.counterPolicy)}${where}${start}`;
+    values["/settings/offline-selling"] = o.counterPolicy.offlineEnabled
+      ? `Allowed${where}`
+      : `Off${where}`;
   }
   if (s) {
     values["/settings/catalog"] =
