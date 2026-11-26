@@ -419,19 +419,18 @@ describe("posting an approved receiving at the counter", () => {
   });
 });
 
-
 describe("dispatching an approved transfer out at the counter", () => {
   const transferId = randomUUID();
   const evidence = randomUUID();
 
-  function dispatching(detail: Record<string, unknown>) {
+  function dispatching(detail: Record<string, unknown>, effect: "applied" | "already_applied" = "applied") {
     const executed: { operation: string; body: unknown; evidence: string | null }[] = [];
     const commands = {
       execute: async (operation: string, body: unknown, approval: string | null) => {
         executed.push({ operation, body, evidence: approval });
         return {
           recordedAt: Date.parse("2026-11-26T08:49:00.000Z"),
-          result: { dispatchedQty: 42, effect: "applied" },
+          result: { dispatchedQty: 42, effect },
         };
       },
     };
@@ -498,11 +497,7 @@ describe("dispatching an approved transfer out at the counter", () => {
   });
 
   it("reports a replayed dispatch as already applied", async () => {
-    const { work } = dispatching(base);
-    (work as unknown as { deps: { commands: { execute: unknown } } }).deps.commands.execute = async () => ({
-      recordedAt: Date.parse("2026-11-26T08:49:00.000Z"),
-      result: { dispatchedQty: 42, effect: "already_applied" },
-    });
+    const { work } = dispatching(base, "already_applied");
     await expect(work.dispatchTransfer(transferId)).resolves.toMatchObject({ alreadyApplied: true });
   });
 });

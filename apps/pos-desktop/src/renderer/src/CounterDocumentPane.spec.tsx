@@ -357,7 +357,6 @@ describe("posting the receiving", () => {
   });
 });
 
-
 describe("dispatching a transfer out", () => {
   function transferOut(overrides: Record<string, unknown> = {}): CounterWorkDetail {
     return {
