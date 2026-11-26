@@ -1221,6 +1221,7 @@ Shared query params on **`GET /api/v1/reports/sales-summary`**, **`sales-daily`*
 
 | Param | Notes |
 | --- | --- |
+| `days` | Whole days, 1–731 (two years, so a one-year range fits its previous-period comparison); missing or invalid falls back to 30 |
 | `terminalId` | Enrolled counter (`operational_terminal.id`) |
 | `registerId` | Counter register (`terminal_counter.id`); resolves the till |
 | `shiftId` | Till shift (`till_shift.id`) |

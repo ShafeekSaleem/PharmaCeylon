@@ -134,8 +134,16 @@ export function ReportsWorkspace() {
   const [movementTypeFilter, setMovementTypeFilter] = useState<string>("all");
   // W10 #72: counter, shift and channel, for the sales reports that can be narrowed by them.
   const [salesOptions, setSalesOptions] = useState<SalesHistoryOptions | null>(null);
-  const [dimRegisterId, setDimRegisterId] = useState("all");
-  const [dimShiftId, setDimShiftId] = useState("all");
+  // Counters and shifts belong to a branch, so each choice remembers the branch and scope it was
+  // made under and reads as "all" anywhere else. Deriving it (rather than resetting in an effect)
+  // means a branch change never sends one request with the old counter's id.
+  const dimScopeKey = `${scope}:${branchId ?? ""}`;
+  const [registerPick, setRegisterPick] = useState({ key: "", id: "all" });
+  const [shiftPick, setShiftPick] = useState({ key: "", id: "all" });
+  const dimRegisterId = registerPick.key === dimScopeKey ? registerPick.id : "all";
+  const dimShiftId = shiftPick.key === dimScopeKey ? shiftPick.id : "all";
+  const setDimRegisterId = (id: string) => setRegisterPick({ key: dimScopeKey, id });
+  const setDimShiftId = (id: string) => setShiftPick({ key: dimScopeKey, id });
   const [dimChannel, setDimChannel] = useState<"all" | SaleChannel>("all");
   const [dimSyncState, setDimSyncState] = useState<"all" | OfflineSaleSyncState>("all");
   const period = periods[report] ?? activeReport?.defaultPeriod ?? 30;
@@ -171,16 +179,17 @@ export function ReportsWorkspace() {
   useEffect(() => {
     fetchCommercialCategories().then(setExpiryCategories).catch(() => {});
     fetchSuppliersForFilter().then(setExpirySuppliers).catch(() => {});
-    // Without the sales history options (no access, or a failed read) the counter and shift
-    // pickers stay hidden; Channel needs no options and still works.
-    fetchSalesHistoryOptions().then(setSalesOptions).catch(() => {});
   }, []);
 
-  // Counters and shifts belong to a branch, so a different branch or scope starts unfiltered.
+  // Loaded the first time a report with these filters opens, not for every report. Without them
+  // (no access, or a failed read) the counter and shift pickers stay hidden; Channel still works.
+  const wantsSalesOptions = DIMENSION_REPORTS.has(report);
+  const [salesOptionsRequested, setSalesOptionsRequested] = useState(false);
   useEffect(() => {
-    setDimRegisterId("all");
-    setDimShiftId("all");
-  }, [branchId, scope]);
+    if (!wantsSalesOptions || salesOptionsRequested) return;
+    setSalesOptionsRequested(true);
+    fetchSalesHistoryOptions().then(setSalesOptions).catch(() => {});
+  }, [wantsSalesOptions, salesOptionsRequested]);
 
   const optionBranchId = scope === "tenant" ? null : branchId;
   const counterOptions = useMemo(() => {
@@ -240,7 +249,15 @@ export function ReportsWorkspace() {
       ) : null}
       <div className={css.filterfield}>
         <label>Channel</label>
-        <ReportSelect ariaLabel="Channel" value={dimChannel} onChange={(v) => setDimChannel(v as "all" | SaleChannel)} options={channelOptions} />
+        <ReportSelect
+          ariaLabel="Channel"
+          value={dimChannel}
+          onChange={(v) => {
+            setDimChannel(v as "all" | SaleChannel);
+            setDimSyncState("all");
+          }}
+          options={channelOptions}
+        />
       </div>
       {dimChannel === "offline" ? (
         <div className={css.filterfield}>

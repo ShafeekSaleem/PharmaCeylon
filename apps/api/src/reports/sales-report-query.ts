@@ -25,6 +25,18 @@ export type SalesReportQuery = Readonly<{
 
 export const EMPTY_SALES_REPORT_QUERY: SalesReportQuery = { filters: {} };
 
+/** Longest window a sales report may ask for: two years, so a one-year range still fits its
+ *  previous-period comparison (the web fetches `days * 2`). */
+export const SALES_REPORT_MAX_DAYS = 731;
+
+/** `days` from the query string: a whole number from 1 to `SALES_REPORT_MAX_DAYS`, or `fallback`
+ *  when it is missing or not a positive number. */
+export function parseReportDays(raw: string | undefined, fallback = 30): number {
+  const n = Number(raw);
+  if (!raw || !Number.isFinite(n) || n < 1) return fallback;
+  return Math.min(Math.floor(n), SALES_REPORT_MAX_DAYS);
+}
+
 export function salesReportFiltersActive(filters: SalesReportFilters): boolean {
   return Boolean(
     filters.terminalId ||

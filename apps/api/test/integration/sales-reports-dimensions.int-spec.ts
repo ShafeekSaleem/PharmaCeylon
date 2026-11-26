@@ -500,6 +500,50 @@ describe("profit reports under sales dimensions (W10 #72 web filters)", () => {
     expect(revenue(trend.points)).toBeCloseTo(revenue(categories.categories), 2);
   });
 
+  it("reconciles with sales-by-category for the counter, shift and channel filters the web sends", async () => {
+    const terminal = await prisma.operationalTerminal.findFirstOrThrow({
+      where: { tenantId: fx.tenantId, id: mainTerminalId },
+      select: { registerId: true },
+    });
+    const cases = [
+      { registerId: terminal.registerId! },
+      { shiftId: mainShiftId },
+      { channel: "offline" as const },
+      { channel: "desktop_online" as const },
+    ];
+    for (const filters of cases) {
+      const [products, trend, categories] = await Promise.all([
+        reports.marginByProduct(fx.tenantId, fx.mainBranchId, 365, filters),
+        reports.marginTrendByCategory(fx.tenantId, fx.mainBranchId, 365, filters),
+        reports.salesByCategory(fx.tenantId, fx.mainBranchId, 365, "commercial", { filters }),
+      ]);
+      expect([filters, products.length > 0]).toEqual([filters, true]);
+      expect([filters, revenue(products)]).toEqual([filters, expect.closeTo(revenue(categories.categories), 2)]);
+      expect([filters, revenue(trend.points)]).toEqual([filters, expect.closeTo(revenue(categories.categories), 2)]);
+    }
+  });
+
+  it("dates an offline sale in the profit trend by when it happened, not when it synced", async () => {
+    const offline = await prisma.sale.findFirstOrThrow({
+      where: { id: offlineDaySaleId },
+      select: { soldAt: true, offlineCommandId: true },
+    });
+    const receipt = await prisma.terminalCommandReceipt.findFirstOrThrow({
+      where: { tenantId: fx.tenantId, commandId: offline.offlineCommandId! },
+      select: { command: true },
+    });
+    const occurredAt = new Date((receipt.command as { payload: { occurredAt: number } }).payload.occurredAt);
+    const occurredKey = occurredAt.toISOString().slice(0, 10);
+    const syncedKey = offline.soldAt.toISOString().slice(0, 10);
+    // The fixture puts the two on different UTC days, or this test would prove nothing.
+    expect(occurredKey).not.toBe(syncedKey);
+
+    const trend = await reports.marginTrendByCategory(fx.tenantId, fx.mainBranchId, 30, { channel: "offline" });
+    const onDay = (key: string) => revenue(trend.points.filter((p) => p.date === key));
+    expect(onDay(occurredKey)).toBeCloseTo(20, 2);
+    expect(onDay(syncedKey)).toBe(0);
+  });
+
   it("a counter with no sales at this branch leaves the profit reports empty", async () => {
     const filters = { terminalId: hiddenTerminalId };
     const products = await reports.marginByProduct(fx.tenantId, fx.mainBranchId, 365, filters);

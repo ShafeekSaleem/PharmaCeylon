@@ -14,6 +14,10 @@ import { SalesReportScopeService } from "./sales-report-scope.service";
 import { UNCLASSIFIED_MEDICINES_CANONICAL_KEY } from "../catalog/commercial-category-template";
 import { resolveStockStatus, stockQtyByProductId } from "../products/stock-qty.util";
 
+/** Sale ids per `saleId IN (...)` when a profit report is filtered (Postgres allows 32,767 bind
+ *  parameters per statement). */
+const PROFIT_SALE_ID_CHUNK = 5_000;
+
 export type CategoryReportGroupBy = "commercial" | "dosageForm" | "schedule" | "registrationType";
 
 export type CategoryReportRow = {
@@ -966,7 +970,9 @@ export class ReportsService {
     days: number,
     filters: SalesReportFilters,
   ): Promise<{
-    saleItemWhere: Prisma.SaleItemWhereInput;
+    /** One clause per query to run. The filtered path splits its sale ids into chunks so a long
+     *  window at a busy branch stays under Postgres' bind-parameter limit. */
+    saleItemWheres: Prisma.SaleItemWhereInput[];
     returnItems: Awaited<ReturnType<ReportsService["netCustomerReturnItems"]>>;
     saleInstant: (sale: { id: string; soldAt: Date }) => Date;
   }> {
@@ -974,15 +980,17 @@ export class ReportsService {
       const since = new Date();
       since.setDate(since.getDate() - days);
       return {
-        saleItemWhere: {
-          tenantId,
-          sale: {
+        saleItemWheres: [
+          {
             tenantId,
-            ...(branchId ? { branchId } : {}),
-            soldAt: { gte: since },
-            status: { in: ["posted", "partially_refunded"] },
+            sale: {
+              tenantId,
+              ...(branchId ? { branchId } : {}),
+              soldAt: { gte: since },
+              status: { in: ["posted", "partially_refunded"] },
+            },
           },
-        },
+        ],
         returnItems: await this.netCustomerReturnItems(tenantId, branchId, since),
         saleInstant: (sale) => sale.soldAt,
       };
@@ -993,8 +1001,13 @@ export class ReportsService {
       this.netCustomerReturnItemsForSalesReport(tenantId, branchId, window.since, filters),
     ]);
     const instantById = new Map(sales.map((s) => [s.id, effectiveSaleInstant(s, occurredAtByCommandId)]));
+    const ids = sales.map((s) => s.id);
+    const saleItemWheres: Prisma.SaleItemWhereInput[] = [];
+    for (let i = 0; i < ids.length; i += PROFIT_SALE_ID_CHUNK) {
+      saleItemWheres.push({ tenantId, saleId: { in: ids.slice(i, i + PROFIT_SALE_ID_CHUNK) } });
+    }
     return {
-      saleItemWhere: { tenantId, saleId: { in: sales.map((s) => s.id) } },
+      saleItemWheres,
       returnItems,
       saleInstant: (sale) => instantById.get(sale.id) ?? sale.soldAt,
     };
@@ -1008,14 +1021,20 @@ export class ReportsService {
   ) {
     const scope = await this.profitSaleScope(tenantId, branchId, days, filters);
     const returnItems = scope.returnItems;
-    const items = await this.prisma.saleItem.findMany({
-      where: scope.saleItemWhere,
-      include: {
-        product: { select: { id: true, sku: true, name: true, brandName: true } },
-        batch: { select: { costPrice: true } },
-        sale: { select: { id: true, soldAt: true } },
-      },
-    });
+    const items = (
+      await Promise.all(
+        scope.saleItemWheres.map((where) =>
+          this.prisma.saleItem.findMany({
+            where,
+            include: {
+              product: { select: { id: true, sku: true, name: true, brandName: true } },
+              batch: { select: { costPrice: true } },
+              sale: { select: { id: true, soldAt: true } },
+            },
+          }),
+        ),
+      )
+    ).flat();
 
     const byProduct = new Map<
       string,
@@ -2360,16 +2379,22 @@ export class ReportsService {
   ) {
     const scope = await this.profitSaleScope(tenantId, branchId, days, filters);
     const returnItems = scope.returnItems;
-    const items = await this.prisma.saleItem.findMany({
-      where: scope.saleItemWhere,
-      select: {
-        productId: true,
-        qty: true,
-        lineTotal: true,
-        batch: { select: { costPrice: true } },
-        sale: { select: { id: true, soldAt: true } },
-      },
-    });
+    const items = (
+      await Promise.all(
+        scope.saleItemWheres.map((where) =>
+          this.prisma.saleItem.findMany({
+            where,
+            select: {
+              productId: true,
+              qty: true,
+              lineTotal: true,
+              batch: { select: { costPrice: true } },
+              sale: { select: { id: true, soldAt: true } },
+            },
+          }),
+        ),
+      )
+    ).flat();
     const productIds = [...new Set([...items.map((it) => it.productId), ...returnItems.map((it) => it.productId)])];
     const categoryByProduct = await this.categoryTaxonomy.primaryCommercialCategoryByProductIds(
       tenantId,

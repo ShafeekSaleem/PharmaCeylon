@@ -163,15 +163,18 @@ export function SalesSection({ scope, isOwner, days, onNavigate, onExportData, d
 
   const [breakdownBy, setBreakdownBy] = useState<SalesBreakdownGroupBy>("terminal");
   const [breakdown, setBreakdown] = useState<SalesBreakdownRow[] | null>(null);
+  const [breakdownError, setBreakdownError] = useState<string | null>(null);
   useEffect(() => {
     let cancelled = false;
     setBreakdown(null);
+    setBreakdownError(null);
     fetchSalesBreakdown(days, scope, isOwner, breakdownBy, dims)
       .then((res) => {
         if (!cancelled) setBreakdown(res.breakdown ?? []);
       })
-      .catch(() => {
-        if (!cancelled) setBreakdown([]);
+      .catch((e) => {
+        // A failed read is not "no sales": say it failed.
+        if (!cancelled) setBreakdownError(e instanceof Error ? e.message : "Couldn't load this breakdown");
       });
     return () => {
       cancelled = true;
@@ -368,7 +371,15 @@ export function SalesSection({ scope, isOwner, days, onNavigate, onExportData, d
         <div className={css.card}>
           <div className={css.cardhead}>
             <div>
-              <h3>Sales Performance</h3>
+              <h3>
+                Sales Performance{" "}
+                <span
+                  className={css.oppInfoIcon}
+                  data-tooltip="Days in this chart follow UTC dates, so a sale close to midnight can sit on the neighbouring day compared with the Daily Sales table, which uses the branch's own calendar."
+                >
+                  <IconInfo size={13} />
+                </span>
+              </h3>
               <p>{scope === "tenant" ? "All branches" : "This branch"}</p>
             </div>
             <div className={css.segmented}>
@@ -459,7 +470,11 @@ export function SalesSection({ scope, isOwner, days, onNavigate, onExportData, d
             ))}
           </div>
         </div>
-        {breakdown === null ? (
+        {breakdownError ? (
+          <p className={css.emptyNote} role="alert">
+            Couldn&apos;t load this breakdown: {breakdownError}
+          </p>
+        ) : breakdown === null ? (
           <p className={css.emptyNote}>Loading…</p>
         ) : breakdownRows.length === 0 ? (
           <p className={css.emptyNote}>No sales in this range.</p>

@@ -1,5 +1,19 @@
-import { breakdownBars } from "./sales-section";
+import { render, screen } from "@testing-library/react";
+import { breakdownBars, SalesSection } from "./sales-section";
 import type { SalesBreakdownRow } from "../lib/types";
+import * as fetchers from "../lib/fetchers";
+
+jest.mock("../lib/fetchers", () => ({
+  fetchNetSalesTrendComparison: jest.fn(async () => ({ currentPoints: [], previousPoints: [], total: 0, previousTotal: 0 })),
+  fetchSalesComparison: jest.fn(async () => ({ current: { count: 0, grandTotal: "0" }, previous: { count: 0, grandTotal: 0 } })),
+  fetchMarginComparison: jest.fn(async () => ({ current: [], currentTotals: { unitsSold: 0 }, previousTotals: { unitsSold: 0 } })),
+  fetchSalesDaily: jest.fn(async () => ({ rows: [] })),
+  fetchSalesByHour: jest.fn(async () => {
+    const empty = () => Array.from({ length: 7 }, () => Array.from({ length: 24 }, () => 0));
+    return { grid: empty(), counts: empty(), weekdayLabels: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] };
+  }),
+  fetchSalesBreakdown: jest.fn(),
+}));
 
 const row = (over: Partial<SalesBreakdownRow>): SalesBreakdownRow => ({
   key: "k",
@@ -48,5 +62,14 @@ describe("breakdownBars", () => {
     );
     expect(bar!.label).toBe("Counter 1 · S-0007");
     expect(bar!.sublabel).toMatch(/still open$/);
+  });
+});
+
+describe("SalesSection breakdown card", () => {
+  it("says the breakdown failed rather than showing no sales", async () => {
+    (fetchers.fetchSalesBreakdown as jest.Mock).mockRejectedValue(new Error("Forbidden"));
+    render(<SalesSection scope="branch" isOwner={false} branchId="b1" days={30} onNavigate={jest.fn()} onExportData={jest.fn()} />);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't load this breakdown: Forbidden");
+    expect(screen.queryByText("No sales in this range.")).not.toBeInTheDocument();
   });
 });
