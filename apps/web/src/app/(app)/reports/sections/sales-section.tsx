@@ -7,10 +7,13 @@ import { DataTable, type Column } from "@/components/ui/data-table";
 import {
   fetchMarginComparison,
   fetchNetSalesTrendComparison,
+  fetchSalesBreakdown,
   fetchSalesByHour,
   fetchSalesComparison,
   fetchSalesDaily,
 } from "../lib/fetchers";
+import { REPORT_CHANNEL_LABELS, REPORT_CHANNEL_NOTES, type SalesDimensions } from "../lib/sales-dimensions";
+import { BarRows, type BarRow } from "../components/bar-rows";
 import { bucketTrend, type ChartGranularity } from "../lib/chart-bucketing";
 import { formatCompactMoney, formatMoney, pctChange, formatPctTrend } from "../lib/format";
 import { TrendChart } from "../components/trend-chart";
@@ -18,11 +21,82 @@ import { HeatmapGrid } from "../components/heatmap-grid";
 import { WaterfallChart, type WaterfallStep } from "../components/waterfall-chart";
 import { ActionsPanel, type ActionPanelItem } from "../components/actions-panel";
 import type { CategoryKey, ReportKey } from "../lib/nav-config";
-import type { MarginRow, Scope, BranchTrendPoint, ExportPayload, OnExportData, SalesByHourResponse, SalesDailyRow } from "../lib/types";
+import type {
+  MarginRow,
+  Scope,
+  BranchTrendPoint,
+  ExportPayload,
+  OnExportData,
+  SalesBreakdownGroupBy,
+  SalesBreakdownRow,
+  SalesByHourResponse,
+  SalesDailyRow,
+} from "../lib/types";
 import css from "../reports.module.css";
 import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 
-type Props = { scope: Scope; isOwner: boolean; branchId: string | null; days: number; onNavigate: (c: CategoryKey, r?: ReportKey) => void; onExportData: OnExportData };
+type Props = {
+  scope: Scope;
+  isOwner: boolean;
+  branchId: string | null;
+  days: number;
+  onNavigate: (c: CategoryKey, r?: ReportKey) => void;
+  onExportData: OnExportData;
+  /** Counter, shift or channel the report is narrowed to (W10 #72). */
+  dims?: SalesDimensions;
+};
+
+const BREAKDOWN_OPTIONS: { value: SalesBreakdownGroupBy; label: string }[] = [
+  { value: "terminal", label: "Counter" },
+  { value: "shift", label: "Shift" },
+  { value: "channel", label: "Channel" },
+];
+
+/** One bar per counter, shift or channel. Channel rows say where and how the sale was rung up, so
+ *  fallback and offline sales are named rather than folded into the total. */
+export function breakdownBars(rows: SalesBreakdownRow[], by: SalesBreakdownGroupBy): BarRow[] {
+  return [...rows]
+    .sort((a, b) => Number(b.grandTotal) - Number(a.grandTotal))
+    .map((row) => {
+      const txns = `${row.count.toLocaleString(DISPLAY_LOCALE)} ${row.count === 1 ? "sale" : "sales"}`;
+      if (by === "channel" && row.channel) {
+        return {
+          key: row.key,
+          label: REPORT_CHANNEL_LABELS[row.channel],
+          sublabel: `${txns} · ${REPORT_CHANNEL_NOTES[row.channel]}`,
+          value: Number(row.grandTotal),
+          valueLabel: formatMoney(Number(row.grandTotal)),
+        };
+      }
+      if (by === "shift" && row.shift) {
+        const opened = new Date(row.shift.openedAt).toLocaleString(DISPLAY_LOCALE, { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
+        return {
+          key: row.key,
+          label: `${row.shift.registerLabel} · ${row.shift.shiftNumber}`,
+          sublabel: `${txns} · opened ${opened}${row.shift.closedAt ? "" : " · still open"}`,
+          value: Number(row.grandTotal),
+          valueLabel: formatMoney(Number(row.grandTotal)),
+        };
+      }
+      if (by === "terminal" && row.terminal) {
+        return {
+          key: row.key,
+          label: row.register?.label ?? row.terminal.label,
+          sublabel: row.register ? `${txns} · ${row.terminal.label}` : txns,
+          value: Number(row.grandTotal),
+          valueLabel: formatMoney(Number(row.grandTotal)),
+        };
+      }
+      // Sales with no counter or shift: rung up on the web.
+      return {
+        key: row.key,
+        label: by === "terminal" || by === "shift" ? "Web (no counter)" : row.label,
+        sublabel: txns,
+        value: Number(row.grandTotal),
+        valueLabel: formatMoney(Number(row.grandTotal)),
+      };
+    });
+}
 
 function formatDayLabel(iso: string): string {
   return new Date(`${iso}T12:00:00`).toLocaleDateString(DISPLAY_LOCALE, { weekday: "short", day: "numeric", month: "short", year: "numeric" });
@@ -30,7 +104,7 @@ function formatDayLabel(iso: string): string {
 
 type EnrichedDailyRow = SalesDailyRow & { grossSalesN: number; discountsN: number; returnsN: number; netSalesN: number; growthPct: number | null };
 
-export function SalesSection({ scope, isOwner, days, onNavigate, onExportData }: Props) {
+export function SalesSection({ scope, isOwner, days, onNavigate, onExportData, dims }: Props) {
   const [points, setPoints] = useState<BranchTrendPoint[]>([]);
   const [previousPoints, setPreviousPoints] = useState<BranchTrendPoint[]>([]);
   // "Net Sales" — tax-inclusive, returns-netted, the same revenue basis marginByProduct/
@@ -56,11 +130,11 @@ export function SalesSection({ scope, isOwner, days, onNavigate, onExportData }:
     setLoading(true);
     setError(null);
     Promise.all([
-      fetchNetSalesTrendComparison(days, scope, isOwner),
-      fetchSalesComparison(days, scope, isOwner),
-      fetchMarginComparison(days, scope, isOwner),
-      fetchSalesDaily(days, scope, isOwner),
-      fetchSalesByHour(days, scope, isOwner),
+      fetchNetSalesTrendComparison(days, scope, isOwner, dims),
+      fetchSalesComparison(days, scope, isOwner, dims),
+      fetchMarginComparison(days, scope, isOwner, dims),
+      fetchSalesDaily(days, scope, isOwner, dims),
+      fetchSalesByHour(days, scope, isOwner, dims),
     ])
       .then(([trend, comparison, margin, daily, hours]) => {
         if (cancelled) return;
@@ -85,7 +159,25 @@ export function SalesSection({ scope, isOwner, days, onNavigate, onExportData }:
     return () => {
       cancelled = true;
     };
-  }, [days, scope, isOwner]);
+  }, [days, scope, isOwner, dims]);
+
+  const [breakdownBy, setBreakdownBy] = useState<SalesBreakdownGroupBy>("terminal");
+  const [breakdown, setBreakdown] = useState<SalesBreakdownRow[] | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    setBreakdown(null);
+    fetchSalesBreakdown(days, scope, isOwner, breakdownBy, dims)
+      .then((res) => {
+        if (!cancelled) setBreakdown(res.breakdown ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setBreakdown([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [days, scope, isOwner, breakdownBy, dims]);
+  const breakdownRows = useMemo(() => breakdownBars(breakdown ?? [], breakdownBy), [breakdown, breakdownBy]);
 
   const categoryAgg = useMemo(() => {
     const map = new Map<string, { name: string; revenue: number; products: MarginRow[] }>();
@@ -345,6 +437,35 @@ export function SalesSection({ scope, isOwner, days, onNavigate, onExportData }:
         </div>
 
         <ActionsPanel title="Sales Insights" items={insights} variant="cards" />
+      </div>
+
+      <div className={css.card}>
+        <div className={css.cardhead}>
+          <div>
+            <h3>Sales by {BREAKDOWN_OPTIONS.find((o) => o.value === breakdownBy)!.label}</h3>
+            <p>
+              {breakdownBy === "channel"
+                ? "Where each sale was rung up — offline and fallback sales shown on their own"
+                : breakdownBy === "shift"
+                  ? "Each till shift's takings, largest first"
+                  : "Takings on each counter computer; web sales have no counter"}
+            </p>
+          </div>
+          <div className={css.segmented}>
+            {BREAKDOWN_OPTIONS.map((o) => (
+              <button key={o.value} type="button" className={breakdownBy === o.value ? css.on : undefined} onClick={() => setBreakdownBy(o.value)}>
+                {o.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        {breakdown === null ? (
+          <p className={css.emptyNote}>Loading…</p>
+        ) : breakdownRows.length === 0 ? (
+          <p className={css.emptyNote}>No sales in this range.</p>
+        ) : (
+          <BarRows rows={breakdownRows} pageSize={8} />
+        )}
       </div>
 
       <div className={css.card}>

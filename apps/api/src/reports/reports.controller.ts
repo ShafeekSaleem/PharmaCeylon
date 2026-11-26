@@ -67,13 +67,13 @@ export class ReportsController {
   margin(
     @CurrentUser() user: RequestUser,
     @RequireBranchId() branchId: string,
-    @Query("days") days?: string,
-    @Query("scope") scope?: string,
+    @Query() query: Record<string, string | undefined>,
   ) {
     return this.reports.marginByProduct(
       user.tenantId,
-      this.tenantScope(user, scope) ? null : branchId,
-      days ? Number(days) : 30,
+      this.tenantScope(user, query.scope) ? null : branchId,
+      query.days ? Number(query.days) : 30,
+      parseSalesReportQuery(query).filters,
     );
   }
 
@@ -265,13 +265,13 @@ export class ReportsController {
   marginTrendByCategory(
     @CurrentUser() user: RequestUser,
     @RequireBranchId() branchId: string,
-    @Query("days") days?: string,
-    @Query("scope") scope?: string,
+    @Query() query: Record<string, string | undefined>,
   ) {
     return this.reports.marginTrendByCategory(
       user.tenantId,
-      this.tenantScope(user, scope) ? null : branchId,
-      days ? Number(days) : 30,
+      this.tenantScope(user, query.scope) ? null : branchId,
+      query.days ? Number(query.days) : 30,
+      parseSalesReportQuery(query).filters,
     );
   }
 

@@ -485,6 +485,32 @@ describe("sales report dimensions (W10 #72)", () => {
   });
 });
 
+describe("profit reports under sales dimensions (W10 #72 web filters)", () => {
+  const revenue = (rows: { revenue: string }[]) => rows.reduce((acc, r) => acc + Number(r.revenue), 0);
+
+  it("margin-by-product and margin-trend-by-category add up to sales-by-category for the same counter", async () => {
+    const filters = { terminalId: mainTerminalId };
+    const [products, trend, categories] = await Promise.all([
+      reports.marginByProduct(fx.tenantId, fx.mainBranchId, 365, filters),
+      reports.marginTrendByCategory(fx.tenantId, fx.mainBranchId, 365, filters),
+      reports.salesByCategory(fx.tenantId, fx.mainBranchId, 365, "commercial", { filters }),
+    ]);
+    expect(products.length).toBeGreaterThan(0);
+    expect(revenue(products)).toBeCloseTo(revenue(categories.categories), 2);
+    expect(revenue(trend.points)).toBeCloseTo(revenue(categories.categories), 2);
+  });
+
+  it("a counter with no sales at this branch leaves the profit reports empty", async () => {
+    const filters = { terminalId: hiddenTerminalId };
+    const products = await reports.marginByProduct(fx.tenantId, fx.mainBranchId, 365, filters);
+    const trend = await reports.marginTrendByCategory(fx.tenantId, fx.mainBranchId, 365, filters);
+    expect(revenue(products)).toBe(0);
+    expect(revenue(trend.points)).toBe(0);
+    // Unfiltered, the branch's own sales and returns are still there.
+    expect((await reports.marginByProduct(fx.tenantId, fx.mainBranchId, 365)).length).toBeGreaterThan(0);
+  });
+});
+
 describe("sales report return scoping (W10 #72 review)", () => {
   it("returns-and-discounts without filters includes fully refunded, unlinked and older-sale returns", async () => {
     const result = await reports.returnsAndDiscounts(fx.tenantId, fx.mainBranchId, 365);

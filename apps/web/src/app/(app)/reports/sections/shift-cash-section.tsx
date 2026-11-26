@@ -377,7 +377,7 @@ export function ShiftCashSection({ scope, isOwner, days, onExportData }: Props) 
           </div>
         </div>
         {clearedFilters ? (
-          <p className={css.filterNote} role="status">
+          <p className={css.clearedFilterNote} role="status">
             {clearedFilters}
           </p>
         ) : null}

@@ -31,6 +31,12 @@ import { PurchaseSummarySection } from "../sections/purchase-summary-section";
 import { SupplierSpendSection } from "../sections/supplier-spend-section";
 import { SupplierPerformanceSection } from "../sections/supplier-performance-section";
 import { exportRowsToCsv } from "../lib/csv";
+import { OFFLINE_SALE_SYNC_STATE_OPTIONS, SALE_CHANNELS, type OfflineSaleSyncState, type SaleChannel } from "@pharmaceylon/shared";
+import { fetchSalesHistoryOptions } from "../../sales/services/sales-api";
+import { registersForPicker } from "../../sales/register-options";
+import { shiftOptionLabel, shiftsForPicker } from "../../sales/shift-options";
+import type { SalesHistoryOptions } from "../../sales/types";
+import { DIMENSION_REPORTS, REPORT_CHANNEL_LABELS, type SalesDimensions } from "../lib/sales-dimensions";
 import { fetchCommercialCategories, fetchSuppliersForFilter } from "../lib/fetchers";
 import type { CategoryGroupBy, CommercialCategoryRow, ExportPayload, MovementTypeFilterKey } from "../lib/types";
 import css from "../reports.module.css";
@@ -126,6 +132,12 @@ export function ReportsWorkspace() {
   const [movementCategoryId, setMovementCategoryId] = useState<string>("all");
   const [movementSupplierId, setMovementSupplierId] = useState<string>("all");
   const [movementTypeFilter, setMovementTypeFilter] = useState<string>("all");
+  // W10 #72: counter, shift and channel, for the sales reports that can be narrowed by them.
+  const [salesOptions, setSalesOptions] = useState<SalesHistoryOptions | null>(null);
+  const [dimRegisterId, setDimRegisterId] = useState("all");
+  const [dimShiftId, setDimShiftId] = useState("all");
+  const [dimChannel, setDimChannel] = useState<"all" | SaleChannel>("all");
+  const [dimSyncState, setDimSyncState] = useState<"all" | OfflineSaleSyncState>("all");
   const period = periods[report] ?? activeReport?.defaultPeriod ?? 30;
   const setPeriod = (n: number) => setPeriods((prev) => ({ ...prev, [report]: n }));
 
@@ -159,7 +171,90 @@ export function ReportsWorkspace() {
   useEffect(() => {
     fetchCommercialCategories().then(setExpiryCategories).catch(() => {});
     fetchSuppliersForFilter().then(setExpirySuppliers).catch(() => {});
+    // Without the sales history options (no access, or a failed read) the counter and shift
+    // pickers stay hidden; Channel needs no options and still works.
+    fetchSalesHistoryOptions().then(setSalesOptions).catch(() => {});
   }, []);
+
+  // Counters and shifts belong to a branch, so a different branch or scope starts unfiltered.
+  useEffect(() => {
+    setDimRegisterId("all");
+    setDimShiftId("all");
+  }, [branchId, scope]);
+
+  const optionBranchId = scope === "tenant" ? null : branchId;
+  const counterOptions = useMemo(() => {
+    if (!salesOptions) return [];
+    const picks = registersForPicker(salesOptions.registers, optionBranchId, salesOptions.branches);
+    return [{ value: "all", label: "All counters" }, ...picks.map((r) => ({ value: r.registerId, label: r.counterLabel }))];
+  }, [salesOptions, optionBranchId]);
+  const shiftOptions = useMemo(() => {
+    if (!salesOptions) return [];
+    const picks = shiftsForPicker(salesOptions.shifts ?? [], optionBranchId).filter(
+      (s) => dimRegisterId === "all" || s.registerId === dimRegisterId,
+    );
+    return [
+      { value: "all", label: "All shifts" },
+      ...picks.map((s) => ({ value: s.shiftId, label: shiftOptionLabel(s, optionBranchId, salesOptions.branches) })),
+    ];
+  }, [salesOptions, optionBranchId, dimRegisterId]);
+  const channelOptions = useMemo(
+    () => [{ value: "all", label: "All channels" }, ...SALE_CHANNELS.map((c) => ({ value: c, label: REPORT_CHANNEL_LABELS[c] }))],
+    [],
+  );
+  const syncStateOptions = useMemo(
+    () => [{ value: "all", label: "Any sync state" }, ...OFFLINE_SALE_SYNC_STATE_OPTIONS.map((o) => ({ value: o.value, label: o.label }))],
+    [],
+  );
+
+  const dims: SalesDimensions = useMemo(
+    () => ({
+      ...(dimRegisterId !== "all" ? { registerId: dimRegisterId } : {}),
+      ...(dimShiftId !== "all" ? { shiftId: dimShiftId } : {}),
+      ...(dimChannel !== "all" ? { channel: dimChannel } : {}),
+      ...(dimChannel === "offline" && dimSyncState !== "all" ? { offlineSyncState: dimSyncState } : {}),
+    }),
+    [dimRegisterId, dimShiftId, dimChannel, dimSyncState],
+  );
+
+  function pickCounter(id: string) {
+    setDimRegisterId(id);
+    // A shift is on one counter; keep it only if it is on the new one.
+    const shift = salesOptions?.shifts?.find((s) => s.shiftId === dimShiftId);
+    if (id !== "all" && shift && shift.registerId !== id) setDimShiftId("all");
+  }
+
+  const dimensionFilters = DIMENSION_REPORTS.has(report) ? (
+    <>
+      {counterOptions.length > 1 ? (
+        <div className={css.filterfield}>
+          <label>Counter</label>
+          <ReportSelect ariaLabel="Counter" value={dimRegisterId} onChange={pickCounter} options={counterOptions} />
+        </div>
+      ) : null}
+      {shiftOptions.length > 1 ? (
+        <div className={css.filterfield}>
+          <label>Shift</label>
+          <ReportSelect ariaLabel="Shift" value={dimShiftId} onChange={setDimShiftId} options={shiftOptions} />
+        </div>
+      ) : null}
+      <div className={css.filterfield}>
+        <label>Channel</label>
+        <ReportSelect ariaLabel="Channel" value={dimChannel} onChange={(v) => setDimChannel(v as "all" | SaleChannel)} options={channelOptions} />
+      </div>
+      {dimChannel === "offline" ? (
+        <div className={css.filterfield}>
+          <label>Sync state</label>
+          <ReportSelect
+            ariaLabel="Sync state"
+            value={dimSyncState}
+            onChange={(v) => setDimSyncState(v as "all" | OfflineSaleSyncState)}
+            options={syncStateOptions}
+          />
+        </div>
+      ) : null}
+    </>
+  ) : null;
 
   function resetFilters() {
     setScope("branch");
@@ -177,6 +272,10 @@ export function ReportsWorkspace() {
     setMovementCategoryId("all");
     setMovementSupplierId("all");
     setMovementTypeFilter("all");
+    setDimRegisterId("all");
+    setDimShiftId("all");
+    setDimChannel("all");
+    setDimSyncState("all");
   }
 
   function handlePrint() {
@@ -224,7 +323,10 @@ export function ReportsWorkspace() {
                 />
                 Exclude unclassified
               </label>
+              {dimensionFilters}
             </>
+          ) : DIMENSION_REPORTS.has(report) ? (
+            dimensionFilters
           ) : report === "branch-sales" ? (
             <div className={css.filterfield}>
               <label>City</label>
@@ -315,7 +417,7 @@ export function ReportsWorkspace() {
       {activeCategory.comingSoon || activeReport?.comingSoon ? (
         <ComingSoonPanel label={activeReport?.label ?? activeCategory.label} />
       ) : report === "sales-summary" ? (
-        <SalesSection key={report} scope={scope} isOwner={isOwner} branchId={branchId} days={period} onNavigate={navigate} onExportData={setExportPayload} />
+        <SalesSection key={report} scope={scope} isOwner={isOwner} branchId={branchId} days={period} onNavigate={navigate} onExportData={setExportPayload} dims={dims} />
       ) : report === "product-sales" ? (
         <ProductSalesSection key={report} scope={scope} isOwner={isOwner} days={period} onNavigate={navigate} onExportData={setExportPayload} />
       ) : report === "category-sales" ? (
@@ -328,15 +430,16 @@ export function ReportsWorkspace() {
           onExportData={setExportPayload}
           groupBy={categoryGroupBy}
           excludeUnclassified={excludeUnclassified}
+          dims={dims}
         />
       ) : report === "branch-sales" ? (
         <BranchSalesSection key={report} days={period} cityFilter={branchCity} onNavigate={navigate} onExportData={setExportPayload} />
       ) : report === "cashier-performance" ? (
-        <CashierPerformanceSection key={report} scope={scope} isOwner={isOwner} days={period} onNavigate={navigate} onExportData={setExportPayload} />
+        <CashierPerformanceSection key={report} scope={scope} isOwner={isOwner} days={period} onNavigate={navigate} onExportData={setExportPayload} dims={dims} />
       ) : report === "payment-methods" ? (
-        <PaymentMethodsSection key={report} scope={scope} isOwner={isOwner} days={period} onNavigate={navigate} onExportData={setExportPayload} />
+        <PaymentMethodsSection key={report} scope={scope} isOwner={isOwner} days={period} onNavigate={navigate} onExportData={setExportPayload} dims={dims} />
       ) : report === "returns-discounts" ? (
-        <ReturnsDiscountsSection key={report} scope={scope} isOwner={isOwner} days={period} onNavigate={navigate} onExportData={setExportPayload} />
+        <ReturnsDiscountsSection key={report} scope={scope} isOwner={isOwner} days={period} onNavigate={navigate} onExportData={setExportPayload} dims={dims} />
       ) : report === "shift-cash" ? (
         <ShiftCashSection key={report} scope={scope} isOwner={isOwner} days={period} onExportData={setExportPayload} />
       ) : report === "gross-profit" ? (

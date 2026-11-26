@@ -1217,7 +1217,7 @@ with no approval is still refused with `APPROVAL_REQUIRED`. The till refund
 
 **Sales reports (W10 #72)** — permission **`reports.view`**, branch via **`x-branch-id`** (owners may pass `scope=tenant` on the same routes as today). Filter options reuse **`GET /api/v1/sales/history/options`** (`terminals`, `registers`, `shifts`, `offlineSyncStates`); do not add parallel report-only option endpoints.
 
-Shared query params on **`GET /api/v1/reports/sales-summary`**, **`sales-daily`**, **`sales-by-category`**, **`sales-by-cashier`**, **`sales-by-payment-method`**, **`sales-by-hour`**, **`returns-and-discounts`**:
+Shared query params on **`GET /api/v1/reports/sales-summary`**, **`sales-daily`**, **`sales-by-category`**, **`sales-by-cashier`**, **`sales-by-payment-method`**, **`sales-by-hour`**, **`returns-and-discounts`**, and the profit reports **`margin-by-product`** and **`margin-trend-by-category`** (filters only, no `reportGroupBy`):
 
 | Param | Notes |
 | --- | --- |
@@ -1227,6 +1227,8 @@ Shared query params on **`GET /api/v1/reports/sales-summary`**, **`sales-daily`*
 | `channel` | `web_legacy` \| `desktop_online` \| `offline` \| `fallback` (same rules as sales history) |
 | `offlineSyncState` | `accepted` \| `pending_stock_posting` \| `held` (offline-replayed sales only) |
 | `reportGroupBy` | Optional breakdown dimension on the response: `terminal` \| `shift` \| `channel`. On **`sales-by-category`**, the existing category `groupBy` query (`commercial`, `dosageForm`, …) is unchanged — use `reportGroupBy` for counter/shift/channel breakdowns. |
+
+**Profit reports under a filter:** with no dimension filter, `margin-by-product` and `margin-trend-by-category` keep their rolling `days` window on `soldAt`, unchanged. With any filter they use the sales reports' selection instead: the business-day window, offline sales on the day they happened, and the return netting below. Their revenue then reconciles with `sales-by-category` for the same filters. `margin-trend-by-category` still keys days by UTC date, as it always has.
 
 **Offline sale dating:** report day buckets use the counter's journal `occurredAt` when `offlineCommandId` is set (loaded from `terminal_command_receipt.command`), not the server `soldAt` / sync instant. Calendar days follow the tenant timezone (branch timezone when scoped to one branch). The window is **N calendar days including today** in that timezone (not a rolling `now − days` instant).
 

@@ -6,6 +6,7 @@ import { StatGrid, StatCard } from "@/components/ui/stat-card";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { ActiveFilterBanner, type FilterPill } from "@/components/ui";
 import { fetchMarginComparison, fetchReturnsDiscountsComparison } from "../lib/fetchers";
+import type { SalesDimensions } from "../lib/sales-dimensions";
 import { formatDateShort, formatMoney, formatPctTrend, formatPpTrend, pctChange } from "../lib/format";
 import { bucketTrend, type ChartGranularity } from "../lib/chart-bucketing";
 import { BarRows, type BarRow } from "../components/bar-rows";
@@ -16,13 +17,21 @@ import type { ExportPayload, OnExportData, ReturnedProductRow, Scope } from "../
 import css from "../reports.module.css";
 import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 
-type Props = { scope: Scope; isOwner: boolean; days: number; onNavigate: (c: CategoryKey, r?: ReportKey) => void; onExportData: OnExportData };
+type Props = {
+  scope: Scope;
+  isOwner: boolean;
+  days: number;
+  onNavigate: (c: CategoryKey, r?: ReportKey) => void;
+  onExportData: OnExportData;
+  /** Counter, shift or channel the report is narrowed to (W10 #72). */
+  dims?: SalesDimensions;
+};
 
 /** A product with only a handful of sales this period trivially hits a "high" return rate off a
  *  single return (1 sold, 1 returned = "100%") — this floor keeps the anomaly list meaningful. */
 const MIN_SOLD_QTY_FOR_RETURN_RATE_FLAG = 5;
 
-export function ReturnsDiscountsSection({ scope, isOwner, days, onNavigate, onExportData }: Props) {
+export function ReturnsDiscountsSection({ scope, isOwner, days, onNavigate, onExportData, dims }: Props) {
   const [data, setData] = useState<Awaited<ReturnType<typeof fetchReturnsDiscountsComparison>> | null>(null);
   const [marginData, setMarginData] = useState<Awaited<ReturnType<typeof fetchMarginComparison>> | null>(null);
   const [loading, setLoading] = useState(true);
@@ -35,7 +44,7 @@ export function ReturnsDiscountsSection({ scope, isOwner, days, onNavigate, onEx
     let cancelled = false;
     setLoading(true);
     setError(null);
-    Promise.all([fetchReturnsDiscountsComparison(days, scope, isOwner), fetchMarginComparison(days, scope, isOwner)])
+    Promise.all([fetchReturnsDiscountsComparison(days, scope, isOwner, dims), fetchMarginComparison(days, scope, isOwner, dims)])
       .then(([res, margin]) => {
         if (cancelled) return;
         setData(res);
@@ -50,7 +59,7 @@ export function ReturnsDiscountsSection({ scope, isOwner, days, onNavigate, onEx
     return () => {
       cancelled = true;
     };
-  }, [days, scope, isOwner]);
+  }, [days, scope, isOwner, dims]);
 
   const current = data?.current;
   const previous = data?.previous ?? { totalReturnValue: 0, returnedItemCount: 0, totalDiscount: 0, netSalesImpact: 0 };

@@ -22,6 +22,7 @@ import { DataTable, type Column } from "@/components/ui/data-table";
 import { ActiveFilterBanner, type FilterPill } from "@/components/ui";
 import { InlineBarCell } from "../components/inline-bar-cell";
 import { fetchCashierAggregateComparison } from "../lib/fetchers";
+import type { SalesDimensions } from "../lib/sales-dimensions";
 import { formatMoney, formatPctTrend, pctChange } from "../lib/format";
 import { ActionsPanel, type ActionPanelItem } from "../components/actions-panel";
 import { CashierThroughputMatrix, type CashierMatrixPoint } from "../components/cashier-throughput-matrix";
@@ -31,7 +32,15 @@ import type { CashierRow, ExportPayload, OnExportData, Scope, ShiftRow } from ".
 import css from "../reports.module.css";
 import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
 
-type Props = { scope: Scope; isOwner: boolean; days: number; onNavigate: (c: CategoryKey, r?: ReportKey) => void; onExportData: OnExportData };
+type Props = {
+  scope: Scope;
+  isOwner: boolean;
+  days: number;
+  onNavigate: (c: CategoryKey, r?: ReportKey) => void;
+  onExportData: OnExportData;
+  /** Counter, shift or channel the report is narrowed to (W10 #72). */
+  dims?: SalesDimensions;
+};
 
 type EnrichedCashier = CashierRow & { revenueN: number; avgBasketN: number; discountRateN: number };
 
@@ -66,7 +75,7 @@ function exceptionRateTone(pct: number): "success" | "warning" | "danger" {
   return "success";
 }
 
-export function CashierPerformanceSection({ scope, isOwner, days, onExportData }: Props) {
+export function CashierPerformanceSection({ scope, isOwner, days, onExportData, dims }: Props) {
   const [cashiers, setCashiers] = useState<EnrichedCashier[]>([]);
   const [shifts, setShifts] = useState<ShiftRow[]>([]);
   const [previousRevenue, setPreviousRevenue] = useState(0);
@@ -83,7 +92,7 @@ export function CashierPerformanceSection({ scope, isOwner, days, onExportData }
     setLoading(true);
     setError(null);
     setSelectedCashierId(null);
-    fetchCashierAggregateComparison(days, scope, isOwner)
+    fetchCashierAggregateComparison(days, scope, isOwner, dims)
       .then((res) => {
         if (cancelled) return;
         setCashiers(res.current.cashiers.map((c) => ({ ...c, revenueN: Number(c.revenue), avgBasketN: Number(c.avgBasket), discountRateN: Number(c.discountRatePct) })));
@@ -101,7 +110,7 @@ export function CashierPerformanceSection({ scope, isOwner, days, onExportData }
     return () => {
       cancelled = true;
     };
-  }, [days, scope, isOwner]);
+  }, [days, scope, isOwner, dims]);
 
   const sortedCashiers = useMemo(() => [...cashiers].sort((a, b) => b.revenueN - a.revenueN), [cashiers]);
   const colorMap = useMemo(() => new Map(sortedCashiers.map((c, i) => [c.userId, CASHIER_PALETTE[i % CASHIER_PALETTE.length]!])), [sortedCashiers]);

@@ -5,6 +5,7 @@ import { IconActivity, IconAlertTriangle, IconDollarSign, IconEye, IconGrid, Ico
 import { StatGrid, StatCard } from "@/components/ui/stat-card";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { fetchCategoryComparison, fetchMarginTrendByCategory, type MarginTotals } from "../lib/fetchers";
+import type { SalesDimensions } from "../lib/sales-dimensions";
 import { formatDateShort, formatMoney, formatPctTrend, pctChange } from "../lib/format";
 import { CategoryMixCard } from "../components/category-mix-card";
 import { CategoryChildBreakdown } from "../components/category-child-breakdown";
@@ -35,6 +36,8 @@ type Props = {
    *  bar's "Group By" control) so it survives the section re-mounting on other filter changes. */
   groupBy: CategoryGroupBy;
   excludeUnclassified: boolean;
+  /** Counter, shift or channel the report is narrowed to (W10 #72). */
+  dims?: SalesDimensions;
 };
 
 const DIMENSION_LABELS: Record<CategoryGroupBy, string> = {
@@ -124,7 +127,7 @@ function weeklyGrowthSeries(points: CategoryTrendPoint[], days: number): Array<{
   });
 }
 
-export function CategorySalesSection({ scope, isOwner, days, onNavigate, onExportData, groupBy, excludeUnclassified }: Props) {
+export function CategorySalesSection({ scope, isOwner, days, onNavigate, onExportData, groupBy, excludeUnclassified, dims }: Props) {
   const dimensionLabel = DIMENSION_LABELS[groupBy];
 
   const [rows, setRows] = useState<EnrichedRow[]>([]);
@@ -152,7 +155,7 @@ export function CategorySalesSection({ scope, isOwner, days, onNavigate, onExpor
     let cancelled = false;
     setLoading(true);
     setError(null);
-    fetchCategoryComparison(days, scope, isOwner, groupBy)
+    fetchCategoryComparison(days, scope, isOwner, groupBy, dims)
       .then((catRes) => {
         if (cancelled) return;
         const enriched: EnrichedRow[] = catRes.current.map((r) => {
@@ -189,7 +192,7 @@ export function CategorySalesSection({ scope, isOwner, days, onNavigate, onExpor
     return () => {
       cancelled = true;
     };
-  }, [days, scope, isOwner, groupBy]);
+  }, [days, scope, isOwner, groupBy, dims]);
 
   // Growth heatmap trend source — `marginTrendByCategory` only ever rolls up to top-level
   // COMMERCIAL departments (mirrors `salesByCategory`'s own "commercial" grouping), so it's the
@@ -202,7 +205,7 @@ export function CategorySalesSection({ scope, isOwner, days, onNavigate, onExpor
       return;
     }
     let cancelled = false;
-    fetchMarginTrendByCategory(days, scope, isOwner)
+    fetchMarginTrendByCategory(days, scope, isOwner, dims)
       .then((r) => {
         if (!cancelled) setTrendPoints(r.points);
       })
@@ -210,7 +213,7 @@ export function CategorySalesSection({ scope, isOwner, days, onNavigate, onExpor
     return () => {
       cancelled = true;
     };
-  }, [days, scope, isOwner, groupBy]);
+  }, [days, scope, isOwner, groupBy, dims]);
 
   const visibleRows = useMemo(() => {
     if (!excludeUnclassified) return rows;

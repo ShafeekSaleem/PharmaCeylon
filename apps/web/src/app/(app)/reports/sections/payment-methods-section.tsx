@@ -5,6 +5,7 @@ import { IconActivity, IconAlertTriangle, IconBanknote, IconCreditCard, IconInfo
 import { StatGrid, StatCard } from "@/components/ui/stat-card";
 import { paymentMixColor } from "@/app/(app)/dashboard/lib/payment-mix-colors";
 import { fetchPaymentMethodComparison } from "../lib/fetchers";
+import type { SalesDimensions } from "../lib/sales-dimensions";
 import { formatDateShort, formatMoney, formatPctTrend, formatPpTrend, pctChange, ppChange } from "../lib/format";
 import { bucketTrend, type ChartGranularity } from "../lib/chart-bucketing";
 import { PaymentTrendCard } from "../components/payment-trend-card";
@@ -16,11 +17,19 @@ import type { CategoryKey, ReportKey } from "../lib/nav-config";
 import type { ExportPayload, OnExportData, PaymentMethodRow, Scope } from "../lib/types";
 import css from "../reports.module.css";
 
-type Props = { scope: Scope; isOwner: boolean; days: number; onNavigate: (c: CategoryKey, r?: ReportKey) => void; onExportData: OnExportData };
+type Props = {
+  scope: Scope;
+  isOwner: boolean;
+  days: number;
+  onNavigate: (c: CategoryKey, r?: ReportKey) => void;
+  onExportData: OnExportData;
+  /** Counter, shift or channel the report is narrowed to (W10 #72). */
+  dims?: SalesDimensions;
+};
 
 type Row = PaymentMethodRow & { revenueN: number; avgTicketN: number; refundedN: number };
 
-export function PaymentMethodsSection({ scope, isOwner, days, onExportData }: Props) {
+export function PaymentMethodsSection({ scope, isOwner, days, onExportData, dims }: Props) {
   const [rows, setRows] = useState<Row[]>([]);
   const [trend, setTrend] = useState<Array<{ date: string } & Record<string, string>>>([]);
   const [previousByMethod, setPreviousByMethod] = useState<Map<string, Record<string, number>>>(new Map());
@@ -34,7 +43,7 @@ export function PaymentMethodsSection({ scope, isOwner, days, onExportData }: Pr
     let cancelled = false;
     setLoading(true);
     setError(null);
-    fetchPaymentMethodComparison(days, scope, isOwner)
+    fetchPaymentMethodComparison(days, scope, isOwner, dims)
       .then((res) => {
         if (cancelled) return;
         setRows(res.current.methods.map((m) => ({ ...m, revenueN: Number(m.revenue), avgTicketN: Number(m.avgTicket), refundedN: Number(m.refundedAtThisMethod) })));
@@ -52,7 +61,7 @@ export function PaymentMethodsSection({ scope, isOwner, days, onExportData }: Pr
     return () => {
       cancelled = true;
     };
-  }, [days, scope, isOwner]);
+  }, [days, scope, isOwner, dims]);
 
   const sortedRows = useMemo(() => [...rows].sort((a, b) => b.revenueN - a.revenueN), [rows]);
 

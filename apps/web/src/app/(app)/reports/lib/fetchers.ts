@@ -25,6 +25,7 @@ import type {
   SalesByHourResponse,
   SalesByPaymentMethodResponse,
   SalesDailyResponse,
+  SalesBreakdownGroupBy,
   SalesSummary,
   Scope,
   StockAgeingResponse,
@@ -41,17 +42,25 @@ import type {
   SupplierPerformanceResponse,
 } from "./types";
 import { DISPLAY_LOCALE } from "@pharmaceylon/shared";
+import { dimensionsQs, type SalesDimensions } from "./sales-dimensions";
 
 function scopeQs(scope: Scope, isOwner: boolean): string {
   return isOwner && scope === "tenant" ? "&scope=tenant" : "";
 }
 
-export function fetchSalesSummary(days: number, scope: Scope, isOwner: boolean) {
-  return apiJson<SalesSummary>(`/reports/sales-summary?days=${days}${scopeQs(scope, isOwner)}`);
+export function fetchSalesSummary(days: number, scope: Scope, isOwner: boolean, dims?: SalesDimensions) {
+  return apiJson<SalesSummary>(`/reports/sales-summary?days=${days}${scopeQs(scope, isOwner)}${dimensionsQs(dims)}`);
 }
 
-export function fetchMarginByProduct(days: number, scope: Scope, isOwner: boolean) {
-  return apiJson<MarginRow[]>(`/reports/margin-by-product?days=${days}${scopeQs(scope, isOwner)}`);
+/** `sales-summary` split by counter, shift or channel; the rows add up to the report's totals. */
+export function fetchSalesBreakdown(days: number, scope: Scope, isOwner: boolean, groupBy: SalesBreakdownGroupBy, dims?: SalesDimensions) {
+  return apiJson<SalesSummary>(
+    `/reports/sales-summary?days=${days}${scopeQs(scope, isOwner)}${dimensionsQs(dims)}&reportGroupBy=${groupBy}`,
+  );
+}
+
+export function fetchMarginByProduct(days: number, scope: Scope, isOwner: boolean, dims?: SalesDimensions) {
+  return apiJson<MarginRow[]>(`/reports/margin-by-product?days=${days}${scopeQs(scope, isOwner)}${dimensionsQs(dims)}`);
 }
 
 /** Tenant-configured gross margin % goal for the Gross Profit page's goal tracker — null until an
@@ -179,8 +188,8 @@ export function fetchBranchSalesTrend(days: number) {
   return apiJson<BranchTrendResponse>(`/analytics/branch-sales-trend?days=${days}`);
 }
 
-export function fetchSalesDaily(days: number, scope: Scope, isOwner: boolean) {
-  return apiJson<SalesDailyResponse>(`/reports/sales-daily?days=${days}${scopeQs(scope, isOwner)}`);
+export function fetchSalesDaily(days: number, scope: Scope, isOwner: boolean, dims?: SalesDimensions) {
+  return apiJson<SalesDailyResponse>(`/reports/sales-daily?days=${days}${scopeQs(scope, isOwner)}${dimensionsQs(dims)}`);
 }
 
 /** Aggregates one or all branches from a branch-sales-trend response into a single day-by-day series + totals. */
@@ -226,10 +235,10 @@ export async function fetchSalesTrendWithComparison(days: number, scope: Scope, 
 }
 
 /** Sales revenue + transaction-count comparison against the equal-length prior window, derived from two aggregate calls (the API has no dedicated "previous period" endpoint for /reports/sales-summary). */
-export async function fetchSalesComparison(days: number, scope: Scope, isOwner: boolean) {
+export async function fetchSalesComparison(days: number, scope: Scope, isOwner: boolean, dims?: SalesDimensions) {
   const [current, combined] = await Promise.all([
-    fetchSalesSummary(days, scope, isOwner),
-    fetchSalesSummary(days * 2, scope, isOwner),
+    fetchSalesSummary(days, scope, isOwner, dims),
+    fetchSalesSummary(days * 2, scope, isOwner, dims),
   ]);
   const previousCount = combined.count - current.count;
   const previousGrandTotal = Number(combined.grandTotal) - Number(current.grandTotal);
@@ -246,10 +255,10 @@ function sumMargin(rows: MarginRow[]): MarginTotals {
 }
 
 /** Margin totals + per-product comparison against the equal-length prior window (same double-fetch-and-subtract technique as sales). */
-export async function fetchMarginComparison(days: number, scope: Scope, isOwner: boolean) {
+export async function fetchMarginComparison(days: number, scope: Scope, isOwner: boolean, dims?: SalesDimensions) {
   const [current, combined] = await Promise.all([
-    fetchMarginByProduct(days, scope, isOwner),
-    fetchMarginByProduct(days * 2, scope, isOwner),
+    fetchMarginByProduct(days, scope, isOwner, dims),
+    fetchMarginByProduct(days * 2, scope, isOwner, dims),
   ]);
   const currentTotals = sumMargin(current);
   const combinedTotals = sumMargin(combined);
@@ -334,14 +343,14 @@ function subtractByKey<TRow extends Record<string, unknown>>(
   return result;
 }
 
-export function fetchSalesByCategory(days: number, scope: Scope, isOwner: boolean, groupBy: CategoryGroupBy = "commercial") {
-  return apiJson<SalesByCategoryResponse>(`/reports/sales-by-category?days=${days}${scopeQs(scope, isOwner)}&groupBy=${groupBy}`);
+export function fetchSalesByCategory(days: number, scope: Scope, isOwner: boolean, groupBy: CategoryGroupBy = "commercial", dims?: SalesDimensions) {
+  return apiJson<SalesByCategoryResponse>(`/reports/sales-by-category?days=${days}${scopeQs(scope, isOwner)}&groupBy=${groupBy}${dimensionsQs(dims)}`);
 }
 
 /** Daily revenue/cost per top-level COMMERCIAL department — powers Margin by Category's trend
  *  line chart. Real per-day data (not a comparison fetch), so a single call is enough. */
-export function fetchMarginTrendByCategory(days: number, scope: Scope, isOwner: boolean) {
-  return apiJson<MarginTrendByCategoryResponse>(`/reports/margin-trend-by-category?days=${days}${scopeQs(scope, isOwner)}`);
+export function fetchMarginTrendByCategory(days: number, scope: Scope, isOwner: boolean, dims?: SalesDimensions) {
+  return apiJson<MarginTrendByCategoryResponse>(`/reports/margin-trend-by-category?days=${days}${scopeQs(scope, isOwner)}${dimensionsQs(dims)}`);
 }
 
 /** Matches `analytics.service.ts`'s own branch-sales-trend label convention (weekday for a short
@@ -361,8 +370,8 @@ function dayLabel(iso: string, days: number): string {
  *  `marginTrendByCategory` only emits a point for a (date, categoryId) that actually had activity,
  *  so the full day range is filled in explicitly — a day with zero sales anywhere still gets a
  *  zero-value point instead of silently vanishing from the chart. */
-export async function fetchNetSalesTrendComparison(days: number, scope: Scope, isOwner: boolean) {
-  const resp = await fetchMarginTrendByCategory(days * 2, scope, isOwner);
+export async function fetchNetSalesTrendComparison(days: number, scope: Scope, isOwner: boolean, dims?: SalesDimensions) {
+  const resp = await fetchMarginTrendByCategory(days * 2, scope, isOwner, dims);
   const revenueByDate = new Map<string, number>();
   for (const p of resp.points) revenueByDate.set(p.date, (revenueByDate.get(p.date) ?? 0) + Number(p.revenue));
 
@@ -395,10 +404,16 @@ function sumCategoryTotals(rows: CategoryRow[]): MarginTotals {
   );
 }
 
-export async function fetchCategoryComparison(days: number, scope: Scope, isOwner: boolean, groupBy: CategoryGroupBy = "commercial") {
+export async function fetchCategoryComparison(
+  days: number,
+  scope: Scope,
+  isOwner: boolean,
+  groupBy: CategoryGroupBy = "commercial",
+  dims?: SalesDimensions,
+) {
   const [current, combined] = await Promise.all([
-    fetchSalesByCategory(days, scope, isOwner, groupBy),
-    fetchSalesByCategory(days * 2, scope, isOwner, groupBy),
+    fetchSalesByCategory(days, scope, isOwner, groupBy, dims),
+    fetchSalesByCategory(days * 2, scope, isOwner, groupBy, dims),
   ]);
   const previousByCategory = subtractByKey(current.categories, combined.categories, (r) => r.categoryId, [
     "revenue",
@@ -432,18 +447,18 @@ export async function fetchCategoryComparison(days: number, scope: Scope, isOwne
   return { current: current.categories, previousByCategory, previousByChildCategory, currentTotals, previousTotals };
 }
 
-export function fetchSalesByCashier(days: number, scope: Scope, isOwner: boolean) {
-  return apiJson<SalesByCashierResponse>(`/reports/sales-by-cashier?days=${days}${scopeQs(scope, isOwner)}`);
+export function fetchSalesByCashier(days: number, scope: Scope, isOwner: boolean, dims?: SalesDimensions) {
+  return apiJson<SalesByCashierResponse>(`/reports/sales-by-cashier?days=${days}${scopeQs(scope, isOwner)}${dimensionsQs(dims)}`);
 }
 
 /** Aggregate (not per-cashier) revenue/transactions/active-cashier-count comparison — enough for the KPI row.
  * Active-cashier count uses the full `combined` (2×days) roster, not just cashiers also active in the
  * current period, so a cashier who worked last period but not this one isn't silently dropped from the
  * previous-period count (the same undercount fix applied to fetchMarginComparison's SKU count). */
-export async function fetchCashierAggregateComparison(days: number, scope: Scope, isOwner: boolean) {
+export async function fetchCashierAggregateComparison(days: number, scope: Scope, isOwner: boolean, dims?: SalesDimensions) {
   const [current, combined] = await Promise.all([
-    fetchSalesByCashier(days, scope, isOwner),
-    fetchSalesByCashier(days * 2, scope, isOwner),
+    fetchSalesByCashier(days, scope, isOwner, dims),
+    fetchSalesByCashier(days * 2, scope, isOwner, dims),
   ]);
   const sum = (rows: RevenueRow[]) => rows.reduce((s, r) => s + Number(r.revenue), 0);
   const currentRevenue = sum(current.cashiers);
@@ -464,14 +479,14 @@ export async function fetchCashierAggregateComparison(days: number, scope: Scope
 
 type RevenueRow = { revenue: string };
 
-export function fetchSalesByPaymentMethod(days: number, scope: Scope, isOwner: boolean) {
-  return apiJson<SalesByPaymentMethodResponse>(`/reports/sales-by-payment-method?days=${days}${scopeQs(scope, isOwner)}`);
+export function fetchSalesByPaymentMethod(days: number, scope: Scope, isOwner: boolean, dims?: SalesDimensions) {
+  return apiJson<SalesByPaymentMethodResponse>(`/reports/sales-by-payment-method?days=${days}${scopeQs(scope, isOwner)}${dimensionsQs(dims)}`);
 }
 
-export async function fetchPaymentMethodComparison(days: number, scope: Scope, isOwner: boolean) {
+export async function fetchPaymentMethodComparison(days: number, scope: Scope, isOwner: boolean, dims?: SalesDimensions) {
   const [current, combined] = await Promise.all([
-    fetchSalesByPaymentMethod(days, scope, isOwner),
-    fetchSalesByPaymentMethod(days * 2, scope, isOwner),
+    fetchSalesByPaymentMethod(days, scope, isOwner, dims),
+    fetchSalesByPaymentMethod(days * 2, scope, isOwner, dims),
   ]);
   const previousByMethod = subtractByKey(current.methods, combined.methods, (r: PaymentMethodRow) => r.method, ["revenue", "transactions"]);
 
@@ -483,14 +498,14 @@ export async function fetchPaymentMethodComparison(days: number, scope: Scope, i
   return { current, previousByMethod, previousRevenue, previousTransactions };
 }
 
-export function fetchReturnsAndDiscounts(days: number, scope: Scope, isOwner: boolean) {
-  return apiJson<ReturnsDiscountsResponse>(`/reports/returns-and-discounts?days=${days}${scopeQs(scope, isOwner)}`);
+export function fetchReturnsAndDiscounts(days: number, scope: Scope, isOwner: boolean, dims?: SalesDimensions) {
+  return apiJson<ReturnsDiscountsResponse>(`/reports/returns-and-discounts?days=${days}${scopeQs(scope, isOwner)}${dimensionsQs(dims)}`);
 }
 
-export async function fetchReturnsDiscountsComparison(days: number, scope: Scope, isOwner: boolean) {
+export async function fetchReturnsDiscountsComparison(days: number, scope: Scope, isOwner: boolean, dims?: SalesDimensions) {
   const [current, combined] = await Promise.all([
-    fetchReturnsAndDiscounts(days, scope, isOwner),
-    fetchReturnsAndDiscounts(days * 2, scope, isOwner),
+    fetchReturnsAndDiscounts(days, scope, isOwner, dims),
+    fetchReturnsAndDiscounts(days * 2, scope, isOwner, dims),
   ]);
   return {
     current,
@@ -503,8 +518,8 @@ export async function fetchReturnsDiscountsComparison(days: number, scope: Scope
   };
 }
 
-export function fetchSalesByHour(days: number, scope: Scope, isOwner: boolean) {
-  return apiJson<SalesByHourResponse>(`/reports/sales-by-hour?days=${days}${scopeQs(scope, isOwner)}`);
+export function fetchSalesByHour(days: number, scope: Scope, isOwner: boolean, dims?: SalesDimensions) {
+  return apiJson<SalesByHourResponse>(`/reports/sales-by-hour?days=${days}${scopeQs(scope, isOwner)}${dimensionsQs(dims)}`);
 }
 
 /** Every active branch's revenue/COGS/gross profit for the window — no `scope`/branch param,
