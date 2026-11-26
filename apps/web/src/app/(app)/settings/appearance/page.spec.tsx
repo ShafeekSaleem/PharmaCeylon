@@ -184,14 +184,16 @@ describe("one save model with the pharmacy brand", () => {
   it("previews real components", async () => {
     await renderPage();
     const preview = within(screen.getByRole("complementary", { name: "Preview" }));
-    expect(preview.getByRole("navigation", { name: "Sample navigation" })).toBeInTheDocument();
-    expect(preview.getByRole("button", { name: "Approve order" })).toBeInTheDocument();
+    // Hidden from assistive tech: a picture of the page, not controls.
+    expect(screen.getByText("Approve order").closest("[aria-hidden='true']")).not.toBeNull();
+    expect(preview.getByRole("navigation", { name: "Sample navigation", hidden: true })).toBeInTheDocument();
+    expect(preview.getByRole("button", { name: "Approve order", hidden: true })).toBeInTheDocument();
     expect(preview.getByText("3 days late")).toBeInTheDocument();
-    expect(preview.getByRole("link", { name: "last 30 days" })).toBeInTheDocument();
-    expect(preview.getByRole("img", { name: "Sample bar chart" })).toBeInTheDocument();
-    expect(preview.getByRole("checkbox", { name: "Show counters no longer in use" })).toBeChecked();
+    expect(preview.getByRole("link", { name: "last 30 days", hidden: true })).toBeInTheDocument();
+    expect(preview.getByRole("img", { name: "Sample bar chart", hidden: true })).toBeInTheDocument();
+    expect(preview.getByRole("checkbox", { name: "Show counters no longer in use", hidden: true })).toBeChecked();
     // A picture, not controls: nothing in it is in the tab order.
-    expect(preview.getByRole("button", { name: "Approve order" })).toHaveAttribute(
+    expect(preview.getByRole("button", { name: "Approve order", hidden: true })).toHaveAttribute(
       "tabindex",
       "-1",
     );

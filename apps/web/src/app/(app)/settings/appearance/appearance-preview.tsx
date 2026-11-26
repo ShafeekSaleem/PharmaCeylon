@@ -26,7 +26,7 @@ export function AppearancePreview() {
       <h2 className={page.previewTitle} id="appearance-preview-title">
         Preview
       </h2>
-      <div className={page.previewBody}>
+      <div className={page.previewBody} aria-hidden="true">
         <nav className={page.previewNav} aria-label="Sample navigation">
           {NAV.map((item) => (
             <span
