@@ -1,6 +1,7 @@
 import type {
   CashPayoutAtCounter,
   CashPayoutExecuted,
+  CounterMismatchInput,
   CounterWorkItem,
   HeldWriteOffAtCounter,
   RefundAtCounter,
@@ -8,7 +9,11 @@ import type {
   StockCaseAtCounter,
   StockCaseResolved,
 } from "../../shared/ipc-contract";
-import type { SupplierCashPayoutView } from "@pharmaceylon/shared";
+import type {
+  CounterMismatchReport,
+  CounterWorkDetail,
+  SupplierCashPayoutView,
+} from "@pharmaceylon/shared";
 import { ApiError, type ApiSession } from "../api/api-client";
 import { ActionFailure, type TerminalService } from "./terminal-service";
 import type { SignedCommandService } from "./signed-commands";
@@ -100,6 +105,56 @@ export class CounterWorkService {
     }
     const supplement = await this.heldWriteOffRows();
     return this.mergeHeldWriteOffs(items, supplement);
+  }
+
+  /**
+   * The lines behind one waiting item. The server shows it only while it waits in this branch's
+   * Counter work, so a document that moved on answers "not found" rather than stale lines.
+   */
+  async detail(kind: string, id: string): Promise<CounterWorkDetail> {
+    const branchId = this.branchId();
+    try {
+      return await this.deps.api.request<CounterWorkDetail>(
+        "GET",
+        `/counter-work/${kind}/${id}`,
+        { branchId },
+      );
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 404)
+        throw new ActionFailure(
+          "NOT_WAITING",
+          "That is not waiting at this counter any more.",
+        );
+      throw error;
+    }
+  }
+
+  /**
+   * Decision 1: say what doesn't match an approved document. Nothing posts and no stock moves;
+   * the approver sees it in Daily work. A resend with the same key returns the same report.
+   */
+  async reportMismatch(input: CounterMismatchInput): Promise<CounterMismatchReport> {
+    const { idempotencyKey, ...body } = input;
+    try {
+      return await this.deps.api.request<CounterMismatchReport>(
+        "POST",
+        "/counter-work/mismatches",
+        {
+          body,
+          branchId: this.branchId(),
+          headers: { "Idempotency-Key": idempotencyKey },
+        },
+      );
+    } catch (error) {
+      // The API gives every 409 here the same code, so the document-moved one is told by its
+      // words; any other conflict (already waiting for approval, a reused key) shows as it is.
+      if (error instanceof ApiError && error.status === 409)
+        throw new ActionFailure(
+          /changed since you opened it/i.test(error.message) ? "CHANGED_SINCE_OPENED" : "CONFLICT",
+          error.message,
+        );
+      throw error;
+    }
   }
 
   /** All held write-off rows the counter may read (for detail panes and post pin). */

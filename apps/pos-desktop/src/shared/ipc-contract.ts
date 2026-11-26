@@ -1,4 +1,8 @@
-import type { TerminalTestReceiptFact } from "@pharmaceylon/shared";
+import type {
+  CounterMismatchReport,
+  CounterWorkDetail,
+  TerminalTestReceiptFact,
+} from "@pharmaceylon/shared";
 import { z } from "zod";
 
 /**
@@ -762,6 +766,43 @@ export const cashPayoutExecutedSchema = z.object({
   expectedCashMinorAfter: z.number().int().nullable(),
 });
 export type CashPayoutExecuted = z.infer<typeof cashPayoutExecutedSchema>;
+
+/** Kinds with a counter document read (`COUNTER_WORK_DETAIL_KINDS` in the shared package). */
+const counterWorkDetailKinds = [
+  "prepared_receipt",
+  "held_delivery",
+  "transfer_ship",
+  "transfer_receive",
+  "stocktake",
+  "supplier_return",
+  "import_stock",
+] as const;
+
+/** A mismatch report, as the counter sends it. The key makes a resend return the same report. */
+const counterMismatchInputSchema = z.object({
+  kind: z.enum(["prepared_receipt", "held_delivery", "transfer_ship", "transfer_receive"]),
+  documentId: uuid,
+  approvalId: uuid.nullable(),
+  documentVersion: z.number().int().min(1),
+  line: z
+    .union([
+      z.object({ index: z.number().int().min(0) }).strict(),
+      z.object({ transferItemId: uuid }).strict(),
+    ])
+    .nullable(),
+  problem: z.enum([
+    "fewer_arrived",
+    "more_arrived",
+    "different_batch_or_expiry",
+    "damaged",
+    "not_on_note",
+    "cannot_pick",
+  ]),
+  countedQty: z.number().int().min(0).max(1_000_000).nullable(),
+  note: z.string().trim().max(500).nullable(),
+  idempotencyKey: uuid,
+});
+export type CounterMismatchInput = z.infer<typeof counterMismatchInputSchema>;
 
 export const counterWorkKinds = [
   "prepared_receipt",
@@ -2114,6 +2155,29 @@ export const ipcContract = {
         stockReferenceId: z.string(),
         alreadyApplied: z.boolean(),
       }),
+    ),
+  },
+  /**
+   * The lines behind one Counter work item (`GET /counter-work/:kind/:id`): what the operation
+   * screen draws and what the mismatch report is raised against.
+   */
+  counterWorkDetail: {
+    channel: "pos:work:detail",
+    input: z.object({ kind: z.enum(counterWorkDetailKinds), id: uuid }),
+    output: result(
+      z.custom<CounterWorkDetail>(
+        (value) => typeof value === "object" && value !== null && "lines" in value,
+      ),
+    ),
+  },
+  /** Decision 1: tell the approver something doesn't match. Nothing posts. */
+  reportCounterMismatch: {
+    channel: "pos:work:report-mismatch",
+    input: counterMismatchInputSchema,
+    output: result(
+      z.custom<CounterMismatchReport>(
+        (value) => typeof value === "object" && value !== null && "problem" in value,
+      ),
     ),
   },
   enroll: {

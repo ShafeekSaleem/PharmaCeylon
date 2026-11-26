@@ -1013,6 +1013,18 @@ function registerIpc(
             );
           return counterWork.heldWriteOffsAtCounter();
         }),
+      counterWorkDetail: ({ kind, id }) =>
+        act(logger, "counterWorkDetail", () => {
+          if (!counterWork)
+            throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          return counterWork.detail(kind, id);
+        }),
+      reportCounterMismatch: (input) =>
+        act(logger, "reportCounterMismatch", () => {
+          if (!counterWork)
+            throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          return counterWork.reportMismatch(input);
+        }),
       postHeldWriteOff: ({ heldAdjustmentId, approvalEvidenceId }) =>
         act(logger, "postHeldWriteOff", () => {
           if (!counterWork)
