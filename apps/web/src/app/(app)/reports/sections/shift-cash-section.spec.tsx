@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ShiftCashReportResponse, ShiftCashRow } from "../lib/types";
 import { DrawerBreakdown, ShiftCashSection, signedMoney } from "./shift-cash-section";
 import { fetchShiftCashReport } from "../lib/fetchers";
@@ -54,7 +54,8 @@ const response = (shifts: ShiftCashRow[]): ShiftCashReportResponse => ({
     ...totals,
     expectedCashMinor: 650_000,
     countedCashMinor: 645_000,
-    cashTakenMinor: 100_000,
+    cashTakenMinor: 200_000,
+    changeGivenMinor: 100_000,
     cashRefundsMinor: 20_000,
     cashPaidOutMinor: 30_000,
     cashPaidInMinor: 0,
@@ -125,5 +126,23 @@ describe("ShiftCashSection", () => {
     expect(payload.headers).toContain("Difference");
     expect(payload.rows[0][payload.headers.indexOf("Difference")]).toBe("-100.00");
     expect(payload.rows[1][payload.headers.indexOf("Offline")]).toBe("Yes");
+  });
+
+  it("clears a staff filter the new range has no shifts for, and says so", async () => {
+    const mock = fetchShiftCashReport as jest.Mock;
+    mock.mockReset();
+    mock.mockResolvedValue(response([row()]));
+    const props = { scope: "branch" as const, isOwner: false, onExportData: jest.fn() };
+    const { rerender } = render(<ShiftCashSection {...props} days={7} />);
+
+    fireEvent.click((await screen.findAllByRole("button", { name: /Amara/ }))[0]);
+    await waitFor(() => expect(mock).toHaveBeenLastCalledWith(7, "branch", false, { registerId: undefined, staffUserId: "u1" }));
+
+    // Amara has no shifts in the last day: the options no longer list her.
+    mock.mockResolvedValue({ ...response([]), options: { registers: [], staff: [] } });
+    rerender(<ShiftCashSection {...props} days={1} />);
+
+    expect(await screen.findByRole("status")).toHaveTextContent("The staff filter was cleared");
+    await waitFor(() => expect(mock).toHaveBeenLastCalledWith(1, "branch", false, { registerId: undefined, staffUserId: undefined }));
   });
 });

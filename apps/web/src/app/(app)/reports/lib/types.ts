@@ -768,6 +768,7 @@ export type ShiftCashReportResponse = {
     expectedCashMinor: number;
     countedCashMinor: number;
     cashTakenMinor: number;
+    changeGivenMinor: number;
     cashRefundsMinor: number;
     cashPaidOutMinor: number;
     cashPaidInMinor: number;

@@ -124,8 +124,10 @@ describe("buildShiftCashReport", () => {
       offlineShifts: 1,
       counterDisagreements: 1,
     });
-    // Cash taken is net of change, across every shift in the window, open ones included.
-    expect(report.kpis.cashTakenMinor).toBe(3 * 800_000);
+    // Cash taken is gross like each row, with change as its own total, across every shift in the
+    // window, open ones included.
+    expect(report.kpis.cashTakenMinor).toBe(3 * 900_000);
+    expect(report.kpis.changeGivenMinor).toBe(3 * 100_000);
   });
 
   it("lists newest first and rolls up by staff and by counter, worst shortage first", () => {

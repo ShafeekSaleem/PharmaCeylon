@@ -57,7 +57,7 @@ export class ShiftCashReportService {
 
     const shiftIds = shifts.map((s) => s.id);
     const notVoided = { status: { not: SaleStatus.voided } };
-    const [cashIn, cashOut, change, sales, movements, terminals, people] = await Promise.all([
+    const [cashIn, cashOut, sales, movements, terminals, people] = await Promise.all([
       this.prisma.salePayment.groupBy({
         by: ["shiftId"],
         where: { tenantId, shiftId: { in: shiftIds }, method: PaymentMethod.cash, amount: { gt: 0 }, sale: notVoided },
@@ -71,12 +71,7 @@ export class ShiftCashReportService {
       this.prisma.sale.groupBy({
         by: ["shiftId"],
         where: { tenantId, shiftId: { in: shiftIds }, ...notVoided },
-        _sum: { changeDue: true },
-      }),
-      this.prisma.sale.groupBy({
-        by: ["shiftId"],
-        where: { tenantId, shiftId: { in: shiftIds }, ...notVoided },
-        _sum: { grandTotal: true },
+        _sum: { changeDue: true, grandTotal: true },
         _count: { _all: true },
       }),
       this.prisma.tillCashMovement.groupBy({
@@ -96,7 +91,7 @@ export class ShiftCashReportService {
 
     const taken = sumByShift(cashIn, (r) => toMinor(r._sum.amount));
     const refunded = sumByShift(cashOut, (r) => -toMinor(r._sum.amount));
-    const changeGiven = sumByShift(change, (r) => toMinor(r._sum.changeDue));
+    const changeGiven = sumByShift(sales, (r) => toMinor(r._sum.changeDue));
     const salesTotal = sumByShift(sales, (r) => toMinor(r._sum.grandTotal));
     const saleCount = sumByShift(sales, (r) => r._count._all);
     const paidOut = sumByShift(

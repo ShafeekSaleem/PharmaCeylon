@@ -63,6 +63,15 @@ export function ShiftCashSection({ scope, isOwner, days, onExportData }: Props) 
   const [registerId, setRegisterId] = useState(ALL);
   const [staffUserId, setStaffUserId] = useState(ALL);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [clearedFilters, setClearedFilters] = useState<string | null>(null);
+  const pickRegister = (id: string) => {
+    setClearedFilters(null);
+    setRegisterId(id);
+  };
+  const pickStaff = (id: string) => {
+    setClearedFilters(null);
+    setStaffUserId(id);
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -85,6 +94,24 @@ export function ShiftCashSection({ scope, isOwner, days, onExportData }: Props) 
       cancelled = true;
     };
   }, [days, scope, isOwner, registerId, staffUserId]);
+
+  // The options cover every shift in the window, so a counter or person missing from them had no
+  // shifts in the new range. Drop that filter and say so, rather than leaving an empty table.
+  useEffect(() => {
+    if (!data) return;
+    const stale: string[] = [];
+    if (registerId !== ALL && !data.options.registers.some((r) => r.id === registerId)) {
+      stale.push("counter");
+      setRegisterId(ALL);
+    }
+    if (staffUserId !== ALL && !data.options.staff.some((s) => s.id === staffUserId)) {
+      stale.push("staff");
+      setStaffUserId(ALL);
+    }
+    if (stale.length) setClearedFilters(`The ${stale.join(" and ")} filter was cleared: no shifts for it in this range.`);
+    // Only a new response can make a filter stale; the filters themselves are read, not watched.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]);
 
   const timeZone = data?.timeZone ?? "Asia/Colombo";
   // Name the branch beside each counter whenever more than one branch is in view.
@@ -325,7 +352,7 @@ export function ShiftCashSection({ scope, isOwner, days, onExportData }: Props) 
               <p>Whose drawer it was — an assisted close stays with the cashier</p>
             </div>
           </div>
-          <BarRows rows={staffRows} danger pageSize={6} onRowClick={(key) => setStaffUserId(key === staffUserId ? ALL : key)} activeKey={staffUserId === ALL ? null : staffUserId} />
+          <BarRows rows={staffRows} danger pageSize={6} onRowClick={(key) => pickStaff(key === staffUserId ? ALL : key)} activeKey={staffUserId === ALL ? null : staffUserId} />
         </div>
         <div className={css.card}>
           <div className={css.cardhead}>
@@ -334,7 +361,7 @@ export function ShiftCashSection({ scope, isOwner, days, onExportData }: Props) 
               <p>Shortages and overages on each till</p>
             </div>
           </div>
-          <BarRows rows={counterRows} danger pageSize={6} onRowClick={(key) => setRegisterId(key === registerId ? ALL : key)} activeKey={registerId === ALL ? null : registerId} />
+          <BarRows rows={counterRows} danger pageSize={6} onRowClick={(key) => pickRegister(key === registerId ? ALL : key)} activeKey={registerId === ALL ? null : registerId} />
         </div>
       </div>
 
@@ -345,10 +372,15 @@ export function ShiftCashSection({ scope, isOwner, days, onExportData }: Props) 
             <p>Every shift opened in this range, newest first. Pick one to see how its drawer adds up.</p>
           </div>
           <div className={css.cardheadFilters}>
-            <ReportSelect ariaLabel="Counter" value={registerId} onChange={setRegisterId} options={registerOptions} />
-            <ReportSelect ariaLabel="Staff" value={staffUserId} onChange={setStaffUserId} options={staffOptions} />
+            <ReportSelect ariaLabel="Counter" value={registerId} onChange={pickRegister} options={registerOptions} />
+            <ReportSelect ariaLabel="Staff" value={staffUserId} onChange={pickStaff} options={staffOptions} />
           </div>
         </div>
+        {clearedFilters ? (
+          <p className={css.filterNote} role="status">
+            {clearedFilters}
+          </p>
+        ) : null}
         <DataTable
           columns={columns}
           data={data?.shifts ?? []}

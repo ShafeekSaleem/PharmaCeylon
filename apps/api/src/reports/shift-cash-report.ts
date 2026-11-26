@@ -111,7 +111,9 @@ export type ShiftCashKpis = Readonly<
     /** Across closed shifts: what should have been in the drawers, and what was counted. */
     expectedCashMinor: number;
     countedCashMinor: number;
+    /** Across every shift, open ones included: cash tendered (before change) and change given. */
     cashTakenMinor: number;
+    changeGivenMinor: number;
     cashRefundsMinor: number;
     cashPaidOutMinor: number;
     cashPaidInMinor: number;
@@ -239,6 +241,7 @@ export function buildShiftCashReport(
     expectedCashMinor: 0,
     countedCashMinor: 0,
     cashTakenMinor: 0,
+    changeGivenMinor: 0,
     cashRefundsMinor: 0,
     cashPaidOutMinor: 0,
     cashPaidInMinor: 0,
@@ -253,8 +256,10 @@ export function buildShiftCashReport(
 
   for (const row of rows) {
     addShift(kpis, row);
-    // Cash taken is net of change, as the X report shows it.
-    kpis.cashTakenMinor += row.cashTakenMinor - row.changeGivenMinor;
+    // Cash taken is gross (tendered, before change), like each row and the CSV; change is its own
+    // total. These drawer movements cover every shift, open ones included.
+    kpis.cashTakenMinor += row.cashTakenMinor;
+    kpis.changeGivenMinor += row.changeGivenMinor;
     kpis.cashRefundsMinor += row.cashRefundsMinor;
     kpis.cashPaidOutMinor += row.cashPaidOutMinor;
     kpis.cashPaidInMinor += row.cashPaidInMinor;
