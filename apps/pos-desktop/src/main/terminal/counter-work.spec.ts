@@ -501,3 +501,56 @@ describe("dispatching an approved transfer out at the counter", () => {
     await expect(work.dispatchTransfer(transferId)).resolves.toMatchObject({ alreadyApplied: true });
   });
 });
+
+
+describe("receiving a transfer in at the counter", () => {
+  const transferId = randomUUID();
+  const dispatch = randomUUID();
+  const lineId = randomUUID();
+
+  function receiving(status: "partially_received" | "received" = "received") {
+    const executed: { operation: string; body: unknown; evidence: string | null }[] = [];
+    const commands = {
+      execute: async (operation: string, body: unknown, approval: string | null) => {
+        executed.push({ operation, body, evidence: approval });
+        return { recordedAt: Date.parse("2026-11-26T09:00:00.000Z"), result: { status, receivedQty: 8 } };
+      },
+    };
+    const reads: string[] = [];
+    const api = { request: async (_m: string, path: string) => { reads.push(path); return {}; } };
+    return {
+      executed,
+      reads,
+      work: new CounterWorkService({
+        api: api as unknown as ApiSession,
+        terminal: { current: () => ({ identity: { branchId } }) } as unknown as TerminalService,
+        commands: commands as unknown as SignedCommandService,
+      }),
+    };
+  }
+
+  it("signs the counts and the dispatch pin exactly as the counter saw them, with no approval on the command", async () => {
+    const { work, executed, reads } = receiving("partially_received");
+    const input = {
+      transferId,
+      dispatchApprovalId: dispatch,
+      lines: [{ transferItemId: lineId, qty: 8, receivedQtyBefore: 4 }],
+    };
+    await expect(work.receiveTransfer(input)).resolves.toEqual({
+      transferId,
+      status: "partially_received",
+      receivedQty: 8,
+      postedAt: "2026-11-26T09:00:00.000Z",
+    });
+    expect(reads).toEqual([]);
+    expect(executed).toEqual([{ operation: "POST /api/v1/transfers/:id/receive", body: input, evidence: null }]);
+  });
+
+  it("signs nothing when no line arrived", async () => {
+    const { work, executed } = receiving();
+    await expect(
+      work.receiveTransfer({ transferId, dispatchApprovalId: null, lines: [] }),
+    ).rejects.toMatchObject({ code: "NOTHING_TO_RECEIVE" });
+    expect(executed).toEqual([]);
+  });
+});

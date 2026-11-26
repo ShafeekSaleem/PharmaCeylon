@@ -478,3 +478,123 @@ describe("dispatching a transfer out", () => {
     expect(screen.queryByText(/^Dispatched\./)).toBeNull();
   });
 });
+
+
+describe("receiving a transfer in", () => {
+  function transferIn(overrides: Record<string, unknown> = {}): CounterWorkDetail {
+    return {
+      kind: "transfer_receive",
+      id: id(3),
+      reference: "TR-0093",
+      subject: "Bambalapitiya",
+      approval: { evidenceId: id(91), approvedVersion: null, currentVersion: 2, state: "matches", changes: [] },
+      notes: [],
+      mismatches: [],
+      otherBranch: "Bambalapitiya",
+      lines: [
+        { transferItemId: id(8), productId: id(13), productName: "Ventolin Inhaler", packLabel: null, unitsPerPack: 1, batchId: id(31), batchNo: "V-1", expiryDate: "2027-01-31", qty: 12, receivedQty: 4, remainingQty: 8 },
+        { transferItemId: id(9), productId: id(14), productName: "Panadol 500mg", packLabel: null, unitsPerPack: 1, batchId: id(32), batchNo: "P-9", expiryDate: "2028-02-29", qty: 30, receivedQty: 0, remainingQty: 30 },
+        { transferItemId: id(10), productId: id(15), productName: "Amoxil 250mg", packLabel: null, unitsPerPack: 1, batchId: id(33), batchNo: "A-2", expiryDate: null, qty: 5, receivedQty: 5, remainingQty: 0 },
+      ],
+      ...overrides,
+    } as unknown as CounterWorkDetail;
+  }
+  const inItem: CounterWorkItem = { ...item, kind: "transfer_receive", id: id(3), reference: "TR-0093" };
+  const receiveButton = () => screen.getByRole("button", { name: /^Receive/ }) as HTMLButtonElement;
+  const arrived = (name: string, value: string) =>
+    fireEvent.change(screen.getByRole("textbox", { name: `Arrived: ${name}` }), { target: { value } });
+  const openIn = async (props: { online?: boolean; canPost?: boolean } = {}) => {
+    render(
+      <CounterDocumentPane item={inItem} online={props.online ?? true} canPost={props.canPost ?? true} onReported={onReported} />,
+    );
+    await screen.findByText("Ventolin Inhaler");
+  };
+
+  beforeEach(() => {
+    detail = transferIn();
+    pos.receiveCounterTransfer = jest.fn(async () => ({
+      ok: true,
+      value: { transferId: id(3), status: "partially_received", receivedQty: 8, postedAt: "2026-11-26T09:00:00.000Z" },
+    }));
+  });
+
+  it("starts with empty counts, shows a received line as already in, and stays off until every open line is counted", async () => {
+    await openIn();
+    expect((screen.getByRole("textbox", { name: "Arrived: Ventolin Inhaler" }) as HTMLInputElement).value).toBe("");
+    expect(screen.queryByRole("textbox", { name: "Arrived: Amoxil 250mg" })).toBeNull();
+    expect(screen.getByText("Already in", { selector: "small" })).toBeTruthy();
+    expect(receiveButton().disabled).toBe(true);
+    arrived("Ventolin Inhaler", "8");
+    expect(screen.getByText("Count every line (1 of 2).")).toBeTruthy();
+    expect(receiveButton().disabled).toBe(true);
+  });
+
+  it("fills only the lines not counted, then receives with the counts as seen, leaving a zero line on the way", async () => {
+    await openIn();
+    arrived("Panadol 500mg", "0");
+    fireEvent.click(screen.getByRole("button", { name: "Fill the rest as sent" }));
+    expect((screen.getByRole("textbox", { name: "Arrived: Ventolin Inhaler" }) as HTMLInputElement).value).toBe("8");
+    expect((screen.getByRole("textbox", { name: "Arrived: Panadol 500mg" }) as HTMLInputElement).value).toBe("0");
+    fireEvent.click(receiveButton());
+    await waitFor(() => expect(pos.receiveCounterTransfer).toHaveBeenCalledTimes(1));
+    expect(pos.receiveCounterTransfer).toHaveBeenCalledWith({
+      transferId: id(3),
+      dispatchApprovalId: id(91),
+      lines: [{ transferItemId: id(8), qty: 8, receivedQtyBefore: 4 }],
+    });
+    expect(await screen.findByText(/The rest stays on the way until it arrives or a manager closes it on the web/)).toBeTruthy();
+    expect(onReported).toHaveBeenCalled();
+  });
+
+  it("refuses more than is on the way and points to the mismatch report", async () => {
+    await openIn();
+    arrived("Ventolin Inhaler", "9");
+    arrived("Panadol 500mg", "30");
+    expect(screen.getByText(/More Ventolin Inhaler than is on the way \(8\)/)).toBeTruthy();
+    expect(receiveButton().disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Something doesn't match" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("will not receive offline or with an action unconfirmed", async () => {
+    await openIn({ online: false });
+    fireEvent.click(screen.getByRole("button", { name: "Fill the rest as sent" }));
+    expect(receiveButton().disabled).toBe(true);
+    cleanup();
+    await openIn({ canPost: false });
+    fireEvent.click(screen.getByRole("button", { name: "Fill the rest as sent" }));
+    expect(receiveButton().disabled).toBe(true);
+    expect(pos.receiveCounterTransfer).not.toHaveBeenCalled();
+  });
+
+  it("after a refusal because part arrived elsewhere, reads again and drops the count on the line that changed", async () => {
+    pos.receiveCounterTransfer!.mockImplementationOnce(async () => {
+      detail = transferIn();
+      (detail as unknown as { lines: Array<{ receivedQty: number; remainingQty: number }> }).lines[0]!.receivedQty = 6;
+      (detail as unknown as { lines: Array<{ receivedQty: number; remainingQty: number }> }).lines[0]!.remainingQty = 6;
+      return {
+        ok: false,
+        error: { code: "CONFLICT", message: "Part of this transfer was received since you counted it; refresh and count again" },
+      };
+    });
+    await openIn();
+    fireEvent.click(screen.getByRole("button", { name: "Fill the rest as sent" }));
+    fireEvent.click(receiveButton());
+    expect(await screen.findByText(/received since you counted it/)).toBeTruthy();
+    await waitFor(() =>
+      expect((screen.getByRole("textbox", { name: "Arrived: Ventolin Inhaler" }) as HTMLInputElement).value).toBe(""),
+    );
+    expect((screen.getByRole("textbox", { name: "Arrived: Panadol 500mg" }) as HTMLInputElement).value).toBe("30");
+    expect(receiveButton().disabled).toBe(true);
+  });
+
+  it("says when everything arrived", async () => {
+    pos.receiveCounterTransfer!.mockImplementationOnce(async () => ({
+      ok: true,
+      value: { transferId: id(3), status: "received", receivedQty: 38, postedAt: "2026-11-26T09:00:00.000Z" },
+    }));
+    await openIn();
+    fireEvent.click(screen.getByRole("button", { name: "Fill the rest as sent" }));
+    fireEvent.click(receiveButton());
+    expect(await screen.findByText("Received. 38 units booked in; nothing is left on the way.")).toBeTruthy();
+  });
+});

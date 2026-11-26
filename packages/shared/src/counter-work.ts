@@ -70,7 +70,7 @@ export const COUNTER_WORK_DESTINATION_BY_KIND: Readonly<
   prepared_receipt: { destination: "receiving", status: "available" },
   held_delivery: { destination: "held_delivery", status: "available" },
   transfer_ship: { destination: "transfer_ship", status: "available" },
-  transfer_receive: { destination: "transfer_receive", status: "planned" },
+  transfer_receive: { destination: "transfer_receive", status: "available" },
   refund: { destination: "refund", status: "available" },
   stocktake: { destination: "stocktake", status: "planned" },
   // The desktop posts held write-offs (#173) and settles offline sale stock (P5 #51) in Counter work.

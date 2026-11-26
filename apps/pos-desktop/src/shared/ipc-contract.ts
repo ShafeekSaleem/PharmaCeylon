@@ -804,6 +804,29 @@ const counterMismatchInputSchema = z.object({
 });
 export type CounterMismatchInput = z.infer<typeof counterMismatchInputSchema>;
 
+/**
+ * Receiving a transfer in: the dispatch it is pinned to, and the counts as the counter saw them.
+ * `receivedQtyBefore` is the line's "already in" on screen, so the server refuses the receive if
+ * part of the line was received since.
+ */
+const receiveTransferInputSchema = z.object({
+  transferId: uuid,
+  dispatchApprovalId: uuid.nullable(),
+  lines: z
+    .array(
+      z
+        .object({
+          transferItemId: uuid,
+          qty: z.number().int().min(1).max(1_000_000),
+          receivedQtyBefore: z.number().int().min(0),
+        })
+        .strict(),
+    )
+    .min(1)
+    .max(500),
+});
+export type ReceiveTransferInput = z.infer<typeof receiveTransferInputSchema>;
+
 export const counterWorkKinds = [
   "prepared_receipt",
   "held_delivery",
@@ -2206,6 +2229,19 @@ export const ipcContract = {
         otherBranch: z.string().nullable(),
         dispatchedQty: z.number().int(),
         alreadyApplied: z.boolean(),
+        postedAt: z.string(),
+      }),
+    ),
+  },
+  /** Receive a transfer in at the counter: counted lines only, pinned to the dispatch. */
+  receiveCounterTransfer: {
+    channel: "pos:work:receive-transfer",
+    input: receiveTransferInputSchema,
+    output: result(
+      z.object({
+        transferId: uuid,
+        status: z.enum(["partially_received", "received"]),
+        receivedQty: z.number().int(),
         postedAt: z.string(),
       }),
     ),

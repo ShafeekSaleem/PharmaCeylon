@@ -11,8 +11,11 @@ import {
 import type { CounterWorkItem } from "../../shared/ipc-contract";
 import {
   buildMismatchInput,
+  buildReceiveBody,
+  countFor,
   countLabel,
   emptyMismatchForm,
+  fillRestAsSent,
   lineFingerprint,
   mismatchButtonLabel,
   mismatchIssue,
@@ -22,7 +25,11 @@ import {
   needsLine,
   needsNote,
   problemChoices,
+  receiveIssue,
+  setCount,
+  unitsCounted,
   type MismatchForm,
+  type ReceiveCounts,
 } from "./counter-document-model";
 import styles from "./CounterDocumentPane.module.css";
 import { Icon } from "./Icon";
@@ -99,12 +106,19 @@ function ReceiptLines({
 function TransferLines({
   lines,
   pick,
+  count,
 }: {
   lines: ReadonlyArray<CounterWorkTransferLine>;
   /** A transfer out: each line is ticked as it is picked. */
   pick?: {
     ticked: (line: CounterWorkTransferLine) => boolean;
     onToggle: (line: CounterWorkTransferLine) => void;
+    disabled: boolean;
+  };
+  /** A transfer in: what arrived on each line still on the way. Counts start empty. */
+  count?: {
+    value: (line: CounterWorkTransferLine) => string;
+    onChange: (line: CounterWorkTransferLine, raw: string) => void;
     disabled: boolean;
   };
 }) {
@@ -119,6 +133,7 @@ function TransferLines({
           <th className={styles.num}>Approved</th>
           <th className={styles.num}>Already in</th>
           <th className={styles.num}>On the way</th>
+          {count && <th className={styles.num}>Arrived</th>}
         </tr>
       </thead>
       <tbody>
@@ -144,6 +159,22 @@ function TransferLines({
             <td className={styles.num}>{l.qty}</td>
             <td className={styles.num}>{l.receivedQty || "—"}</td>
             <td className={styles.num}>{l.remainingQty}</td>
+            {count && (
+              <td className={styles.num}>
+                {l.remainingQty > 0 ? (
+                  <input
+                    className={cx(ui.in, styles.count)}
+                    inputMode="numeric"
+                    aria-label={`Arrived: ${l.productName}`}
+                    value={count.value(l)}
+                    disabled={count.disabled}
+                    onChange={(e) => count.onChange(l, e.target.value)}
+                  />
+                ) : (
+                  <small>Already in</small>
+                )}
+              </td>
+            )}
           </tr>
         ))}
       </tbody>
@@ -208,6 +239,8 @@ export function CounterDocumentPane({
   const [posting, setPosting] = useState(false);
   const [postError, setPostError] = useState<string | null>(null);
   const [posted, setPosted] = useState<{ message: string } | null>(null);
+  // A transfer in: what arrived per line, kept against the line as it was shown.
+  const [counts, setCounts] = useState<ReceiveCounts>({});
 
   const load = useCallback(() => {
     const mine = ++readId.current;
@@ -237,6 +270,7 @@ export function CounterDocumentPane({
     setSendError(null);
     setPostError(null);
     setPosted(null);
+    setCounts({});
     keyRef.current = null;
     load();
   }, [load, item.approval.evidenceId, item.approval.currentVersion]);
@@ -306,6 +340,36 @@ export function CounterDocumentPane({
   const unitsToStock = receiptLines?.reduce((n, l) => n + l.unitsToStock, 0) ?? 0;
   const damaged = receiptLines?.reduce((n, l) => n + l.damagedQty, 0) ?? 0;
   const unitsToShip = shipLines?.reduce((n, l) => n + l.qty, 0) ?? 0;
+  const receiveLines =
+    detail.kind === "transfer_receive" ? (detail.lines as ReadonlyArray<CounterWorkTransferLine>) : null;
+  const countIssue = receiveLines ? receiveIssue(receiveLines, counts) : null;
+  const receiveBody = receiveLines ? buildReceiveBody(detail, counts) : null;
+  const canReceiveNow =
+    receiveBody !== null && online && canPost && !posting && posted === null;
+
+  const receive = async () => {
+    if (!receiveBody || !canReceiveNow) return;
+    setPosting(true);
+    setPostError(null);
+    const result = await invoke(() => window.pos.receiveCounterTransfer(receiveBody));
+    setPosting(false);
+    if (!result.ok) {
+      setPostError(result.error.message);
+      // The dispatch or a line moved on: read it again; counts on changed lines drop.
+      load();
+      onReported();
+      return;
+    }
+    const v = result.value;
+    setPosted({
+      message:
+        v.status === "received"
+          ? `Received. ${v.receivedQty} ${v.receivedQty === 1 ? "unit" : "units"} booked in; nothing is left on the way.`
+          : `Received ${v.receivedQty} ${v.receivedQty === 1 ? "unit" : "units"}. The rest stays on the way until it arrives or a manager closes it on the web.`,
+    });
+    setCounts({});
+    onReported();
+  };
   // A transfer out under a waived dispatch policy has no approval; everything else needs a matching one.
   const approvalReady =
     detail.approval.state === "matches" ||
@@ -424,8 +488,15 @@ export function CounterDocumentPane({
             disabled: posting || posted !== null,
           }}
         />
-      ) : detail.kind === "transfer_receive" ? (
-        <TransferLines lines={detail.lines as ReadonlyArray<CounterWorkTransferLine>} />
+      ) : receiveLines ? (
+        <TransferLines
+          lines={receiveLines}
+          count={{
+            value: (l) => countFor(l, counts) ?? "",
+            onChange: (l, raw) => setCounts((c) => setCount(c, l, raw)),
+            disabled: posting || posted !== null,
+          }}
+        />
       ) : receiptLines ? (
         <ReceiptLines
           lines={receiptLines}
@@ -463,6 +534,21 @@ export function CounterDocumentPane({
           </div>
         </div>
       )}
+      {receiveLines && !posted && (
+        <div className={cx(ui.note, styles.waiting)} role="note">
+          <Icon name="truck" />
+          <div>
+            <b>
+              {unitsCounted(receiveLines, counts)} {unitsCounted(receiveLines, counts) === 1 ? "unit" : "units"} counted
+              {otherBranch ? ` from ${otherBranch}` : ""}
+            </b>
+            {detail.approval.state === "not_needed"
+              ? "The dispatch needed no approval. "
+              : "Pinned to the dispatch the source branch sent. "}
+            Units not received stay on the way until they arrive or a manager closes the rest on the web.
+          </div>
+        </div>
+      )}
       {posted && (
         <p className={ui.okText} role="status">
           {posted.message}
@@ -472,6 +558,32 @@ export function CounterDocumentPane({
         <p role="alert" className={ui.badText}>
           {postError}
         </p>
+      )}
+      {receiveLines && !posted && (
+        <div className={styles.actions}>
+          {!canPost ? (
+            <small className={styles.hint}>Confirm the action waiting at this counter first.</small>
+          ) : countIssue ? (
+            <small className={styles.hint}>{countIssue}</small>
+          ) : null}
+          <button
+            type="button"
+            className={cx(ui.btn, ui.outline)}
+            disabled={posting}
+            onClick={() => setCounts((c) => fillRestAsSent(receiveLines, c))}
+          >
+            Fill the rest as sent
+          </button>
+          <button
+            type="button"
+            className={cx(ui.btn, ui.primary)}
+            disabled={!canReceiveNow}
+            onClick={() => void receive()}
+          >
+            <Icon name="package-check" />
+            {posting ? "Receiving…" : "Receive"}
+          </button>
+        </div>
       )}
       {tickLines && !posted && (
         <div className={styles.actions}>
