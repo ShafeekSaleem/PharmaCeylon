@@ -9,6 +9,7 @@ import type {
 } from "../../shared/ipc-contract";
 import styles from "./CounterWork.module.css";
 import { dayMonthYear, time } from "./format";
+import { CounterDocumentPane } from "./CounterDocumentPane";
 import { Icon, type IconName } from "./Icon";
 import { invoke } from "./invoke";
 import { KeyHint } from "./KeyHint";
@@ -24,6 +25,14 @@ import {
 import { canPostHeldWriteOff, isReadOnlyHeldWriteOff } from "./held-writeoff-model";
 
 const POLL_MS = 30_000;
+
+/** Kinds whose approved lines the counter can read and report a mismatch on (decision 1). */
+const DOCUMENT_KINDS: ReadonlySet<CounterWorkKind> = new Set([
+  "prepared_receipt",
+  "held_delivery",
+  "transfer_ship",
+  "transfer_receive",
+]);
 
 export type WorkTab = "all" | "receive" | "transfers" | "refunds" | "stock";
 type Pending = {
@@ -582,17 +591,22 @@ function Detail({
           onCount={(batchId, value) => setCounts((prev) => ({ ...prev, [batchId]: value }))}
         />
       ) : (
-        <div className={styles.content}>
-          <div className={cx(ui.note, styles.waiting)} role="note">
-            <Icon name="clock" />
-            <div>
-              <b>Next: {nextAction(item)}</b>
-              {kind.title} {item.reference} is approved and waiting here. The
-              screen for {kind.doing.toLowerCase()} it at the counter comes
-              next; until then nothing moves from this page.
+        <>
+          <div className={styles.content}>
+            <div className={cx(ui.note, styles.waiting)} role="note">
+              <Icon name="clock" />
+              <div>
+                <b>Next: {nextAction(item)}</b>
+                {kind.title} {item.reference} is approved and waiting here. The
+                screen for {kind.doing.toLowerCase()} it at the counter comes
+                next; until then nothing moves from this page.
+              </div>
             </div>
           </div>
-        </div>
+          {DOCUMENT_KINDS.has(item.kind) && (
+            <CounterDocumentPane item={item} online={online} onReported={onPosted} />
+          )}
+        </>
       )}
 
       {error && (

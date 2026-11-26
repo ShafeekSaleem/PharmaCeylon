@@ -271,3 +271,74 @@ describe("supplier cash payouts at the counter", () => {
     await expect(work.executeCashPayout(cashPayoutId)).rejects.toMatchObject({ code: "APPROVAL_STALE" });
   });
 });
+
+describe("what the counter reads and reports about a waiting document (P6 decision 1)", () => {
+  type Seen = { method: string; path: string; opts: { branchId?: string; body?: unknown; headers?: Record<string, string> } };
+
+  function withReply(reply: (seen: Seen) => unknown) {
+    const seen: Seen[] = [];
+    const api = {
+      request: async (method: string, path: string, opts: Seen["opts"]) => {
+        const call = { method, path, opts };
+        seen.push(call);
+        const answer = reply(call);
+        if (answer instanceof Error) throw answer;
+        return answer;
+      },
+    };
+    return {
+      seen,
+      work: new CounterWorkService({
+        api: api as unknown as ApiSession,
+        terminal: { current: () => ({ identity: { branchId } }) } as unknown as TerminalService,
+        commands: {} as SignedCommandService,
+      }),
+    };
+  }
+
+  const documentId = randomUUID();
+  const report = {
+    kind: "prepared_receipt" as const,
+    documentId,
+    approvalId,
+    documentVersion: 3,
+    line: { index: 0 },
+    problem: "fewer_arrived" as const,
+    countedQty: 8,
+    note: null,
+    idempotencyKey: randomUUID(),
+  };
+
+  it("reads the lines from the counter route for this branch", async () => {
+    const { work, seen } = withReply(() => ({ kind: "prepared_receipt", lines: [] }));
+    await work.detail("prepared_receipt", documentId);
+    expect(seen).toEqual([
+      { method: "GET", path: `/counter-work/prepared_receipt/${documentId}`, opts: { branchId } },
+    ]);
+  });
+
+  it("says a document that left Counter work is not waiting, rather than showing stale lines", async () => {
+    const { work } = withReply(() => new ApiError(404, "NOT_FOUND", "gone"));
+    await expect(work.detail("transfer_ship", documentId)).rejects.toMatchObject({ code: "NOT_WAITING" });
+  });
+
+  it("sends the report with its own key and the body unchanged, so a resend replays the same report", async () => {
+    const { work, seen } = withReply(() => ({ id: randomUUID(), status: "open" }));
+    await work.reportMismatch(report);
+    const { idempotencyKey, ...body } = report;
+    expect(seen).toEqual([
+      {
+        method: "POST",
+        path: "/counter-work/mismatches",
+        opts: { body, branchId, headers: { "Idempotency-Key": idempotencyKey } },
+      },
+    ]);
+  });
+
+  it("tells the person the document changed when the server refuses the version they saw", async () => {
+    const { work } = withReply(() => new ApiError(409, "CONFLICT", "This changed since you opened it. Open it again."));
+    const failure = await work.reportMismatch(report).catch((e: unknown) => e);
+    expect(failure).toBeInstanceOf(ActionFailure);
+    expect(failure).toMatchObject({ code: "CHANGED_SINCE_OPENED" });
+  });
+});
