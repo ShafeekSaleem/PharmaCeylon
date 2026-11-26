@@ -27,7 +27,11 @@ import { canPostHeldWriteOff, isReadOnlyHeldWriteOff } from "./held-writeoff-mod
 const POLL_MS = 30_000;
 
 /** Kinds the counter can post from this page. */
-const POSTS_AT_COUNTER: ReadonlySet<CounterWorkKind> = new Set(["prepared_receipt", "held_delivery"]);
+const POSTS_AT_COUNTER: ReadonlySet<CounterWorkKind> = new Set([
+  "prepared_receipt",
+  "held_delivery",
+  "transfer_ship",
+]);
 
 /** Kinds whose approved lines the counter can read and report a mismatch on (decision 1). */
 const DOCUMENT_KINDS: ReadonlySet<CounterWorkKind> = new Set([
@@ -640,8 +644,8 @@ function Detail({
             </>
           ) : POSTS_AT_COUNTER.has(item.kind) ? (
             <>
-              <b>Post receiving below</b>
-              Stock only moves when you post it.
+              <b>{item.kind === "transfer_ship" ? "Dispatch below" : "Post receiving below"}</b>
+              Stock only moves when you {item.kind === "transfer_ship" ? "dispatch" : "post"} it.
             </>
           ) : (
             <>

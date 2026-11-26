@@ -9,7 +9,7 @@ mapping and P6 desktop destinations is `packages/shared/src/counter-work.ts`.
 | --- | --- | --- | --- | --- |
 | `prepared_receipt` | `prepared_receipt.post` | `POST …/prepared-receipts/:id/post` | `receiving` | available |
 | `held_delivery` | `held_delivery.post` | `POST …/held-deliveries/:id/post` | `held_delivery` | available |
-| `transfer_ship` | `transfer.ship` | `POST …/transfers/:id/ship` | `transfer_ship` | planned |
+| `transfer_ship` | `transfer.ship` | `POST …/transfers/:id/ship` | `transfer_ship` | available |
 | `transfer_receive` | `transfer.receive` | `POST …/transfers/:id/receive` | `transfer_receive` | planned |
 | `refund` | `sale_refund.execute` | `POST …/refund-requests/:id/execute` | `refund` | **available** |
 | `supplier_cash_payout` | `supplier_cash_payout.execute` | `POST …/cash-payouts/:id/execute` | `supplier_payout` | **available** (#187, on Cash & shift) |

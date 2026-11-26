@@ -203,6 +203,42 @@ export class CounterWorkService {
     };
   }
 
+  /**
+   * Dispatch an approved transfer out from this branch as one signed command. The pick list is
+   * fixed by the approval (it names the batches), so the body names only the transfer. The
+   * document is read again first: a changed or withdrawn approval, or an open "Can't pick all of
+   * it" report, stops it before anything is signed. Under a waived dispatch policy the transfer
+   * has no approval and the command carries none.
+   */
+  async dispatchTransfer(id: string) {
+    const detail = await this.detail("transfer_ship", id);
+    const { approval } = detail;
+    if (approval.state === "changed" || approval.state === "revoked")
+      throw new ActionFailure(
+        approval.state === "changed" ? "APPROVAL_STALE" : "APPROVAL_INVALID",
+        approval.state === "changed"
+          ? "This transfer changed since it was approved. Ask for it to be approved again on the web."
+          : "The approval was withdrawn on the web.",
+      );
+    if (detail.mismatches.some((m) => m.holding))
+      throw new ActionFailure(
+        "MISMATCH_REPORTED",
+        "Sent to the approver as not matching. It waits for a corrected version.",
+      );
+    const receipt = await this.deps.commands.execute(
+      "POST /api/v1/transfers/:id/ship",
+      { transferId: id },
+      approval.state === "matches" ? approval.evidenceId : null,
+    );
+    return {
+      reference: detail.reference,
+      otherBranch: "otherBranch" in detail ? detail.otherBranch : null,
+      dispatchedQty: receipt.result.dispatchedQty,
+      alreadyApplied: receipt.result.effect === "already_applied",
+      postedAt: new Date(receipt.recordedAt).toISOString(),
+    };
+  }
+
   /** All held write-off rows the counter may read (for detail panes and post pin). */
   async heldWriteOffsAtCounter(): Promise<HeldWriteOffAtCounter[]> {
     return this.heldWriteOffRows();
