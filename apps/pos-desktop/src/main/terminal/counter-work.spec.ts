@@ -501,3 +501,93 @@ describe("dispatching an approved transfer out at the counter", () => {
     await expect(work.dispatchTransfer(transferId)).resolves.toMatchObject({ alreadyApplied: true });
   });
 });
+
+
+describe("receiving a transfer in at the counter", () => {
+  const transferId = randomUUID();
+  const dispatch = randomUUID();
+  const lineId = randomUUID();
+
+  const matching = { evidenceId: dispatch, approvedVersion: null, currentVersion: 2, state: "matches", changes: [] };
+
+  function receiving(
+    status: "partially_received" | "received" = "received",
+    approval: Record<string, unknown> = matching,
+  ) {
+    const executed: { operation: string; body: unknown; evidence: string | null }[] = [];
+    const commands = {
+      execute: async (operation: string, body: unknown, approval: string | null) => {
+        executed.push({ operation, body, evidence: approval });
+        return { recordedAt: Date.parse("2026-11-26T09:00:00.000Z"), result: { status, receivedQty: 8 } };
+      },
+    };
+    const reads: string[] = [];
+    const api = {
+      request: async (_m: string, path: string) => {
+        reads.push(path);
+        return { kind: "transfer_receive", id: transferId, approval, mismatches: [], lines: [] };
+      },
+    };
+    return {
+      executed,
+      reads,
+      work: new CounterWorkService({
+        api: api as unknown as ApiSession,
+        terminal: { current: () => ({ identity: { branchId } }) } as unknown as TerminalService,
+        commands: commands as unknown as SignedCommandService,
+      }),
+    };
+  }
+
+  it("signs the counts and the dispatch pin exactly as the counter saw them, with no approval on the command", async () => {
+    const { work, executed, reads } = receiving("partially_received");
+    const input = {
+      transferId,
+      dispatchApprovalId: dispatch,
+      lines: [{ transferItemId: lineId, qty: 8, receivedQtyBefore: 4 }],
+    };
+    await expect(work.receiveTransfer(input)).resolves.toEqual({
+      transferId,
+      status: "partially_received",
+      receivedQty: 8,
+      postedAt: "2026-11-26T09:00:00.000Z",
+    });
+    // One read, for the dispatch check only; the counts and "already in" are the counter's.
+    expect(reads).toEqual([`/counter-work/transfer_receive/${transferId}`]);
+    expect(executed).toEqual([{ operation: "POST /api/v1/transfers/:id/receive", body: input, evidence: null }]);
+  });
+
+  it("signs nothing when the dispatch changed, was withdrawn, or is not the one counted against", async () => {
+    const lines = [{ transferItemId: lineId, qty: 8, receivedQtyBefore: 4 }];
+    for (const [approval, pin, code] of [
+      [{ ...matching, state: "changed" }, dispatch, "APPROVAL_STALE"],
+      [{ ...matching, state: "revoked" }, dispatch, "APPROVAL_INVALID"],
+      [{ ...matching, evidenceId: randomUUID() }, dispatch, "APPROVAL_STALE"],
+      [{ ...matching, evidenceId: null, state: "not_needed" }, dispatch, "APPROVAL_STALE"],
+    ] as const) {
+      const { work, executed } = receiving("received", approval);
+      await expect(
+        work.receiveTransfer({ transferId, dispatchApprovalId: pin, lines }),
+      ).rejects.toMatchObject({ code });
+      expect(executed).toEqual([]);
+    }
+  });
+
+  it("receives a dispatch that needed no approval with no pin", async () => {
+    const { work, executed } = receiving("received", { ...matching, evidenceId: null, state: "not_needed" });
+    await work.receiveTransfer({
+      transferId,
+      dispatchApprovalId: null,
+      lines: [{ transferItemId: lineId, qty: 1, receivedQtyBefore: 0 }],
+    });
+    expect(executed).toHaveLength(1);
+  });
+
+  it("signs nothing when no line arrived", async () => {
+    const { work, executed } = receiving();
+    await expect(
+      work.receiveTransfer({ transferId, dispatchApprovalId: null, lines: [] }),
+    ).rejects.toMatchObject({ code: "NOTHING_TO_RECEIVE" });
+    expect(executed).toEqual([]);
+  });
+});

@@ -1,13 +1,18 @@
 import { describe, expect, it } from "@jest/globals";
-import type { CounterWorkDetail } from "@pharmaceylon/shared";
+import type { CounterWorkDetail, CounterWorkTransferLine } from "@pharmaceylon/shared";
 import {
   buildMismatchInput,
+  buildReceiveBody,
+  countFor,
   countLabel,
   emptyMismatchForm,
+  fillRestAsSent,
   mismatchButtonLabel,
   mismatchIssue,
   mismatchLineChoices,
   problemChoices,
+  receiveIssue,
+  setCount,
 } from "./counter-document-model";
 
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
@@ -115,5 +120,62 @@ describe("mismatch report", () => {
     expect(
       buildMismatchInput(stocktake, { problem: "fewer_arrived", lineKey: "0", count: "1", note: "" }, id(59)),
     ).toBeNull();
+  });
+});
+
+
+describe("receiving a transfer in", () => {
+  const inLines = [
+    { transferItemId: id(8), productName: "Ventolin", qty: 12, receivedQty: 4, remainingQty: 8 },
+    { transferItemId: id(9), productName: "Panadol", qty: 30, receivedQty: 0, remainingQty: 30 },
+    { transferItemId: id(10), productName: "Amoxil", qty: 5, receivedQty: 5, remainingQty: 0 },
+  ] as unknown as ReadonlyArray<CounterWorkTransferLine>;
+  const receiving = {
+    kind: "transfer_receive",
+    id: id(3),
+    approval: { ...approval, evidenceId: id(91), state: "matches" },
+    lines: inLines,
+  } as unknown as CounterWorkDetail;
+
+  it("counts only the lines still on the way, and needs a count on each", () => {
+    let counts = setCount({}, inLines[0]!, "8");
+    expect(receiveIssue(inLines, counts)).toBe("Count every line (1 of 2).");
+    counts = setCount(counts, inLines[1]!, "30");
+    expect(receiveIssue(inLines, counts)).toBeNull();
+  });
+
+  it("fills only uncounted lines with what is still on the way", () => {
+    const counts = fillRestAsSent(inLines, setCount({}, inLines[0]!, "6"));
+    expect(countFor(inLines[0]!, counts)).toBe("6");
+    expect(countFor(inLines[1]!, counts)).toBe("30");
+    expect(countFor(inLines[2]!, counts)).toBeNull();
+  });
+
+  it("refuses more than is on the way, and a receive where nothing arrived", () => {
+    const over = setCount(setCount({}, inLines[0]!, "9"), inLines[1]!, "0");
+    expect(receiveIssue(inLines, over)).toMatch(/More Ventolin than is on the way \(8\)/);
+    const none = setCount(setCount({}, inLines[0]!, "0"), inLines[1]!, "0");
+    expect(receiveIssue(inLines, none)).toMatch(/Nothing arrived/);
+  });
+
+  it("sends the dispatch pin and the counted lines with the already-in the counter saw, leaving zeros out", () => {
+    const counts = setCount(setCount({}, inLines[0]!, "8"), inLines[1]!, "0");
+    expect(buildReceiveBody(receiving, counts)).toEqual({
+      transferId: id(3),
+      dispatchApprovalId: id(91),
+      lines: [{ transferItemId: id(8), qty: 8, receivedQtyBefore: 4 }],
+    });
+  });
+
+  it("pins no dispatch when it needed no approval", () => {
+    const counts = fillRestAsSent(inLines, {});
+    const waived = { ...receiving, approval: { ...approval, evidenceId: null, state: "not_needed" } } as unknown as CounterWorkDetail;
+    expect(buildReceiveBody(waived, counts)!.dispatchApprovalId).toBeNull();
+  });
+
+  it("drops a count when the line changed under it, so it is never sent against a different already-in", () => {
+    const counts = setCount({}, inLines[0]!, "8");
+    const moved = { ...inLines[0]!, receivedQty: 6, remainingQty: 6 } as CounterWorkTransferLine;
+    expect(countFor(moved, counts)).toBeNull();
   });
 });

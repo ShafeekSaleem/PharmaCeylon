@@ -31,6 +31,7 @@ const POSTS_AT_COUNTER: ReadonlySet<CounterWorkKind> = new Set([
   "prepared_receipt",
   "held_delivery",
   "transfer_ship",
+  "transfer_receive",
 ]);
 
 /** Kinds whose approved lines the counter can read and report a mismatch on (decision 1). */
@@ -644,8 +645,15 @@ function Detail({
             </>
           ) : POSTS_AT_COUNTER.has(item.kind) ? (
             <>
-              <b>{item.kind === "transfer_ship" ? "Dispatch below" : "Post receiving below"}</b>
-              Stock only moves when you {item.kind === "transfer_ship" ? "dispatch" : "post"} it.
+              <b>
+                {item.kind === "transfer_ship"
+                  ? "Dispatch below"
+                  : item.kind === "transfer_receive"
+                    ? "Count what arrived below"
+                    : "Post receiving below"}
+              </b>
+              Stock only moves when you{" "}
+              {item.kind === "transfer_ship" ? "dispatch" : item.kind === "transfer_receive" ? "receive" : "post"} it.
             </>
           ) : (
             <>

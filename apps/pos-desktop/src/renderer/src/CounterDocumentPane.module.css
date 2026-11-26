@@ -106,3 +106,8 @@
   margin-right: auto;
   order: -1;
 }
+
+.count {
+  width: 80px;
+  text-align: right;
+}

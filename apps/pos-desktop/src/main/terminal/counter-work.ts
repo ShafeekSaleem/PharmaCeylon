@@ -4,6 +4,7 @@ import type {
   CounterMismatchInput,
   CounterWorkItem,
   HeldWriteOffAtCounter,
+  ReceiveTransferInput,
   RefundAtCounter,
   RefundExecuted,
   StockCaseAtCounter,
@@ -235,6 +236,52 @@ export class CounterWorkService {
       otherBranch: "otherBranch" in detail ? detail.otherBranch : null,
       dispatchedQty: receipt.result.dispatchedQty,
       alreadyApplied: receipt.result.effect === "already_applied",
+      postedAt: new Date(receipt.recordedAt).toISOString(),
+    };
+  }
+
+  /**
+   * Receive a transfer in, as counted at this counter. The command carries no approval: the
+   * dispatch it is pinned to travels in the body (`dispatchApprovalId`), and each line carries
+   * the "already in" the counter saw, so the server refuses it if the dispatch changed or part of
+   * a line was received since. Those are the counter's own figures, not a fresh read, on purpose.
+   * The transfer is read again only to check the dispatch: a changed or withdrawn approval, or a
+   * dispatch other than the one counted against, stops it here before anything is signed.
+   */
+  async receiveTransfer(input: ReceiveTransferInput) {
+    if (!input.lines.length)
+      throw new ActionFailure("NOTHING_TO_RECEIVE", "Count at least one line that arrived.");
+    const { approval } = await this.detail("transfer_receive", input.transferId);
+    if (approval.state === "changed" || approval.state === "revoked")
+      throw new ActionFailure(
+        approval.state === "changed" ? "APPROVAL_STALE" : "APPROVAL_INVALID",
+        approval.state === "changed"
+          ? "This transfer changed since it was dispatched. Open it again."
+          : "The dispatch approval was withdrawn on the web.",
+      );
+    const current = approval.state === "matches" ? approval.evidenceId : null;
+    if (current !== input.dispatchApprovalId)
+      throw new ActionFailure(
+        "APPROVAL_STALE",
+        "This is not the dispatch you counted against. Open it again and count again.",
+      );
+    const receipt = await this.deps.commands.execute(
+      "POST /api/v1/transfers/:id/receive",
+      {
+        transferId: input.transferId,
+        dispatchApprovalId: input.dispatchApprovalId,
+        lines: input.lines.map((l) => ({
+          transferItemId: l.transferItemId,
+          qty: l.qty,
+          receivedQtyBefore: l.receivedQtyBefore,
+        })),
+      },
+      null,
+    );
+    return {
+      transferId: input.transferId,
+      status: receipt.result.status,
+      receivedQty: receipt.result.receivedQty,
       postedAt: new Date(receipt.recordedAt).toISOString(),
     };
   }
