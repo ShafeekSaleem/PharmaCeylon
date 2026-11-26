@@ -134,13 +134,6 @@ export function buildMismatchInput(
  * the line gives a different fingerprint, so its tick drops; the lines it did not change keep theirs.
  */
 export function lineFingerprint(line: CounterWorkReceiptLine): string {
-  return JSON.stringify([
-    line.productId,
-    line.batchNo,
-    line.expiryDate,
-    line.packs,
-    line.receivedQty,
-    line.freeQty,
-    line.damagedQty,
-  ]);
+  // Every field the server sends, so a change to a cost, a pack size or a batch also drops the tick.
+  return JSON.stringify(line);
 }

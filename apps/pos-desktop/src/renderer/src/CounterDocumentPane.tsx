@@ -33,6 +33,11 @@ import { cx } from "./useAction";
 /** Ticks kept on this computer: `documentId:lineIndex` to the line as approved when it was ticked. */
 const tickStore = new Map<string, string>();
 
+/** Forget every tick kept on this computer (used between tests). */
+export function clearCheckedLines() {
+  tickStore.clear();
+}
+
 function expiry(day: string | null) {
   return day ? day.slice(0, 7) : "—";
 }
@@ -396,6 +401,9 @@ export function CounterDocumentPane({
       {receiptLines && !posted && (
         <div className={styles.actions}>
           {!canPost && <small className={styles.hint}>Confirm the action waiting at this counter first.</small>}
+          {canPost && receiptLines.length === 0 && (
+            <small className={styles.hint}>This delivery has no lines to post.</small>
+          )}
           <button
             type="button"
             className={cx(ui.btn, ui.primary)}

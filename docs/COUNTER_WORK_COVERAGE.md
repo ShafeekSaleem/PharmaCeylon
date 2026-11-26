@@ -22,6 +22,8 @@ mapping and P6 desktop destinations is `packages/shared/src/counter-work.ts`.
 Planned destinations still appear in Counter work with `task.nextAction.executable: false` until P6
 ships the operation screen inside the #122 frame.
 
+**Release order.** Marking a row `available` changes the server's `task.nextAction` as soon as the API deploys, so web users see an executable next step. Ship the desktop build that has the screen first, or in the same release, before the API carrying the flipped status.
+
 ## Desktop display (#172 Stage 2)
 
 The counter shows, per item, the approval state (pill and trail), the next action (from

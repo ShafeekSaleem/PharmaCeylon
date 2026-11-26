@@ -4,7 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import type { CounterWorkDetail } from "@pharmaceylon/shared";
 import type { CounterWorkItem } from "../../shared/ipc-contract";
 import { stubPos } from "../test/harness";
-import { CounterDocumentPane } from "./CounterDocumentPane";
+import { clearCheckedLines, CounterDocumentPane } from "./CounterDocumentPane";
 
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 const approval = { evidenceId: id(90), approvedVersion: 3, currentVersion: 3, state: "matches" as const, changes: [] };
@@ -51,6 +51,7 @@ beforeEach(() => {
     value: { randomUUID: () => id(500 + keys++) },
     configurable: true,
   });
+  clearCheckedLines();
   detail = receipt();
   onReported.mockClear();
   pos = stubPos({
@@ -298,6 +299,46 @@ describe("posting the receiving", () => {
     detail = receipt({ approval: { ...approval, state: "changed", changes: [] } });
     await open();
     expect(screen.queryByRole("button", { name: /Post receiving/ })?.hasAttribute("disabled")).toBe(true);
+  });
+
+  it("drops a tick when only a cost or a pack size changed on the line", async () => {
+    await open();
+    tick("Panadol 500mg");
+    tick("Amoxil 250mg");
+    cleanup();
+    const corrected = receipt();
+    const lines = (corrected as unknown as { lines: Array<Record<string, unknown>> }).lines;
+    lines[0]!.unitCost = "4.50";
+    lines[1]!.unitsPerPack = 10;
+    detail = corrected;
+    await open();
+    expect((screen.getByRole("checkbox", { name: "Checked: Panadol 500mg" }) as HTMLInputElement).checked).toBe(false);
+    expect((screen.getByRole("checkbox", { name: "Checked: Amoxil 250mg" }) as HTMLInputElement).checked).toBe(false);
+  });
+
+  it("does not post a second time while the first answer is unconfirmed", async () => {
+    pos.postCounterReceipt!.mockImplementationOnce(async () => ({
+      ok: false,
+      error: { code: "UNCONFIRMED", message: "No answer from the server. Confirm it before doing anything else." },
+    }));
+    await open();
+    tick("Panadol 500mg");
+    tick("Amoxil 250mg");
+    fireEvent.click(post());
+    expect(await screen.findByText(/No answer from the server/)).toBeTruthy();
+    // The frame now lists the unconfirmed command and stops passing canPost.
+    cleanup();
+    render(<CounterDocumentPane item={item} online canPost={false} onReported={onReported} />);
+    await screen.findByText("Panadol 500mg");
+    expect(post().disabled).toBe(true);
+    fireEvent.click(post());
+    expect(pos.postCounterReceipt).toHaveBeenCalledTimes(1);
+  });
+
+  it("says when a delivery has no lines", async () => {
+    detail = receipt({ lines: [] });
+    render(<CounterDocumentPane item={item} online canPost onReported={onReported} />);
+    expect(await screen.findByText("This delivery has no lines to post.")).toBeTruthy();
   });
 
   it("shows a refusal and reads the document again, without marking it posted", async () => {

@@ -518,6 +518,8 @@ function Detail({
   onOpenSupplierPayout?: (cashPayoutId: string) => void;
 }) {
   const kind = KINDS[item.kind];
+  // `canRefund` is really "no unconfirmed action is waiting at this counter", whatever the action.
+  const nothingUnconfirmed = canRefund;
   const ready = !blocked(item);
   const title = [item.reference, item.subject].filter(Boolean).join(" · ");
   const [counts, setCounts] = useState<Record<string, string>>({});
@@ -607,7 +609,7 @@ function Detail({
             </div>
           </div>
           {DOCUMENT_KINDS.has(item.kind) && (
-            <CounterDocumentPane item={item} online={online} canPost={canRefund} onReported={onPosted} />
+            <CounterDocumentPane item={item} online={online} canPost={nothingUnconfirmed} onReported={onPosted} />
           )}
         </>
       )}
