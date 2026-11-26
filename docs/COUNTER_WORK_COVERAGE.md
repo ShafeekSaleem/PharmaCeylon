@@ -7,8 +7,8 @@ mapping and P6 desktop destinations is `packages/shared/src/counter-work.ts`.
 
 | Counter-work `kind` | W11 `dailyWorkKind` | Signed `operation` | P6 `destination` | Desktop screen status |
 | --- | --- | --- | --- | --- |
-| `prepared_receipt` | `prepared_receipt.post` | `POST …/prepared-receipts/:id/post` | `receiving` | planned |
-| `held_delivery` | `held_delivery.post` | `POST …/held-deliveries/:id/post` | `held_delivery` | planned |
+| `prepared_receipt` | `prepared_receipt.post` | `POST …/prepared-receipts/:id/post` | `receiving` | available |
+| `held_delivery` | `held_delivery.post` | `POST …/held-deliveries/:id/post` | `held_delivery` | available |
 | `transfer_ship` | `transfer.ship` | `POST …/transfers/:id/ship` | `transfer_ship` | planned |
 | `transfer_receive` | `transfer.receive` | `POST …/transfers/:id/receive` | `transfer_receive` | planned |
 | `refund` | `sale_refund.execute` | `POST …/refund-requests/:id/execute` | `refund` | **available** |

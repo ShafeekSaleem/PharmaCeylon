@@ -26,6 +26,9 @@ import { canPostHeldWriteOff, isReadOnlyHeldWriteOff } from "./held-writeoff-mod
 
 const POLL_MS = 30_000;
 
+/** Kinds the counter can post from this page. */
+const POSTS_AT_COUNTER: ReadonlySet<CounterWorkKind> = new Set(["prepared_receipt", "held_delivery"]);
+
 /** Kinds whose approved lines the counter can read and report a mismatch on (decision 1). */
 const DOCUMENT_KINDS: ReadonlySet<CounterWorkKind> = new Set([
   "prepared_receipt",
@@ -597,14 +600,14 @@ function Detail({
               <Icon name="clock" />
               <div>
                 <b>Next: {nextAction(item)}</b>
-                {kind.title} {item.reference} is approved and waiting here. The
-                screen for {kind.doing.toLowerCase()} it at the counter comes
-                next; until then nothing moves from this page.
+                {POSTS_AT_COUNTER.has(item.kind)
+                  ? `${kind.title} ${item.reference} is approved and waiting here. Check each line below, then post it.`
+                  : `${kind.title} ${item.reference} is approved and waiting here. The screen for ${kind.doing.toLowerCase()} it at the counter comes next; until then nothing moves from this page.`}
               </div>
             </div>
           </div>
           {DOCUMENT_KINDS.has(item.kind) && (
-            <CounterDocumentPane item={item} online={online} onReported={onPosted} />
+            <CounterDocumentPane item={item} online={online} canPost={canRefund} onReported={onPosted} />
           )}
         </>
       )}
@@ -632,6 +635,11 @@ function Detail({
           ) : item.kind === "supplier_cash_payout" ? (
             <>
               <b>{item.amount ? rs(item.amount) : "—"}</b> out of the drawer once you pay it out
+            </>
+          ) : POSTS_AT_COUNTER.has(item.kind) ? (
+            <>
+              <b>Post receiving below</b>
+              Stock only moves when you post it.
             </>
           ) : (
             <>

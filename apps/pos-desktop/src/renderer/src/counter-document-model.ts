@@ -128,3 +128,19 @@ export function buildMismatchInput(
     idempotencyKey,
   };
 }
+
+/**
+ * What a tick is kept against: the line exactly as approved. A corrected version that changes
+ * the line gives a different fingerprint, so its tick drops; the lines it did not change keep theirs.
+ */
+export function lineFingerprint(line: CounterWorkReceiptLine): string {
+  return JSON.stringify([
+    line.productId,
+    line.batchNo,
+    line.expiryDate,
+    line.packs,
+    line.receivedQty,
+    line.freeQty,
+    line.damagedQty,
+  ]);
+}

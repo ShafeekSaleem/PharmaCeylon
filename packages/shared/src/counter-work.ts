@@ -67,8 +67,8 @@ export const COUNTER_WORK_DAILY_KIND: Readonly<Record<CounterWorkKind, DailyWork
 export const COUNTER_WORK_DESTINATION_BY_KIND: Readonly<
   Record<CounterWorkKind, { destination: CounterWorkDestination; status: CounterWorkDestinationStatus }>
 > = {
-  prepared_receipt: { destination: "receiving", status: "planned" },
-  held_delivery: { destination: "held_delivery", status: "planned" },
+  prepared_receipt: { destination: "receiving", status: "available" },
+  held_delivery: { destination: "held_delivery", status: "available" },
   transfer_ship: { destination: "transfer_ship", status: "planned" },
   transfer_receive: { destination: "transfer_receive", status: "planned" },
   refund: { destination: "refund", status: "available" },

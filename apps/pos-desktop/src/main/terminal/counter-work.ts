@@ -157,6 +157,52 @@ export class CounterWorkService {
     }
   }
 
+  /**
+   * Post an approved receiving (a prepared receipt, or a held delivery after its decision) as
+   * one signed command. The document is read again first so the approval pinned to the command
+   * is the server's current one; a changed or withdrawn approval, or an open mismatch report,
+   * stops it here before anything is signed. The counter never sends quantities or batches.
+   */
+  async postReceipt(kind: "prepared_receipt" | "held_delivery", id: string) {
+    const detail = await this.detail(kind, id);
+    const { approval } = detail;
+    if (approval.state === "changed" || approval.state === "revoked")
+      throw new ActionFailure(
+        approval.state === "changed" ? "APPROVAL_STALE" : "APPROVAL_INVALID",
+        approval.state === "changed"
+          ? "This changed since it was approved. Ask for it to be approved again on the web."
+          : "The approval was withdrawn on the web.",
+      );
+    if (!approval.evidenceId)
+      throw new ActionFailure("APPROVAL_REQUIRED", "Approve this on the web before posting.");
+    if (detail.mismatches.some((m) => m.holding))
+      throw new ActionFailure(
+        "MISMATCH_REPORTED",
+        "Sent to the approver as not matching. It waits for a corrected version.",
+      );
+    const receipt =
+      kind === "prepared_receipt"
+        ? await this.deps.commands.execute(
+            "POST /api/v1/purchasing/prepared-receipts/:id/post",
+            { preparedReceiptId: id },
+            approval.evidenceId,
+          )
+        : await this.deps.commands.execute(
+            "POST /api/v1/purchasing/held-deliveries/:id/post",
+            { heldDeliveryId: id },
+            approval.evidenceId,
+          );
+    return {
+      kind,
+      reference: detail.reference,
+      goodsReceiptId: receipt.result.goodsReceiptId,
+      alreadyApplied: receipt.result.effect === "already_applied",
+      requestedBy: detail.requested?.name ?? null,
+      approvedBy: detail.approved?.name ?? null,
+      postedAt: new Date(receipt.recordedAt).toISOString(),
+    };
+  }
+
   /** All held write-off rows the counter may read (for detail panes and post pin). */
   async heldWriteOffsAtCounter(): Promise<HeldWriteOffAtCounter[]> {
     return this.heldWriteOffRows();

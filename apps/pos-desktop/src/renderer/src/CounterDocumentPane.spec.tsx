@@ -64,7 +64,7 @@ beforeEach(() => {
 afterEach(cleanup);
 
 const open = async (online = true) => {
-  render(<CounterDocumentPane item={item} online={online} onReported={onReported} />);
+  render(<CounterDocumentPane item={item} online={online} canPost onReported={onReported} />);
   await screen.findByText("Panadol 500mg");
 };
 
@@ -87,7 +87,7 @@ describe("the approved lines", () => {
       ok: false,
       error: { code: "NOT_WAITING", message: "That is not waiting at this counter any more." },
     }));
-    render(<CounterDocumentPane item={item} online onReported={onReported} />);
+    render(<CounterDocumentPane item={item} online canPost onReported={onReported} />);
     expect(await screen.findByText("That is not waiting at this counter any more.")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     expect(await screen.findByText("Panadol 500mg")).toBeTruthy();
@@ -225,9 +225,93 @@ describe("something does not match", () => {
       otherBranch: "Bambalapitiya",
       lines: [{ transferItemId: id(7), productId: id(13), productName: "Ventolin", packLabel: null, unitsPerPack: 1, batchId: null, batchNo: "V-1", expiryDate: "2027-01-31", qty: 12, receivedQty: 0, remainingQty: 12 }],
     } as unknown as CounterWorkDetail;
-    render(<CounterDocumentPane item={{ ...item, kind: "transfer_ship", id: id(2) }} online onReported={onReported} />);
+    render(<CounterDocumentPane item={{ ...item, kind: "transfer_ship", id: id(2) }} online canPost onReported={onReported} />);
     await screen.findByText("V-1");
     expect(screen.getByText(/waits here until a corrected version is approved/)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Can't pick all of it" })).toBeTruthy();
+  });
+});
+
+describe("posting the receiving", () => {
+  const posted = {
+    kind: "prepared_receipt",
+    reference: "PO-2026-0187",
+    goodsReceiptId: "GR-1",
+    alreadyApplied: false,
+    requestedBy: "Kasun",
+    approvedBy: "Dilini",
+    postedAt: "2026-11-26T09:00:00.000Z",
+  };
+  const post = () => screen.getByRole("button", { name: /Post receiving/ }) as HTMLButtonElement;
+  const tick = (name: string) => fireEvent.click(screen.getByRole("checkbox", { name: `Checked: ${name}` }));
+
+  beforeEach(() => {
+    pos.postCounterReceipt = jest.fn(async () => ({ ok: true, value: posted }));
+    (window as unknown as { pos: unknown }).pos = pos;
+  });
+
+  it("stays off until every line is ticked, then posts only the document", async () => {
+    await open();
+    expect(post().disabled).toBe(true);
+    expect(screen.getByText(/980 units go on the shelf/)).toBeTruthy();
+    tick("Panadol 500mg");
+    expect(post().disabled).toBe(true);
+    tick("Amoxil 250mg");
+    expect(post().disabled).toBe(false);
+    fireEvent.click(post());
+    await waitFor(() => expect(pos.postCounterReceipt).toHaveBeenCalledTimes(1));
+    expect(pos.postCounterReceipt).toHaveBeenCalledWith({ kind: "prepared_receipt", id: id(1) });
+    expect(await screen.findByText(/Posted\./)).toBeTruthy();
+    expect(onReported).toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: /Post receiving/ })).toBeNull();
+  });
+
+  it("keeps a tick on a line a corrected version did not change, and drops it on one it did", async () => {
+    await open();
+    tick("Panadol 500mg");
+    tick("Amoxil 250mg");
+    cleanup();
+    const corrected = receipt();
+    (corrected as unknown as { lines: Array<{ receivedQty: number }> }).lines[1]!.receivedQty = 18;
+    detail = corrected;
+    await open();
+    expect((screen.getByRole("checkbox", { name: "Checked: Panadol 500mg" }) as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByRole("checkbox", { name: "Checked: Amoxil 250mg" }) as HTMLInputElement).checked).toBe(false);
+  });
+
+  it("will not post while another action here is unconfirmed, offline, held by a report, or after the approval changed", async () => {
+    await open();
+    tick("Panadol 500mg");
+    tick("Amoxil 250mg");
+    cleanup();
+    render(<CounterDocumentPane item={item} online canPost={false} onReported={onReported} />);
+    await screen.findByText("Panadol 500mg");
+    expect(post().disabled).toBe(true);
+    cleanup();
+    await open(false);
+    expect(post().disabled).toBe(true);
+    cleanup();
+    detail = receipt({ mismatches: [{ id: id(72), problem: "damaged", holding: true, reported: { name: "S", at: null } }] });
+    await open();
+    expect(post().disabled).toBe(true);
+    cleanup();
+    detail = receipt({ approval: { ...approval, state: "changed", changes: [] } });
+    await open();
+    expect(screen.queryByRole("button", { name: /Post receiving/ })?.hasAttribute("disabled")).toBe(true);
+  });
+
+  it("shows a refusal and reads the document again, without marking it posted", async () => {
+    pos.postCounterReceipt!.mockImplementationOnce(async () => ({
+      ok: false,
+      error: { code: "APPROVAL_STALE", message: "This changed since it was approved." },
+    }));
+    detail = receipt();
+    await open();
+    tick("Panadol 500mg");
+    tick("Amoxil 250mg");
+    fireEvent.click(post());
+    expect(await screen.findByText("This changed since it was approved.")).toBeTruthy();
+    await waitFor(() => expect(pos.counterWorkDetail).toHaveBeenCalledTimes(2));
+    expect(screen.queryByText(/Posted\./)).toBeNull();
   });
 });

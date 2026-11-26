@@ -1025,6 +1025,12 @@ function registerIpc(
             throw new ActionFailure("NOT_READY", "The counter is still starting.");
           return counterWork.reportMismatch(input);
         }),
+      postCounterReceipt: ({ kind, id }) =>
+        act(logger, "postCounterReceipt", () => {
+          if (!counterWork)
+            throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          return counterWork.postReceipt(kind, id);
+        }),
       postHeldWriteOff: ({ heldAdjustmentId, approvalEvidenceId }) =>
         act(logger, "postHeldWriteOff", () => {
           if (!counterWork)
