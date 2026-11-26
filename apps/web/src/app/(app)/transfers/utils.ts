@@ -121,7 +121,8 @@ export function receivedPercent(row: TransferListItem): number {
   if (typeof row.receivedPercent === "number" && !Number.isNaN(row.receivedPercent)) {
     return row.receivedPercent;
   }
-  if (row.status === "received") return 100;
+  // A transfer closed short is finished, but not everything arrived.
+  if (row.status === "received" && !row.shortClosedAt) return 100;
   const total = row.totalQty ?? transferLineCount(row.items);
   const received =
     row.receivedQty ??
@@ -247,7 +248,8 @@ export function periodSummaryFromTransfers(
 
     if (row.status === "received") {
       totalSent += qty;
-      totalReceived += qty;
+      // Units closed short never arrived.
+      totalReceived += row.shortClosedAt ? received : qty;
     } else if (row.status === "partially_received") {
       totalSent += qty;
       totalReceived += received;

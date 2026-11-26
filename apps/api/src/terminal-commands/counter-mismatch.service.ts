@@ -173,7 +173,13 @@ export class CounterMismatchService {
       const row = await this.prisma.counterMismatchReport.findFirst({
         where: { tenantId, branchId, id: record.resourceId },
       });
-      if (!row || row.documentId !== dto.documentId)
+      if (
+        !row ||
+        row.documentId !== dto.documentId ||
+        row.kind !== dto.kind ||
+        row.problem !== dto.problem ||
+        (row.lineRef ?? null) !== (dto.line?.transferItemId ?? (dto.line?.index != null ? String(dto.line.index) : null))
+      )
         throw new BadRequestException("Idempotency-Key already used for a different report");
       return this.one(row);
     };
