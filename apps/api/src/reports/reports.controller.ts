@@ -7,6 +7,7 @@ import { RequestUser } from "../security/interfaces/authenticated-request.interf
 import { CategoryReportGroupBy, MovementGranularity, MovementTypeFilterKey, ReportsService } from "./reports.service";
 import { ReportSyncFreshnessService } from "./report-sync-freshness.service";
 import { parseSalesReportQuery } from "./sales-report-query";
+import { ShiftCashReportService } from "./shift-cash-report.service";
 
 const CATEGORY_GROUP_BY_VALUES: CategoryReportGroupBy[] = [
   "commercial",
@@ -33,6 +34,7 @@ export class ReportsController {
   constructor(
     private readonly reports: ReportsService,
     private readonly freshness: ReportSyncFreshnessService,
+    private readonly shiftCash: ShiftCashReportService,
   ) {}
 
   private isOwner(user: RequestUser): boolean {
@@ -402,6 +404,30 @@ export class ReportsController {
       user.tenantId,
       this.tenantScope(user, scope) || scope === "branches" ? null : branchId,
       Number.isFinite(n) && n > 0 ? Math.min(Math.floor(n), 3650) : 30,
+    );
+  }
+
+  /** W10 #72: shift and cash reconciliation — till shifts opened in the window, their drawer
+   * sums, counts and variances, by staff and by counter. */
+  @RequirePermission("reports.view")
+  @Get("shift-cash")
+  shiftCashReport(
+    @CurrentUser() user: RequestUser,
+    @RequireBranchId() branchId: string,
+    @Query("days") days?: string,
+    @Query("scope") scope?: string,
+    @Query("registerId") registerId?: string,
+    @Query("staffUserId") staffUserId?: string,
+  ) {
+    const n = Number(days);
+    return this.shiftCash.report(
+      user.tenantId,
+      this.tenantScope(user, scope) ? null : branchId,
+      Number.isFinite(n) && n > 0 ? Math.min(Math.floor(n), 366) : 30,
+      {
+        ...(registerId?.trim() ? { registerId: registerId.trim() } : {}),
+        ...(staffUserId?.trim() ? { staffUserId: staffUserId.trim() } : {}),
+      },
     );
   }
 }

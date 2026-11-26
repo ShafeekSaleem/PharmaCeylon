@@ -35,6 +35,7 @@ import type {
   StockMovementResponse,
   TransfersReportResponse,
   StocktakesReportResponse,
+  ShiftCashReportResponse,
   PurchaseSummaryResponse,
   SupplierSpendResponse,
   SupplierPerformanceResponse,
@@ -123,6 +124,19 @@ export function fetchTransfersReport(days: number) {
 
 export function fetchStocktakesReport(days: number, scope: Scope, isOwner: boolean) {
   return apiJson<StocktakesReportResponse>(`/reports/stocktakes?days=${days}${scopeQs(scope, isOwner)}`);
+}
+
+/** W10 #72: till shifts opened in the window with their drawer sums, counts and variances. */
+export function fetchShiftCashReport(
+  days: number,
+  scope: Scope,
+  isOwner: boolean,
+  filters: { registerId?: string; staffUserId?: string } = {},
+) {
+  const qs = new URLSearchParams({ days: String(days) });
+  if (filters.registerId) qs.set("registerId", filters.registerId);
+  if (filters.staffUserId) qs.set("staffUserId", filters.staffUserId);
+  return apiJson<ShiftCashReportResponse>(`/reports/shift-cash?${qs.toString()}${scopeQs(scope, isOwner)}`);
 }
 
 export function fetchPurchaseSummary(days: number, scope: Scope, isOwner: boolean) {

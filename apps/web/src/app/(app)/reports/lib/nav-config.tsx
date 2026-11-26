@@ -21,6 +21,7 @@ export type RealReportKey =
   | "cashier-performance"
   | "payment-methods"
   | "returns-discounts"
+  | "shift-cash"
   | "gross-profit"
   | "margin-by-product"
   | "margin-by-category"
@@ -92,6 +93,7 @@ export const CATEGORIES: CategoryDef[] = [
       { key: "cashier-performance", label: "Cashier Performance", periodLabel: "Range", periodOptions: DAYS_PERIOD_OPTIONS, defaultPeriod: 30 },
       { key: "payment-methods", label: "Payment Methods", periodLabel: "Range", periodOptions: DAYS_PERIOD_OPTIONS, defaultPeriod: 30 },
       { key: "returns-discounts", label: "Returns", periodLabel: "Range", periodOptions: DAYS_PERIOD_OPTIONS, defaultPeriod: 30 },
+      { key: "shift-cash", label: "Shift & Cash", periodLabel: "Range", periodOptions: DAYS_PERIOD_OPTIONS, defaultPeriod: 7 },
     ],
   },
   {

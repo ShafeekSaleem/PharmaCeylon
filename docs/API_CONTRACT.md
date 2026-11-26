@@ -1250,6 +1250,14 @@ Shared query params on **`GET /api/v1/reports/sales-summary`**, **`sales-daily`*
 
 `GET /api/v1/reports/offline-sync-freshness` (existing P5 caveat banner) is unchanged; the inline `freshness` block above is a lighter per-report slice for Oliver.
 
+**Shift and cash reconciliation (W10 #72)** — `GET /api/v1/reports/shift-cash`, permission **`reports.view`**, branch via **`x-branch-id`** (owners may pass `scope=tenant` for every active branch). Query: `days` (default 30, max 366), optional `registerId` (`terminal_counter.id`) and `staffUserId` (the shift's owner). Lists every `till_shift` **opened** in the window (the branch's business days, same window as the sales reports), newest first. Money is in **minor units** (cents of LKR), as on `till_shift`.
+
+Each `shifts[]` row: `shiftId`, `shiftNumber`, `branchId`, `branchName`, `registerId`, `counterLabel`, `terminalId`, `terminalLabel`, `staff: { id, name }`, `status` (`open` | `closed`), `openedAt`, `closedAt`, the drawer parts `openingCashMinor`, `cashTakenMinor` (cash tendered, before change), `changeGivenMinor`, `cashRefundsMinor`, `cashPaidOutMinor`, `cashPaidInMinor`, then `expectedCashMinor`, `countedCashMinor`, `varianceMinor` (counted − expected; negative is short), `counterExpectedCashMinor`, `counterDifferenceMinor` (counter's expected − server's, closed shifts only), `saleCount`, `salesTotalMinor`, `closeKind` (`self` | `assisted` | null), `closedBy`, `assistanceReason`, `varianceNote`, `openedOffline` (opened from a signed `shift_open`), `closedOffline` (closed from an offline sign-in).
+
+The parts follow the counter's X report (`TillShiftsService.parts`): cash payments carrying the shift (refunds are its negative payments), `change_due` on its sales, and `till_cash_movement` rows; voided sales are left out. A **closed** shift reports the `expected_cash_minor` and `variance_minor` recorded at close — never a recomputation; if the parts and the recorded figure ever differ, the recorded figure stands. An **open** shift's `expectedCashMinor` is live; `countedCashMinor` and `varianceMinor` are null.
+
+Also returned: `kpis` (shift counts, `shortMinor` / `overMinor` / `netVarianceMinor`, `shiftsWithVariance`, `assistedCloses`, expected and counted cash across closed shifts, cash taken net of change, refunds, paid out / in, `offlineShifts`, `counterDisagreements`), `byStaff[]` and `byCounter[]` with the same totals (worst shortage first; an assisted close counts against the shift's owner), and `options` (`registers`, `staff`) built from every shift in the window before `registerId` / `staffUserId` are applied. `timeZone`, `since` and `before` (exclusive) state the window.
+
 **Controlled products** (`Product.isControlled`): checkout requires **pharmacist**, **manager**, or **owner** effective on the branch (owners may be recognized tenant-wide per service rules).
 
 ## Approval thresholds (server-enforced)
