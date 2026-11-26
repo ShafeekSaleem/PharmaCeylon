@@ -709,3 +709,77 @@ export type BranchSalesResponse = { days: number; branches: BranchSalesRow[] };
 
 export type BranchSalesTrendPoint = { date: string; branchId: string; name: string; revenue: string };
 export type BranchSalesTrendResponse = { days: number; points: BranchSalesTrendPoint[] };
+
+/** W10 #72: `/reports/shift-cash`. Money is in minor units (cents of LKR), as on the till shift. */
+export type ShiftCashPerson = { id: string; name: string };
+
+export type ShiftCashRow = {
+  shiftId: string;
+  shiftNumber: string;
+  branchId: string;
+  branchName: string;
+  registerId: string;
+  counterLabel: string;
+  terminalId: string;
+  terminalLabel: string | null;
+  staff: ShiftCashPerson;
+  status: "open" | "closed";
+  openedAt: string;
+  closedAt: string | null;
+  openingCashMinor: number;
+  cashTakenMinor: number;
+  changeGivenMinor: number;
+  cashRefundsMinor: number;
+  cashPaidOutMinor: number;
+  cashPaidInMinor: number;
+  expectedCashMinor: number;
+  countedCashMinor: number | null;
+  varianceMinor: number | null;
+  counterExpectedCashMinor: number | null;
+  counterDifferenceMinor: number | null;
+  saleCount: number;
+  salesTotalMinor: number;
+  closeKind: "self" | "assisted" | null;
+  closedBy: ShiftCashPerson | null;
+  assistanceReason: string | null;
+  varianceNote: string | null;
+  openedOffline: boolean;
+  closedOffline: boolean;
+};
+
+export type ShiftCashTotals = {
+  shifts: number;
+  closedShifts: number;
+  openShifts: number;
+  shiftsWithVariance: number;
+  assistedCloses: number;
+  shortMinor: number;
+  overMinor: number;
+  netVarianceMinor: number;
+};
+
+export type ShiftCashReportResponse = {
+  days: number;
+  timeZone: string;
+  since: string;
+  before: string;
+  filters: { registerId?: string; staffUserId?: string };
+  kpis: ShiftCashTotals & {
+    expectedCashMinor: number;
+    countedCashMinor: number;
+    cashTakenMinor: number;
+    changeGivenMinor: number;
+    cashRefundsMinor: number;
+    cashPaidOutMinor: number;
+    cashPaidInMinor: number;
+    offlineShifts: number;
+    counterDisagreements: number;
+  };
+  byStaff: Array<ShiftCashTotals & { staffUserId: string; name: string }>;
+  byCounter: Array<ShiftCashTotals & { registerId: string; label: string; branchId: string; branchName: string }>;
+  shifts: ShiftCashRow[];
+  options: {
+    registers: Array<{ id: string; label: string; branchName: string }>;
+    staff: ShiftCashPerson[];
+  };
+};

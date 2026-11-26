@@ -16,6 +16,7 @@ import { BranchSalesSection } from "../sections/branch-sales-section";
 import { CashierPerformanceSection } from "../sections/cashier-performance-section";
 import { PaymentMethodsSection } from "../sections/payment-methods-section";
 import { ReturnsDiscountsSection } from "../sections/returns-discounts-section";
+import { ShiftCashSection } from "../sections/shift-cash-section";
 import { GrossProfitSection } from "../sections/gross-profit-section";
 import { ProfitabilitySection } from "../sections/profitability-section";
 import { MarginByCategorySection } from "../sections/margin-by-category-section";
@@ -336,6 +337,8 @@ export function ReportsWorkspace() {
         <PaymentMethodsSection key={report} scope={scope} isOwner={isOwner} days={period} onNavigate={navigate} onExportData={setExportPayload} />
       ) : report === "returns-discounts" ? (
         <ReturnsDiscountsSection key={report} scope={scope} isOwner={isOwner} days={period} onNavigate={navigate} onExportData={setExportPayload} />
+      ) : report === "shift-cash" ? (
+        <ShiftCashSection key={report} scope={scope} isOwner={isOwner} days={period} onExportData={setExportPayload} />
       ) : report === "gross-profit" ? (
         <GrossProfitSection key={report} scope={scope} isOwner={isOwner} days={period} onNavigate={navigate} onExportData={setExportPayload} />
       ) : report === "margin-by-product" ? (
