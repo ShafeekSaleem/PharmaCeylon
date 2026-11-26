@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  type CounterMismatchProblem,
   type CounterMismatchReport,
   type CounterWorkDetail,
   type CounterWorkReceiptLine,
@@ -139,14 +140,23 @@ export function CounterDocumentPane({
   const [sent, setSent] = useState<CounterMismatchReport | null>(null);
   // One key per report being written: a resend after a lost answer returns the same report.
   const keyRef = useRef<string | null>(null);
+  // Any edit makes it a different report: it must not go out under the key of one that may have landed.
+  const editForm = (change: (f: MismatchForm) => MismatchForm) => {
+    keyRef.current = null;
+    setForm(change);
+  };
+  // Only the newest read may fill the pane: a slow answer for an item left behind is dropped.
+  const readId = useRef(0);
 
   const load = useCallback(() => {
+    const mine = ++readId.current;
     void invoke(() =>
       window.pos.counterWorkDetail({
         kind: item.kind as Parameters<typeof window.pos.counterWorkDetail>[0]["kind"],
         id: item.id,
       }),
     ).then((result) => {
+      if (mine !== readId.current) return;
       setLoading(false);
       if (result.ok) {
         setDetail(result.value);
@@ -201,6 +211,14 @@ export function CounterDocumentPane({
   const holding = detail.mismatches.some((m) => m.holding);
   const approvalOk = detail.approval.state === "matches" || detail.approval.state === "not_needed";
   const canReport = kind !== null && online && approvalOk && detail.approval.currentVersion !== null;
+
+  const chooseProblem = (problem: CounterMismatchProblem) =>
+    editForm((f) => ({
+      ...f,
+      problem,
+      lineKey: problem === "not_on_note" ? null : f.lineKey,
+      count: needsCount(problem) ? f.count : "",
+    }));
 
   const send = async () => {
     keyRef.current ??= crypto.randomUUID();
@@ -305,6 +323,13 @@ export function CounterDocumentPane({
             <Icon name="alert-triangle" />
             {mismatchButtonLabel(kind)}
           </button>
+          {!canReport && (
+            <small className={styles.hint}>
+              {!online
+                ? "Reporting needs the server. This counter is offline."
+                : "Reporting is off until this is approved again on the web."}
+            </small>
+          )}
         </div>
       )}
 
@@ -326,16 +351,18 @@ export function CounterDocumentPane({
                   type="button"
                   role="radio"
                   aria-checked={form.problem === p.problem}
+                  tabIndex={form.problem === p.problem || (form.problem === null && p === problems[0]) ? 0 : -1}
+                  onKeyDown={(e) => {
+                    const step = e.key === "ArrowRight" || e.key === "ArrowDown" ? 1 : e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 0;
+                    if (!step) return;
+                    e.preventDefault();
+                    const next = problems[(problems.indexOf(p) + step + problems.length) % problems.length]!;
+                    chooseProblem(next.problem);
+                    (e.currentTarget.parentElement?.querySelectorAll<HTMLElement>('[role="radio"]')[problems.indexOf(next)])?.focus();
+                  }}
                   className={cx(styles.choice, form.problem === p.problem && styles.choiceOn)}
                   disabled={sending}
-                  onClick={() =>
-                    setForm((f) => ({
-                      ...f,
-                      problem: p.problem,
-                      lineKey: p.problem === "not_on_note" ? null : f.lineKey,
-                      count: needsCount(p.problem) ? f.count : "",
-                    }))
-                  }
+                  onClick={() => chooseProblem(p.problem)}
                 >
                   {p.label}
                 </button>
@@ -349,7 +376,7 @@ export function CounterDocumentPane({
                 className={ui.in}
                 value={form.lineKey ?? ""}
                 disabled={sending}
-                onChange={(e) => setForm((f) => ({ ...f, lineKey: e.target.value || null }))}
+                onChange={(e) => editForm((f) => ({ ...f, lineKey: e.target.value || null }))}
               >
                 <option value="">Choose the line…</option>
                 {choices.map((c) => (
@@ -371,7 +398,7 @@ export function CounterDocumentPane({
                 inputMode="numeric"
                 value={form.count}
                 disabled={sending}
-                onChange={(e) => setForm((f) => ({ ...f, count: e.target.value.replace(/\D/g, "").slice(0, 7) }))}
+                onChange={(e) => editForm((f) => ({ ...f, count: e.target.value.replace(/\D/g, "").slice(0, 7) }))}
               />
             </label>
           )}
@@ -383,7 +410,7 @@ export function CounterDocumentPane({
               maxLength={500}
               value={form.note}
               disabled={sending}
-              onChange={(e) => setForm((f) => ({ ...f, note: e.target.value }))}
+              onChange={(e) => editForm((f) => ({ ...f, note: e.target.value }))}
             />
           </label>
           {sendError && (
@@ -397,6 +424,7 @@ export function CounterDocumentPane({
               className={cx(ui.btn, ui.outline)}
               disabled={sending}
               onClick={() => {
+                keyRef.current = null;
                 setOpen(false);
                 setForm(emptyMismatchForm);
                 setSendError(null);

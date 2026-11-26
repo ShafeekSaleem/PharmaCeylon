@@ -146,8 +146,13 @@ export class CounterWorkService {
         },
       );
     } catch (error) {
+      // The API gives every 409 here the same code, so the document-moved one is told by its
+      // words; any other conflict (already waiting for approval, a reused key) shows as it is.
       if (error instanceof ApiError && error.status === 409)
-        throw new ActionFailure("CHANGED_SINCE_OPENED", error.message);
+        throw new ActionFailure(
+          /changed since you opened it/i.test(error.message) ? "CHANGED_SINCE_OPENED" : "CONFLICT",
+          error.message,
+        );
       throw error;
     }
   }

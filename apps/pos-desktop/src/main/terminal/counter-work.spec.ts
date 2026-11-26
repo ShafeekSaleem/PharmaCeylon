@@ -341,4 +341,10 @@ describe("what the counter reads and reports about a waiting document (P6 decisi
     expect(failure).toBeInstanceOf(ActionFailure);
     expect(failure).toMatchObject({ code: "CHANGED_SINCE_OPENED" });
   });
+
+  it("shows any other conflict as it is, without telling the person to open it again", async () => {
+    const { work } = withReply(() => new ApiError(409, "CONFLICT", "This is already waiting to be approved again on the web."));
+    const failure = await work.reportMismatch(report).catch((e: unknown) => e);
+    expect(failure).toMatchObject({ code: "CONFLICT", message: "This is already waiting to be approved again on the web." });
+  });
 });

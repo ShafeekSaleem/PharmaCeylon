@@ -162,6 +162,42 @@ describe("something does not match", () => {
     expect(keys[0]).toBe(keys[1]);
   });
 
+  it("sends a different report under a new key when the form is edited after a lost answer", async () => {
+    pos.reportCounterMismatch!.mockImplementationOnce(async () => ({
+      ok: false,
+      error: { code: "UNEXPECTED", message: "Something went wrong. Please try again." },
+    }));
+    await open();
+    const form = openForm();
+    fireEvent.click(within(form).getByRole("radio", { name: "Fewer arrived" }));
+    fireEvent.change(within(form).getByRole("combobox"), { target: { value: "0" } });
+    fireEvent.change(within(form).getByLabelText(/Packs that arrived/), { target: { value: "8" } });
+    fireEvent.click(within(form).getByRole("button", { name: /Send to the approver/ }));
+    expect(await within(form).findByRole("alert")).toBeTruthy();
+    fireEvent.change(within(form).getByLabelText(/Packs that arrived/), { target: { value: "7" } });
+    fireEvent.click(within(form).getByRole("button", { name: /Send to the approver/ }));
+    await waitFor(() => expect(pos.reportCounterMismatch).toHaveBeenCalledTimes(2));
+    const sent = pos.reportCounterMismatch!.mock.calls.map((c) => c[0] as { idempotencyKey: string; countedQty: number });
+    expect(sent[1]!.countedQty).toBe(7);
+    expect(sent[1]!.idempotencyKey).not.toBe(sent[0]!.idempotencyKey);
+  });
+
+  it("starts a cancelled report afresh, and moves between choices with the arrow keys", async () => {
+    await open();
+    let form = openForm();
+    const first = within(form).getByRole("radio", { name: "Fewer arrived" });
+    fireEvent.keyDown(first, { key: "ArrowRight" });
+    expect(within(form).getByRole("radio", { name: "More arrived" }).getAttribute("aria-checked")).toBe("true");
+    fireEvent.click(within(form).getByRole("button", { name: "Cancel" }));
+    form = openForm();
+    expect(within(form).getByRole("radio", { name: "More arrived" }).getAttribute("aria-checked")).toBe("false");
+  });
+
+  it("says why reporting is off when the counter is offline", async () => {
+    await open(false);
+    expect(screen.getByText(/needs the server/)).toBeTruthy();
+  });
+
   it("reads the document again when the server says it changed", async () => {
     pos.reportCounterMismatch!.mockImplementationOnce(async () => ({
       ok: false,
