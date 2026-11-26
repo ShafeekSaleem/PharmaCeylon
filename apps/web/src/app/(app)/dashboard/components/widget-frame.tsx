@@ -1,6 +1,6 @@
 "use client";
 
-import { Component, type ReactNode } from "react";
+import { Component, useEffect, useRef, type ReactNode } from "react";
 import { IconGripVertical, IconX } from "@/components/icons";
 import css from "../dashboard.module.css";
 
@@ -34,6 +34,9 @@ type Props = {
   title: string;
   isEditing: boolean;
   onRemove: (key: string) => void;
+  /** Called with the card's natural height in px whenever it changes, so the canvas can give it
+   * exactly the rows it needs (UI1 #205). */
+  onHeight?: (key: string, px: number) => void;
   children: ReactNode;
 };
 
@@ -41,9 +44,32 @@ type Props = {
  * this renders no extra markup, so the canvas looks identical to today. The
  * `rgl-drag-handle` class is a plain (non-CSS-module) selector matched by
  * DashboardCanvas's `draggableHandle` prop. */
-export function WidgetFrame({ widgetKey, title, isEditing, onRemove, children }: Props) {
+export function WidgetFrame({
+  widgetKey,
+  title,
+  isEditing,
+  onRemove,
+  onHeight,
+  children,
+}: Props) {
+  const ref = useRef<HTMLDivElement>(null);
+  const report = useRef(onHeight);
+  report.current = onHeight;
+
+  // The frame is as tall as its content, never stretched to its grid cell, so what this
+  // measures is the card's own height and the two can't feed each other.
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const measure = () => report.current?.(widgetKey, el.getBoundingClientRect().height);
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    measure();
+    return () => observer.disconnect();
+  }, [widgetKey]);
+
   return (
-    <div className={css.widgetFrame}>
+    <div className={css.widgetFrame} ref={ref}>
       {isEditing ? (
         <div className={css.widgetFrameBar}>
           <span className={`${css.widgetDragHandle} rgl-drag-handle`}>

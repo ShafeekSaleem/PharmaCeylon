@@ -182,7 +182,8 @@ Owner and manager dashboards (Phase 2). The other three roles keep their layout 
 - **Waiting at the counter** is no longer a card for owners and managers. Those rows are the queue's "At the counter" group.
 - **How customers paid** is one stacked bar with a legend giving the amount and share of each payment type. The period is shown on the card. The second payment-mix donut (Cash flow) is no longer on the default layout.
 - **Sales trend.** Daily bars for 7, 14 or 30 days, so a day with no sales shows as zero. A run of empty days ends in "No sales recorded since…".
-- **Sizing.** The fixed cards are as tall as their content and wrap under the queue when there is no room beside it. Cards in the Customise canvas keep their fixed grid rows for now.
+- **Sizing.** The fixed cards are as tall as their content and wrap under the queue when there is no room beside it. Cards in the Customise canvas are too: each card's frame reports its height and the canvas gives it the rows that hold it (`lib/content-rows.ts`), so nothing scrolls inside a card, no card stands empty below its content, and vertical compaction pulls a card up under a shorter neighbour. A card's cell is at most one row step (26 px) taller than the card. The registry's `rows` is only the first-paint guess. The queue keeps its own height beside the right-hand cards: stretching it to match a tall Staff productivity card left a few hundred pixels of blank card, which reads worse than the gap.
+- Screenshots: `screenshots/pr-dashboard-rail/` (owner before and after, light and dark, 1440 × 900 and 1366 × 768 full page, at Galle — Fort; 390 px after; the manager at Kandy before and after, in view and in Customise, where the AI insights card was 454 px tall for 294 px of content).
 
 ## Settings
 
@@ -205,7 +206,6 @@ These items in #205 come in later PRs:
 
 - **Inventory, Purchasing and the other list pages** moving onto the list pattern (Phase 4).
 - **Pharmacist, cashier and inventory clerk dashboards** getting the grouped queue and the same header.
-- **Customise canvas cards** sizing to their content instead of fixed grid rows.
 
 ## Screenshots
 

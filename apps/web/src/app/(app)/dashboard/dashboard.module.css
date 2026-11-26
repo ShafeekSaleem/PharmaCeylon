@@ -4425,14 +4425,11 @@ a.alertItem:hover {
   50% { opacity: 1; }
 }
 
+/* As tall as its content, not its grid cell: the canvas measures this and gives the card the
+   rows it needs, so nothing scrolls inside a card and no card stands empty (UI1 #205). */
 .widgetFrame {
-  height: 100%;
   display: flex;
   flex-direction: column;
-}
-
-.widgetFrame > .panel {
-  height: 100%;
 }
 
 .widgetFrameBar {
@@ -4485,14 +4482,12 @@ a.alertItem:hover {
 }
 
 .widgetFrameBody {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  overflow-x: hidden;
+  min-width: 0;
+  /* clip, not hidden: hidden would turn the vertical overflow back into a scrollbar. */
+  overflow-x: clip;
 }
 
 .widgetFrameBody > .panel {
-  height: 100%;
   box-shadow: none;
 }
 
