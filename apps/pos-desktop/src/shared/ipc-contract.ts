@@ -2240,7 +2240,8 @@ export const ipcContract = {
     output: result(
       z.object({
         transferId: uuid,
-        status: z.enum(["partially_received", "received"]),
+        /** "received" or "partially_received"; any other status the server adds still reads. */
+        status: z.string(),
         receivedQty: z.number().int(),
         postedAt: z.string(),
       }),

@@ -508,7 +508,12 @@ describe("receiving a transfer in at the counter", () => {
   const dispatch = randomUUID();
   const lineId = randomUUID();
 
-  function receiving(status: "partially_received" | "received" = "received") {
+  const matching = { evidenceId: dispatch, approvedVersion: null, currentVersion: 2, state: "matches", changes: [] };
+
+  function receiving(
+    status: "partially_received" | "received" = "received",
+    approval: Record<string, unknown> = matching,
+  ) {
     const executed: { operation: string; body: unknown; evidence: string | null }[] = [];
     const commands = {
       execute: async (operation: string, body: unknown, approval: string | null) => {
@@ -517,7 +522,12 @@ describe("receiving a transfer in at the counter", () => {
       },
     };
     const reads: string[] = [];
-    const api = { request: async (_m: string, path: string) => { reads.push(path); return {}; } };
+    const api = {
+      request: async (_m: string, path: string) => {
+        reads.push(path);
+        return { kind: "transfer_receive", id: transferId, approval, mismatches: [], lines: [] };
+      },
+    };
     return {
       executed,
       reads,
@@ -542,8 +552,35 @@ describe("receiving a transfer in at the counter", () => {
       receivedQty: 8,
       postedAt: "2026-11-26T09:00:00.000Z",
     });
-    expect(reads).toEqual([]);
+    // One read, for the dispatch check only; the counts and "already in" are the counter's.
+    expect(reads).toEqual([`/counter-work/transfer_receive/${transferId}`]);
     expect(executed).toEqual([{ operation: "POST /api/v1/transfers/:id/receive", body: input, evidence: null }]);
+  });
+
+  it("signs nothing when the dispatch changed, was withdrawn, or is not the one counted against", async () => {
+    const lines = [{ transferItemId: lineId, qty: 8, receivedQtyBefore: 4 }];
+    for (const [approval, pin, code] of [
+      [{ ...matching, state: "changed" }, dispatch, "APPROVAL_STALE"],
+      [{ ...matching, state: "revoked" }, dispatch, "APPROVAL_INVALID"],
+      [{ ...matching, evidenceId: randomUUID() }, dispatch, "APPROVAL_STALE"],
+      [{ ...matching, evidenceId: null, state: "not_needed" }, dispatch, "APPROVAL_STALE"],
+    ] as const) {
+      const { work, executed } = receiving("received", approval);
+      await expect(
+        work.receiveTransfer({ transferId, dispatchApprovalId: pin, lines }),
+      ).rejects.toMatchObject({ code });
+      expect(executed).toEqual([]);
+    }
+  });
+
+  it("receives a dispatch that needed no approval with no pin", async () => {
+    const { work, executed } = receiving("received", { ...matching, evidenceId: null, state: "not_needed" });
+    await work.receiveTransfer({
+      transferId,
+      dispatchApprovalId: null,
+      lines: [{ transferItemId: lineId, qty: 1, receivedQtyBefore: 0 }],
+    });
+    expect(executed).toHaveLength(1);
   });
 
   it("signs nothing when no line arrived", async () => {

@@ -587,6 +587,45 @@ describe("receiving a transfer in", () => {
     expect(receiveButton().disabled).toBe(true);
   });
 
+  it("after a partial receive, reads the transfer again and lets the rest be received from here", async () => {
+    await openIn();
+    arrived("Ventolin Inhaler", "8");
+    arrived("Panadol 500mg", "0");
+    // The server now has Ventolin fully in and Panadol still on the way.
+    pos.receiveCounterTransfer!.mockImplementationOnce(async () => {
+      detail = transferIn();
+      const lines = (detail as unknown as { lines: Array<{ receivedQty: number; remainingQty: number }> }).lines;
+      lines[0]!.receivedQty = 12;
+      lines[0]!.remainingQty = 0;
+      return {
+        ok: true,
+        value: { transferId: id(3), status: "partially_received", receivedQty: 8, postedAt: "2026-11-26T09:00:00.000Z" },
+      };
+    });
+    fireEvent.click(receiveButton());
+    expect(await screen.findByText(/Received 8 units\. The rest stays on the way/)).toBeTruthy();
+    await waitFor(() => expect(screen.queryByRole("textbox", { name: "Arrived: Ventolin Inhaler" })).toBeNull());
+    expect(pos.counterWorkDetail).toHaveBeenCalledTimes(2);
+    expect((screen.getByRole("textbox", { name: "Arrived: Panadol 500mg" }) as HTMLInputElement).value).toBe("");
+    arrived("Panadol 500mg", "30");
+    expect(receiveButton().disabled).toBe(false);
+  });
+
+  it("will not receive when the dispatch changed or was withdrawn, and says so", async () => {
+    detail = transferIn({ approval: { evidenceId: id(91), approvedVersion: 1, currentVersion: 2, state: "changed", changes: [] } });
+    await openIn();
+    fireEvent.click(screen.getByRole("button", { name: "Fill the rest as sent" }));
+    expect(screen.getByText(/Changed after approval/)).toBeTruthy();
+    expect(receiveButton().disabled).toBe(true);
+    cleanup();
+    detail = transferIn({ approval: { evidenceId: id(91), approvedVersion: 2, currentVersion: 2, state: "revoked", changes: [] } });
+    await openIn();
+    fireEvent.click(screen.getByRole("button", { name: "Fill the rest as sent" }));
+    expect(screen.getByText(/The approval was withdrawn on the web/)).toBeTruthy();
+    expect(receiveButton().disabled).toBe(true);
+    expect(pos.receiveCounterTransfer).not.toHaveBeenCalled();
+  });
+
   it("says when everything arrived", async () => {
     pos.receiveCounterTransfer!.mockImplementationOnce(async () => ({
       ok: true,
@@ -596,5 +635,7 @@ describe("receiving a transfer in", () => {
     fireEvent.click(screen.getByRole("button", { name: "Fill the rest as sent" }));
     fireEvent.click(receiveButton());
     expect(await screen.findByText("Received. 38 units booked in; nothing is left on the way.")).toBeTruthy();
+    // It leaves Counter work, so the pane does not read it again (it would find it gone).
+    expect(pos.counterWorkDetail).toHaveBeenCalledTimes(1);
   });
 });

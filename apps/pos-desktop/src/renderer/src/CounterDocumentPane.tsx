@@ -239,6 +239,8 @@ export function CounterDocumentPane({
   const [posting, setPosting] = useState(false);
   const [postError, setPostError] = useState<string | null>(null);
   const [posted, setPosted] = useState<{ message: string } | null>(null);
+  // Said after a part of a transfer in was received; the rest can still be received here.
+  const [notice, setNotice] = useState<string | null>(null);
   // A transfer in: what arrived per line, kept against the line as it was shown.
   const [counts, setCounts] = useState<ReceiveCounts>({});
 
@@ -270,6 +272,7 @@ export function CounterDocumentPane({
     setSendError(null);
     setPostError(null);
     setPosted(null);
+    setNotice(null);
     setCounts({});
     keyRef.current = null;
     load();
@@ -361,14 +364,21 @@ export function CounterDocumentPane({
       return;
     }
     const v = result.value;
-    setPosted({
-      message:
-        v.status === "received"
-          ? `Received. ${v.receivedQty} ${v.receivedQty === 1 ? "unit" : "units"} booked in; nothing is left on the way.`
-          : `Received ${v.receivedQty} ${v.receivedQty === 1 ? "unit" : "units"}. The rest stays on the way until it arrives or a manager closes it on the web.`,
-    });
+    const units = `${v.receivedQty} ${v.receivedQty === 1 ? "unit" : "units"}`;
     setCounts({});
     onReported();
+    if (v.status === "received") {
+      // Nothing is left on the way, so it leaves Counter work: no read, which would find it gone.
+      setNotice(null);
+      setPosted({ message: `Received. ${units} booked in; nothing is left on the way.` });
+      return;
+    }
+    // Part of it is still on the way: read the transfer again so "Already in" and "On the way"
+    // show the new figures and the rest can be received from here when it arrives.
+    setNotice(
+      `Received ${units}. The rest stays on the way until it arrives or a manager closes it on the web.`,
+    );
+    load();
   };
   // A transfer out under a waived dispatch policy has no approval; everything else needs a matching one.
   const approvalReady =
@@ -552,6 +562,11 @@ export function CounterDocumentPane({
       {posted && (
         <p className={ui.okText} role="status">
           {posted.message}
+        </p>
+      )}
+      {notice && !posted && (
+        <p className={ui.okText} role="status">
+          {notice}
         </p>
       )}
       {postError && (
