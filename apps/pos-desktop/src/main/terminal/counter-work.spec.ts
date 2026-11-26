@@ -348,3 +348,73 @@ describe("what the counter reads and reports about a waiting document (P6 decisi
     expect(failure).toMatchObject({ code: "CONFLICT", message: "This is already waiting to be approved again on the web." });
   });
 });
+
+describe("posting an approved receiving at the counter", () => {
+  const documentId = randomUUID();
+  const evidence = randomUUID();
+
+  function posting(detail: Record<string, unknown>) {
+    const executed: { operation: string; body: unknown; evidence: string | null }[] = [];
+    const commands = {
+      execute: async (operation: string, body: unknown, approval: string | null) => {
+        executed.push({ operation, body, evidence: approval });
+        return {
+          recordedAt: Date.parse("2026-11-26T09:00:00.000Z"),
+          result: { goodsReceiptId: "GR-1", effect: "applied" },
+        };
+      },
+    };
+    const api = { request: async () => detail };
+    return {
+      executed,
+      work: new CounterWorkService({
+        api: api as unknown as ApiSession,
+        terminal: { current: () => ({ identity: { branchId } }) } as unknown as TerminalService,
+        commands: commands as unknown as SignedCommandService,
+      }),
+    };
+  }
+
+  const base = {
+    reference: "PO-2026-0187",
+    approval: { evidenceId: evidence, approvedVersion: 3, currentVersion: 3, state: "matches", changes: [] },
+    requested: { name: "Kasun", at: null },
+    approved: { name: "Dilini", at: null },
+    mismatches: [],
+  };
+
+  it("signs a prepared receipt naming only the document, pinned to the approval just read", async () => {
+    const { work, executed } = posting(base);
+    const done = await work.postReceipt("prepared_receipt", documentId);
+    expect(executed).toEqual([
+      {
+        operation: "POST /api/v1/purchasing/prepared-receipts/:id/post",
+        body: { preparedReceiptId: documentId },
+        evidence,
+      },
+    ]);
+    expect(done).toMatchObject({ goodsReceiptId: "GR-1", alreadyApplied: false, requestedBy: "Kasun", approvedBy: "Dilini" });
+  });
+
+  it("signs a held delivery the same way", async () => {
+    const { work, executed } = posting(base);
+    await work.postReceipt("held_delivery", documentId);
+    expect(executed[0]).toMatchObject({
+      operation: "POST /api/v1/purchasing/held-deliveries/:id/post",
+      body: { heldDeliveryId: documentId },
+    });
+  });
+
+  it("signs nothing when the approval changed, was withdrawn, is missing, or a report holds it", async () => {
+    for (const [patch, code] of [
+      [{ approval: { ...base.approval, state: "changed" } }, "APPROVAL_STALE"],
+      [{ approval: { ...base.approval, state: "revoked" } }, "APPROVAL_INVALID"],
+      [{ approval: { ...base.approval, evidenceId: null, state: "not_needed" } }, "APPROVAL_REQUIRED"],
+      [{ mismatches: [{ holding: true }] }, "MISMATCH_REPORTED"],
+    ] as const) {
+      const { work, executed } = posting({ ...base, ...patch });
+      await expect(work.postReceipt("prepared_receipt", documentId)).rejects.toMatchObject({ code });
+      expect(executed).toEqual([]);
+    }
+  });
+});

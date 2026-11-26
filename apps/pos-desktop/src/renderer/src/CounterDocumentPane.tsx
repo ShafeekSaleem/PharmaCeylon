@@ -13,6 +13,7 @@ import {
   buildMismatchInput,
   countLabel,
   emptyMismatchForm,
+  lineFingerprint,
   mismatchButtonLabel,
   mismatchIssue,
   mismatchKindOf,
@@ -29,15 +30,34 @@ import { invoke } from "./invoke";
 import ui from "./ui.module.css";
 import { cx } from "./useAction";
 
+/** Ticks kept on this computer: `documentId:lineIndex` to the line as approved when it was ticked. */
+const tickStore = new Map<string, string>();
+
+/** Forget every tick kept on this computer (used between tests). */
+export function clearCheckedLines() {
+  tickStore.clear();
+}
+
 function expiry(day: string | null) {
   return day ? day.slice(0, 7) : "—";
 }
 
-function ReceiptLines({ lines }: { lines: ReadonlyArray<CounterWorkReceiptLine> }) {
+function ReceiptLines({
+  lines,
+  ticked,
+  onToggle,
+  disabled,
+}: {
+  lines: ReadonlyArray<CounterWorkReceiptLine>;
+  ticked: (line: CounterWorkReceiptLine) => boolean;
+  onToggle: (line: CounterWorkReceiptLine) => void;
+  disabled: boolean;
+}) {
   return (
     <table className={styles.lines}>
       <thead>
         <tr>
+          <th aria-label="Checked" />
           <th>Product</th>
           <th>Batch</th>
           <th>Expiry</th>
@@ -50,6 +70,15 @@ function ReceiptLines({ lines }: { lines: ReadonlyArray<CounterWorkReceiptLine> 
       <tbody>
         {lines.map((l) => (
           <tr key={l.index}>
+            <td>
+              <input
+                type="checkbox"
+                aria-label={`Checked: ${l.productName}`}
+                checked={ticked(l)}
+                disabled={disabled}
+                onChange={() => onToggle(l)}
+              />
+            </td>
             <td>
               {l.productName}
               {l.packLabel && <small>{l.packLabel}</small>}
@@ -123,10 +152,13 @@ function ReportRow({ report }: { report: CounterMismatchReport }) {
 export function CounterDocumentPane({
   item,
   online,
+  canPost,
   onReported,
 }: {
   item: CounterWorkItem;
   online: boolean;
+  /** Nothing else at this counter is waiting to be confirmed: never do a second thing while one is unknown. */
+  canPost: boolean;
   /** The list is read again so a held item shows as waiting for a corrected version. */
   onReported: () => void;
 }) {
@@ -147,6 +179,12 @@ export function CounterDocumentPane({
   };
   // Only the newest read may fill the pane: a slow answer for an item left behind is dropped.
   const readId = useRef(0);
+  // Ticks are a check kept on this computer, never sent. Each is kept against the line as
+  // approved, so a corrected version keeps the ticks on the lines it did not change.
+  const [, setTickVersion] = useState(0);
+  const [posting, setPosting] = useState(false);
+  const [postError, setPostError] = useState<string | null>(null);
+  const [posted, setPosted] = useState<{ reference: string; alreadyApplied: boolean } | null>(null);
 
   const load = useCallback(() => {
     const mine = ++readId.current;
@@ -174,6 +212,8 @@ export function CounterDocumentPane({
     setForm(emptyMismatchForm);
     setSent(null);
     setSendError(null);
+    setPostError(null);
+    setPosted(null);
     keyRef.current = null;
     load();
   }, [load, item.approval.evidenceId, item.approval.currentVersion]);
@@ -219,6 +259,44 @@ export function CounterDocumentPane({
       lineKey: problem === "not_on_note" ? null : f.lineKey,
       count: needsCount(problem) ? f.count : "",
     }));
+  const receiptLines =
+    detail.kind === "prepared_receipt" || detail.kind === "held_delivery"
+      ? (detail.lines as ReadonlyArray<CounterWorkReceiptLine>)
+      : null;
+  const ticks = receiptLines
+    ? receiptLines.filter((l) => tickStore.get(`${detail.id}:${l.index}`) === lineFingerprint(l)).length
+    : 0;
+  const allTicked = receiptLines !== null && ticks === receiptLines.length;
+  const unitsToStock = receiptLines?.reduce((n, l) => n + l.unitsToStock, 0) ?? 0;
+  const damaged = receiptLines?.reduce((n, l) => n + l.damagedQty, 0) ?? 0;
+  const canPostNow =
+    receiptLines !== null &&
+    receiptLines.length > 0 &&
+    allTicked &&
+    online &&
+    canPost &&
+    !posting &&
+    detail.approval.state === "matches" &&
+    !holding;
+
+  const post = async () => {
+    if (!receiptLines || !canPostNow) return;
+    const kindToPost = detail.kind as "prepared_receipt" | "held_delivery";
+    setPosting(true);
+    setPostError(null);
+    const result = await invoke(() => window.pos.postCounterReceipt({ kind: kindToPost, id: detail.id }));
+    setPosting(false);
+    if (!result.ok) {
+      setPostError(result.error.message);
+      // A changed approval or a new report shows on the document, so read it again.
+      load();
+      onReported();
+      return;
+    }
+    receiptLines.forEach((l) => tickStore.delete(`${detail.id}:${l.index}`));
+    setPosted({ reference: result.value.reference, alreadyApplied: result.value.alreadyApplied });
+    onReported();
+  };
 
   const send = async () => {
     keyRef.current ??= crypto.randomUUID();
@@ -283,9 +361,60 @@ export function CounterDocumentPane({
 
       {detail.kind === "transfer_ship" || detail.kind === "transfer_receive" ? (
         <TransferLines lines={detail.lines as ReadonlyArray<CounterWorkTransferLine>} />
-      ) : detail.kind === "prepared_receipt" || detail.kind === "held_delivery" ? (
-        <ReceiptLines lines={detail.lines as ReadonlyArray<CounterWorkReceiptLine>} />
+      ) : receiptLines ? (
+        <ReceiptLines
+          lines={receiptLines}
+          ticked={(l) => tickStore.get(`${detail.id}:${l.index}`) === lineFingerprint(l)}
+          onToggle={(l) => {
+            const key = `${detail.id}:${l.index}`;
+            if (tickStore.get(key) === lineFingerprint(l)) tickStore.delete(key);
+            else tickStore.set(key, lineFingerprint(l));
+            setTickVersion((v) => v + 1);
+          }}
+          disabled={posting || posted !== null}
+        />
       ) : null}
+      {receiptLines && (
+        <div className={cx(ui.note, styles.waiting)} role="note">
+          <Icon name="package-check" />
+          <div>
+            <b>
+              {unitsToStock} {unitsToStock === 1 ? "unit" : "units"} go on the shelf
+              {damaged > 0 ? `, ${damaged} damaged go to quarantine` : ""}
+            </b>
+            The counter confirms the delivery as approved; it never changes a quantity, batch or price.
+            {allTicked ? "" : ` Tick every line as you check it (${ticks} of ${receiptLines.length}).`}
+          </div>
+        </div>
+      )}
+      {posted && (
+        <p className={ui.okText} role="status">
+          {posted.alreadyApplied ? "Already posted. " : "Posted. "}
+          {posted.reference} is in stock.
+        </p>
+      )}
+      {postError && (
+        <p role="alert" className={ui.badText}>
+          {postError}
+        </p>
+      )}
+      {receiptLines && !posted && (
+        <div className={styles.actions}>
+          {!canPost && <small className={styles.hint}>Confirm the action waiting at this counter first.</small>}
+          {canPost && receiptLines.length === 0 && (
+            <small className={styles.hint}>This delivery has no lines to post.</small>
+          )}
+          <button
+            type="button"
+            className={cx(ui.btn, ui.primary)}
+            disabled={!canPostNow}
+            onClick={() => void post()}
+          >
+            <Icon name="check-circle" />
+            {posting ? "Posting…" : "Post receiving"}
+          </button>
+        </div>
+      )}
 
       {detail.mismatches.length > 0 && (
         <div className={cx(ui.note, ui.noteWarn)} role="status">

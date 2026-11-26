@@ -2180,6 +2180,22 @@ export const ipcContract = {
       ),
     ),
   },
+  /** Post an approved receiving at the counter: the signed command names only the document. */
+  postCounterReceipt: {
+    channel: "pos:work:post-receipt",
+    input: z.object({ kind: z.enum(["prepared_receipt", "held_delivery"]), id: uuid }),
+    output: result(
+      z.object({
+        kind: z.enum(["prepared_receipt", "held_delivery"]),
+        reference: z.string(),
+        goodsReceiptId: z.string(),
+        alreadyApplied: z.boolean(),
+        requestedBy: z.string().nullable(),
+        approvedBy: z.string().nullable(),
+        postedAt: z.string(),
+      }),
+    ),
+  },
   enroll: {
     channel: "pos:enrollment:enroll",
     input: z.object({ branchId: uuid, registerId: uuid, label }),

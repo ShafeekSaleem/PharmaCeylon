@@ -7,8 +7,8 @@ mapping and P6 desktop destinations is `packages/shared/src/counter-work.ts`.
 
 | Counter-work `kind` | W11 `dailyWorkKind` | Signed `operation` | P6 `destination` | Desktop screen status |
 | --- | --- | --- | --- | --- |
-| `prepared_receipt` | `prepared_receipt.post` | `POST …/prepared-receipts/:id/post` | `receiving` | planned |
-| `held_delivery` | `held_delivery.post` | `POST …/held-deliveries/:id/post` | `held_delivery` | planned |
+| `prepared_receipt` | `prepared_receipt.post` | `POST …/prepared-receipts/:id/post` | `receiving` | available |
+| `held_delivery` | `held_delivery.post` | `POST …/held-deliveries/:id/post` | `held_delivery` | available |
 | `transfer_ship` | `transfer.ship` | `POST …/transfers/:id/ship` | `transfer_ship` | planned |
 | `transfer_receive` | `transfer.receive` | `POST …/transfers/:id/receive` | `transfer_receive` | planned |
 | `refund` | `sale_refund.execute` | `POST …/refund-requests/:id/execute` | `refund` | **available** |
@@ -21,6 +21,8 @@ mapping and P6 desktop destinations is `packages/shared/src/counter-work.ts`.
 
 Planned destinations still appear in Counter work with `task.nextAction.executable: false` until P6
 ships the operation screen inside the #122 frame.
+
+**Release order.** Marking a row `available` changes the server's `task.nextAction` as soon as the API deploys, so web users see an executable next step. Ship the desktop build that has the screen first, or in the same release, before the API carrying the flipped status.
 
 ## Desktop display (#172 Stage 2)
 
