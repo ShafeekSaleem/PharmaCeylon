@@ -231,6 +231,8 @@ async function seedCollectedPaymentRow(
     sequence: number;
     providerReference: string;
     collectedAt?: Date;
+    /** Server receive time (`created_at`, the max-age basis). Set at insert: no trigger to bypass. */
+    createdAt?: Date;
   },
 ): Promise<string> {
   const branchId = opts.branchId ?? c.fx.mainBranchId;
@@ -301,23 +303,18 @@ async function seedCollectedPaymentRow(
       shiftId: shiftRow?.id ?? null,
       staffUserId: c.cashier.userId,
       collectedAt: now,
+      ...(opts.createdAt ? { createdAt: opts.createdAt } : {}),
     },
   });
   return paymentId;
 }
 
-/** Retention triggers block ORM updates on collected payments; test-only. */
-async function setCollectedPaymentCreatedAtForTest(paymentId: string, createdAt: Date) {
-  await prisma.$transaction(async (tx) => {
-    await tx.$executeRaw`SET LOCAL session_replication_role = 'replica'`;
-    await tx.$executeRaw`
-      UPDATE offline_collected_payment
-      SET created_at = ${createdAt}
-      WHERE id = ${paymentId}::uuid`;
-  });
-}
-
-/** Support records are immutable except verification fields; test-only receive/record shifts. */
+/**
+ * Support records are immutable except verification fields, and this one is written by the real
+ * sync path, so its receive/record times can only be shifted afterwards. Test-only: switches off
+ * just the immutability trigger, inside the transaction (DDL rolls back with it), so FK and every
+ * other trigger stay on. Needs the table owner, which is the migrating user in CI and locally.
+ */
 async function setAcceptedIncidentReceiveTimesForTest(
   tenantId: string,
   recordId: string,
@@ -325,12 +322,13 @@ async function setAcceptedIncidentReceiveTimesForTest(
   recordedAt?: Date,
 ) {
   await prisma.$transaction(async (tx) => {
-    await tx.$executeRaw`SET LOCAL session_replication_role = 'replica'`;
+    await tx.$executeRaw`ALTER TABLE offline_support_record DISABLE TRIGGER preserve_offline_support_record`;
     await tx.$executeRaw`
       UPDATE offline_support_record
       SET received_at = ${receivedAt},
           recorded_at = COALESCE(${recordedAt ?? null}, recorded_at)
       WHERE tenant_id = ${tenantId}::uuid AND record_id = ${recordId}::uuid AND status = 'accepted'`;
+    await tx.$executeRaw`ALTER TABLE offline_support_record ENABLE TRIGGER preserve_offline_support_record`;
   });
 }
 
@@ -915,8 +913,8 @@ describe("daily work sales recovery (W11 #145)", () => {
       sequence: 99_880,
       providerReference: "RRN-AGE-STALE",
       collectedAt: freshAt,
+      createdAt: staleAt,
     });
-    await setCollectedPaymentCreatedAtForTest(staleCollectedId, staleAt);
     const freshCollectedId = await seedCollectedPaymentRow(main, {
       sequence: 99_881,
       providerReference: "RRN-AGE-FRESH",
@@ -991,7 +989,10 @@ describe("daily work sales recovery (W11 #145)", () => {
       Date.now() - staleDeviceMs,
     );
     const work = await dailyWork().get(owner, branchId, { filter: "all", page: 1, pageSize: 100 });
-    expect(work.items.some((row) => row.id === `collected_money:${paymentId}`)).toBe(true);
+    const collected = work.items.find((row) => row.id === `collected_money:${paymentId}`);
+    expect(collected).toBeDefined();
+    // The work source formats the amount with the shared SQL helper (1500 minor = LKR 15.00).
+    expect(collected!.detail).toMatch(/ · LKR 15\.00$/);
     expect(work.items.some((row) => row.id === `incident:${incidentRecordId}`)).toBe(true);
   });
 
@@ -1028,13 +1029,13 @@ describe("daily work sales recovery (W11 #145)", () => {
     const insideId = await seedCollectedPaymentRow(main, {
       sequence: 99_771,
       providerReference: "RRN-BOUNDARY-IN",
+      createdAt: boundary,
     });
     const outsideId = await seedCollectedPaymentRow(main, {
       sequence: 99_772,
       providerReference: "RRN-BOUNDARY-OUT",
+      createdAt: pastBoundary,
     });
-    await setCollectedPaymentCreatedAtForTest(insideId, boundary);
-    await setCollectedPaymentCreatedAtForTest(outsideId, pastBoundary);
 
     const work = await dailyWork().get(owner, branchId, { filter: "all", page: 1, pageSize: 100 });
     expect(work.items.some((row) => row.id === `collected_money:${insideId}`)).toBe(true);

@@ -1147,7 +1147,10 @@ is locked, so a revocation that commits first refuses the sale and a later one w
     Operational notifications scan legacy work plus **one capped projection per sales-recovery kind**
     (up to **25** notices each for `sale_incident.review`, `payment_recovery.review`, and
     `collected_money.review`), then merge, so a full cap in one kind does not resolve notifications
-    for still-eligible rows in another. Legacy counter/approval kinds keep their separate **25**-
+    for still-eligible rows in another. Within one kind the cap still applies in work order: for
+    `sale_incident.review`, held incidents (priority 0) come before accepted ones (priority 1), so
+    25 or more held incidents can resolve accepted-incident notices until the held ones clear.
+    Legacy counter/approval kinds keep their separate **25**-
     item scan; recovery volume cannot displace them. Dedupe one notice per task
     (`operational:{branchId}:work:{id}:{kind}`); auto-resolve when the task drops out; a returning
     task clears `resolvedAt` on the next scan.
