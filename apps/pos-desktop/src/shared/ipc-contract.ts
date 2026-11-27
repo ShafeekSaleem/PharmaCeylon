@@ -2219,6 +2219,18 @@ export const ipcContract = {
       }),
     ),
   },
+  /** Post an approved stock count at the counter: the signed command names only the count. */
+  postCounterStocktake: {
+    channel: "pos:work:post-stocktake",
+    input: z.object({ id: uuid }),
+    output: result(
+      z.object({
+        reference: z.string(),
+        alreadyApplied: z.boolean(),
+        postedAt: z.string(),
+      }),
+    ),
+  },
   /** Dispatch an approved transfer out at the counter: the signed command names only the transfer. */
   dispatchCounterTransfer: {
     channel: "pos:work:dispatch-transfer",

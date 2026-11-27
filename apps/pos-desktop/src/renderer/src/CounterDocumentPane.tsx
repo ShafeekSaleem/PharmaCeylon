@@ -33,6 +33,7 @@ import {
 } from "./counter-document-model";
 import styles from "./CounterDocumentPane.module.css";
 import { Icon } from "./Icon";
+import { StocktakeBody } from "./StocktakePane";
 import { invoke } from "./invoke";
 import ui from "./ui.module.css";
 import { cx } from "./useAction";
@@ -489,7 +490,18 @@ export function CounterDocumentPane({
         </div>
       ))}
 
-      {shipLines ? (
+      {detail.kind === "stocktake" ? (
+        <StocktakeBody
+          detail={detail}
+          online={online}
+          canPost={canPost}
+          onPosted={onReported}
+          onRefused={() => {
+            load();
+            onReported();
+          }}
+        />
+      ) : shipLines ? (
         <TransferLines
           lines={shipLines}
           pick={{

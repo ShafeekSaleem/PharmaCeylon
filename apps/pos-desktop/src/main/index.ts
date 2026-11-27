@@ -1031,6 +1031,12 @@ function registerIpc(
             throw new ActionFailure("NOT_READY", "The counter is still starting.");
           return counterWork.receiveTransfer(input);
         }),
+      postCounterStocktake: ({ id }) =>
+        act(logger, "postCounterStocktake", () => {
+          if (!counterWork)
+            throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          return counterWork.postStocktake(id);
+        }),
       dispatchCounterTransfer: ({ id }) =>
         act(logger, "dispatchCounterTransfer", () => {
           if (!counterWork)
