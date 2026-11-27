@@ -306,6 +306,34 @@ async function seedCollectedPaymentRow(
   return paymentId;
 }
 
+/** Retention triggers block ORM updates on collected payments; test-only. */
+async function setCollectedPaymentCreatedAtForTest(paymentId: string, createdAt: Date) {
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SET LOCAL session_replication_role = 'replica'`;
+    await tx.$executeRaw`
+      UPDATE offline_collected_payment
+      SET created_at = ${createdAt}
+      WHERE id = ${paymentId}::uuid`;
+  });
+}
+
+/** Support records are immutable except verification fields; test-only receive/record shifts. */
+async function setAcceptedIncidentReceiveTimesForTest(
+  tenantId: string,
+  recordId: string,
+  receivedAt: Date,
+  recordedAt?: Date,
+) {
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SET LOCAL session_replication_role = 'replica'`;
+    await tx.$executeRaw`
+      UPDATE offline_support_record
+      SET received_at = ${receivedAt},
+          recorded_at = COALESCE(${recordedAt ?? null}, recorded_at)
+      WHERE tenant_id = ${tenantId}::uuid AND record_id = ${recordId}::uuid AND status = 'accepted'`;
+  });
+}
+
 type AttemptBinding = Pick<
   ExternalCardAttemptRecord,
   "attemptId" | "checkoutDraftId" | "reviewedSaleDigest" | "amountMinor" | "staffSignInId" | "workSessionId"
@@ -888,10 +916,7 @@ describe("daily work sales recovery (W11 #145)", () => {
       providerReference: "RRN-AGE-STALE",
       collectedAt: freshAt,
     });
-    await prisma.offlineCollectedPayment.update({
-      where: { id: staleCollectedId },
-      data: { createdAt: staleAt },
-    });
+    await setCollectedPaymentCreatedAtForTest(staleCollectedId, staleAt);
     const freshCollectedId = await seedCollectedPaymentRow(main, {
       sequence: 99_881,
       providerReference: "RRN-AGE-FRESH",
@@ -905,10 +930,12 @@ describe("daily work sales recovery (W11 #145)", () => {
       "Stale accepted incident for max-age daily work",
       Date.now() - insideMs,
     );
-    await prisma.offlineSupportRecord.updateMany({
-      where: { tenantId: main.fx.tenantId, recordId: staleIncidentRecordId, status: "accepted" },
-      data: { receivedAt: staleAt, recordedAt: freshAt },
-    });
+    await setAcceptedIncidentReceiveTimesForTest(
+      main.fx.tenantId,
+      staleIncidentRecordId,
+      staleAt,
+      freshAt,
+    );
 
     const notificationService = notify();
     const staleCollectedKey = `operational:${branchId}:work:collected_money:${staleCollectedId}:collected_money.review`;
@@ -963,11 +990,6 @@ describe("daily work sales recovery (W11 #145)", () => {
       "Accepted after long offline outage",
       Date.now() - staleDeviceMs,
     );
-    await prisma.offlineSupportRecord.updateMany({
-      where: { tenantId: main.fx.tenantId, recordId: incidentRecordId, status: "accepted" },
-      data: { recordedAt: new Date(Date.now() - staleDeviceMs) },
-    });
-
     const work = await dailyWork().get(owner, branchId, { filter: "all", page: 1, pageSize: 100 });
     expect(work.items.some((row) => row.id === `collected_money:${paymentId}`)).toBe(true);
     expect(work.items.some((row) => row.id === `incident:${incidentRecordId}`)).toBe(true);
@@ -986,10 +1008,7 @@ describe("daily work sales recovery (W11 #145)", () => {
       "Max-age cutoff with non-UTC session",
       Date.now() - insideMs,
     );
-    await prisma.offlineSupportRecord.updateMany({
-      where: { tenantId: main.fx.tenantId, recordId, status: "accepted" },
-      data: { receivedAt, recordedAt: new Date(0) },
-    });
+    await setAcceptedIncidentReceiveTimesForTest(main.fx.tenantId, recordId, receivedAt, new Date(0));
 
     await prisma.$executeRaw`SET TIME ZONE 'Asia/Colombo'`;
     try {
@@ -1014,14 +1033,8 @@ describe("daily work sales recovery (W11 #145)", () => {
       sequence: 99_772,
       providerReference: "RRN-BOUNDARY-OUT",
     });
-    await prisma.offlineCollectedPayment.update({
-      where: { id: insideId },
-      data: { createdAt: boundary },
-    });
-    await prisma.offlineCollectedPayment.update({
-      where: { id: outsideId },
-      data: { createdAt: pastBoundary },
-    });
+    await setCollectedPaymentCreatedAtForTest(insideId, boundary);
+    await setCollectedPaymentCreatedAtForTest(outsideId, pastBoundary);
 
     const work = await dailyWork().get(owner, branchId, { filter: "all", page: 1, pageSize: 100 });
     expect(work.items.some((row) => row.id === `collected_money:${insideId}`)).toBe(true);
