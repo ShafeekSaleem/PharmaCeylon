@@ -1123,7 +1123,13 @@ is locked, so a revocation that commits first refuses the sale and a later one w
     (`approval: false`, `blocked: false`, `where: "web"`): it deep-links into Sales, it never
     approves or executes from Daily work. A row disappears when the underlying queue would stop
     listing it (support record leaves the manager-held/accepted incident set, a card attempt clears,
-    or collected-money resolution removes the payment row — resolution UI is still P6). Identity
+    or collected-money resolution removes the payment row — resolution UI is still P6).
+    **Accepted** incident notes and **unresolved** collected-money rows also fall out of Daily work
+    (and their operational notifications resolve) once they are older than
+    `SALES_RECOVERY_DAILY_WORK_MAX_AGE_DAYS` (**7** days by default, from `recorded_at` /
+    `collected_at`). Manager-held incident notes and payment-recovery attempts are not age-limited
+    here (payment recovery drops when `status` leaves `held`; held incidents stay until cleared).
+    Sales recovery **queue** APIs are unchanged — aged rows remain listable there. Identity
   fields: `id` prefixes `incident:` (`record_id`), `payment_recovery:` (`attempt_id`),
     `collected_money:` (payment row `id`). Deep links: `/sales?view=incident-notes&recordId=…`
     (+ `&status=held` when held), `/sales?view=payment-recovery&attemptId=…`,

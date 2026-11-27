@@ -59,6 +59,13 @@ export function isDailyWorkKind(value: string): value is DailyWorkKind {
   return (DAILY_WORK_KINDS as readonly string[]).includes(value);
 }
 
+/**
+ * Accepted incident notes and unresolved collected-money rows stay in Daily work for this many
+ * days from `recorded_at` / `collected_at`. Sales recovery queues are unaffected. The default may
+ * become a per-tenant setting in a later slice.
+ */
+export const SALES_RECOVERY_DAILY_WORK_MAX_AGE_DAYS = 7;
+
 /** Management sales-recovery steps (W11 #145 Phase 1). */
 export const SALES_RECOVERY_DAILY_WORK_KINDS = [
   "sale_incident.review",

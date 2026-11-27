@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { lkrMinorLabelSql } from "../common/lkr-money-format";
+import { salesRecoveryDailyWorkFreshSql } from "./sales-recovery-daily-work-age";
 import { SUPPORT_MANAGER_HELD_REASONS } from "../terminals/support-queue-predicates";
 
 /** Same cap as `SalesQueuesService.paymentRecovery` / `SupportEvidenceReconciler.listHeld`. */
@@ -10,7 +11,8 @@ const managerHeldReasons = Prisma.join([...SUPPORT_MANAGER_HELD_REASONS]);
 /**
  * Daily-work SQL sources for W4 sales recovery queues. Predicates match
  * `incidentNotesWhere`, `paymentRecoveryWhere`, and `OfflineCollectedPayment` scope in
- * `SalesQueuesService` so managers see the same rows in Daily work and Sales tabs.
+ * `SalesQueuesService` for queue parity, except accepted incidents and collected money also
+ * require `salesRecoveryDailyWorkFreshSql` (payment recovery clears via status only).
  */
 export function saleIncidentWorkSource(tenantId: string, branchId: string): Prisma.Sql {
   return Prisma.sql`
@@ -37,7 +39,7 @@ export function saleIncidentWorkSource(tenantId: string, branchId: string): Pris
     WHERE r.tenant_id = ${tenantId}::uuid AND r.branch_id = ${branchId}::uuid
       AND r.kind = 'sale_incident'
       AND (
-        r.status = 'accepted'
+        (r.status = 'accepted' AND ${salesRecoveryDailyWorkFreshSql("r.recorded_at")})
         OR (r.status = 'held' AND r.held_reason IN (${managerHeldReasons}))
       )`;
 }
@@ -99,5 +101,6 @@ export function collectedMoneyWorkSource(tenantId: string, branchId: string): Pr
       0 AS priority
     FROM offline_collected_payment p
       LEFT JOIN app_user u ON u.id = p.staff_user_id
-    WHERE p.tenant_id = ${tenantId}::uuid AND p.branch_id = ${branchId}::uuid`;
+    WHERE p.tenant_id = ${tenantId}::uuid AND p.branch_id = ${branchId}::uuid
+      AND ${salesRecoveryDailyWorkFreshSql("p.collected_at")}`;
 }

@@ -10,7 +10,7 @@ import { DailyWorkService } from "../../src/dashboard/daily-work.service";
 import { SaleReadService } from "../../src/sales/sale-read.service";
 import { SalesQueuesService } from "../../src/sales/sales-queues.service";
 import { NotificationsService } from "../../src/notifications/notifications.service";
-import { SALES_RECOVERY_DAILY_WORK_KINDS } from "@pharmaceylon/shared";
+import { SALES_RECOVERY_DAILY_WORK_KINDS, SALES_RECOVERY_DAILY_WORK_MAX_AGE_DAYS } from "@pharmaceylon/shared";
 import { AccessService } from "../../src/security/access.service";
 import { PermissionsService } from "../../src/security/permissions.service";
 import { TenantBranchGuard } from "../../src/security/guards/tenant-branch.guard";
@@ -169,6 +169,7 @@ async function seedAcceptedIncidentOnPostedSale(
   staffSignInId: string,
   workSessionId: string,
   description: string,
+  recordedAt?: number,
 ): Promise<string> {
   const recordId = randomUUID();
   const signed = c.device.sign(
@@ -181,7 +182,7 @@ async function seedAcceptedIncidentOnPostedSale(
       recordedByUserId: c.cashier.userId,
       staffSignInId,
       workSessionId,
-      recordedAt: Date.now() - 30_000,
+      recordedAt: recordedAt ?? Date.now() - 30_000,
       category: "payment_uncertain",
       description,
     } satisfies OfflineSaleIncident,
@@ -224,7 +225,13 @@ async function seedHiddenBranchAcceptedIncident(c: Counter, identity: TerminalId
 
 async function seedCollectedPaymentRow(
   c: Counter,
-  opts: { branchId?: string; identity?: TerminalIdentity; sequence: number; providerReference: string },
+  opts: {
+    branchId?: string;
+    identity?: TerminalIdentity;
+    sequence: number;
+    providerReference: string;
+    collectedAt?: Date;
+  },
 ): Promise<string> {
   const branchId = opts.branchId ?? c.fx.mainBranchId;
   const identity = opts.identity ?? c.identity;
@@ -232,7 +239,7 @@ async function seedCollectedPaymentRow(
   const settlementId = randomUUID();
   const commandId = randomUUID();
   const recordHash = sha256(`collected-money-fixture-${settlementId}`);
-  const now = new Date();
+  const now = opts.collectedAt ?? new Date();
   await prisma.offlineJournalReview.create({
     data: {
       id: reviewId,
@@ -699,7 +706,8 @@ describe("daily work sales recovery (W11 #145)", () => {
     );
     expect(incidentIds).not.toContain(`incident:${otherTenantAcceptedIncidentRecordId}`);
     expect(incidentIds).not.toContain(`incident:${hiddenBranchIncidentRecordId}`);
-    expect(incidentIds).toHaveLength(incidentQueue.total);
+    expect(incidentIds.length).toBeLessThanOrEqual(incidentQueue.total);
+    expect(incidentIds.length).toBeGreaterThan(0);
 
     expect(paymentIds).toEqual(
       expect.arrayContaining(mainPaymentAttemptIds.map((id) => `payment_recovery:${id}`)),
@@ -713,7 +721,8 @@ describe("daily work sales recovery (W11 #145)", () => {
     );
     expect(collectedIds).not.toContain(`collected_money:${otherTenantCollectedPaymentId}`);
     expect(collectedIds).not.toContain(`collected_money:${hiddenBranchCollectedPaymentId}`);
-    expect(collectedIds).toHaveLength(collectedQueue.total);
+    expect(collectedIds.length).toBeLessThanOrEqual(collectedQueue.total);
+    expect(collectedIds.length).toBeGreaterThan(0);
 
     const cashierWork = await dailyWork().get(cashierOn(main), main.fx.mainBranchId, {
       filter: "all",
@@ -865,6 +874,68 @@ describe("daily work sales recovery (W11 #145)", () => {
       },
     });
     expect(recovery).toHaveLength(0);
+  });
+
+  it("drops stale accepted incidents and collected money from work and resolves notifications", async () => {
+    const owner = ownerOn(main);
+    const branchId = main.fx.mainBranchId;
+    const staleMs = (SALES_RECOVERY_DAILY_WORK_MAX_AGE_DAYS + 1) * 24 * 60 * 60 * 1000;
+    const insideMs = (SALES_RECOVERY_DAILY_WORK_MAX_AGE_DAYS - 1) * 24 * 60 * 60 * 1000;
+    const staleCollectedAt = new Date(Date.now() - staleMs);
+    const freshCollectedAt = new Date(Date.now() - insideMs);
+    const staleCollectedId = await seedCollectedPaymentRow(main, {
+      sequence: 99_880,
+      providerReference: "RRN-AGE-STALE",
+      collectedAt: staleCollectedAt,
+    });
+    const freshCollectedId = await seedCollectedPaymentRow(main, {
+      sequence: 99_881,
+      providerReference: "RRN-AGE-FRESH",
+      collectedAt: freshCollectedAt,
+    });
+    const staleIncidentRecordId = await seedAcceptedIncidentOnPostedSale(
+      main,
+      randomUUID(),
+      randomUUID(),
+      randomUUID(),
+      "Stale accepted incident for max-age daily work",
+      Date.now() - staleMs,
+    );
+
+    const notificationService = notify();
+    const staleCollectedKey = `operational:${branchId}:work:collected_money:${staleCollectedId}:collected_money.review`;
+    const staleIncidentKey = `operational:${branchId}:work:incident:${staleIncidentRecordId}:sale_incident.review`;
+    await notificationService.list(owner, branchId, { status: "all", take: 200 });
+
+    const work = await dailyWork().get(owner, branchId, {
+      filter: "all",
+      page: 1,
+      pageSize: 100,
+    });
+    expect(work.items.some((row) => row.id === `collected_money:${staleCollectedId}`)).toBe(false);
+    expect(work.items.some((row) => row.id === `collected_money:${freshCollectedId}`)).toBe(true);
+    expect(work.items.some((row) => row.id === `incident:${staleIncidentRecordId}`)).toBe(false);
+    expect(work.items.some((row) => row.id === `incident:${mainAcceptedIncidentRecordId}`)).toBe(
+      true,
+    );
+
+    const [collectedQueue, incidentQueue] = await Promise.all([
+      queues.collectedMoney(owner, branchId, { pageSize: 100 }),
+      queues.incidentNotes(owner, branchId, { pageSize: 100 }),
+    ]);
+    expect(collectedQueue.items.some((row) => row.id === staleCollectedId)).toBe(true);
+    expect(incidentQueue.items.some((row) => row.recordId === staleIncidentRecordId)).toBe(true);
+
+    await notificationService.updatePreferences(owner.tenantId, owner.userId, {});
+    await notificationService.list(owner, branchId, { status: "all", take: 200 });
+    const staleCollectedNotice = await prisma.notification.findFirst({
+      where: { tenantId: owner.tenantId, recipientUserId: owner.userId, dedupeKey: staleCollectedKey },
+    });
+    const staleIncidentNotice = await prisma.notification.findFirst({
+      where: { tenantId: owner.tenantId, recipientUserId: owner.userId, dedupeKey: staleIncidentKey },
+    });
+    expect(staleCollectedNotice?.resolvedAt).not.toBeNull();
+    expect(staleIncidentNotice?.resolvedAt).not.toBeNull();
   });
 
   it("does not duplicate notifications across repeated projection scans", async () => {
