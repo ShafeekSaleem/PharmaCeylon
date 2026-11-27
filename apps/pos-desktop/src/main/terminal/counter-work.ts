@@ -15,6 +15,7 @@ import type {
   CounterMismatchReport,
   CounterWorkDetail,
   CounterWorkImportDetail,
+  CounterUndoableImport,
   SupplierCashPayoutView,
 } from "@pharmaceylon/shared";
 import { ApiError, type ApiSession } from "../api/api-client";
@@ -285,6 +286,43 @@ export class CounterWorkService {
       status: receipt.result.status,
       receivedQty: receipt.result.receivedQty,
       postedAt: new Date(receipt.recordedAt).toISOString(),
+    };
+  }
+
+  /**
+   * Decision 5: imports uploaded with their stock that this counter can still undo. The server
+   * lists one only while its undo checks pass, so an import drops off once anything from it sells
+   * or moves.
+   */
+  async undoableImports(): Promise<CounterUndoableImport[]> {
+    return this.deps.api.request<CounterUndoableImport[]>("GET", "/counter-work/imports", {
+      branchId: this.branchId(),
+    });
+  }
+
+  /**
+   * Undo an import uploaded with its stock, as one signed command naming only the import. The
+   * list is read again first: an import that dropped off it (something sold or moved, or it was
+   * undone elsewhere) is refused before anything is signed. The server checks again when it runs.
+   */
+  async undoImport(importId: string) {
+    const listed = (await this.undoableImports()).find((i) => i.importId === importId);
+    if (!listed)
+      throw new ActionFailure(
+        "NOT_UNDOABLE",
+        "This import can't be undone any more: something from it has sold or moved, or it was undone already.",
+      );
+    const receipt = await this.deps.commands.execute(
+      "POST /api/v1/products/import/:importId/undo-stock",
+      { importId },
+      null,
+    );
+    return {
+      filename: listed.filename,
+      batchesRemoved: receipt.result.batchesRemoved,
+      productsRemoved: receipt.result.productsRemoved,
+      productsLeftInPlace: receipt.result.productsLeftInPlace,
+      undoneAt: new Date(receipt.recordedAt).toISOString(),
     };
   }
 

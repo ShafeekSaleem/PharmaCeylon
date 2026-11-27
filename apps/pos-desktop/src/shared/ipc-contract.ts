@@ -1,5 +1,6 @@
 import type {
   CounterMismatchReport,
+  CounterUndoableImport,
   CounterWorkDetail,
   TerminalTestReceiptFact,
 } from "@pharmaceylon/shared";
@@ -2265,6 +2266,30 @@ export const ipcContract = {
       copies: z.array(returnNoteCopySchema).min(1).max(2).optional(),
     }),
     output: result(printResultSchema.extend({ printed: z.array(returnNoteCopySchema) })),
+  },
+  /** Decision 5: imports this counter can still undo, with the stock each posted. */
+  undoableImports: {
+    channel: "pos:work:undoable-imports",
+    input: noInput,
+    output: result(
+      z.custom<CounterUndoableImport[]>(
+        (value) => Array.isArray(value) && value.every((i) => typeof i === "object" && i !== null && "importId" in i),
+      ),
+    ),
+  },
+  /** Undo an import uploaded with its stock: the signed command names only the import. */
+  undoCounterImport: {
+    channel: "pos:work:undo-import",
+    input: z.object({ importId: uuid }),
+    output: result(
+      z.object({
+        filename: z.string(),
+        batchesRemoved: z.number().int(),
+        productsRemoved: z.number().int(),
+        productsLeftInPlace: z.number().int(),
+        undoneAt: z.string(),
+      }),
+    ),
   },
   /** Post staged opening stock at the counter, pinned to the staged version shown. */
   postCounterImportStock: {

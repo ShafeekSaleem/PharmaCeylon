@@ -8,7 +8,9 @@ import type {
   StockCaseAtCounter,
   StockCaseResolved,
 } from "../../shared/ipc-contract";
+import type { CounterUndoableImport } from "@pharmaceylon/shared";
 import styles from "./CounterWork.module.css";
+import { ImportUndoDetail, uploadedLine } from "./ImportUndoPane";
 import { dayMonthYear, time } from "./format";
 import { CounterDocumentPane } from "./CounterDocumentPane";
 import { Icon, type IconName } from "./Icon";
@@ -49,7 +51,7 @@ const DOCUMENT_KINDS: ReadonlySet<CounterWorkKind> = new Set([
   "import_stock",
 ]);
 
-export type WorkTab = "all" | "receive" | "transfers" | "refunds" | "stock";
+export type WorkTab = "all" | "receive" | "transfers" | "refunds" | "stock" | "imports";
 type Pending = {
   commandId: string;
   operation: string;
@@ -61,7 +63,7 @@ type Pending = {
 const KINDS: Record<
   CounterWorkKind,
   {
-    tab: Exclude<WorkTab, "all">;
+    tab: Exclude<WorkTab, "all" | "imports">;
     title: string;
     icon: IconName;
     tone: string;
@@ -168,6 +170,9 @@ const TABS: { tab: WorkTab; label: string }[] = [
   { tab: "transfers", label: "Transfers" },
   { tab: "refunds", label: "Refunds" },
   { tab: "stock", label: "Stock" },
+  // Decision 5: not approved work, so it is left out of All and the badge, and shown only when an
+  // import can still be undone here.
+  { tab: "imports", label: "Imports" },
 ];
 
 /** Signed operations in words, for actions sent from here that are waiting to be confirmed. */
@@ -349,6 +354,38 @@ function QueueCard({
         <span className={styles.cardFoot}>
           <span className={cx(ui.pill, pill.tone)}>{pill.label}</span>
           {by && <span className={styles.by}>{by}</span>}
+        </span>
+      </span>
+    </button>
+  );
+}
+
+/** An import that can still be undone, in the Imports filter (decision 5). */
+function ImportCard({
+  imp,
+  selected,
+  onSelect,
+}: {
+  imp: CounterUndoableImport;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <button type="button" className={styles.card} aria-current={selected ? "true" : undefined} onClick={onSelect}>
+      <span className={cx(ui.kind, styles.kind)}>
+        <Icon name="rotate-ccw" />
+      </span>
+      <span className={styles.cardMain}>
+        <span className={styles.cardTop}>
+          <b>Undo an import</b>
+          <span className={cx(ui.mono, styles.ref)}>{imp.filename}</span>
+        </span>
+        <span className={styles.desc}>
+          {plural(imp.lines.length, "row")} · {plural(imp.productsCreated, "new product")} · {plural(imp.units, "unit")}
+        </span>
+        <span className={styles.cardFoot}>
+          <span className={cx(ui.pill, ui.brand)}>Can be undone</span>
+          <span className={styles.by}>{uploadedLine(imp)}</span>
         </span>
       </span>
     </button>
@@ -1049,6 +1086,8 @@ export function CounterWork({
   /** When the list on screen was last checked: the server's `asOf` when it sent one (#172). */
   const [checkedAt, setCheckedAt] = useState<string | null>(null);
   const [checkFailed, setCheckFailed] = useState(false);
+  const [imports, setImports] = useState<CounterUndoableImport[]>([]);
+  const [undone, setUndone] = useState<string | null>(null);
 
   const load = useCallback(
     (quiet = false) => {
@@ -1068,6 +1107,9 @@ export function CounterWork({
       });
       void invoke(() => window.pos.stockCasesReady()).then((result) => {
         if (result.ok) setStockCases(result.value);
+      });
+      void invoke(() => window.pos.undoableImports()).then((result) => {
+        if (result.ok) setImports(result.value);
       });
       void window.pos
         .pendingCommands()
@@ -1094,20 +1136,29 @@ export function CounterWork({
   const counts = useMemo(() => {
     const all = items ?? [];
     const by = (t: WorkTab) =>
-      t === "all" ? all.length : all.filter((i) => KINDS[i.kind].tab === t).length;
+      t === "imports"
+        ? imports.length
+        : t === "all"
+          ? all.length
+          : all.filter((i) => KINDS[i.kind].tab === t).length;
     return Object.fromEntries(TABS.map(({ tab: t }) => [t, by(t)])) as Record<
       WorkTab,
       number
     >;
-  }, [items]);
+  }, [items, imports]);
   const shown = useMemo(
     () =>
-      (items ?? []).filter((i) => tab === "all" || KINDS[i.kind].tab === tab),
+      tab === "imports"
+        ? []
+        : (items ?? []).filter((i) => tab === "all" || KINDS[i.kind].tab === tab),
     [items, tab],
   );
   // The open item stays open while it is listed; otherwise the first one in the tab.
   const selected =
     shown.find((i) => i.id === selectedId) ?? shown[0] ?? null;
+  const openImport =
+    tab === "imports" ? (imports.find((i) => i.importId === selectedId) ?? imports[0] ?? null) : null;
+  const tabs = TABS.filter((t) => t.tab !== "imports" || imports.length > 0 || tab === "imports");
 
   useEffect(() => {
     if (!staleError || !selected) return;
@@ -1187,14 +1238,16 @@ export function CounterWork({
     enabled: Boolean(openRefund),
   });
   // Up and down move through the list.
+  const listIds = tab === "imports" ? imports.map((i) => i.importId) : shown.map((i) => i.id);
+  const openId = tab === "imports" ? (openImport?.importId ?? null) : (selected?.id ?? null);
   const move = (step: number) => {
-    if (!shown.length) return false;
-    const index = selected ? shown.indexOf(selected) : -1;
-    const next = shown[Math.min(shown.length - 1, Math.max(0, index + step))];
-    if (next) select(next.id);
+    if (!listIds.length) return false;
+    const index = openId ? listIds.indexOf(openId) : -1;
+    const next = listIds[Math.min(listIds.length - 1, Math.max(0, index + step))];
+    if (next) select(next);
   };
-  useKeyBinding("ArrowDown", () => move(1), { enabled: shown.length > 1 });
-  useKeyBinding("ArrowUp", () => move(-1), { enabled: shown.length > 1 });
+  useKeyBinding("ArrowDown", () => move(1), { enabled: listIds.length > 1 });
+  useKeyBinding("ArrowUp", () => move(-1), { enabled: listIds.length > 1 });
 
   if (items === null) return null;
   return (
@@ -1213,7 +1266,7 @@ export function CounterWork({
           )}
         </div>
         <div className={cx(ui.seg, styles.tabs)} role="group" aria-label="Kind of work">
-          {TABS.map(({ tab: t, label }) => (
+          {tabs.map(({ tab: t, label }) => (
             <button
               key={t}
               type="button"
@@ -1282,6 +1335,21 @@ export function CounterWork({
               </span>
             </p>
           )}
+          {undone && (
+            <p role="status" className={styles.doneHere}>
+              <Icon name="check-circle" />
+              <span>{undone}</span>
+            </p>
+          )}
+          {tab === "imports" &&
+            imports.map((imp) => (
+              <ImportCard
+                key={imp.importId}
+                imp={imp}
+                selected={imp === openImport}
+                onSelect={() => select(imp.importId)}
+              />
+            ))}
           {shown.map((item) => (
             <QueueCard
               key={item.id}
@@ -1291,16 +1359,39 @@ export function CounterWork({
               onSelect={() => select(item.id)}
             />
           ))}
-          {!shown.length && (
+          {!shown.length && !(tab === "imports" && imports.length) && (
             <div className={styles.queueEmpty}>
               <Icon name="inbox" />
               {tab === "all"
                 ? "Nothing is waiting at this counter."
+                : tab === "imports"
+                  ? "No import here can still be undone."
                 : `No ${TABS.find((t) => t.tab === tab)!.label.toLowerCase()} work is waiting.`}
             </div>
           )}
         </div>
-        {selected?.kind === "held_adjustment" ? (
+        {tab === "imports" ? (
+          openImport ? (
+            <ImportUndoDetail
+              key={openImport.importId}
+              imp={openImport}
+              online={live}
+              canUndo={!pending.length}
+              onUndone={(message) => {
+                setUndone(message);
+                load();
+              }}
+              onRefused={() => load()}
+            />
+          ) : (
+            <section className={ui.panel} aria-label="Nothing open">
+              <div className={styles.noSelection}>
+                <Icon name="inbox" />
+                An import uploaded with its stock shows here while it can still be undone.
+              </div>
+            </section>
+          )
+        ) : selected?.kind === "held_adjustment" ? (
           <HeldAdjustmentDetail
             key={selected.id}
             item={selected}

@@ -920,3 +920,53 @@ describe("posting staged opening stock at the counter", () => {
     }
   });
 });
+
+describe("undoing an import at the counter (decision 5)", () => {
+  const importId = randomUUID();
+  const listed = { importId, filename: "kollupitiya-otc.xlsx", lines: [] };
+
+  function undoing(list: unknown[]) {
+    const executed: { operation: string; body: unknown; evidence: string | null }[] = [];
+    const reads: string[] = [];
+    const work = new CounterWorkService({
+      api: {
+        request: async (_m: string, path: string) => {
+          reads.push(path);
+          return list;
+        },
+      } as unknown as ApiSession,
+      terminal: { current: () => ({ identity: { branchId } }) } as unknown as TerminalService,
+      commands: {
+        execute: async (operation: string, body: unknown, approval: string | null) => {
+          executed.push({ operation, body, evidence: approval });
+          return {
+            recordedAt: Date.parse("2026-11-27T12:00:00.000Z"),
+            result: { batchesRemoved: 44, productsRemoved: 38, productsLeftInPlace: 6 },
+          };
+        },
+      } as unknown as SignedCommandService,
+    });
+    return { work, executed, reads };
+  }
+
+  it("reads the list again and signs only the import, with no approval", async () => {
+    const { work, executed, reads } = undoing([listed]);
+    await expect(work.undoImport(importId)).resolves.toEqual({
+      filename: "kollupitiya-otc.xlsx",
+      batchesRemoved: 44,
+      productsRemoved: 38,
+      productsLeftInPlace: 6,
+      undoneAt: "2026-11-27T12:00:00.000Z",
+    });
+    expect(reads).toEqual(["/counter-work/imports"]);
+    expect(executed).toEqual([
+      { operation: "POST /api/v1/products/import/:importId/undo-stock", body: { importId }, evidence: null },
+    ]);
+  });
+
+  it("signs nothing once the import has dropped off the list", async () => {
+    const { work, executed } = undoing([{ ...listed, importId: randomUUID() }]);
+    await expect(work.undoImport(importId)).rejects.toMatchObject({ code: "NOT_UNDOABLE" });
+    expect(executed).toEqual([]);
+  });
+});

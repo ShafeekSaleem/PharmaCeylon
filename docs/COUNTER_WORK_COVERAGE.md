@@ -39,7 +39,7 @@ These use signed commands but are not web-approved queue rows on this endpoint:
 
 | Flow | W11 kind (if any) | Signed operation | P6 destination | Notes |
 | --- | --- | --- | --- | --- |
-| Import undo | — | `POST …/import/:importId/undo-stock` | `import_undo` | Not a counter-work list kind; listed by `GET /counter-work/imports` (P6 decision 5) |
+| Import undo | — | `POST …/import/:importId/undo-stock` | `import_undo` | Not a counter-work list kind; listed by `GET /counter-work/imports` (P6 decision 5). Desktop: the Imports filter in Counter work |
 | Quarantine / release | `batch.expiry_review` (daily work) | `POST …/batches/:id/quarantine`, `release-quarantine` | `quarantine`, `release_quarantine` | #173 contract; daily work browser route unchanged |
 | Direct adjustment / write-off | — | `POST …/inventory/adjustments` | Stock (ad hoc) | Held over-limit uses `held_adjustment` row above |
 
