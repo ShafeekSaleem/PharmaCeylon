@@ -15,7 +15,7 @@ mapping and P6 desktop destinations is `packages/shared/src/counter-work.ts`.
 | `supplier_cash_payout` | `supplier_cash_payout.execute` | `POST …/cash-payouts/:id/execute` | `supplier_payout` | **available** (#187, on Cash & shift) |
 | `stocktake` | `stocktake.post` | `POST …/stocktakes/:id/post` | `stocktake` | available |
 | `held_adjustment` | `held_adjustment.post` | `POST …/held-adjustments/:id/post` | `held_write_off` | **available** (#173) |
-| `supplier_return` | `goods_return.complete` | `POST …/returns/:id/complete` | `supplier_return` | planned |
+| `supplier_return` | `goods_return.complete` | `POST …/returns/:id/complete` | `supplier_return` | available |
 | `import_stock` | `import_stock.post` | `POST …/import/:importId/stock/post` | `import_post` | planned |
 | `stock_case` | `offline_stock_case.resolve` | `POST …/resolutions/:id/execute` | `offline_stock_case` | **available** (P5 #51) |
 
