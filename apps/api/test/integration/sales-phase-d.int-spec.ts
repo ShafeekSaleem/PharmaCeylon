@@ -1,13 +1,16 @@
 import { randomUUID } from "node:crypto";
 import { ExecutionContext, ForbiddenException } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
-import { PaymentMethod, RoleName } from "@prisma/client";
+import { DesktopPosRollout, PaymentMethod, RoleName } from "@prisma/client";
 import type { ExternalCardAttemptRecord, OfflineSaleIncident, TerminalIdentity } from "@pharmaceylon/shared";
 import { AuditService } from "../../src/audit/audit.service";
 import { StockService } from "../../src/inventory/stock/stock.service";
 import { ensureRbacSeed } from "../../prisma/rbac-seed";
+import { DailyWorkService } from "../../src/dashboard/daily-work.service";
 import { SaleReadService } from "../../src/sales/sale-read.service";
 import { SalesQueuesService } from "../../src/sales/sales-queues.service";
+import { NotificationsService } from "../../src/notifications/notifications.service";
+import { SALES_RECOVERY_DAILY_WORK_KINDS, SALES_RECOVERY_DAILY_WORK_MAX_AGE_DAYS } from "@pharmaceylon/shared";
 import { AccessService } from "../../src/security/access.service";
 import { PermissionsService } from "../../src/security/permissions.service";
 import { TenantBranchGuard } from "../../src/security/guards/tenant-branch.guard";
@@ -166,6 +169,7 @@ async function seedAcceptedIncidentOnPostedSale(
   staffSignInId: string,
   workSessionId: string,
   description: string,
+  recordedAt?: number,
 ): Promise<string> {
   const recordId = randomUUID();
   const signed = c.device.sign(
@@ -178,7 +182,7 @@ async function seedAcceptedIncidentOnPostedSale(
       recordedByUserId: c.cashier.userId,
       staffSignInId,
       workSessionId,
-      recordedAt: Date.now() - 30_000,
+      recordedAt: recordedAt ?? Date.now() - 30_000,
       category: "payment_uncertain",
       description,
     } satisfies OfflineSaleIncident,
@@ -221,7 +225,13 @@ async function seedHiddenBranchAcceptedIncident(c: Counter, identity: TerminalId
 
 async function seedCollectedPaymentRow(
   c: Counter,
-  opts: { branchId?: string; identity?: TerminalIdentity; sequence: number; providerReference: string },
+  opts: {
+    branchId?: string;
+    identity?: TerminalIdentity;
+    sequence: number;
+    providerReference: string;
+    collectedAt?: Date;
+  },
 ): Promise<string> {
   const branchId = opts.branchId ?? c.fx.mainBranchId;
   const identity = opts.identity ?? c.identity;
@@ -229,7 +239,7 @@ async function seedCollectedPaymentRow(
   const settlementId = randomUUID();
   const commandId = randomUUID();
   const recordHash = sha256(`collected-money-fixture-${settlementId}`);
-  const now = new Date();
+  const now = opts.collectedAt ?? new Date();
   await prisma.offlineJournalReview.create({
     data: {
       id: reviewId,
@@ -648,5 +658,302 @@ describe("journaled offline sale receipt on history detail", () => {
       syncedAt: replayed.recordedAt.toISOString(),
     });
     expect(detail.invoiceNo).toBe(journaledCommand.receiptNumber);
+  });
+});
+
+describe("daily work sales recovery (W11 #145)", () => {
+  const workAccess = new AccessService(prisma as never, permissions as never);
+  const dailyWork = () => new DailyWorkService(prisma as never, workAccess as never);
+  const notify = () =>
+    new NotificationsService(
+      prisma as never,
+      permissions,
+      dailyWork() as never,
+    );
+
+  const recoveryItems = (items: { id: string; kind: string }[]) =>
+    items.filter((row) =>
+      (SALES_RECOVERY_DAILY_WORK_KINDS as readonly string[]).includes(row.kind),
+    );
+
+  it("matches queue eligibility and counts for managers only", async () => {
+    const [incidentQueue, paymentQueue, collectedQueue] = await Promise.all([
+      queues.incidentNotes(ownerOn(main), main.fx.mainBranchId, {}),
+      queues.paymentRecovery(ownerOn(main), main.fx.mainBranchId, {}),
+      queues.collectedMoney(ownerOn(main), main.fx.mainBranchId, {}),
+    ]);
+    const work = await dailyWork().get(ownerOn(main), main.fx.mainBranchId, {
+      filter: "all",
+      page: 1,
+      pageSize: 100,
+    });
+    const recovery = recoveryItems(work.items);
+    const incidentIds = recovery
+      .filter((row) => row.kind === "sale_incident.review")
+      .map((row) => row.id);
+    const paymentIds = recovery
+      .filter((row) => row.kind === "payment_recovery.review")
+      .map((row) => row.id);
+    const collectedIds = recovery
+      .filter((row) => row.kind === "collected_money.review")
+      .map((row) => row.id);
+
+    expect(incidentIds).toEqual(
+      expect.arrayContaining([
+        `incident:${mainAcceptedIncidentRecordId}`,
+        `incident:${mainSecondAcceptedIncidentRecordId}`,
+      ]),
+    );
+    expect(incidentIds).not.toContain(`incident:${otherTenantAcceptedIncidentRecordId}`);
+    expect(incidentIds).not.toContain(`incident:${hiddenBranchIncidentRecordId}`);
+    expect(incidentIds.length).toBeLessThanOrEqual(incidentQueue.total);
+    expect(incidentIds.length).toBeGreaterThan(0);
+
+    expect(paymentIds).toEqual(
+      expect.arrayContaining(mainPaymentAttemptIds.map((id) => `payment_recovery:${id}`)),
+    );
+    expect(paymentIds).not.toContain(`payment_recovery:${otherTenantPaymentAttemptId}`);
+    expect(paymentIds).not.toContain(`payment_recovery:${hiddenBranchPaymentAttemptId}`);
+    expect(paymentIds).toHaveLength(paymentQueue.total);
+
+    expect(collectedIds).toEqual(
+      expect.arrayContaining(mainCollectedPaymentIds.map((id) => `collected_money:${id}`)),
+    );
+    expect(collectedIds).not.toContain(`collected_money:${otherTenantCollectedPaymentId}`);
+    expect(collectedIds).not.toContain(`collected_money:${hiddenBranchCollectedPaymentId}`);
+    expect(collectedIds.length).toBeLessThanOrEqual(collectedQueue.total);
+    expect(collectedIds.length).toBeGreaterThan(0);
+
+    const cashierWork = await dailyWork().get(cashierOn(main), main.fx.mainBranchId, {
+      filter: "all",
+      page: 1,
+      pageSize: 100,
+    });
+    expect(recoveryItems(cashierWork.items)).toHaveLength(0);
+  });
+
+  it("retires tasks when the domain row leaves the queue and deep-links Sales tabs", async () => {
+    const attemptId = mainPaymentAttemptIds[0];
+    const before = await dailyWork().get(ownerOn(main), main.fx.mainBranchId, {
+      kind: "payment_recovery.review",
+      filter: "all",
+      page: 1,
+      pageSize: 50,
+    });
+    expect(before.items.find((row) => row.id === `payment_recovery:${attemptId}`)).toMatchObject({
+      href: `/sales?view=payment-recovery&attemptId=${attemptId}`,
+      approval: false,
+      blocked: false,
+      where: "web",
+    });
+    await prisma.offlineSupportRecord.updateMany({
+      where: {
+        tenantId: main.fx.tenantId,
+        branchId: main.fx.mainBranchId,
+        attemptId,
+        status: "held",
+      },
+      data: { status: "accepted", heldReason: null, verifiedAt: new Date() },
+    });
+    const after = await dailyWork().get(ownerOn(main), main.fx.mainBranchId, {
+      kind: "payment_recovery.review",
+      filter: "all",
+      page: 1,
+      pageSize: 50,
+    });
+    expect(after.total).toBe(before.total - 1);
+    expect(after.items.some((row) => row.id === `payment_recovery:${attemptId}`)).toBe(false);
+  });
+
+  it("dedupes and retires operational notifications per recovery task", async () => {
+    const owner = ownerOn(main);
+    const branchId = main.fx.mainBranchId;
+    const notificationService = notify();
+    const attemptId = mainPaymentAttemptIds[1];
+    const key = `operational:${branchId}:work:payment_recovery:${attemptId}:payment_recovery.review`;
+    await notificationService.list(owner, branchId, { status: "all", take: 100 });
+    const created = await prisma.notification.findMany({
+      where: {
+        tenantId: owner.tenantId,
+        recipientUserId: owner.userId,
+        branchId,
+        source: "operational_scan",
+        dedupeKey: key,
+        resolvedAt: null,
+      },
+    });
+    expect(created).toHaveLength(1);
+
+    await prisma.offlineSupportRecord.updateMany({
+      where: {
+        tenantId: main.fx.tenantId,
+        branchId: main.fx.mainBranchId,
+        attemptId,
+        status: "held",
+      },
+      data: { status: "accepted", heldReason: null, verifiedAt: new Date() },
+    });
+    await notificationService.updatePreferences(owner.tenantId, owner.userId, {});
+    await notificationService.list(owner, branchId, { status: "all", take: 100 });
+    const retired = await prisma.notification.findFirst({
+      where: { tenantId: owner.tenantId, recipientUserId: owner.userId, dedupeKey: key },
+    });
+    expect(retired?.resolvedAt).not.toBeNull();
+  });
+
+  it("does not resolve legacy counter notifications when recovery rows exceed the separate scan cap", async () => {
+    await prisma.branch.update({
+      where: { id: main.fx.mainBranchId, tenantId: main.fx.tenantId },
+      data: { desktopPosRollout: DesktopPosRollout.live, desktopPosLiveAt: new Date() },
+    });
+    const importRow = await prisma.productImport.create({
+      data: {
+        tenantId: main.fx.tenantId,
+        branchId: main.fx.mainBranchId,
+        filename: "w11-notification-starvation.csv",
+        status: "completed",
+        stockStaged: true,
+        stockStagedBy: main.manager.userId,
+        createdBy: main.manager.userId,
+        stagedStock: [
+          {
+            rowNumber: 1,
+            productId: main.fx.productId,
+            name: "Opening",
+            categoryName: "Medicines",
+            qty: 5,
+            batchNo: `STARVE-${randomUUID().slice(0, 6)}`,
+            expiryDate: "2031-12-31",
+            unitCost: "10",
+          },
+        ],
+      },
+    });
+    for (let n = 0; n < 24; n++) {
+      await seedCollectedPaymentRow(main, {
+        sequence: 88_000 + n,
+        providerReference: `RRN-STARVE-${n}`,
+      });
+    }
+    const owner = ownerOn(main);
+    const svc = notify();
+    await svc.updatePreferences(owner.tenantId, owner.userId, {});
+    await svc.list(owner, main.fx.mainBranchId, { status: "all", take: 200 });
+
+    const importKey = `operational:${main.fx.mainBranchId}:work:import:${importRow.id}:import_stock.post`;
+    const staged = await prisma.notification.findFirst({
+      where: {
+        tenantId: owner.tenantId,
+        recipientUserId: owner.userId,
+        dedupeKey: importKey,
+      },
+    });
+    expect(staged?.resolvedAt).toBeNull();
+
+    const work = await dailyWork().get(owner, main.fx.mainBranchId, {
+      filter: "all",
+      page: 1,
+      pageSize: 100,
+    });
+    expect(work.items.some((row) => row.id === `import:${importRow.id}`)).toBe(true);
+    expect(work.items.filter((row) => row.kind === "collected_money.review").length).toBeGreaterThan(
+      25,
+    );
+  });
+
+  it("omits sales recovery notifications for cashiers", async () => {
+    const svc = notify();
+    await svc.list(cashierOn(main), main.fx.mainBranchId, { status: "all", take: 50 });
+    const recovery = await prisma.notification.findMany({
+      where: {
+        tenantId: main.fx.tenantId,
+        recipientUserId: main.cashier.userId,
+        branchId: main.fx.mainBranchId,
+        source: "operational_scan",
+        dedupeKey: { contains: ":collected_money:" },
+      },
+    });
+    expect(recovery).toHaveLength(0);
+  });
+
+  it("drops stale accepted incidents and collected money from work and resolves notifications", async () => {
+    const owner = ownerOn(main);
+    const branchId = main.fx.mainBranchId;
+    const staleMs = (SALES_RECOVERY_DAILY_WORK_MAX_AGE_DAYS + 1) * 24 * 60 * 60 * 1000;
+    const insideMs = (SALES_RECOVERY_DAILY_WORK_MAX_AGE_DAYS - 1) * 24 * 60 * 60 * 1000;
+    const staleCollectedAt = new Date(Date.now() - staleMs);
+    const freshCollectedAt = new Date(Date.now() - insideMs);
+    const staleCollectedId = await seedCollectedPaymentRow(main, {
+      sequence: 99_880,
+      providerReference: "RRN-AGE-STALE",
+      collectedAt: staleCollectedAt,
+    });
+    const freshCollectedId = await seedCollectedPaymentRow(main, {
+      sequence: 99_881,
+      providerReference: "RRN-AGE-FRESH",
+      collectedAt: freshCollectedAt,
+    });
+    const staleIncidentRecordId = await seedAcceptedIncidentOnPostedSale(
+      main,
+      randomUUID(),
+      randomUUID(),
+      randomUUID(),
+      "Stale accepted incident for max-age daily work",
+      Date.now() - staleMs,
+    );
+
+    const notificationService = notify();
+    const staleCollectedKey = `operational:${branchId}:work:collected_money:${staleCollectedId}:collected_money.review`;
+    const staleIncidentKey = `operational:${branchId}:work:incident:${staleIncidentRecordId}:sale_incident.review`;
+    await notificationService.list(owner, branchId, { status: "all", take: 200 });
+
+    const work = await dailyWork().get(owner, branchId, {
+      filter: "all",
+      page: 1,
+      pageSize: 100,
+    });
+    expect(work.items.some((row) => row.id === `collected_money:${staleCollectedId}`)).toBe(false);
+    expect(work.items.some((row) => row.id === `collected_money:${freshCollectedId}`)).toBe(true);
+    expect(work.items.some((row) => row.id === `incident:${staleIncidentRecordId}`)).toBe(false);
+    expect(work.items.some((row) => row.id === `incident:${mainAcceptedIncidentRecordId}`)).toBe(
+      true,
+    );
+
+    const [collectedQueue, incidentQueue] = await Promise.all([
+      queues.collectedMoney(owner, branchId, { pageSize: 100 }),
+      queues.incidentNotes(owner, branchId, { pageSize: 100 }),
+    ]);
+    expect(collectedQueue.items.some((row) => row.id === staleCollectedId)).toBe(true);
+    expect(incidentQueue.items.some((row) => row.recordId === staleIncidentRecordId)).toBe(true);
+
+    await notificationService.updatePreferences(owner.tenantId, owner.userId, {});
+    await notificationService.list(owner, branchId, { status: "all", take: 200 });
+    const staleCollectedNotice = await prisma.notification.findFirst({
+      where: { tenantId: owner.tenantId, recipientUserId: owner.userId, dedupeKey: staleCollectedKey },
+    });
+    const staleIncidentNotice = await prisma.notification.findFirst({
+      where: { tenantId: owner.tenantId, recipientUserId: owner.userId, dedupeKey: staleIncidentKey },
+    });
+    expect(staleCollectedNotice?.resolvedAt).not.toBeNull();
+    expect(staleIncidentNotice?.resolvedAt).not.toBeNull();
+  });
+
+  it("does not duplicate notifications across repeated projection scans", async () => {
+    const owner = ownerOn(main);
+    const svc = notify();
+    await svc.list(owner, main.fx.mainBranchId, { status: "all", take: 200 });
+    await svc.updatePreferences(owner.tenantId, owner.userId, {});
+    await svc.list(owner, main.fx.mainBranchId, { status: "all", take: 200 });
+    const rows = await prisma.notification.findMany({
+      where: {
+        tenantId: owner.tenantId,
+        recipientUserId: owner.userId,
+        branchId: main.fx.mainBranchId,
+        source: "operational_scan",
+        dedupeKey: { contains: ":collected_money:" },
+      },
+      select: { dedupeKey: true },
+    });
+    expect(new Set(rows.map((row) => row.dedupeKey)).size).toBe(rows.length);
   });
 });

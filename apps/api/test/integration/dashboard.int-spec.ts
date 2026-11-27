@@ -317,6 +317,134 @@ describe("Daily dashboard read models against PostgreSQL", () => {
     }
   });
 
+  it("lists stocktake.approve for reviewers while a count is submitted", async () => {
+    const st = await prisma.stocktake.create({
+      data: {
+        tenantId: fx.tenantId,
+        branchId: fx.mainBranchId,
+        stocktakeNumber: `ST-P6-${randomUUID().slice(0, 6)}`,
+        countedBy: fx.clerkId,
+        status: "submitted",
+      },
+    });
+    const open = await queue().get(user, fx.mainBranchId, {
+      kind: "stocktake.approve",
+      filter: "all",
+      page: 1,
+    });
+    expect(open.items.some((row) => row.id === `stocktake:${st.id}`)).toBe(true);
+    await prisma.stocktake.update({
+      where: { id: st.id, tenantId: fx.tenantId },
+      data: { status: "cancelled" },
+    });
+    const after = await queue().get(user, fx.mainBranchId, {
+      kind: "stocktake.approve",
+      filter: "all",
+      page: 1,
+    });
+    expect(after.items.some((row) => row.id === `stocktake:${st.id}`)).toBe(false);
+  });
+
+  it("lists counter_mismatch.review for transfer approvers while open", async () => {
+    const approvalId = randomUUID();
+    const transfer = await prisma.transfer.create({
+      data: {
+        tenantId: fx.tenantId,
+        fromBranchId: fx.mainBranchId,
+        toBranchId: fx.otherBranchId,
+        transferNumber: `MM-${randomUUID().slice(0, 6)}`,
+        status: "approved",
+        requestedBy: fx.clerkId,
+      },
+    });
+    await prisma.managementApproval.create({
+      data: {
+        id: approvalId,
+        tenantId: fx.tenantId,
+        branchId: fx.mainBranchId,
+        documentType: "transfer",
+        documentId: transfer.id,
+        documentVersion: 1,
+        documentDigest: "0".repeat(64),
+        material: {},
+        requestedByUserId: fx.clerkId,
+        authorizedAction: "transfer.ship",
+        approvedByUserId: fx.managerId,
+        reason: "P6 dashboard work regression",
+      },
+    });
+    await prisma.transfer.update({
+      where: { id: transfer.id, tenantId: fx.tenantId },
+      data: { executionApprovalId: approvalId },
+    });
+    const report = await prisma.counterMismatchReport.create({
+      data: {
+        tenantId: fx.tenantId,
+        branchId: fx.mainBranchId,
+        kind: "transfer_ship",
+        documentId: transfer.id,
+        reference: transfer.transferNumber,
+        approvalId,
+        documentVersion: 1,
+        problem: "fewer_arrived",
+        reportedBy: fx.clerkId,
+      },
+    });
+    const open = await queue().get(user, fx.mainBranchId, {
+      kind: "counter_mismatch.review",
+      filter: "all",
+      page: 1,
+    });
+    expect(open.items.some((row) => row.id === `mismatch:${report.id}`)).toBe(true);
+    await prisma.counterMismatchReport.update({
+      where: { id: report.id, tenantId: fx.tenantId },
+      data: { status: "dismissed", dismissedBy: fx.managerId, dismissedAt: new Date() },
+    });
+    const after = await queue().get(user, fx.mainBranchId, {
+      kind: "counter_mismatch.review",
+      filter: "all",
+      page: 1,
+    });
+    expect(after.items.some((row) => row.id === `mismatch:${report.id}`)).toBe(false);
+  });
+
+  it("keeps transfer.approve visible to branch approvers and drops it when approved", async () => {
+    const permissions = new PermissionsService(prisma as never, { get: () => 0 } as never);
+    const accessService = new AccessService(prisma as never, permissions);
+    const service = new DailyWorkService(prisma as never, accessService);
+    const manager = {
+      ...user,
+      userId: fx.managerId,
+      branchRoles: [{ branchId: fx.mainBranchId, role: "manager" as const }],
+    };
+    const transfer = await prisma.transfer.create({
+      data: {
+        tenantId: fx.tenantId,
+        fromBranchId: fx.mainBranchId,
+        toBranchId: fx.otherBranchId,
+        transferNumber: `P6-${randomUUID().slice(0, 8)}`,
+        status: "requested",
+        requestedBy: fx.clerkId,
+      },
+    });
+    const open = await service.get(manager, fx.mainBranchId, {
+      kind: "transfer.approve",
+      filter: "all",
+      page: 1,
+    });
+    expect(open.items.some((row) => row.id === `transfer:${transfer.id}`)).toBe(true);
+    await prisma.transfer.update({
+      where: { id: transfer.id, tenantId: fx.tenantId },
+      data: { status: "approved" },
+    });
+    const after = await service.get(manager, fx.mainBranchId, {
+      kind: "transfer.approve",
+      filter: "all",
+      page: 1,
+    });
+    expect(after.items.some((row) => row.id === `transfer:${transfer.id}`)).toBe(false);
+  });
+
   it("counter-attention query omits approval and finance rows from full daily work", async () => {
     const stock = new StockService();
     const po = await prisma.purchaseOrder.create({

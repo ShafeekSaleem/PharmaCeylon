@@ -1116,6 +1116,33 @@ is locked, so a revocation that commits first refuses the sale and a later one w
     Revoked/missing pinned evidence returns open refunds to pending review even if the threshold
     is later switched off; notifications use the same task model and omit self-blocked decisions.
     See `DAILY_WORK_QUEUE_PLAN.md` and W11 #145 for phased cross-app enhancement ownership.
+  - **Sales recovery (W11 #145 Phase 1, W4 #66).** Managers with **`tenant.management`** on the
+    active branch see the same open rows as `GET /sales/incident-notes`, `/sales/payment-recovery`,
+    and `/sales/collected-money` as daily-work kinds `sale_incident.review`,
+    `payment_recovery.review`, and `collected_money.review`. Each item is read-only in the queue
+    (`approval: false`, `blocked: false`, `where: "web"`): it deep-links into Sales, it never
+    approves or executes from Daily work. A row disappears when the underlying queue would stop
+    listing it (support record leaves the manager-held/accepted incident set, a card attempt clears,
+    or collected-money resolution removes the payment row — resolution UI is still P6).
+    **Accepted** incident notes and **unresolved** collected-money rows also fall out of Daily work
+    (and their operational notifications resolve) once they are older than
+    `SALES_RECOVERY_DAILY_WORK_MAX_AGE_DAYS` (**7** days by default, from `recorded_at` /
+    `collected_at`). Manager-held incident notes and payment-recovery attempts are not age-limited
+    here (payment recovery drops when `status` leaves `held`; held incidents stay until cleared).
+    Sales recovery **queue** APIs are unchanged — aged rows remain listable there. Identity
+  fields: `id` prefixes `incident:` (`record_id`), `payment_recovery:` (`attempt_id`),
+    `collected_money:` (payment row `id`). Deep links: `/sales?view=incident-notes&recordId=…`
+    (+ `&status=held` when held), `/sales?view=payment-recovery&attemptId=…`,
+    `/sales?view=unresolved-money&paymentId=…`. Collected-money detail amounts use the shared
+    two-decimal LKR formatter (`formatLkrFromMinor`, `en-GB` grouping). `GET /dashboard/work`
+    returns one merged, sorted list (recovery rows share the union with every other kind).
+    Operational notifications scan **two** capped projections and merge them: **25** legacy
+    counter/approval kinds (same set as before W11) plus **25** sales-recovery kinds, so recovery
+    volume cannot displace legacy notifications. Dedupe one notice per task
+    (`operational:{branchId}:work:{id}:{kind}`); auto-resolve when the task drops out; a returning
+    task clears `resolvedAt` on the next scan.
+    Compatibility fixtures: `packages/shared/fixtures/daily-work-items-*.json`; clients should
+    ignore unknown `kind` values (`isDailyWorkKind`) rather than fail the page.
   - **The desktop Returns page** prepares at the counter too: a PIN-opened counter login may call
     `POST /sales/:id/refund-requests` (`@CounterRoute()`), then executes the request through the
     signed operation when it is `readyAtCounter`. Over the threshold, a cashier's request waits
