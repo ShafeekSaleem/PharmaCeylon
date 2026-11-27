@@ -8,6 +8,8 @@ import { CategoryReportGroupBy, MovementGranularity, MovementTypeFilterKey, Repo
 import { ReportSyncFreshnessService } from "./report-sync-freshness.service";
 import { parseReportDays, parseSalesReportQuery } from "./sales-report-query";
 import { ShiftCashReportService } from "./shift-cash-report.service";
+import { CardAttemptsReportService } from "./card-attempts-report.service";
+import { RefundAuthorizationsReportService } from "./refund-authorizations-report.service";
 
 const CATEGORY_GROUP_BY_VALUES: CategoryReportGroupBy[] = [
   "commercial",
@@ -35,6 +37,8 @@ export class ReportsController {
     private readonly reports: ReportsService,
     private readonly freshness: ReportSyncFreshnessService,
     private readonly shiftCash: ShiftCashReportService,
+    private readonly cardAttempts: CardAttemptsReportService,
+    private readonly refundAuthorizations: RefundAuthorizationsReportService,
   ) {}
 
   private isOwner(user: RequestUser): boolean {
@@ -428,5 +432,31 @@ export class ReportsController {
         ...(staffUserId?.trim() ? { staffUserId: staffUserId.trim() } : {}),
       },
     );
+  }
+
+  /** W10 #72: external card attempts — each attempt on the separate card machine folded to how it
+   * ended (charged on a sale, declined, reversed, refund owed, approved with no sale, unresolved). */
+  @RequirePermission("reports.view")
+  @Get("card-attempts")
+  cardAttemptsReport(
+    @CurrentUser() user: RequestUser,
+    @RequireBranchId() branchId: string,
+    @Query("days") days?: string,
+    @Query("scope") scope?: string,
+  ) {
+    return this.cardAttempts.report(user.tenantId, this.tenantScope(user, scope) ? null : branchId, parseReportDays(days));
+  }
+
+  /** W10 #72: refund authorizations — who requested, approved and paid out each customer refund,
+   * and whether someone other than the executor authorized it. */
+  @RequirePermission("reports.view")
+  @Get("refund-authorizations")
+  refundAuthorizationsReport(
+    @CurrentUser() user: RequestUser,
+    @RequireBranchId() branchId: string,
+    @Query("days") days?: string,
+    @Query("scope") scope?: string,
+  ) {
+    return this.refundAuthorizations.report(user.tenantId, this.tenantScope(user, scope) ? null : branchId, parseReportDays(days));
   }
 }

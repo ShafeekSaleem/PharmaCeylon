@@ -37,6 +37,8 @@ import type {
   TransfersReportResponse,
   StocktakesReportResponse,
   ShiftCashReportResponse,
+  CardAttemptsReportResponse,
+  RefundAuthorizationsReportResponse,
   PurchaseSummaryResponse,
   SupplierSpendResponse,
   SupplierPerformanceResponse,
@@ -146,6 +148,14 @@ export function fetchShiftCashReport(
   if (filters.registerId) qs.set("registerId", filters.registerId);
   if (filters.staffUserId) qs.set("staffUserId", filters.staffUserId);
   return apiJson<ShiftCashReportResponse>(`/reports/shift-cash?${qs.toString()}${scopeQs(scope, isOwner)}`);
+}
+
+export function fetchCardAttemptsReport(days: number, scope: Scope, isOwner: boolean) {
+  return apiJson<CardAttemptsReportResponse>(`/reports/card-attempts?days=${days}${scopeQs(scope, isOwner)}`);
+}
+
+export function fetchRefundAuthorizationsReport(days: number, scope: Scope, isOwner: boolean) {
+  return apiJson<RefundAuthorizationsReportResponse>(`/reports/refund-authorizations?days=${days}${scopeQs(scope, isOwner)}`);
 }
 
 export function fetchPurchaseSummary(days: number, scope: Scope, isOwner: boolean) {

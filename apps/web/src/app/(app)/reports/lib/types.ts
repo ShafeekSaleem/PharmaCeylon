@@ -800,3 +800,94 @@ export type ShiftCashReportResponse = {
     staff: ShiftCashPerson[];
   };
 };
+
+/** W10 #72: `/reports/card-attempts`. Money in minor units, as the counter signed it. */
+export type CardAttemptState = "prepared" | "uncertain" | "approved" | "declined" | "linked_to_sale" | "not_used";
+export type CardAttemptOutcome = "charged_sale" | "declined" | "reversed" | "refund_owed" | "approved_no_sale" | "unresolved";
+export type CardAttemptRow = {
+  attemptId: string;
+  branchId: string;
+  branchName: string;
+  terminalId: string;
+  terminalLabel: string | null;
+  counterLabel: string | null;
+  staff: { id: string; name: string } | null;
+  firstRecordedAt: string;
+  lastRecordedAt: string;
+  events: number;
+  state: CardAttemptState;
+  outcome: CardAttemptOutcome;
+  amountMinor: number;
+  providerReference: string | null;
+  approvalCode: string | null;
+  approvedAt: string | null;
+  sale: { id: string; invoiceNo: string } | null;
+  settlement: "reversed_on_machine" | "refund_owed" | null;
+  reversalReference: string | null;
+  reason: string | null;
+  review: "held" | "accepted" | "rejected";
+  heldReason: string | null;
+};
+export type MinorTotals = { count: number; amountMinor: number };
+export type CardAttemptsReportResponse = {
+  days: number;
+  timeZone: string;
+  since: string;
+  before: string;
+  kpis: {
+    attempts: number;
+    amountMinor: number;
+    heldForReview: number;
+    chargedWithoutSaleMinor: number;
+    collectedNotSold: MinorTotals;
+  } & Record<CardAttemptOutcome, MinorTotals>;
+  byCounter: Array<{ terminalId: string; label: string; branchName: string; attempts: number; problemAttempts: number; amountMinor: number }>;
+  attempts: CardAttemptRow[];
+};
+
+/** W10 #72: `/reports/refund-authorizations`. Money in minor units. */
+export type RefundApproval = "approved_request" | "other_approver" | "not_required" | "payer_approved" | "no_separate_approver";
+export type RefundPerson = { id: string; name: string };
+export type RefundAuthorizationRow = {
+  goodsReturnId: string;
+  returnNumber: string;
+  branchId: string;
+  branchName: string;
+  executedAt: string;
+  amountMinor: number;
+  reasonCode: string | null;
+  sale: { id: string; invoiceNo: string } | null;
+  path: "request" | "direct";
+  requestNumber: string | null;
+  requestedAt: string | null;
+  approvedAt: string | null;
+  approval: RefundApproval;
+  requestedBy: RefundPerson;
+  approvedBy: RefundPerson | null;
+  executedBy: RefundPerson | null;
+  where: "counter" | "web";
+  counterLabel: string | null;
+  shiftNumber: string | null;
+  separated: boolean;
+};
+export type RefundPersonRollup = RefundPerson & { refunds: number; amountMinor: number };
+export type RefundAuthorizationsReportResponse = {
+  days: number;
+  timeZone: string;
+  since: string;
+  before: string;
+  kpis: {
+    refunds: number;
+    amountMinor: number;
+    separated: MinorTotals;
+    notSeparated: MinorTotals;
+    atCounter: MinorTotals;
+    onWeb: MinorTotals;
+    byApproval: Record<RefundApproval, MinorTotals>;
+    openRequests: MinorTotals;
+    cancelledRequests: MinorTotals;
+  };
+  byApprover: RefundPersonRollup[];
+  byExecutor: RefundPersonRollup[];
+  refunds: RefundAuthorizationRow[];
+};

@@ -5,10 +5,19 @@ import { ReportsService } from "./reports.service";
 import { ReportSyncFreshnessService } from "./report-sync-freshness.service";
 import { SalesReportScopeService } from "./sales-report-scope.service";
 import { ShiftCashReportService } from "./shift-cash-report.service";
+import { CardAttemptsReportService } from "./card-attempts-report.service";
+import { RefundAuthorizationsReportService } from "./refund-authorizations-report.service";
 
 @Module({
   imports: [CatalogModule],
   controllers: [ReportsController],
-  providers: [ReportsService, ReportSyncFreshnessService, SalesReportScopeService, ShiftCashReportService],
+  providers: [
+    ReportsService,
+    ReportSyncFreshnessService,
+    SalesReportScopeService,
+    ShiftCashReportService,
+    CardAttemptsReportService,
+    RefundAuthorizationsReportService,
+  ],
 })
 export class ReportsModule {}
