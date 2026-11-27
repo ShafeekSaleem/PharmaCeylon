@@ -1126,19 +1126,32 @@ is locked, so a revocation that commits first refuses the sale and a later one w
     or collected-money resolution removes the payment row — resolution UI is still P6).
     **Accepted** incident notes and **unresolved** collected-money rows also fall out of Daily work
     (and their operational notifications resolve) once they are older than
-    `SALES_RECOVERY_DAILY_WORK_MAX_AGE_DAYS` (**7** days by default, from `recorded_at` /
-    `collected_at`). Manager-held incident notes and payment-recovery attempts are not age-limited
+    `SALES_RECOVERY_DAILY_WORK_MAX_AGE_DAYS` (**7** days by default). Age is measured from the
+    server receive stamp — `offline_support_record.received_at` for accepted incidents and
+    `offline_collected_payment.created_at` for collected money (not device `recorded_at` /
+    `collected_at`), so a counter that syncs after a long outage is not hidden the moment it
+    reconnects. The cutoff compares those UTC-stored timestamps to `(now() AT TIME ZONE 'UTC')`,
+    independent of the DB session time zone. Manager-held incident notes and payment-recovery
+    attempts are not age-limited
     here (payment recovery drops when `status` leaves `held`; held incidents stay until cleared).
-    Sales recovery **queue** APIs are unchanged — aged rows remain listable there. Identity
+    Sales recovery **queue** APIs are unchanged — aged rows remain listable there. Daily-work
+    payment-recovery projection matches queue predicates but applies `attempt_id IS NOT NULL`
+    before its 500-row cap; `GET /sales/payment-recovery` caps first and then drops null
+    `attempt_id` rows, so the two can diverge only beyond 500 held attempts. Identity
   fields: `id` prefixes `incident:` (`record_id`), `payment_recovery:` (`attempt_id`),
     `collected_money:` (payment row `id`). Deep links: `/sales?view=incident-notes&recordId=…`
     (+ `&status=held` when held), `/sales?view=payment-recovery&attemptId=…`,
     `/sales?view=unresolved-money&paymentId=…`. Collected-money detail amounts use the shared
     two-decimal LKR formatter (`formatLkrFromMinor`, `en-GB` grouping). `GET /dashboard/work`
     returns one merged, sorted list (recovery rows share the union with every other kind).
-    Operational notifications scan **two** capped projections and merge them: **25** legacy
-    counter/approval kinds (same set as before W11) plus **25** sales-recovery kinds, so recovery
-    volume cannot displace legacy notifications. Dedupe one notice per task
+    Operational notifications scan legacy work plus **one capped projection per sales-recovery kind**
+    (up to **25** notices each for `sale_incident.review`, `payment_recovery.review`, and
+    `collected_money.review`), then merge, so a full cap in one kind does not resolve notifications
+    for still-eligible rows in another. Within one kind the cap still applies in work order: for
+    `sale_incident.review`, held incidents (priority 0) come before accepted ones (priority 1), so
+    25 or more held incidents can resolve accepted-incident notices until the held ones clear.
+    Legacy counter/approval kinds keep their separate **25**-
+    item scan; recovery volume cannot displace them. Dedupe one notice per task
     (`operational:{branchId}:work:{id}:{kind}`); auto-resolve when the task drops out; a returning
     task clears `resolvedAt` on the next scan.
     Compatibility fixtures: `packages/shared/fixtures/daily-work-items-*.json`; clients should

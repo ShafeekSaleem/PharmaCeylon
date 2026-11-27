@@ -231,6 +231,8 @@ async function seedCollectedPaymentRow(
     sequence: number;
     providerReference: string;
     collectedAt?: Date;
+    /** Server receive time (`created_at`, the max-age basis). Set at insert: no trigger to bypass. */
+    createdAt?: Date;
   },
 ): Promise<string> {
   const branchId = opts.branchId ?? c.fx.mainBranchId;
@@ -301,9 +303,33 @@ async function seedCollectedPaymentRow(
       shiftId: shiftRow?.id ?? null,
       staffUserId: c.cashier.userId,
       collectedAt: now,
+      ...(opts.createdAt ? { createdAt: opts.createdAt } : {}),
     },
   });
   return paymentId;
+}
+
+/**
+ * Support records are immutable except verification fields, and this one is written by the real
+ * sync path, so its receive/record times can only be shifted afterwards. Test-only: switches off
+ * just the immutability trigger, inside the transaction (DDL rolls back with it), so FK and every
+ * other trigger stay on. Needs the table owner, which is the migrating user in CI and locally.
+ */
+async function setAcceptedIncidentReceiveTimesForTest(
+  tenantId: string,
+  recordId: string,
+  receivedAt: Date,
+  recordedAt?: Date,
+) {
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`ALTER TABLE offline_support_record DISABLE TRIGGER preserve_offline_support_record`;
+    await tx.$executeRaw`
+      UPDATE offline_support_record
+      SET received_at = ${receivedAt},
+          recorded_at = COALESCE(${recordedAt ?? null}, recorded_at)
+      WHERE tenant_id = ${tenantId}::uuid AND record_id = ${recordId}::uuid AND status = 'accepted'`;
+    await tx.$executeRaw`ALTER TABLE offline_support_record ENABLE TRIGGER preserve_offline_support_record`;
+  });
 }
 
 type AttemptBinding = Pick<
@@ -881,17 +907,18 @@ describe("daily work sales recovery (W11 #145)", () => {
     const branchId = main.fx.mainBranchId;
     const staleMs = (SALES_RECOVERY_DAILY_WORK_MAX_AGE_DAYS + 1) * 24 * 60 * 60 * 1000;
     const insideMs = (SALES_RECOVERY_DAILY_WORK_MAX_AGE_DAYS - 1) * 24 * 60 * 60 * 1000;
-    const staleCollectedAt = new Date(Date.now() - staleMs);
-    const freshCollectedAt = new Date(Date.now() - insideMs);
+    const staleAt = new Date(Date.now() - staleMs);
+    const freshAt = new Date(Date.now() - insideMs);
     const staleCollectedId = await seedCollectedPaymentRow(main, {
       sequence: 99_880,
       providerReference: "RRN-AGE-STALE",
-      collectedAt: staleCollectedAt,
+      collectedAt: freshAt,
+      createdAt: staleAt,
     });
     const freshCollectedId = await seedCollectedPaymentRow(main, {
       sequence: 99_881,
       providerReference: "RRN-AGE-FRESH",
-      collectedAt: freshCollectedAt,
+      collectedAt: freshAt,
     });
     const staleIncidentRecordId = await seedAcceptedIncidentOnPostedSale(
       main,
@@ -899,7 +926,13 @@ describe("daily work sales recovery (W11 #145)", () => {
       randomUUID(),
       randomUUID(),
       "Stale accepted incident for max-age daily work",
-      Date.now() - staleMs,
+      Date.now() - insideMs,
+    );
+    await setAcceptedIncidentReceiveTimesForTest(
+      main.fx.tenantId,
+      staleIncidentRecordId,
+      staleAt,
+      freshAt,
     );
 
     const notificationService = notify();
@@ -936,6 +969,132 @@ describe("daily work sales recovery (W11 #145)", () => {
     });
     expect(staleCollectedNotice?.resolvedAt).not.toBeNull();
     expect(staleIncidentNotice?.resolvedAt).not.toBeNull();
+  });
+
+  it("uses server receive time for max-age so old device timestamps still show after sync", async () => {
+    const owner = ownerOn(main);
+    const branchId = main.fx.mainBranchId;
+    const staleDeviceMs = (SALES_RECOVERY_DAILY_WORK_MAX_AGE_DAYS + 2) * 24 * 60 * 60 * 1000;
+    const paymentId = await seedCollectedPaymentRow(main, {
+      sequence: 99_770,
+      providerReference: "RRN-OFFLINE-SYNC",
+      collectedAt: new Date(Date.now() - staleDeviceMs),
+    });
+    const incidentRecordId = await seedAcceptedIncidentOnPostedSale(
+      main,
+      randomUUID(),
+      randomUUID(),
+      randomUUID(),
+      "Accepted after long offline outage",
+      Date.now() - staleDeviceMs,
+    );
+    const work = await dailyWork().get(owner, branchId, { filter: "all", page: 1, pageSize: 100 });
+    const collected = work.items.find((row) => row.id === `collected_money:${paymentId}`);
+    expect(collected).toBeDefined();
+    // The work source formats the amount with the shared SQL helper (1500 minor = LKR 15.00).
+    expect(collected!.detail).toMatch(/ · LKR 15\.00$/);
+    expect(work.items.some((row) => row.id === `incident:${incidentRecordId}`)).toBe(true);
+  });
+
+  it("applies the max-age cutoff in UTC even when the DB session time zone is not UTC", async () => {
+    const owner = ownerOn(main);
+    const branchId = main.fx.mainBranchId;
+    const insideMs = 6 * 24 * 60 * 60 * 1000 + 22 * 60 * 60 * 1000;
+    const receivedAt = new Date(Date.now() - insideMs);
+    const recordId = await seedAcceptedIncidentOnPostedSale(
+      main,
+      randomUUID(),
+      randomUUID(),
+      randomUUID(),
+      "Max-age cutoff with non-UTC session",
+      Date.now() - insideMs,
+    );
+    await setAcceptedIncidentReceiveTimesForTest(main.fx.tenantId, recordId, receivedAt, new Date(0));
+
+    await prisma.$executeRaw`SET TIME ZONE 'Asia/Colombo'`;
+    try {
+      const work = await dailyWork().get(owner, branchId, { filter: "all", page: 1, pageSize: 100 });
+      expect(work.items.some((row) => row.id === `incident:${recordId}`)).toBe(true);
+    } finally {
+      await prisma.$executeRaw`SET TIME ZONE 'UTC'`;
+    }
+  });
+
+  it("keeps rows at the max-age boundary and drops rows just past it", async () => {
+    const owner = ownerOn(main);
+    const branchId = main.fx.mainBranchId;
+    const edgeMs = SALES_RECOVERY_DAILY_WORK_MAX_AGE_DAYS * 24 * 60 * 60 * 1000;
+    const boundary = new Date(Date.now() - edgeMs + 2_000);
+    const pastBoundary = new Date(Date.now() - edgeMs - 2_000);
+    const insideId = await seedCollectedPaymentRow(main, {
+      sequence: 99_771,
+      providerReference: "RRN-BOUNDARY-IN",
+      createdAt: boundary,
+    });
+    const outsideId = await seedCollectedPaymentRow(main, {
+      sequence: 99_772,
+      providerReference: "RRN-BOUNDARY-OUT",
+      createdAt: pastBoundary,
+    });
+
+    const work = await dailyWork().get(owner, branchId, { filter: "all", page: 1, pageSize: 100 });
+    expect(work.items.some((row) => row.id === `collected_money:${insideId}`)).toBe(true);
+    expect(work.items.some((row) => row.id === `collected_money:${outsideId}`)).toBe(false);
+  });
+
+  it("does not resolve accepted-incident notifications when collected-money rows fill that kind's cap", async () => {
+    const owner = ownerOn(main);
+    const branchId = main.fx.mainBranchId;
+    for (let n = 0; n < 26; n++) {
+      await seedCollectedPaymentRow(main, {
+        sequence: 77_000 + n,
+        providerReference: `RRN-PER-KIND-CAP-${n}`,
+      });
+    }
+    const acceptedKey = `operational:${branchId}:work:incident:${mainAcceptedIncidentRecordId}:sale_incident.review`;
+    const svc = notify();
+    await svc.list(owner, branchId, { status: "all", take: 200 });
+    const acceptedNotice = await prisma.notification.findFirst({
+      where: { tenantId: owner.tenantId, recipientUserId: owner.userId, dedupeKey: acceptedKey },
+    });
+    expect(acceptedNotice?.resolvedAt).toBeNull();
+  });
+
+  it("excludes held sale incidents that are not in the manager-held reason set", async () => {
+    const recordId = randomUUID();
+    const signed = main.device.sign(
+      {
+        contractVersion: 1,
+        kind: "sale_incident",
+        recordId,
+        identity: main.identity,
+        saleCommandId: randomUUID(),
+        recordedByUserId: main.cashier.userId,
+        staffSignInId: randomUUID(),
+        workSessionId: randomUUID(),
+        recordedAt: Date.now() - 30_000,
+        category: "other",
+        description: "Held incident with non-manager reason",
+      } satisfies OfflineSaleIncident,
+      main.identity.keyId,
+    );
+    await prisma.$transaction((client) => support.record(client, main.owner, main.fx.mainBranchId, signed, Date.now()));
+    await prisma.offlineSupportRecord.updateMany({
+      where: { tenantId: main.fx.tenantId, recordId, status: "held" },
+      data: { heldReason: "cashier_pending" },
+    });
+
+    const work = await dailyWork().get(ownerOn(main), main.fx.mainBranchId, {
+      filter: "all",
+      page: 1,
+      pageSize: 100,
+    });
+    expect(work.items.some((row) => row.id === `incident:${recordId}`)).toBe(false);
+    const queue = await queues.incidentNotes(ownerOn(main), main.fx.mainBranchId, {
+      status: "held",
+      pageSize: 100,
+    });
+    expect(queue.items.some((row) => row.recordId === recordId)).toBe(false);
   });
 
   it("does not duplicate notifications across repeated projection scans", async () => {
