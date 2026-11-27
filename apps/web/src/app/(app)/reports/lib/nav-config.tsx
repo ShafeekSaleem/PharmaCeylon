@@ -22,6 +22,8 @@ export type RealReportKey =
   | "payment-methods"
   | "returns-discounts"
   | "shift-cash"
+  | "card-attempts"
+  | "refund-authorizations"
   | "gross-profit"
   | "margin-by-product"
   | "margin-by-category"
@@ -94,6 +96,8 @@ export const CATEGORIES: CategoryDef[] = [
       { key: "payment-methods", label: "Payment Methods", periodLabel: "Range", periodOptions: DAYS_PERIOD_OPTIONS, defaultPeriod: 30 },
       { key: "returns-discounts", label: "Returns", periodLabel: "Range", periodOptions: DAYS_PERIOD_OPTIONS, defaultPeriod: 30 },
       { key: "shift-cash", label: "Shift & Cash", periodLabel: "Range", periodOptions: DAYS_PERIOD_OPTIONS, defaultPeriod: 7 },
+      { key: "card-attempts", label: "Card Machine Attempts", periodLabel: "Range", periodOptions: DAYS_PERIOD_OPTIONS, defaultPeriod: 30 },
+      { key: "refund-authorizations", label: "Refund Authorizations", periodLabel: "Range", periodOptions: DAYS_PERIOD_OPTIONS, defaultPeriod: 30 },
     ],
   },
   {
