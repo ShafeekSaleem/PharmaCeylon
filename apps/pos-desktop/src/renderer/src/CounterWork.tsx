@@ -1271,7 +1271,11 @@ export function CounterWork({
               key={t}
               type="button"
               aria-pressed={tab === t}
-              onClick={() => setTab(t)}
+              onClick={() => {
+                // "Undone …" belongs to the Imports filter: it doesn't follow you to another tab.
+                if (t !== tab) setUndone(null);
+                setTab(t);
+              }}
             >
               {label} <i>{counts[t]}</i>
             </button>

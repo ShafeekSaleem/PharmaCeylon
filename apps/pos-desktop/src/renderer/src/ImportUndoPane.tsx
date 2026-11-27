@@ -12,6 +12,10 @@ import { cx } from "./useAction";
 
 const STAGED = "Opening stock posted from a staged draft is not listed here: correct it with a stock adjustment.";
 
+/** What the server checks when undo runs. The counter doesn't check it, so it isn't shown as a tick. */
+export const SERVER_CHECKS =
+  "When you undo, the server checks that no stock from this import has been sold or moved, and that none of its products has been sold, ordered or transferred. If any has, nothing is undone.";
+
 /** "Uploaded with its stock · 17 Nov by Kasun J." */
 export function uploadedLine(imp: CounterUndoableImport) {
   const at = imp.uploaded.at ? ` · ${formatDisplayDate(imp.uploaded.at)}` : "";
@@ -66,14 +70,11 @@ function ConfirmSheet({
         <small className={styles.hint}>{uploadedLine(imp)}</small>
       </div>
       <p>{undoSentence(imp)}</p>
+      {/* Not ticks: the list this came from can be 30 s old. The server runs these checks on undo. */}
       <ul className={styles.checks}>
         <li>
-          <Icon name="check" />
-          No stock from this import has been sold or moved
-        </li>
-        <li>
-          <Icon name="check" />
-          None of its products has been sold, ordered or transferred
+          <Icon name="info" />
+          {SERVER_CHECKS}
         </li>
       </ul>
       <p className={styles.hint}>{STAGED}</p>
@@ -179,8 +180,9 @@ export function ImportUndoDetail({
         <div className={cx(ui.note, styles.waiting)} role="note">
           <Icon name="info" />
           <div>
-            Nothing from this import has been sold, moved, ordered or transferred, so it can still be undone. The
-            filter drops it once that changes.
+            When this list was last checked, nothing from this import had been sold, moved, ordered or transferred,
+            so it can still be undone. The server checks again when you undo, and the filter drops it once that
+            changes.
             {imp.stopped && " The import was stopped part-way; undo removes what it did post."}
           </div>
         </div>

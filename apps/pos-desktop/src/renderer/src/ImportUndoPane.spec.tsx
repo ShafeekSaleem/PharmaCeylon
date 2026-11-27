@@ -4,7 +4,7 @@ import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-libra
 import type { CounterUndoableImport } from "@pharmaceylon/shared";
 import { renderWithKeys, stubPos } from "../test/harness";
 import { CounterWork } from "./CounterWork";
-import { undoSentence } from "./ImportUndoPane";
+import { SERVER_CHECKS, undoSentence } from "./ImportUndoPane";
 import { KeyScope } from "./keymap";
 
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
@@ -102,6 +102,9 @@ describe("the Imports filter (decision 5)", () => {
     expect(undoSentence(undoable())).toBe(
       "Undo takes back the whole import: the 38 products it created are removed from the catalogue, along with all the stock it posted (44 batches, 1,960 units). The 6 products it only updated stay, but lose the stock the import added to them.",
     );
+    // The sold/moved checks are the server's, run on undo: stated as such, never ticked here.
+    expect(within(sheet).getByText(SERVER_CHECKS)).toBeTruthy();
+    expect(within(sheet).queryByText("No stock from this import has been sold or moved")).toBeNull();
     // Ctrl+Enter does not undo: it is a click on purpose.
     fireEvent.keyDown(window, { key: "Enter", ctrlKey: true });
     expect(pos.undoCounterImport).not.toHaveBeenCalled();
@@ -114,6 +117,9 @@ describe("the Imports filter (decision 5)", () => {
       ),
     ).toBeTruthy();
     expect(await screen.findByText("No import here can still be undone.")).toBeTruthy();
+    // The result belongs to the Imports filter: another tab doesn't carry it.
+    fireEvent.click(within(tabs()).getByRole("button", { name: /^All/ }));
+    expect(screen.queryByText(/^Undone kollupitiya-otc\.xlsx/)).toBeNull();
   });
 
   it("goes back from the sheet with Esc", async () => {
