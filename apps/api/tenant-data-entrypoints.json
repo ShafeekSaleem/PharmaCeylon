@@ -124,6 +124,11 @@
   "backgroundWorkers": [],
   "rawSqlReview": [
     {
+      "path": "src/terminal-commands/counter-work.service.ts",
+      "mode": "tenant-filtered-read-model",
+      "reason": "Lists staged imports at one tenant and branch that still have a staged row without a batch (a jsonb check), so a partly posted import stays in Counter work without reading every posted import's rows."
+    },
+    {
       "path": "src/terminal-commands/counter-mismatch.service.ts",
       "mode": "scoped-domain-lock",
       "reason": "Locks one counter mismatch report by tenant, branch and id before the approver dismisses it, so two answers cannot both apply."
