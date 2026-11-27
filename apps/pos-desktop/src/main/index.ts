@@ -1067,6 +1067,18 @@ function registerIpc(
             ),
           );
         }),
+      undoableImports: () =>
+        act(logger, "undoableImports", () => {
+          if (!counterWork)
+            throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          return counterWork.undoableImports();
+        }),
+      undoCounterImport: ({ importId }) =>
+        act(logger, "undoCounterImport", () => {
+          if (!counterWork)
+            throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          return counterWork.undoImport(importId);
+        }),
       postCounterImportStock: (input) =>
         act(logger, "postCounterImportStock", () => {
           if (!counterWork)
