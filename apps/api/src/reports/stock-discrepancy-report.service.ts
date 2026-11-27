@@ -13,6 +13,12 @@ import {
  * window, with their lines, resolutions, settlements and the batch blocks they still hold. Scoped
  * by tenant and the report's branches.
  */
+/** Mapped by name, so a status added to the enum fails to compile here instead of reading as resolved. */
+const CASE_STATUS: Record<OfflineStockDiscrepancyStatus, "open" | "resolved"> = {
+  [OfflineStockDiscrepancyStatus.open]: "open",
+  [OfflineStockDiscrepancyStatus.resolved]: "resolved",
+};
+
 @Injectable()
 export class StockDiscrepancyReportService {
   constructor(
@@ -104,7 +110,7 @@ export class StockDiscrepancyReportService {
         terminalId: c.terminalId,
         terminalLabel: terminal.label,
         counterLabel: terminal.counterLabel,
-        status: c.status === OfflineStockDiscrepancyStatus.open ? "open" : "resolved",
+        status: CASE_STATUS[c.status],
         openedAt: c.openedAt,
         resolvedAt: c.resolvedAt,
         sale: { id: c.sale.id, invoiceNo: c.sale.invoiceNo, soldAt: c.sale.soldAt, seller: maybe(c.sale.soldBy) },

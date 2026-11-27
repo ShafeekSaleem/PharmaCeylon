@@ -908,6 +908,8 @@ export type OfflineOutageRow = {
   sales: number;
   salesTotalMinor: number;
   salesNotHonoured: number;
+  salesUnaccounted: number;
+  unreadable: number;
   shiftsOpened: number;
   shiftsClosed: number;
   firstSyncedAt: string | null;
@@ -933,6 +935,8 @@ export type OfflineActivityReportResponse = {
     sales: number;
     salesTotalMinor: number;
     salesNotHonoured: number;
+    salesUnaccounted: number;
+    unreadableEntries: number;
     medianTimeToSyncMs: number | null;
     longestTimeToSyncMs: number | null;
     outagesNeedingReview: number;

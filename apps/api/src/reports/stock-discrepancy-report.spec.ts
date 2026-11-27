@@ -111,4 +111,17 @@ describe("buildStockDiscrepancyReport", () => {
       ["Counter 2", 1, 0],
     ]);
   });
+
+  it("counts how cases were settled only for cases resolved in the window", () => {
+    const executed = (id: string) => [
+      { id, kind: "post_now" as const, status: "executed" as const, requestedBy: amara, requestedAt: day(25), approvedBy: priya, executedBy: amara, executedAt: day(26) },
+    ];
+    // Opened in the window, resolved after it closed (a past window): listed, but not "resolved in range".
+    const late = input({ id: "late", status: "resolved", resolvedAt: new Date("2026-11-28T00:00:00Z"), resolutions: executed("r1") });
+    const inside = input({ id: "inside", status: "resolved", resolvedAt: day(26), resolutions: executed("r2") });
+    const report = buildStockDiscrepancyReport([late, inside], meta);
+    expect(report.cases).toHaveLength(2);
+    expect(report.kpis.resolvedInRange).toBe(1);
+    expect(report.kpis.byResolution.post_now.count).toBe(1);
+  });
 });

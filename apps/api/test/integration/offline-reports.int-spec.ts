@@ -76,6 +76,71 @@ describe("offline activity report", () => {
     const other = await createTenant(prisma, "offline-reports-other");
     expect((await activity.report(other.tenantId, null, 30)).outages).toHaveLength(0);
   });
+
+  // Review rows and receipts are retained by trigger, so these run last and leave theirs behind.
+  it("never loads a receipt whose signed start is before the window", async () => {
+    const template = await prisma.terminalCommandReceipt.findFirstOrThrow({
+      where: { tenantId: c.fx.tenantId, terminalId: c.identity.terminalId, offlineSequence: { not: null } },
+    });
+    const command = template.command as { payload: Record<string, unknown> };
+    await prisma.terminalCommandReceipt.create({
+      data: {
+        tenantId: template.tenantId,
+        branchId: template.branchId,
+        terminalId: template.terminalId,
+        enrollmentId: template.enrollmentId,
+        keyId: template.keyId,
+        commandId: randomUUID(),
+        operation: template.operation,
+        requestDigest: "0".repeat(64),
+        offlineSequence: 900_000n,
+        actorUserId: template.actorUserId,
+        command: { ...command, payload: { ...command.payload, offlineSessionId: randomUUID(), offlineStartedAt: Date.now() - 400 * 86_400_000 } } as never,
+        result: template.result as never,
+      },
+    });
+    const report = await activity.report(c.fx.tenantId, c.fx.mainBranchId, 30);
+    expect(report.outages.map((o) => o.offlineSessionId)).toEqual([offlineSessionId]);
+  });
+
+  it("counts held and unreadable review rows on their outage, and ones that name no outage apart", async () => {
+    const heldSession = randomUUID();
+    const startedAt = Date.now() - 3_600_000;
+    let seq = 1000;
+    const review = (outcome: string, payload: Record<string, unknown>) => ({
+      tenantId: c.fx.tenantId,
+      branchId: c.fx.mainBranchId,
+      terminalId: c.identity.terminalId,
+      enrollmentId: c.identity.enrollmentId,
+      keyId: c.identity.keyId,
+      recordKind: "command",
+      recordId: randomUUID(),
+      sequence: BigInt(++seq),
+      recordHash: randomUUID().replace(/-/g, "").padEnd(64, "0"),
+      outcome,
+      errorCode: "TEST",
+      envelope: { payload } as never,
+      receivedByUserId: c.owner.userId,
+    });
+    await prisma.offlineJournalReview.createMany({
+      data: [
+        review("held", {
+          commandId: randomUUID(), kind: "ordinary_sale", offlineSessionId: heldSession, offlineStartedAt: startedAt,
+          occurredAt: startedAt + 60_000, staffSignInId: randomUUID(), totalMinor: 5_000,
+        }),
+        review("rejected", { offlineSessionId: heldSession, offlineStartedAt: startedAt }),
+        review("rejected", { kind: "ordinary_sale" }),
+      ],
+    });
+    const report = await activity.report(c.fx.tenantId, c.fx.mainBranchId, 30);
+    expect(report.outages).toHaveLength(2);
+    expect(report.outages.find((o) => o.offlineSessionId === heldSession)).toMatchObject({
+      entries: 2, sales: 0, awaitingReview: 1, rejected: 1, unreadable: 1, timeToSyncMs: null, status: "needs_review",
+    });
+    // The synced outage is unchanged, and the entry naming no outage is still counted.
+    expect(report.outages.find((o) => o.offlineSessionId === offlineSessionId)).toMatchObject({ entries: 3, status: "synced" });
+    expect(report.kpis).toMatchObject({ outages: 2, entriesAwaitingReview: 2, unreadableEntries: 2, salesUnaccounted: 0 });
+  });
 });
 
 describe("stock discrepancy cases report", () => {

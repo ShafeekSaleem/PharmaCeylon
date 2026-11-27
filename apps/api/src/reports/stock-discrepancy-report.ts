@@ -193,7 +193,8 @@ export function buildStockDiscrepancyReport(
   const resolvedInRange = cases.filter((c) => c.status === "resolved" && inRange(c.resolvedAt));
 
   const byResolution = Object.fromEntries(RESOLUTION_KINDS.map((k) => [k, { count: 0 }])) as Record<ResolutionKind, Totals>;
-  for (const c of cases) if (c.resolution?.status === "executed") byResolution[c.resolution.kind].count += 1;
+  // How cases were settled counts the cases resolved in the window, the same set as `resolvedInRange`.
+  for (const c of resolvedInRange) if (c.resolution?.status === "executed") byResolution[c.resolution.kind].count += 1;
 
   const reasons = new Map<string, { reason: string; lines: number; units: number }>();
   const counters = new Map<string, { terminalId: string; label: string; branchName: string; cases: number; open: number; unitsShort: number }>();

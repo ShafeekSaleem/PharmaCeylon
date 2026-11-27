@@ -31,8 +31,12 @@ export type OfflineEntry = Readonly<{
   review: "held" | "rejected" | null;
   /** The seller, from the offline sign-in the entry cites. */
   staffUserId: string | null;
-  /** Sale entries: a sale was recorded from it (false for one a manager did not honour). */
+  /** Sale entries: a sale was recorded from it. */
   saleRecorded: boolean;
+  /** Sale entries: a manager settled it as not honoured (no sale, on purpose). */
+  notHonoured: boolean;
+  /** Its envelope names the outage but not the rest of what was signed; counted, never dropped. */
+  unreadable: boolean;
   /** A recorded sale whose stock could not post at sync and waits on a stock case. */
   stockPending: boolean;
 }>;
@@ -56,6 +60,10 @@ export type OfflineOutageRow = Readonly<{
   salesTotalMinor: number;
   /** Sale entries a manager settled as not honoured: no sale was recorded. */
   salesNotHonoured: number;
+  /** Accepted sale entries with no sale and no not-honoured settlement: a replay to look into. */
+  salesUnaccounted: number;
+  /** Entries whose envelope could not be read. */
+  unreadable: number;
   shiftsOpened: number;
   shiftsClosed: number;
   /** First and last time an entry of this outage was accepted by the server. */
@@ -96,6 +104,9 @@ export type OfflineActivityReportResponse = Readonly<{
     sales: number;
     salesTotalMinor: number;
     salesNotHonoured: number;
+    salesUnaccounted: number;
+    /** Unreadable entries, including those that could not even be placed in an outage. */
+    unreadableEntries: number;
     /** Median and longest time from last offline entry to fully synced, across synced outages. */
     medianTimeToSyncMs: number | null;
     longestTimeToSyncMs: number | null;
@@ -139,6 +150,9 @@ export function outageRow(entries: readonly OfflineEntry[], ctx: OfflineActivity
   const waiting = awaitingReview + rejected;
   const saleEntries = accepted.filter((e) => e.kind === "ordinary_sale");
   const sales = saleEntries.filter((e) => e.saleRecorded);
+  const notHonoured = saleEntries.filter((e) => !e.saleRecorded && e.notHonoured).length;
+  const unaccounted = saleEntries.filter((e) => !e.saleRecorded && !e.notHonoured).length;
+  const unreadable = entries.filter((e) => e.unreadable).length;
   const staffIds = [...new Set(entries.map((e) => e.staffUserId).filter((id): id is string => !!id))];
   const terminal = ctx.terminal(first.terminalId);
   return {
@@ -155,7 +169,9 @@ export function outageRow(entries: readonly OfflineEntry[], ctx: OfflineActivity
     entries: entries.length,
     sales: sales.length,
     salesTotalMinor: sales.reduce((acc, e) => acc + e.totalMinor, 0),
-    salesNotHonoured: saleEntries.length - sales.length,
+    salesNotHonoured: notHonoured,
+    salesUnaccounted: unaccounted,
+    unreadable,
     shiftsOpened: accepted.filter((e) => e.kind === "shift_open").length,
     shiftsClosed: accepted.filter((e) => e.kind === "shift_close").length,
     firstSyncedAt: iso(firstSyncedAt),
@@ -166,7 +182,7 @@ export function outageRow(entries: readonly OfflineEntry[], ctx: OfflineActivity
     rejected,
     stockPendingSales: sales.filter((e) => e.stockPending).length,
     staff: staffIds.map((id) => ({ id, name: ctx.person(id) })).sort((a, b) => a.name.localeCompare(b.name)),
-    status: waiting ? "needs_review" : "synced",
+    status: waiting || unreadable || unaccounted ? "needs_review" : "synced",
   };
 }
 
@@ -179,6 +195,8 @@ export function buildOfflineActivityReport(
   entries: readonly OfflineEntry[],
   ctx: OfflineActivityContext,
   meta: { days: number; timeZone: string; since: Date; before: Date },
+  /** Unreadable entries that name no outage, counted by when they arrived. */
+  unplacedEntries = 0,
 ): OfflineActivityReportResponse {
   const groups = new Map<string, OfflineEntry[]>();
   for (const e of entries) {
@@ -226,6 +244,8 @@ export function buildOfflineActivityReport(
       sales: sum((o) => o.sales),
       salesTotalMinor: sum((o) => o.salesTotalMinor),
       salesNotHonoured: sum((o) => o.salesNotHonoured),
+      salesUnaccounted: sum((o) => o.salesUnaccounted),
+      unreadableEntries: sum((o) => o.unreadable) + unplacedEntries,
       medianTimeToSyncMs: median(syncTimes),
       longestTimeToSyncMs: syncTimes.length ? Math.max(...syncTimes) : null,
       outagesNeedingReview: outages.filter((o) => o.status === "needs_review").length,

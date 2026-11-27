@@ -313,7 +313,7 @@ export function StockDiscrepancySection({ scope, isOwner, days, onExportData }: 
           <div className={css.cardhead}>
             <div>
               <h3>Why Stock Could Not Post</h3>
-              <p>Batches across these cases, by reason. Pick one to filter the table.</p>
+              <p>Batches across every case on this page (opened or resolved in this range, or still open), by reason. Pick one to filter the table.</p>
             </div>
           </div>
           <BarRows rows={reasonRows} danger pageSize={6} onRowClick={(key) => setReason(key === reason ? ALL : key)} activeKey={reason === ALL ? null : reason} />

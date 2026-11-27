@@ -142,7 +142,13 @@ export function OfflineActivitySection({ scope, isOwner, days, onExportData }: P
         <>
           {money(r.salesTotalMinor)}
           <div className={css.mutedcell}>
-            {[plural(r.sales, "sale"), r.salesNotHonoured ? `${r.salesNotHonoured} not honoured` : null].filter(Boolean).join(" · ")}
+            {[
+              plural(r.sales, "sale"),
+              r.salesNotHonoured ? `${r.salesNotHonoured} not honoured` : null,
+              r.salesUnaccounted ? `${r.salesUnaccounted} with no sale recorded` : null,
+            ]
+              .filter(Boolean)
+              .join(" · ")}
           </div>
         </>
       ),
@@ -170,9 +176,9 @@ export function OfflineActivitySection({ scope, isOwner, days, onExportData }: P
           {r.status === "needs_review" ? (
             <span
               className={`${css.badge2} ${css.badge2Tight} ${css.watch}`}
-              data-tooltip="Entries held or refused at sync wait for a manager's review"
+              data-tooltip="Entries held or refused at sync, entries that could not be read, and sale entries with no sale recorded"
             >
-              {plural(r.awaitingReview + r.rejected, "entry")} to review
+              {plural(r.awaitingReview + r.rejected + r.unreadable + r.salesUnaccounted, "entry")} to review
             </span>
           ) : (
             <span className={`${css.badge2} ${css.badge2Tight} ${css.healthy}`}>Synced</span>
@@ -206,6 +212,7 @@ export function OfflineActivitySection({ scope, isOwner, days, onExportData }: P
         "Sales",
         "Sales total",
         "Sales not honoured",
+        "Sales with no sale recorded",
         "Shifts opened",
         "Shifts closed",
         "First synced",
@@ -213,6 +220,7 @@ export function OfflineActivitySection({ scope, isOwner, days, onExportData }: P
         "Time to sync (min)",
         "Held for review",
         "Refused",
+        "Unreadable",
         "Sales with a stock case",
         "Status",
       ],
@@ -229,6 +237,7 @@ export function OfflineActivitySection({ scope, isOwner, days, onExportData }: P
         r.sales,
         (r.salesTotalMinor / 100).toFixed(2),
         r.salesNotHonoured,
+        r.salesUnaccounted,
         r.shiftsOpened,
         r.shiftsClosed,
         r.firstSyncedAt ?? "",
@@ -236,6 +245,7 @@ export function OfflineActivitySection({ scope, isOwner, days, onExportData }: P
         minutes(r.timeToSyncMs),
         r.awaitingReview,
         r.rejected,
+        r.unreadable,
         r.stockPendingSales,
         r.status,
       ]),
@@ -262,7 +272,7 @@ export function OfflineActivitySection({ scope, isOwner, days, onExportData }: P
         <StatCard size="sm" showMenu={false}
           title="Time Offline"
           value={dash ? "…" : kpis.outages ? duration(kpis.offlineForMs) : "—"}
-          subtitle={dash || !kpis.outages ? "At least, across outages" : `Longest ${duration(kpis.longestOfflineForMs)}`}
+          subtitle={dash || !kpis.outages ? "At least, across outages" : `At least · longest ${duration(kpis.longestOfflineForMs)}`}
           icon={<IconAlertTriangle size={16} />}
           iconTone="danger"
         />
@@ -283,8 +293,8 @@ export function OfflineActivitySection({ scope, isOwner, days, onExportData }: P
           subtitle={
             dash
               ? "Median, last entry to synced"
-              : kpis.entriesAwaitingReview
-                ? `${plural(kpis.entriesAwaitingReview, "entry")} awaiting review`
+              : kpis.entriesAwaitingReview + kpis.unreadableEntries + kpis.salesUnaccounted
+                ? `${plural(kpis.entriesAwaitingReview + kpis.unreadableEntries + kpis.salesUnaccounted, "entry")} to look into`
                 : `Longest ${duration(kpis.longestTimeToSyncMs)}`
           }
           icon={<IconCloud size={16} />}
@@ -296,7 +306,7 @@ export function OfflineActivitySection({ scope, isOwner, days, onExportData }: P
         <div className={css.cardhead}>
           <div>
             <h3>Time Offline by Counter</h3>
-            <p>Which counters drop out, and what they sold while they were down. Pick one to filter the table.</p>
+            <p>Which counters drop out (at least this long: to the last entry made offline), and what they sold while they were down. Pick one to filter the table.</p>
           </div>
         </div>
         <BarRows rows={counterRows} danger pageSize={6} onRowClick={(key) => setTerminalId(key === terminalId ? ALL : key)} activeKey={terminalId === ALL ? null : terminalId} />

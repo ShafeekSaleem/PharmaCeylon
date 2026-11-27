@@ -25,6 +25,8 @@ const entry = (over: Partial<OfflineEntry>): OfflineEntry => ({
   review: null,
   staffUserId: "u1",
   saleRecorded: true,
+  notHonoured: false,
+  unreadable: false,
   stockPending: false,
   ...over,
 });
@@ -66,8 +68,18 @@ describe("outageRow", () => {
   });
 
   it("counts a sale entry a manager did not honour apart from recorded sales", () => {
-    const row = outageRow([entry({}), entry({ saleRecorded: false, totalMinor: 9_000 })], ctx);
-    expect(row).toMatchObject({ sales: 1, salesTotalMinor: 10_000, salesNotHonoured: 1 });
+    const row = outageRow([entry({}), entry({ saleRecorded: false, notHonoured: true, totalMinor: 9_000 })], ctx);
+    expect(row).toMatchObject({ sales: 1, salesTotalMinor: 10_000, salesNotHonoured: 1, salesUnaccounted: 0, status: "synced" });
+  });
+
+  it("flags a sale entry with no sale and no not-honoured settlement instead of calling it not honoured", () => {
+    const row = outageRow([entry({}), entry({ saleRecorded: false })], ctx);
+    expect(row).toMatchObject({ sales: 1, salesNotHonoured: 0, salesUnaccounted: 1, status: "needs_review" });
+  });
+
+  it("counts an unreadable entry on its outage and flags the outage for review", () => {
+    const row = outageRow([entry({}), entry({ kind: "unreadable", totalMinor: 0, saleRecorded: false, unreadable: true })], ctx);
+    expect(row).toMatchObject({ entries: 2, sales: 1, unreadable: 1, salesUnaccounted: 0, status: "needs_review" });
   });
 });
 

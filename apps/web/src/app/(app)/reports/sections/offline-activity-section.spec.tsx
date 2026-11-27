@@ -21,6 +21,8 @@ const row = (over: Partial<OfflineOutageRow>): OfflineOutageRow => ({
   sales: 3,
   salesTotalMinor: 450_000,
   salesNotHonoured: 0,
+  salesUnaccounted: 0,
+  unreadable: 0,
   shiftsOpened: 1,
   shiftsClosed: 0,
   firstSyncedAt: "2026-11-25T05:20:00.000Z",
@@ -61,6 +63,8 @@ const response: OfflineActivityReportResponse = {
     sales: 4,
     salesTotalMinor: 459_000,
     salesNotHonoured: 0,
+    salesUnaccounted: 0,
+    unreadableEntries: 0,
     medianTimeToSyncMs: 20 * MIN,
     longestTimeToSyncMs: 20 * MIN,
     outagesNeedingReview: 1,
@@ -91,7 +95,7 @@ describe("OfflineActivitySection", () => {
     expect(screen.getAllByText("2 h 5 min").length).toBeGreaterThan(0);
     expect(screen.getByText("1 sale with a stock case")).toBeInTheDocument();
     expect(screen.getByText("Not yet")).toBeInTheDocument();
-    expect(screen.getByText("2 entries awaiting review")).toBeInTheDocument();
+    expect(screen.getByText("2 entries to look into")).toBeInTheDocument();
   });
 
   it("filters to the outages with entries to review", async () => {
