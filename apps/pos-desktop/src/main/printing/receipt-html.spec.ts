@@ -1,8 +1,9 @@
 import { describe, expect, it } from "@jest/globals";
-import { formatDisplayDateTime } from "@pharmaceylon/shared";
+import { formatDisplayDateTime, type CounterWorkReturnDetail } from "@pharmaceylon/shared";
 import {
   renderSaleReceiptHtml,
   renderSupplierCashPayoutReceiptHtml,
+  renderSupplierReturnNoteHtml,
   type ReceiptSale,
 } from "./receipt-html";
 
@@ -89,5 +90,43 @@ describe("supplier cash payout receipt", () => {
     );
     expect(html).toContain("44444444");
     expect(html).not.toContain("SP-0012");
+  });
+});
+
+describe("supplier return note", () => {
+  const detail = {
+    kind: "supplier_return",
+    id: "00000000-0000-4000-8000-000000000012",
+    reference: "RT-0012",
+    subject: "Hemas <Pharma>",
+    approved: { name: "Dilini Fernando", at: null },
+    notes: [{ label: "Reason", text: "Expired and damaged", by: null, at: null }],
+    amount: "6210.00",
+    lines: [
+      { itemId: "a", productName: "Augmentin 625mg", batchNo: "AUG-7781", expiryDate: "2027-12-31", qty: 28, quarantined: true },
+      { itemId: "b", productName: "Cetirizine 10mg", batchNo: "CTZ-0990", expiryDate: null, qty: 600, quarantined: false },
+    ],
+  } as unknown as CounterWorkReturnDetail;
+  const printedAt = new Date("2026-11-27T10:00:00.000Z");
+
+  it("names the return, the supplier, each line and the copy, with places to sign", () => {
+    const html = renderSupplierReturnNoteHtml(detail, place, { copy: "Supplier copy", printedAt });
+    expect(html).toContain("SUPPLIER RETURN NOTE · SUPPLIER COPY");
+    expect(html).toContain("RT-0012");
+    expect(html).toContain("Hemas &#60;Pharma&#62;");
+    expect(html).toContain("Expired and damaged");
+    expect(html).toContain("Dilini Fernando");
+    expect(html).toContain("AUG-7781 · exp 2027-12 · quarantine");
+    expect(html).toContain("CTZ-0990 · shelf");
+    expect(html).toContain("628");
+    expect(html).toContain("Rs 6,210.00");
+    expect(html).toContain("Received by (rep)");
+    expect(html).toContain(formatDisplayDateTime(printedAt));
+  });
+
+  it("leaves the value out when the counter may not see costs", () => {
+    const html = renderSupplierReturnNoteHtml({ ...detail, amount: null }, place, { copy: "Branch copy", printedAt });
+    expect(html).toContain("BRANCH COPY");
+    expect(html).not.toContain("Value at cost");
   });
 });

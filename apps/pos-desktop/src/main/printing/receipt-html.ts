@@ -1,4 +1,4 @@
-import { formatDisplayDateTime } from "@pharmaceylon/shared";
+import { DISPLAY_LOCALE, formatDisplayDateTime, type CounterWorkReturnDetail } from "@pharmaceylon/shared";
 function escapeHtml(text: string): string {
   return text.replace(/[&<>"']/g, (char) => `&#${char.charCodeAt(0)};`);
 }
@@ -152,6 +152,67 @@ ${row("Paid at", formatDisplayDateTime(payout.executedAt))}
 </table>
 <hr>
 <p>Supplier cash payout</p>
+</body>
+</html>`;
+}
+
+/**
+ * The supplier return note the rep signs (decision 4: the signed paper is the hand-over record).
+ * Lines are the approved return as the server has it; costs print only when the counter may see them.
+ */
+export function renderSupplierReturnNoteHtml(
+  detail: CounterWorkReturnDetail,
+  place: ReceiptPlace,
+  options: { copy: "Supplier copy" | "Branch copy"; printedAt: Date },
+): string {
+  const row = (label: string, value: string) =>
+    `<tr><td>${escapeHtml(label)}</td><td>${escapeHtml(value)}</td></tr>`;
+  const units = detail.lines.reduce((n, l) => n + l.qty, 0);
+  const reason = detail.notes.find((n) => n.label === "Reason")?.text ?? null;
+  const lines = detail.lines
+    .map((l) => {
+      const where = l.quarantined ? "quarantine" : "shelf";
+      const batch = [l.batchNo, l.expiryDate ? `exp ${l.expiryDate.slice(0, 7)}` : null, where]
+        .filter(Boolean)
+        .join(" · ");
+      return `<tr><td>${escapeHtml(l.productName)}<br><small>${escapeHtml(batch)}</small></td><td>${escapeHtml(
+        l.qty.toLocaleString(DISPLAY_LOCALE),
+      )}</td></tr>`;
+    })
+    .join("\n");
+  return `<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>${RECEIPT_STYLE}
+  small { font-size: 10px; }
+  .sign td { padding-top: 6mm; }</style>
+</head>
+<body>
+${receiptHeader(place)}
+<p>SUPPLIER RETURN NOTE · ${escapeHtml(options.copy.toUpperCase())}</p>
+<table>
+${row("Return", detail.reference)}
+${row("Supplier", detail.subject ?? "Supplier")}
+${reason ? row("Reason", reason) : ""}
+${row("Approved by", detail.approved?.name ?? "—")}
+</table>
+<hr>
+<table>
+${lines}
+</table>
+<hr>
+<table>
+<tr class="total"><td>Units</td><td>${escapeHtml(units.toLocaleString(DISPLAY_LOCALE))}</td></tr>
+${detail.amount !== null ? row("Value at cost", `Rs ${Number(detail.amount).toLocaleString(DISPLAY_LOCALE, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`) : ""}
+${row("Printed", formatDisplayDateTime(options.printedAt))}
+</table>
+<hr>
+<table class="sign">
+<tr><td>Received by (rep)</td><td>____________</td></tr>
+<tr><td>Name</td><td>____________</td></tr>
+<tr><td>Handed over by</td><td>____________</td></tr>
+</table>
 </body>
 </html>`;
 }

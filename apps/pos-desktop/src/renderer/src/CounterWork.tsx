@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
   CounterWorkItem,
   CounterWorkKind,
+  Printer,
   RefundAtCounter,
   RefundExecuted,
   StockCaseAtCounter,
@@ -33,6 +34,7 @@ const POSTS_AT_COUNTER: ReadonlySet<CounterWorkKind> = new Set([
   "transfer_ship",
   "transfer_receive",
   "stocktake",
+  "supplier_return",
 ]);
 
 /** Kinds whose approved lines the counter can read and report a mismatch on (decision 1). */
@@ -42,6 +44,7 @@ const DOCUMENT_KINDS: ReadonlySet<CounterWorkKind> = new Set([
   "transfer_ship",
   "transfer_receive",
   "stocktake",
+  "supplier_return",
 ]);
 
 export type WorkTab = "all" | "receive" | "transfers" | "refunds" | "stock";
@@ -506,6 +509,7 @@ function Detail({
   onStaleError,
   onPosted,
   onOpenSupplierPayout,
+  printer,
 }: {
   item: CounterWorkItem;
   refund?: RefundAtCounter;
@@ -523,6 +527,7 @@ function Detail({
   onStaleError: (message: string | null) => void;
   onPosted: () => void;
   onOpenSupplierPayout?: (cashPayoutId: string) => void;
+  printer?: Printer | null;
 }) {
   const kind = KINDS[item.kind];
   // `canRefund` is really "no unconfirmed action is waiting at this counter", whatever the action.
@@ -616,7 +621,13 @@ function Detail({
             </div>
           </div>
           {DOCUMENT_KINDS.has(item.kind) && (
-            <CounterDocumentPane item={item} online={online} canPost={nothingUnconfirmed} onReported={onPosted} />
+            <CounterDocumentPane
+              item={item}
+              online={online}
+              canPost={nothingUnconfirmed}
+              onReported={onPosted}
+              printer={printer}
+            />
           )}
         </>
       )}
@@ -654,10 +665,19 @@ function Detail({
                     ? "Count what arrived below"
                     : item.kind === "stocktake"
                       ? "Post the count below"
-                      : "Post receiving below"}
+                      : item.kind === "supplier_return"
+                        ? "Pack and hand it over below"
+                        : "Post receiving below"}
               </b>
               Stock only moves when you{" "}
-              {item.kind === "transfer_ship" ? "dispatch" : item.kind === "transfer_receive" ? "receive" : "post"} it.
+              {item.kind === "transfer_ship"
+                ? "dispatch"
+                : item.kind === "transfer_receive"
+                  ? "receive"
+                  : item.kind === "supplier_return"
+                    ? "hand over"
+                    : "post"}{" "}
+              it.
             </>
           ) : (
             <>
@@ -993,6 +1013,7 @@ export function CounterWork({
   you = "",
   counterLabel = null,
   onOpenSupplierPayout,
+  printer,
 }: {
   onActivity?: () => void;
   /** How many items are waiting, for the rail's badge. */
@@ -1006,6 +1027,8 @@ export function CounterWork({
   counterLabel?: string | null;
   /** Deep-link an approved supplier payout to Cash & shift → Pay out. */
   onOpenSupplierPayout?: (cashPayoutId: string) => void;
+  /** This counter's receipt printer, for the supplier return note. */
+  printer?: Printer | null;
 } = {}) {
   const [items, setItems] = useState<CounterWorkItem[] | null>(null);
   const [refunds, setRefunds] = useState<RefundAtCounter[]>([]);
@@ -1312,6 +1335,7 @@ export function CounterWork({
               load();
             }}
             onOpenSupplierPayout={onOpenSupplierPayout}
+            printer={printer}
           />
         ) : (
           <section className={ui.panel} aria-label="Nothing open">

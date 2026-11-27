@@ -75,7 +75,7 @@ export const COUNTER_WORK_DESTINATION_BY_KIND: Readonly<
   stocktake: { destination: "stocktake", status: "available" },
   // The desktop posts held write-offs (#173) and settles offline sale stock (P5 #51) in Counter work.
   held_adjustment: { destination: "held_write_off", status: "available" },
-  supplier_return: { destination: "supplier_return", status: "planned" },
+  supplier_return: { destination: "supplier_return", status: "available" },
   import_stock: { destination: "import_post", status: "planned" },
   stock_case: { destination: "offline_stock_case", status: "available" },
   supplier_cash_payout: { destination: "supplier_payout", status: "available" },

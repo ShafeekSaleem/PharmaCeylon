@@ -47,8 +47,31 @@ export const DAILY_WORK_KINDS = [
   "supplier_cash_payout.execute",
   // P6 #52 decision 1: the counter says an approved document doesn't match.
   "counter_mismatch.review",
+  /** W4 #66 Phase D manager queues (read-only routing; same scope as GET /sales/*-queues). */
+  "sale_incident.review",
+  "payment_recovery.review",
+  "collected_money.review",
 ] as const;
 export type DailyWorkKind = (typeof DAILY_WORK_KINDS)[number];
+
+/** Client-side kind guard: unknown kinds from newer APIs should be ignored, not rejected. */
+export function isDailyWorkKind(value: string): value is DailyWorkKind {
+  return (DAILY_WORK_KINDS as readonly string[]).includes(value);
+}
+
+/**
+ * Accepted incident notes and unresolved collected-money rows stay in Daily work for this many
+ * days from `recorded_at` / `collected_at`. Sales recovery queues are unaffected. The default may
+ * become a per-tenant setting in a later slice.
+ */
+export const SALES_RECOVERY_DAILY_WORK_MAX_AGE_DAYS = 7;
+
+/** Management sales-recovery steps (W11 #145 Phase 1). */
+export const SALES_RECOVERY_DAILY_WORK_KINDS = [
+  "sale_incident.review",
+  "payment_recovery.review",
+  "collected_money.review",
+] as const satisfies readonly DailyWorkKind[];
 
 /** Signed counter step for a daily-work row (when `where` is `counter`). */
 export type DailyWorkCounterExecution = Readonly<{
