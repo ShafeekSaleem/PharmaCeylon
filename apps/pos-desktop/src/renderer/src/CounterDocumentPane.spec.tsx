@@ -639,3 +639,122 @@ describe("receiving a transfer in", () => {
     expect(pos.counterWorkDetail).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("posting a stock count", () => {
+  function stocktake(overrides: Record<string, unknown> = {}): CounterWorkDetail {
+    return {
+      kind: "stocktake",
+      id: id(4),
+      reference: "ST-0009",
+      subject: "Aisle B, analgesics",
+      approval,
+      requested: { name: "Kasun J.", at: null },
+      approved: { name: "Dilini Fernando", at: null },
+      dispatched: null,
+      notes: [],
+      mismatches: [],
+      totals: { lines: 4, differences: 2, valueAtCost: "-24.00" },
+      lines: [
+        { lineId: id(41), productId: id(13), productName: "Panadol 500mg", packLabel: "Box of 96", unitsPerPack: 96, batchId: id(31), batchNo: "PN2410", expiryDate: null, onHandAtCount: 1152, countedQty: 1140, difference: -12, now: 1143, afterPost: 1131, valueAtCost: "-54.00", reviewNote: null },
+        { lineId: id(42), productId: id(14), productName: "Disprin 300mg", packLabel: null, unitsPerPack: 1, batchId: id(32), batchNo: "DS-221", expiryDate: null, onHandAtCount: 240, countedQty: 250, difference: 10, now: 240, afterPost: 250, valueAtCost: "30.00", reviewNote: "Recounted twice" },
+        { lineId: id(43), productId: id(15), productName: "Brufen 400mg", packLabel: null, unitsPerPack: 1, batchId: id(33), batchNo: "BR-778", expiryDate: null, onHandAtCount: 300, countedQty: 300, difference: 0, now: 300, afterPost: 300, valueAtCost: "0.00", reviewNote: null },
+        { lineId: id(44), productId: id(16), productName: "Panadeine", packLabel: null, unitsPerPack: 1, batchId: id(34), batchNo: "PD-5501", expiryDate: null, onHandAtCount: 60, countedQty: null, difference: null, now: 58, afterPost: 58, valueAtCost: null, reviewNote: null },
+      ],
+      ...overrides,
+    } as unknown as CounterWorkDetail;
+  }
+  const stkItem: CounterWorkItem = { ...item, kind: "stocktake", id: id(4), reference: "ST-0009" };
+  const postButton = () => screen.getByRole("button", { name: /^Post stock count/ }) as HTMLButtonElement;
+  const openStk = async (props: { online?: boolean; canPost?: boolean } = {}) => {
+    render(
+      <CounterDocumentPane item={stkItem} online={props.online ?? true} canPost={props.canPost ?? true} onReported={onReported} />,
+    );
+    await screen.findByText("Panadol 500mg");
+  };
+
+  beforeEach(() => {
+    detail = stocktake();
+    pos.postCounterStocktake = jest.fn(async () => ({
+      ok: true,
+      value: { reference: "ST-0009", alreadyApplied: false, postedAt: "2026-11-27T09:00:00.000Z" },
+    }));
+  });
+
+  it("opens on the differences, read-only, with the count and cost totals", async () => {
+    await openStk();
+    expect(screen.getByText("Disprin 300mg")).toBeTruthy();
+    expect(screen.queryByText("Brufen 400mg")).toBeNull();
+    expect(screen.getByText("−12")).toBeTruthy();
+    expect(screen.getByText("+Rs 30.00")).toBeTruthy();
+    expect(screen.getByText("−Rs 24.00 at cost")).toBeTruthy();
+    expect(screen.queryByRole("textbox")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Something doesn't match" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /All lines/ }));
+    expect(screen.getByText("Brufen 400mg")).toBeTruthy();
+    expect(screen.getByText("Not counted")).toBeTruthy();
+  });
+
+  it("confirms the totals before posting, then posts only the count", async () => {
+    await openStk();
+    fireEvent.click(postButton());
+    const sheet = screen.getByRole("dialog");
+    expect(within(sheet).getByText(/Post stock count ST-0009\?/)).toBeTruthy();
+    expect(within(sheet).getByText(/Matches the version Dilini Fernando approved/)).toBeTruthy();
+    expect(within(sheet).getByText(/1 line wasn't counted; posting leaves it as it is/)).toBeTruthy();
+    expect(pos.postCounterStocktake).not.toHaveBeenCalled();
+    fireEvent.click(within(sheet).getByRole("button", { name: /Post 2 adjustments/ }));
+    await waitFor(() => expect(pos.postCounterStocktake).toHaveBeenCalledWith({ id: id(4) }));
+    expect(await screen.findByText("Posted. ST-0009: 2 adjustments written.")).toBeTruthy();
+    expect(onReported).toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: /^Post stock count/ })).toBeNull();
+  });
+
+  it("goes back from the sheet without posting", async () => {
+    await openStk();
+    fireEvent.click(postButton());
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: /Cancel/ }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(pos.postCounterStocktake).not.toHaveBeenCalled();
+  });
+
+  it("will not post after the approval changed or was withdrawn, offline, or with an action unconfirmed", async () => {
+    detail = stocktake({ approval: { ...approval, state: "changed", changes: ["Line 2 count"] } });
+    await openStk();
+    expect(postButton().disabled).toBe(true);
+    expect(screen.getByText(/approved again on the web/)).toBeTruthy();
+    cleanup();
+    detail = stocktake({ approval: { ...approval, state: "revoked" } });
+    await openStk();
+    expect(postButton().disabled).toBe(true);
+    cleanup();
+    detail = stocktake();
+    await openStk({ online: false });
+    expect(postButton().disabled).toBe(true);
+    cleanup();
+    await openStk({ canPost: false });
+    expect(postButton().disabled).toBe(true);
+  });
+
+  it("shows a refusal and reads the count again", async () => {
+    pos.postCounterStocktake!.mockImplementationOnce(async () => ({
+      ok: false,
+      error: { code: "APPROVAL_STALE", message: "This count changed since it was approved." },
+    }));
+    await openStk();
+    fireEvent.click(postButton());
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: /Post 2 adjustments/ }));
+    expect(await screen.findByText("This count changed since it was approved.")).toBeTruthy();
+    await waitFor(() => expect(pos.counterWorkDetail).toHaveBeenCalledTimes(2));
+  });
+
+  it("posts a count where everything matched", async () => {
+    detail = stocktake({
+      totals: { lines: 1, differences: 0, valueAtCost: "0.00" },
+      lines: [(stocktake() as unknown as { lines: unknown[] }).lines[2]],
+    });
+    render(<CounterDocumentPane item={stkItem} online canPost onReported={onReported} />);
+    await screen.findByText("Brufen 400mg");
+    fireEvent.click(postButton());
+    expect(within(screen.getByRole("dialog")).getByText(/Writes no adjustments/)).toBeTruthy();
+  });
+});

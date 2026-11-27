@@ -286,6 +286,36 @@ export class CounterWorkService {
     };
   }
 
+  /**
+   * Post an approved stock count as one signed command. The counter posts the differences as
+   * found at the count (decision 3); it never sends a count. The count is read again first, so the
+   * approval pinned to the command is the server's current one, and a changed, withdrawn or
+   * missing approval stops it before anything is signed. A stocktake has no waiver.
+   */
+  async postStocktake(id: string) {
+    const detail = await this.detail("stocktake", id);
+    const { approval } = detail;
+    if (approval.state === "changed" || approval.state === "revoked")
+      throw new ActionFailure(
+        approval.state === "changed" ? "APPROVAL_STALE" : "APPROVAL_INVALID",
+        approval.state === "changed"
+          ? "This count changed since it was approved. Ask for it to be approved again on the web."
+          : "The approval was withdrawn on the web.",
+      );
+    if (approval.state !== "matches" || !approval.evidenceId)
+      throw new ActionFailure("APPROVAL_REQUIRED", "Approve this count on the web before posting.");
+    const receipt = await this.deps.commands.execute(
+      "POST /api/v1/stocktakes/:id/post",
+      { stocktakeId: id },
+      approval.evidenceId,
+    );
+    return {
+      reference: detail.reference,
+      alreadyApplied: receipt.result.effect === "already_applied",
+      postedAt: new Date(receipt.recordedAt).toISOString(),
+    };
+  }
+
   /** All held write-off rows the counter may read (for detail panes and post pin). */
   async heldWriteOffsAtCounter(): Promise<HeldWriteOffAtCounter[]> {
     return this.heldWriteOffRows();

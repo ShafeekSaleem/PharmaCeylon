@@ -591,3 +591,70 @@ describe("receiving a transfer in at the counter", () => {
     expect(executed).toEqual([]);
   });
 });
+
+describe("posting an approved stock count at the counter", () => {
+  const stocktakeId = randomUUID();
+  const evidence = randomUUID();
+
+  function posting(detail: Record<string, unknown>, effect: "applied" | "already_applied" = "applied") {
+    const executed: { operation: string; body: unknown; evidence: string | null }[] = [];
+    const commands = {
+      execute: async (operation: string, body: unknown, approval: string | null) => {
+        executed.push({ operation, body, evidence: approval });
+        return { recordedAt: Date.parse("2026-11-27T09:00:00.000Z"), result: { effect } };
+      },
+    };
+    const reads: string[] = [];
+    const api = {
+      request: async (_m: string, path: string) => {
+        reads.push(path);
+        return detail;
+      },
+    };
+    return {
+      executed,
+      reads,
+      work: new CounterWorkService({
+        api: api as unknown as ApiSession,
+        terminal: { current: () => ({ identity: { branchId } }) } as unknown as TerminalService,
+        commands: commands as unknown as SignedCommandService,
+      }),
+    };
+  }
+
+  const base = {
+    reference: "ST-0009",
+    approval: { evidenceId: evidence, approvedVersion: 3, currentVersion: 3, state: "matches", changes: [] },
+    mismatches: [],
+  };
+
+  it("reads the count again and signs only its id, pinned to the approval just read", async () => {
+    const { work, executed, reads } = posting(base);
+    await expect(work.postStocktake(stocktakeId)).resolves.toEqual({
+      reference: "ST-0009",
+      alreadyApplied: false,
+      postedAt: "2026-11-27T09:00:00.000Z",
+    });
+    expect(reads).toEqual([`/counter-work/stocktake/${stocktakeId}`]);
+    expect(executed).toEqual([
+      { operation: "POST /api/v1/stocktakes/:id/post", body: { stocktakeId }, evidence },
+    ]);
+  });
+
+  it("signs nothing when the approval changed, was withdrawn or is missing", async () => {
+    for (const [approval, code] of [
+      [{ ...base.approval, state: "changed" }, "APPROVAL_STALE"],
+      [{ ...base.approval, state: "revoked" }, "APPROVAL_INVALID"],
+      [{ ...base.approval, evidenceId: null, state: "not_needed" }, "APPROVAL_REQUIRED"],
+    ] as const) {
+      const { work, executed } = posting({ ...base, approval });
+      await expect(work.postStocktake(stocktakeId)).rejects.toMatchObject({ code });
+      expect(executed).toEqual([]);
+    }
+  });
+
+  it("reports a replayed post as already applied", async () => {
+    const { work } = posting(base, "already_applied");
+    await expect(work.postStocktake(stocktakeId)).resolves.toMatchObject({ alreadyApplied: true });
+  });
+});

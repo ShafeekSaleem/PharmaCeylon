@@ -32,6 +32,7 @@ const POSTS_AT_COUNTER: ReadonlySet<CounterWorkKind> = new Set([
   "held_delivery",
   "transfer_ship",
   "transfer_receive",
+  "stocktake",
 ]);
 
 /** Kinds whose approved lines the counter can read and report a mismatch on (decision 1). */
@@ -40,6 +41,7 @@ const DOCUMENT_KINDS: ReadonlySet<CounterWorkKind> = new Set([
   "held_delivery",
   "transfer_ship",
   "transfer_receive",
+  "stocktake",
 ]);
 
 export type WorkTab = "all" | "receive" | "transfers" | "refunds" | "stock";
@@ -650,7 +652,9 @@ function Detail({
                   ? "Dispatch below"
                   : item.kind === "transfer_receive"
                     ? "Count what arrived below"
-                    : "Post receiving below"}
+                    : item.kind === "stocktake"
+                      ? "Post the count below"
+                      : "Post receiving below"}
               </b>
               Stock only moves when you{" "}
               {item.kind === "transfer_ship" ? "dispatch" : item.kind === "transfer_receive" ? "receive" : "post"} it.
