@@ -39,6 +39,8 @@ import type {
   ShiftCashReportResponse,
   CardAttemptsReportResponse,
   RefundAuthorizationsReportResponse,
+  OfflineActivityReportResponse,
+  StockDiscrepancyReportResponse,
   PurchaseSummaryResponse,
   SupplierSpendResponse,
   SupplierPerformanceResponse,
@@ -156,6 +158,14 @@ export function fetchCardAttemptsReport(days: number, scope: Scope, isOwner: boo
 
 export function fetchRefundAuthorizationsReport(days: number, scope: Scope, isOwner: boolean) {
   return apiJson<RefundAuthorizationsReportResponse>(`/reports/refund-authorizations?days=${days}${scopeQs(scope, isOwner)}`);
+}
+
+export function fetchOfflineActivityReport(days: number, scope: Scope, isOwner: boolean) {
+  return apiJson<OfflineActivityReportResponse>(`/reports/offline-activity?days=${days}${scopeQs(scope, isOwner)}`);
+}
+
+export function fetchStockDiscrepancyReport(days: number, scope: Scope, isOwner: boolean) {
+  return apiJson<StockDiscrepancyReportResponse>(`/reports/stock-discrepancies?days=${days}${scopeQs(scope, isOwner)}`);
 }
 
 export function fetchPurchaseSummary(days: number, scope: Scope, isOwner: boolean) {

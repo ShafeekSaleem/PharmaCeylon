@@ -10,6 +10,8 @@ import { parseReportDays, parseSalesReportQuery } from "./sales-report-query";
 import { ShiftCashReportService } from "./shift-cash-report.service";
 import { CardAttemptsReportService } from "./card-attempts-report.service";
 import { RefundAuthorizationsReportService } from "./refund-authorizations-report.service";
+import { OfflineActivityReportService } from "./offline-activity-report.service";
+import { StockDiscrepancyReportService } from "./stock-discrepancy-report.service";
 
 const CATEGORY_GROUP_BY_VALUES: CategoryReportGroupBy[] = [
   "commercial",
@@ -39,6 +41,8 @@ export class ReportsController {
     private readonly shiftCash: ShiftCashReportService,
     private readonly cardAttempts: CardAttemptsReportService,
     private readonly refundAuthorizations: RefundAuthorizationsReportService,
+    private readonly offlineActivity: OfflineActivityReportService,
+    private readonly stockDiscrepancies: StockDiscrepancyReportService,
   ) {}
 
   private isOwner(user: RequestUser): boolean {
@@ -458,5 +462,31 @@ export class ReportsController {
     @Query("scope") scope?: string,
   ) {
     return this.refundAuthorizations.report(user.tenantId, this.tenantScope(user, scope) ? null : branchId, parseReportDays(days));
+  }
+
+  /** W10 #72: offline activity — each outage a counter worked through (rebuilt from its signed
+   * journal), how long it lasted, what it sold and how long it took to sync. */
+  @RequirePermission("reports.view")
+  @Get("offline-activity")
+  offlineActivityReport(
+    @CurrentUser() user: RequestUser,
+    @RequireBranchId() branchId: string,
+    @Query("days") days?: string,
+    @Query("scope") scope?: string,
+  ) {
+    return this.offlineActivity.report(user.tenantId, this.tenantScope(user, scope) ? null : branchId, parseReportDays(days));
+  }
+
+  /** W10 #72: stock discrepancy cases — offline sales whose stock could not post at sync, how long
+   * each case stayed open and how it was settled. */
+  @RequirePermission("reports.view")
+  @Get("stock-discrepancies")
+  stockDiscrepanciesReport(
+    @CurrentUser() user: RequestUser,
+    @RequireBranchId() branchId: string,
+    @Query("days") days?: string,
+    @Query("scope") scope?: string,
+  ) {
+    return this.stockDiscrepancies.report(user.tenantId, this.tenantScope(user, scope) ? null : branchId, parseReportDays(days));
   }
 }

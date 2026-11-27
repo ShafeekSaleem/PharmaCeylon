@@ -24,6 +24,8 @@ export type RealReportKey =
   | "shift-cash"
   | "card-attempts"
   | "refund-authorizations"
+  | "offline-activity"
+  | "stock-discrepancies"
   | "gross-profit"
   | "margin-by-product"
   | "margin-by-category"
@@ -98,6 +100,7 @@ export const CATEGORIES: CategoryDef[] = [
       { key: "shift-cash", label: "Shift & Cash", periodLabel: "Range", periodOptions: DAYS_PERIOD_OPTIONS, defaultPeriod: 7 },
       { key: "card-attempts", label: "Card Machine Attempts", periodLabel: "Range", periodOptions: DAYS_PERIOD_OPTIONS, defaultPeriod: 30 },
       { key: "refund-authorizations", label: "Refund Authorizations", periodLabel: "Range", periodOptions: DAYS_PERIOD_OPTIONS, defaultPeriod: 30 },
+      { key: "offline-activity", label: "Offline Activity", periodLabel: "Range", periodOptions: DAYS_PERIOD_OPTIONS, defaultPeriod: 30 },
     ],
   },
   {
@@ -132,6 +135,7 @@ export const CATEGORIES: CategoryDef[] = [
       { key: "stock-movement", label: "Movement & Turnover", periodLabel: "Range", periodOptions: DAYS_PERIOD_OPTIONS, defaultPeriod: 30 },
       { key: "transfers-report", label: "Transfers", periodLabel: "Range", periodOptions: DAYS_PERIOD_OPTIONS, defaultPeriod: 30 },
       { key: "stocktakes-report", label: "Stocktakes", periodLabel: "Range", periodOptions: DAYS_PERIOD_OPTIONS, defaultPeriod: 30 },
+      { key: "stock-discrepancies", label: "Offline Stock Cases", periodLabel: "Range", periodOptions: DAYS_PERIOD_OPTIONS, defaultPeriod: 30 },
     ],
   },
   {
