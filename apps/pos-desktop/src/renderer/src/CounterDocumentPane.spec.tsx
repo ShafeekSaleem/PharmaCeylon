@@ -1054,3 +1054,186 @@ describe("handing over a supplier return", () => {
     expect(pos.completeCounterReturn).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("posting opening stock", () => {
+  function staged(overrides: Record<string, unknown> = {}): CounterWorkDetail {
+    const rows = [
+      { rowNumber: 2, productId: id(13), productName: "Panadol 500mg", categoryName: "Analgesics", batchNo: "PN-1", expiryDate: "2028-04-30", qty: 400, unitCost: "6.20", posted: true },
+      { rowNumber: 3, productId: id(14), productName: "Amoxicillin 500mg", categoryName: "Antibiotics", batchNo: "AMX-5530", expiryDate: "2028-04-30", qty: 400, unitCost: "6.20", posted: false },
+      { rowNumber: 4, productId: id(15), productName: "Azithromycin 500mg", categoryName: "Antibiotics", batchNo: "AZ-1180", expiryDate: null, qty: 90, unitCost: "48.00", posted: false },
+      { rowNumber: 5, productId: id(16), productName: "Vicks VapoRub", categoryName: null, batchNo: "VV-7710", expiryDate: "2028-06-30", qty: 36, unitCost: null, posted: false },
+    ];
+    return {
+      kind: "import_stock",
+      id: id(7),
+      reference: "kollupitiya-stock.xlsx",
+      subject: null,
+      approval: { evidenceId: null, approvedVersion: null, currentVersion: 3, state: "not_needed", changes: [] },
+      requested: { name: "Kasun J.", at: null },
+      approved: null,
+      dispatched: null,
+      notes: [],
+      mismatches: [],
+      stockVersion: 3,
+      categories: [
+        { categoryName: "Analgesics", rows: 1, batches: 1, units: 400, posted: true },
+        { categoryName: "Antibiotics", rows: 2, batches: 2, units: 490, posted: false },
+        { categoryName: null, rows: 1, batches: 1, units: 36, posted: false },
+      ],
+      rows,
+      ...overrides,
+    } as unknown as CounterWorkDetail;
+  }
+  const impItem: CounterWorkItem = {
+    ...item,
+    kind: "import_stock",
+    id: id(7),
+    reference: "kollupitiya-stock.xlsx",
+    approval: { evidenceId: null, approvedVersion: null, currentVersion: 3, state: "not_needed", changes: [] },
+  } as CounterWorkItem;
+  const rest = () => screen.getByRole("button", { name: /^Post the rest/ }) as HTMLButtonElement;
+  const show = async (p: { online?: boolean; canPost?: boolean } = {}) => {
+    const view = render(
+      <CounterDocumentPane item={impItem} online={p.online ?? true} canPost={p.canPost ?? true} onReported={onReported} />,
+    );
+    await screen.findByText("Amoxicillin 500mg");
+    return view;
+  };
+
+  beforeEach(() => {
+    detail = staged();
+    pos.postCounterImportStock = jest.fn(async () => ({
+      ok: true,
+      value: { reference: "kollupitiya-stock.xlsx", batchesPosted: 2, unitsPosted: 490, alreadyApplied: false, remaining: true, postedAt: "2026-11-27T11:00:00.000Z" },
+    }));
+  });
+
+  it("lists the categories, opens on the first still to post, and pins the version", async () => {
+    await show();
+    expect(screen.getByText(/pinned to version 3/)).toBeTruthy();
+    expect(screen.getByText("Posted")).toBeTruthy();
+    expect(screen.getAllByText("To post")).toHaveLength(2);
+    expect(screen.getByText("Azithromycin 500mg")).toBeTruthy();
+    expect(screen.getByText("Needs expiry")).toBeTruthy();
+    expect(screen.queryByText("Panadol 500mg")).toBeNull();
+    expect(screen.getByRole("button", { name: "Post Antibiotics · 2 rows" })).toBeTruthy();
+    expect(rest().textContent).toContain("Post the rest · 3 rows");
+    fireEvent.click(screen.getByRole("radio", { name: "Show No category" }));
+    expect(screen.getByText("Vicks VapoRub")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Post No category · 1 row" })).toBeTruthy();
+    // A posted category can be looked at but not posted again.
+    fireEvent.click(screen.getByRole("radio", { name: "Show Analgesics" }));
+    expect(screen.getByText("Panadol 500mg")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^Post Analgesics/ })).toBeNull();
+  });
+
+  it("confirms one category, posts it at the version shown, and reads the import again", async () => {
+    await show();
+    fireEvent.click(screen.getByRole("button", { name: "Post Antibiotics · 2 rows" }));
+    const sheet = screen.getByRole("dialog");
+    expect(document.activeElement).toBe(sheet);
+    expect(within(sheet).getByText("Post Antibiotics from kollupitiya-stock.xlsx?")).toBeTruthy();
+    expect(sheet.textContent).toContain("Posts 2 rows and 490 units in Antibiotics. Analgesics was posted and is not posted again.");
+    expect(pos.postCounterImportStock).not.toHaveBeenCalled();
+    fireEvent.click(within(sheet).getByRole("button", { name: /Post Antibiotics · 2 rows/ }));
+    await waitFor(() =>
+      expect(pos.postCounterImportStock).toHaveBeenCalledWith({
+        importId: id(7), version: 3, selection: "category", categoryName: "Antibiotics",
+      }),
+    );
+    expect(await screen.findByText(/Posted Antibiotics: 2 batches, 490 units on sale now\. The other categories stay here to post\./)).toBeTruthy();
+    await waitFor(() => expect(pos.counterWorkDetail).toHaveBeenCalledTimes(2));
+    expect(onReported).toHaveBeenCalled();
+  });
+
+  it("posts the rest with Ctrl+Enter after the sheet, and does not read a finished import again", async () => {
+    pos.postCounterImportStock!.mockImplementationOnce(async () => ({
+      ok: true,
+      value: { reference: "kollupitiya-stock.xlsx", batchesPosted: 3, unitsPosted: 526, alreadyApplied: false, remaining: false, postedAt: "2026-11-27T11:00:00.000Z" },
+    }));
+    await show();
+    fireEvent.keyDown(window, { key: "Enter", ctrlKey: true });
+    const sheet = screen.getByRole("dialog");
+    expect(within(sheet).getByText("Post the rest of kollupitiya-stock.xlsx?")).toBeTruthy();
+    expect(sheet.textContent).toContain("Posts 3 rows and 526 units in Antibiotics and No category.");
+    fireEvent.keyDown(window, { key: "Enter", ctrlKey: true });
+    await waitFor(() =>
+      expect(pos.postCounterImportStock).toHaveBeenCalledWith({ importId: id(7), version: 3, selection: "all", categoryName: null }),
+    );
+    expect(await screen.findByText(/Everything in kollupitiya-stock.xlsx is posted\./)).toBeTruthy();
+    expect(pos.counterWorkDetail).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("button", { name: /^Post the rest/ })).toBeNull();
+  });
+
+  it("posts an import with no categories as one batch of rows, with one button", async () => {
+    detail = staged({
+      categories: [{ categoryName: null, rows: 2, batches: 2, units: 436, posted: false }],
+      rows: [
+        { rowNumber: 2, productId: id(14), productName: "Amoxicillin 500mg", categoryName: null, batchNo: "AMX-5530", expiryDate: "2028-04-30", qty: 400, unitCost: "6.20", posted: false },
+        { rowNumber: 3, productId: id(16), productName: "Vicks VapoRub", categoryName: null, batchNo: "VV-7710", expiryDate: "2028-06-30", qty: 36, unitCost: null, posted: false },
+      ],
+    });
+    await show();
+    expect(screen.getByText("Vicks VapoRub")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^Post No category/ })).toBeNull();
+    fireEvent.click(rest());
+    const sheet = screen.getByRole("dialog");
+    expect(sheet.textContent).toContain("Posts 2 rows and 436 units.");
+    expect(sheet.textContent).not.toContain("No category");
+  });
+
+  it("will not post offline or with an action unconfirmed, and closes an open sheet", async () => {
+    const view = await show();
+    fireEvent.click(rest());
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    view.rerender(<CounterDocumentPane item={impItem} online={false} canPost onReported={onReported} />);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(rest().disabled).toBe(true);
+    expect(screen.getByText(/This counter is offline/)).toBeTruthy();
+    view.rerender(<CounterDocumentPane item={impItem} online canPost={false} onReported={onReported} />);
+    expect(rest().disabled).toBe(true);
+    expect(pos.postCounterImportStock).not.toHaveBeenCalled();
+  });
+
+  it("shows a refusal and reads the import again", async () => {
+    pos.postCounterImportStock!.mockImplementationOnce(async () => ({
+      ok: false,
+      error: { code: "CHANGED_SINCE_OPENED", message: "This import was staged again since you opened it. Check it again before posting." },
+    }));
+    await show();
+    fireEvent.click(rest());
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: /Post the rest/ }));
+    expect(await screen.findByText(/staged again since you opened it/)).toBeTruthy();
+    await waitFor(() => expect(pos.counterWorkDetail).toHaveBeenCalledTimes(2));
+  });
+
+  it("keeps Post off after a lost answer, so nothing is sent twice", async () => {
+    pos.postCounterImportStock!.mockImplementationOnce(async () => ({
+      ok: false,
+      error: { code: "UNCONFIRMED", message: "No answer from the server. Confirm it before doing anything else." },
+    }));
+    const view = await show();
+    fireEvent.click(rest());
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: /Post the rest/ }));
+    expect(await screen.findByText(/No answer from the server/)).toBeTruthy();
+    view.rerender(<CounterDocumentPane item={impItem} online canPost={false} onReported={onReported} />);
+    await screen.findByText("Amoxicillin 500mg");
+    expect(rest().disabled).toBe(true);
+    fireEvent.keyDown(window, { key: "Enter", ctrlKey: true });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(pos.postCounterImportStock).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows a long category a page at a time", async () => {
+    const many = Array.from({ length: 130 }, (_, n) => ({
+      rowNumber: n + 2, productId: id(13), productName: `Item ${n + 1}`, categoryName: "Bulk",
+      batchNo: `B${n}`, expiryDate: "2028-01-31", qty: 1, unitCost: null, posted: false,
+    }));
+    detail = staged({ categories: [{ categoryName: "Bulk", rows: 130, batches: 130, units: 130, posted: false }], rows: many });
+    render(<CounterDocumentPane item={impItem} online canPost onReported={onReported} />);
+    await screen.findByText("Item 1");
+    expect(screen.queryByText("Item 101")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Show 30 more" }));
+    expect(screen.getByText("Item 130")).toBeTruthy();
+  });
+});

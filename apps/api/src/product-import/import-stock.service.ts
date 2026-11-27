@@ -260,6 +260,9 @@ export class ImportStockService {
           stagedStock: rows as unknown as Prisma.InputJsonValue,
           stockPostedAt: record.stockPostedAt ?? new Date(),
           stockPostedBy: record.stockPostedBy ?? user.userId,
+          stockFullyPostedAt:
+            record.stockFullyPostedAt ??
+            (rows.every((row) => row.postedBatchId) ? new Date() : null),
           batchesCreated: { increment: pending.length },
           unitsPosted: {
             increment: pending.reduce((n, row) => n + row.qty, 0),

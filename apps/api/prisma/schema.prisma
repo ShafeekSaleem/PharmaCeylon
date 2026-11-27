@@ -420,6 +420,10 @@ model ProductImport {
   stagedStock Json @default("[]") @map("staged_stock")
   stockPostedAt DateTime? @map("stock_posted_at")
   stockPostedBy String? @map("stock_posted_by") @db.Uuid
+  /// Set once every staged row has its batch. Posting is a category at a time and a posted draft
+  /// is frozen, so this only ever goes from null to set; list polls filter on it instead of
+  /// scanning `staged_stock`.
+  stockFullyPostedAt DateTime? @map("stock_fully_posted_at")
 
   productsCreated   Int @default(0) @map("products_created")
   productsUpdated   Int @default(0) @map("products_updated")

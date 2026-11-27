@@ -765,3 +765,158 @@ describe("handing over an approved supplier return at the counter", () => {
     await expect(work.completeReturn(goodsReturnId)).rejects.toMatchObject({ code: "NOT_WAITING" });
   });
 });
+
+describe("posting staged opening stock at the counter", () => {
+  const importId = randomUUID();
+
+  /** `after` is what the read after posting returns (by default, the Antibiotics now posted). */
+  function posting(
+    detail: Record<string, unknown>,
+    result: Record<string, unknown> = {},
+    after: Record<string, unknown> | Error = postedOne(detail),
+  ) {
+    const executed: { operation: string; body: unknown; evidence: string | null }[] = [];
+    const commands = {
+      execute: async (operation: string, body: unknown, approval: string | null) => {
+        executed.push({ operation, body, evidence: approval });
+        return {
+          recordedAt: Date.parse("2026-11-27T11:00:00.000Z"),
+          result: { batchesPosted: 63, unitsPosted: 2850, effect: "applied", ...result },
+        };
+      },
+    };
+    const reads: string[] = [];
+    const api = {
+      request: async (_m: string, path: string) => {
+        reads.push(path);
+        if (reads.length === 1) return detail;
+        if (after instanceof Error) throw after;
+        return after;
+      },
+    };
+    return {
+      executed,
+      reads,
+      work: new CounterWorkService({
+        api: api as unknown as ApiSession,
+        terminal: { current: () => ({ identity: { branchId } }) } as unknown as TerminalService,
+        commands: commands as unknown as SignedCommandService,
+      }),
+    };
+  }
+
+  const staged = {
+    reference: "kollupitiya-stock.xlsx",
+    stockVersion: 3,
+    approval: { evidenceId: null, approvedVersion: null, currentVersion: 3, state: "not_needed", changes: [] },
+    categories: [
+      { categoryName: "Analgesics", rows: 84, batches: 84, units: 3420, posted: true },
+      { categoryName: "Antibiotics", rows: 61, batches: 63, units: 2850, posted: false },
+      { categoryName: null, rows: 5, batches: 5, units: 40, posted: false },
+    ],
+  };
+
+  function postedOne(detail: Record<string, unknown>) {
+    const categories = (detail.categories ?? []) as { categoryName: string | null; posted: boolean }[];
+    return {
+      ...detail,
+      categories: categories.map((c) => (c.categoryName === "Antibiotics" ? { ...c, posted: true } : c)),
+    };
+  }
+
+  it("signs one category pinned to the version shown, with no approval, and says the rest is left", async () => {
+    const { work, executed, reads } = posting(staged);
+    await expect(
+      work.postImportStock({ importId, version: 3, selection: "category", categoryName: "Antibiotics" }),
+    ).resolves.toEqual({
+      reference: "kollupitiya-stock.xlsx",
+      batchesPosted: 63,
+      unitsPosted: 2850,
+      alreadyApplied: false,
+      remaining: true,
+      postedAt: "2026-11-27T11:00:00.000Z",
+    });
+    expect(executed).toEqual([
+      {
+        operation: "POST /api/v1/products/import/:importId/stock/post",
+        body: { importId, version: 3, selection: "category", categoryName: "Antibiotics" },
+        evidence: null,
+      },
+    ]);
+    // Read before and after posting.
+    expect(reads).toEqual([`/counter-work/import_stock/${importId}`, `/counter-work/import_stock/${importId}`]);
+  });
+
+  it("says nothing is left when another counter posted the rest meanwhile", async () => {
+    const allPosted = { ...staged, categories: staged.categories.map((c) => ({ ...c, posted: true })) };
+    await expect(
+      posting(staged, {}, allPosted).work.postImportStock({
+        importId, version: 3, selection: "category", categoryName: "Antibiotics",
+      }),
+    ).resolves.toMatchObject({ remaining: false });
+    // A fully posted import has left Counter work, so the read after is a 404.
+    await expect(
+      posting(staged, {}, new ApiError(404, "NOT_FOUND", "gone")).work.postImportStock({
+        importId, version: 3, selection: "category", categoryName: "Antibiotics",
+      }),
+    ).resolves.toMatchObject({ remaining: false });
+    // A failed read keeps the guess from before posting; the next list read corrects it.
+    await expect(
+      posting(staged, {}, new Error("offline")).work.postImportStock({
+        importId, version: 3, selection: "category", categoryName: "Antibiotics",
+      }),
+    ).resolves.toMatchObject({ remaining: true });
+  });
+
+  it("posts an import whose rows have no category as one selection", async () => {
+    const plain = {
+      ...staged,
+      categories: [{ categoryName: null, rows: 12, batches: 12, units: 400, posted: false }],
+    };
+    const { work, executed, reads } = posting(plain);
+    await expect(
+      work.postImportStock({ importId, version: 3, selection: "all", categoryName: null }),
+    ).resolves.toMatchObject({ remaining: false });
+    expect(executed[0]!.body).toEqual({ importId, version: 3, selection: "all", categoryName: null });
+    // Posting the rest leaves nothing, so there is nothing to read again.
+    expect(reads).toHaveLength(1);
+  });
+
+  it("posts the rest with no category, and the rows with no category as their own selection", async () => {
+    const all = posting(staged);
+    await expect(
+      all.work.postImportStock({ importId, version: 3, selection: "all", categoryName: null }),
+    ).resolves.toMatchObject({ remaining: false });
+    expect(all.executed[0]!.body).toEqual({ importId, version: 3, selection: "all", categoryName: null });
+
+    const none = posting(staged);
+    await expect(
+      none.work.postImportStock({ importId, version: 3, selection: "category", categoryName: null }),
+    ).resolves.toMatchObject({ remaining: true });
+    expect(none.executed[0]!.body).toMatchObject({ selection: "category", categoryName: null });
+  });
+
+  it("says nothing is left when the last category posts, and reports a replay", async () => {
+    const last = { ...staged, categories: staged.categories.slice(0, 2) };
+    await expect(
+      posting(last).work.postImportStock({ importId, version: 3, selection: "category", categoryName: "Antibiotics" }),
+    ).resolves.toMatchObject({ remaining: false });
+    await expect(
+      posting(last, { effect: "already_applied", batchesPosted: 0, unitsPosted: 0 }).work.postImportStock({
+        importId, version: 3, selection: "all", categoryName: null,
+      }),
+    ).resolves.toMatchObject({ alreadyApplied: true });
+  });
+
+  it("signs nothing for a re-staged import, a posted category or one that is gone", async () => {
+    for (const [input, code] of [
+      [{ importId, version: 2, selection: "all", categoryName: null }, "CHANGED_SINCE_OPENED"],
+      [{ importId, version: 3, selection: "category", categoryName: "Analgesics" }, "ALREADY_POSTED"],
+      [{ importId, version: 3, selection: "category", categoryName: "Vitamins" }, "CHANGED_SINCE_OPENED"],
+    ] as const) {
+      const { work, executed } = posting(staged);
+      await expect(work.postImportStock(input)).rejects.toMatchObject({ code });
+      expect(executed).toEqual([]);
+    }
+  });
+});

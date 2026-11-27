@@ -16,7 +16,7 @@ mapping and P6 desktop destinations is `packages/shared/src/counter-work.ts`.
 | `stocktake` | `stocktake.post` | `POST …/stocktakes/:id/post` | `stocktake` | available |
 | `held_adjustment` | `held_adjustment.post` | `POST …/held-adjustments/:id/post` | `held_write_off` | **available** (#173) |
 | `supplier_return` | `goods_return.complete` | `POST …/returns/:id/complete` | `supplier_return` | available |
-| `import_stock` | `import_stock.post` | `POST …/import/:importId/stock/post` | `import_post` | planned |
+| `import_stock` | `import_stock.post` | `POST …/import/:importId/stock/post` | `import_post` | available |
 | `stock_case` | `offline_stock_case.resolve` | `POST …/resolutions/:id/execute` | `offline_stock_case` | **available** (P5 #51) |
 
 Planned destinations still appear in Counter work with `task.nextAction.executable: false` until P6

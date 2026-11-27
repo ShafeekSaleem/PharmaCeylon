@@ -79,23 +79,14 @@ test('supplier cash payout is available at supplier_payout', () => {
   assert.equal(task.nextAction.executable, true);
 });
 
-test('planned P6 screens still list as ready_for_execution with non-executable next action label', () => {
-  const task = c.projectCounterWorkTask({
-    kind: 'import_stock',
-    id: '00000000-0000-4000-8000-000000000004',
-    approval: { evidenceId: 'ev-3', state: 'matches', changes: [] },
-    approvedAt: '2026-11-11T09:00:00.000Z',
-    readyAt: '2026-11-11T09:00:00.000Z',
-    asOf,
-  });
-  assert.equal(task.stage, 'ready_for_execution');
-  assert.equal(task.destinationStatus, 'planned');
-  assert.equal(task.nextAction.executable, false);
-  assert.match(task.nextAction.label, /screen planned/);
+test('every counter-work kind has its desktop screen: none is planned', () => {
+  for (const [kind, entry] of Object.entries(c.COUNTER_WORK_DESTINATION_BY_KIND)) {
+    assert.equal(entry.status, 'available', kind);
+  }
 });
 
-test('screens the desktop ships are executable: refund, held write-off, offline sale stock, cash payout, stocktake, supplier return', () => {
-  for (const kind of ['refund', 'held_adjustment', 'stock_case', 'supplier_cash_payout', 'stocktake', 'supplier_return']) {
+test('screens the desktop ships are executable: refund, held write-off, offline sale stock, cash payout, stocktake, supplier return, opening stock', () => {
+  for (const kind of ['refund', 'held_adjustment', 'stock_case', 'supplier_cash_payout', 'stocktake', 'supplier_return', 'import_stock']) {
     const task = c.projectCounterWorkTask({
       kind,
       id: '00000000-0000-4000-8000-000000000005',

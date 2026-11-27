@@ -832,6 +832,21 @@ const receiveTransferInputSchema = z.object({
 });
 export type ReceiveTransferInput = z.infer<typeof receiveTransferInputSchema>;
 
+/** Post staged opening stock: one category (null = rows with no category) or every row left. */
+const importPostInputSchema = z
+  .object({
+    importId: uuid,
+    /** The staged version the counter showed; the post is pinned to it. */
+    version: z.number().int().min(1),
+    selection: z.enum(["all", "category"]),
+    categoryName: z.string().min(1).max(500).nullable(),
+  })
+  .strict()
+  .refine((v) => v.selection === "category" || v.categoryName === null, {
+    message: "Posting the rest names no category.",
+  });
+export type ImportPostInput = z.infer<typeof importPostInputSchema>;
+
 export const counterWorkKinds = [
   "prepared_receipt",
   "held_delivery",
@@ -2250,6 +2265,22 @@ export const ipcContract = {
       copies: z.array(returnNoteCopySchema).min(1).max(2).optional(),
     }),
     output: result(printResultSchema.extend({ printed: z.array(returnNoteCopySchema) })),
+  },
+  /** Post staged opening stock at the counter, pinned to the staged version shown. */
+  postCounterImportStock: {
+    channel: "pos:work:post-import-stock",
+    input: importPostInputSchema,
+    output: result(
+      z.object({
+        reference: z.string(),
+        batchesPosted: z.number().int(),
+        unitsPosted: z.number().int(),
+        alreadyApplied: z.boolean(),
+        /** Another category is still to post: the import stays in Counter work. */
+        remaining: z.boolean(),
+        postedAt: z.string(),
+      }),
+    ),
   },
   /** Post an approved stock count at the counter: the signed command names only the count. */
   postCounterStocktake: {
