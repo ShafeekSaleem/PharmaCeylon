@@ -254,7 +254,7 @@ export function RefundAuthorizationsSection({ scope, isOwner, days, onExportData
             dash
               ? "The rest on the web"
               : [
-                  kpis.openRequests.count ? `${plural(kpis.openRequests.count, "request")} waiting` : null,
+                  kpis.openRequests.count ? `${plural(kpis.openRequests.count, "request")} waiting now` : null,
                   kpis.cancelledRequests.count ? `${kpis.cancelledRequests.count} cancelled` : null,
                 ]
                   .filter(Boolean)

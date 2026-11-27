@@ -8,6 +8,9 @@ import {
 } from "./card-attempts-report";
 import { SalesReportScopeService } from "./sales-report-scope.service";
 
+/** Attempt ids per query, so a busy window does not build one unbounded `IN (...)`. */
+const ID_CHUNK = 1000;
+
 const CARD_STATES: ReadonlySet<string> = new Set(["prepared", "uncertain", "approved", "declined", "linked_to_sale", "not_used"]);
 
 type SignedNotUsed = { settlement?: unknown; reversalReference?: unknown; reason?: unknown };
@@ -44,7 +47,7 @@ export class CardAttemptsReportService {
     const meta = { days, timeZone: window.timeZone, since: window.since, before: window.before };
     const branchIds = branches.map((b) => b.id);
     const emptyCtx = { branchName: () => "", terminal: () => ({ label: null, counterLabel: null }), staff: () => null, sale: () => null };
-    if (!branchIds.length) return buildCardAttemptsReport([], emptyCtx, [], meta);
+    if (!branchIds.length) return buildCardAttemptsReport([], emptyCtx, { count: 0, amountMinor: 0 }, meta);
 
     const inWindow = { gte: window.since, lt: window.before };
     const [touched, collected] = await Promise.all([
@@ -53,35 +56,54 @@ export class CardAttemptsReportService {
         select: { attemptId: true },
         distinct: ["attemptId"],
       }),
-      this.prisma.offlineCollectedPayment.findMany({
+      // Rows exist only for card payments on offline sales a manager did not honour
+      // (journal-reviews `keepCollectedPayments`), so every row is collected, not sold.
+      this.prisma.offlineCollectedPayment.aggregate({
         where: { tenantId, branchId: { in: branchIds }, collectedAt: inWindow },
-        select: { amountMinor: true },
+        _count: { _all: true },
+        _sum: { amountMinor: true },
       }),
     ]);
-    const collectedNotSold = collected.map((c) => ({ amountMinor: Number(c.amountMinor) }));
+    const collectedNotSold = { count: collected._count._all, amountMinor: Number(collected._sum.amountMinor ?? 0n) };
     const attemptIds = touched.map((t) => t.attemptId!).filter(Boolean);
     if (!attemptIds.length) return buildCardAttemptsReport([], emptyCtx, collectedNotSold, meta);
 
-    const rows = await this.prisma.offlineSupportRecord.findMany({
-      where: { tenantId, branchId: { in: branchIds }, kind: "external_card_attempt", attemptId: { in: attemptIds } },
-      select: {
-        attemptId: true,
-        recordId: true,
-        branchId: true,
-        terminalId: true,
-        workSessionId: true,
-        cardState: true,
-        amountMinor: true,
-        providerReference: true,
-        approvalCode: true,
-        approvedAt: true,
-        saleCommandId: true,
-        recordedAt: true,
-        status: true,
-        heldReason: true,
-        envelope: true,
-      },
-    });
+    const chunks: string[][] = [];
+    for (let i = 0; i < attemptIds.length; i += ID_CHUNK) chunks.push(attemptIds.slice(i, i + ID_CHUNK));
+    const rows = (
+      await Promise.all(
+        chunks.map((ids) =>
+          this.prisma.offlineSupportRecord.findMany({
+            where: { tenantId, branchId: { in: branchIds }, kind: "external_card_attempt", attemptId: { in: ids } },
+            select: {
+              attemptId: true,
+              recordId: true,
+              branchId: true,
+              terminalId: true,
+              workSessionId: true,
+              cardState: true,
+              amountMinor: true,
+              providerReference: true,
+              approvalCode: true,
+              approvedAt: true,
+              saleCommandId: true,
+              recordedAt: true,
+              status: true,
+              heldReason: true,
+            },
+          }),
+        ),
+      )
+    ).flat();
+    // The signed settlement lives only in the envelope, and only `not_used` events carry one.
+    const notUsedIds = rows.filter((r) => r.cardState === "not_used").map((r) => r.recordId);
+    const envelopes = notUsedIds.length
+      ? await this.prisma.offlineSupportRecord.findMany({
+          where: { tenantId, branchId: { in: branchIds }, kind: "external_card_attempt", recordId: { in: notUsedIds } },
+          select: { recordId: true, envelope: true },
+        })
+      : [];
+    const envelopeById = new Map(envelopes.map((e) => [e.recordId, e.envelope]));
     const events: CardAttemptEvent[] = rows
       .filter((r) => r.cardState && CARD_STATES.has(r.cardState))
       .map((r) => ({
@@ -99,7 +121,7 @@ export class CardAttemptsReportService {
         recordedAt: r.recordedAt,
         status: r.status === "accepted" || r.status === "rejected" ? r.status : "held",
         heldReason: r.heldReason,
-        ...(r.cardState === "not_used" ? notUsedFields(r.envelope) : { settlement: null, reversalReference: null, reason: null }),
+        ...(r.cardState === "not_used" ? notUsedFields(envelopeById.get(r.recordId)) : { settlement: null, reversalReference: null, reason: null }),
       }));
 
     const terminalIds = [...new Set(events.map((e) => e.terminalId))];
