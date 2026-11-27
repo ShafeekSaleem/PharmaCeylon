@@ -79,7 +79,7 @@ describe("RefundAuthorizationsSection", () => {
     expect(screen.getByText("by Priya")).toBeInTheDocument();
     expect(screen.getByText("Counter 1 · S-0007")).toBeInTheDocument();
     expect(screen.getByText("One person")).toBeInTheDocument();
-    expect(screen.getByText("2 requests waiting")).toBeInTheDocument();
+    expect(screen.getByText("2 requests waiting now")).toBeInTheDocument();
   });
 
   it("filters to the refunds one person did alone", async () => {

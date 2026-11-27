@@ -15,7 +15,7 @@ export type CardAttemptOutcome =
   | "reversed" // approved, not used, voided or refunded on the card machine
   | "refund_owed" // approved, not used, and the machine could not reverse it
   | "approved_no_sale" // approved, not yet linked to a sale or ended
-  | "unresolved"; // prepared or uncertain: nobody has confirmed what the machine did
+  | "unresolved"; // prepared, uncertain, or ended without a settlement we recognise: nobody has confirmed what the machine did
 
 export const CARD_ATTEMPT_OUTCOMES: readonly CardAttemptOutcome[] = [
   "charged_sale",
@@ -129,7 +129,8 @@ export function cardAttemptOutcome(state: CardAttemptState, settlement: CardAtte
     case "declined":
       return "declined";
     case "not_used":
-      return settlement === "refund_owed" ? "refund_owed" : "reversed";
+      // Only a settlement the counter signed counts; a missing or unknown one is a question, not a reversal.
+      return settlement === "reversed_on_machine" ? "reversed" : settlement === "refund_owed" ? "refund_owed" : "unresolved";
     case "approved":
       return "approved_no_sale";
     default:
@@ -197,7 +198,7 @@ const zero = (): OutcomeTotals => ({ count: 0, amountMinor: 0 });
 export function buildCardAttemptsReport(
   events: readonly CardAttemptEvent[],
   ctx: CardAttemptContext,
-  collectedNotSold: readonly { amountMinor: number }[],
+  collectedNotSold: OutcomeTotals,
   meta: { days: number; timeZone: string; since: Date; before: Date },
 ): CardAttemptsReportResponse {
   const byAttempt = new Map<string, CardAttemptEvent[]>();
@@ -243,10 +244,7 @@ export function buildCardAttemptsReport(
       amountMinor,
       heldForReview,
       chargedWithoutSaleMinor: outcomes.approved_no_sale.amountMinor + outcomes.refund_owed.amountMinor,
-      collectedNotSold: {
-        count: collectedNotSold.length,
-        amountMinor: collectedNotSold.reduce((acc, p) => acc + p.amountMinor, 0),
-      },
+      collectedNotSold: { ...collectedNotSold },
       ...outcomes,
     },
     byCounter: [...counters.values()].sort((a, b) => b.problemAttempts - a.problemAttempts || b.attempts - a.attempts || a.label.localeCompare(b.label)),

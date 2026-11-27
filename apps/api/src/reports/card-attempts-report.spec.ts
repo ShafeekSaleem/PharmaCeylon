@@ -74,6 +74,11 @@ describe("cardAttemptRow", () => {
     expect(owed).toMatchObject({ outcome: "refund_owed", review: "held", heldReason: "card_not_used" });
   });
 
+  it("treats a not-used attempt without a settlement it recognises as unresolved, not reversed", () => {
+    const row = cardAttemptRow([event({ state: "approved", recordedAt: at(1) }), event({ state: "not_used", recordedAt: at(2), settlement: null })], ctx);
+    expect(row.outcome).toBe("unresolved");
+  });
+
   it("never moves an attempt back: an uncertain event after an approval stays approved", () => {
     const row = cardAttemptRow([event({ state: "approved", recordedAt: at(1) }), event({ state: "uncertain", recordedAt: at(2) })], ctx);
     expect(row.outcome).toBe("approved_no_sale");
@@ -96,7 +101,7 @@ describe("buildCardAttemptsReport", () => {
         event({ attemptId: "a4", state: "not_used", settlement: "refund_owed", amountMinor: 30_000 }),
       ],
       ctx,
-      [{ amountMinor: 70_000 }],
+      { count: 1, amountMinor: 70_000 },
       meta,
     );
     expect(report.attempts).toHaveLength(4);
