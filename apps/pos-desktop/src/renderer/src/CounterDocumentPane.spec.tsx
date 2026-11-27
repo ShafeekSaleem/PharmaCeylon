@@ -846,3 +846,180 @@ describe("posting a stock count", () => {
     expect(within(screen.getByRole("dialog")).getByText(/Writes no adjustments/)).toBeTruthy();
   });
 });
+
+describe("handing over a supplier return", () => {
+  function supplierReturn(overrides: Record<string, unknown> = {}): CounterWorkDetail {
+    return {
+      kind: "supplier_return",
+      id: id(5),
+      reference: "RT-0012",
+      subject: "Hemas Pharmaceuticals",
+      approval,
+      requested: { name: "Kasun J.", at: null },
+      approved: { name: "Dilini Fernando", at: null },
+      dispatched: null,
+      notes: [{ label: "Reason", text: "Expired and damaged", by: null, at: null }],
+      mismatches: [],
+      amount: "6210.00",
+      lines: [
+        { itemId: id(51), productId: id(13), productName: "Augmentin 625mg", packLabel: "Pack of 14", unitsPerPack: 14, batchId: id(31), batchNo: "AUG-7781", expiryDate: "2027-12-31", qty: 28, quarantined: true, disposition: "quarantine", unitPrice: "90.00" },
+        { itemId: id(52), productId: id(14), productName: "Cetirizine 10mg", packLabel: "Pack of 100", unitsPerPack: 100, batchId: id(32), batchNo: "CTZ-0990", expiryDate: "2027-01-31", qty: 600, quarantined: false, disposition: "restock", unitPrice: "6.15" },
+      ],
+      ...overrides,
+    } as unknown as CounterWorkDetail;
+  }
+  const retItem: CounterWorkItem = { ...item, kind: "supplier_return", id: id(5), reference: "RT-0012" };
+  const printer = { name: "EPSON", displayName: "EPSON TM-T82" };
+  const handOver = () => screen.getByRole("button", { name: /^Hand over and complete/ }) as HTMLButtonElement;
+  const pack = (name: string) => fireEvent.click(screen.getByRole("checkbox", { name: `Packed: ${name}` }));
+  const props = { online: true, canPost: true, printer };
+  const show = async (over: Partial<typeof props> = {}) => {
+    const p = { ...props, ...over };
+    const view = render(
+      <CounterDocumentPane item={retItem} online={p.online} canPost={p.canPost} printer={p.printer} onReported={onReported} />,
+    );
+    await screen.findByText("Augmentin 625mg");
+    return view;
+  };
+
+  beforeEach(() => {
+    detail = supplierReturn();
+    pos.completeCounterReturn = jest.fn(async () => ({
+      ok: true,
+      value: { reference: "RT-0012", alreadyApplied: false, debitNoteRaised: true, completedAt: "2026-11-27T10:00:00.000Z" },
+    }));
+    pos.printCounterReturnNote = jest.fn(async () => ({ ok: true, value: { ok: true, error: null } }));
+  });
+
+  it("shows where each line is, in packs and units, and waits until every line is packed", async () => {
+    await show();
+    expect(screen.getByText("2 packs · 28")).toBeTruthy();
+    expect(screen.getByText("6 packs · 600")).toBeTruthy();
+    expect(screen.getByText("Quarantine")).toBeTruthy();
+    expect(screen.getByText("Shelf")).toBeTruthy();
+    expect(screen.getByText("Rs 2,520.00")).toBeTruthy();
+    expect(screen.getByText("Why: Expired and damaged")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /doesn't match/ })).toBeNull();
+    expect(handOver().disabled).toBe(true);
+    expect(screen.getByText("Pack the last line first.")).toBeTruthy();
+    pack("Augmentin 625mg");
+    expect(handOver().disabled).toBe(true);
+    pack("Cetirizine 10mg");
+    expect(handOver().disabled).toBe(false);
+  });
+
+  it("prints the return note from the server's copy, twice", async () => {
+    await show();
+    fireEvent.click(screen.getByRole("button", { name: /Print return note/ }));
+    await waitFor(() => expect(pos.printCounterReturnNote).toHaveBeenCalledWith({ id: id(5), printerName: "EPSON" }));
+    expect(await screen.findByText(/Two copies sent to the printer/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Print again/ })).toBeTruthy();
+  });
+
+  it("says when the note did not print, and leaves Print off without a printer", async () => {
+    pos.printCounterReturnNote!.mockImplementationOnce(async () => ({ ok: true, value: { ok: false, error: "Out of paper." } }));
+    const view = await show();
+    fireEvent.click(screen.getByRole("button", { name: /Print return note/ }));
+    expect(await screen.findByText("Out of paper.")).toBeTruthy();
+    view.unmount();
+    await show({ printer: null as never });
+    expect((screen.getByRole("button", { name: /Print return note/ }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("confirms the units and the debit note, then completes with only the return", async () => {
+    await show();
+    pack("Augmentin 625mg");
+    pack("Cetirizine 10mg");
+    fireEvent.click(handOver());
+    const sheet = screen.getByRole("dialog");
+    expect(document.activeElement).toBe(sheet);
+    expect(within(sheet).getByText(/Hand over RT-0012 to Hemas Pharmaceuticals\?/)).toBeTruthy();
+    expect(within(sheet).getByText(/28 from quarantine and 600 from the shelf/)).toBeTruthy();
+    expect(within(sheet).getByText(/debit note for Rs 6,210.00 against Hemas Pharmaceuticals/)).toBeTruthy();
+    expect(within(sheet).getByText(/hasn't been printed here/)).toBeTruthy();
+    expect(pos.completeCounterReturn).not.toHaveBeenCalled();
+    fireEvent.click(within(sheet).getByRole("button", { name: /Hand over and complete/ }));
+    await waitFor(() => expect(pos.completeCounterReturn).toHaveBeenCalledWith({ id: id(5) }));
+    expect(
+      await screen.findByText("Handed over. RT-0012 has left stock; a debit note was raised against Hemas Pharmaceuticals."),
+    ).toBeTruthy();
+    expect(onReported).toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: /^Hand over and complete/ })).toBeNull();
+  });
+
+  it("says no debit note was raised when there was nothing to claim", async () => {
+    detail = supplierReturn({ amount: "0.00" });
+    pos.completeCounterReturn!.mockImplementationOnce(async () => ({
+      ok: true,
+      value: { reference: "RT-0012", alreadyApplied: false, debitNoteRaised: false, completedAt: "2026-11-27T10:00:00.000Z" },
+    }));
+    await show();
+    pack("Augmentin 625mg");
+    pack("Cetirizine 10mg");
+    fireEvent.click(handOver());
+    expect(within(screen.getByRole("dialog")).getByText(/worth nothing to claim/)).toBeTruthy();
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: /Hand over and complete/ }));
+    expect(await screen.findByText(/has left stock; there was nothing to claim, so no debit note/)).toBeTruthy();
+  });
+
+  it("will not hand over after the approval changed or was withdrawn, offline, or with an action unconfirmed", async () => {
+    for (const [state, over] of [
+      ["changed", {}],
+      ["revoked", {}],
+      ["matches", { online: false }],
+      ["matches", { canPost: false }],
+    ] as const) {
+      detail = supplierReturn({ approval: { ...approval, state } });
+      await show(over);
+      pack("Augmentin 625mg");
+      pack("Cetirizine 10mg");
+      expect(handOver().disabled).toBe(true);
+      cleanup();
+      clearCheckedLines();
+    }
+  });
+
+  it("closes the sheet when handing over stops being possible while it is open", async () => {
+    const view = await show();
+    pack("Augmentin 625mg");
+    pack("Cetirizine 10mg");
+    fireEvent.click(handOver());
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    view.rerender(<CounterDocumentPane item={retItem} online={false} canPost printer={printer} onReported={onReported} />);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(pos.completeCounterReturn).not.toHaveBeenCalled();
+  });
+
+  it("shows a refusal and reads the return again", async () => {
+    pos.completeCounterReturn!.mockImplementationOnce(async () => ({
+      ok: false,
+      error: { code: "APPROVAL_STALE", message: "This return changed since it was approved." },
+    }));
+    await show();
+    pack("Augmentin 625mg");
+    pack("Cetirizine 10mg");
+    fireEvent.click(handOver());
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: /Hand over and complete/ }));
+    expect(await screen.findByText("This return changed since it was approved.")).toBeTruthy();
+    await waitFor(() => expect(pos.counterWorkDetail).toHaveBeenCalledTimes(2));
+  });
+
+  it("keeps Hand over off after a lost answer, so nothing is sent twice", async () => {
+    pos.completeCounterReturn!.mockImplementationOnce(async () => ({
+      ok: false,
+      error: { code: "UNCONFIRMED", message: "No answer from the server. Confirm it before doing anything else." },
+    }));
+    const view = await show();
+    pack("Augmentin 625mg");
+    pack("Cetirizine 10mg");
+    fireEvent.click(handOver());
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: /Hand over and complete/ }));
+    expect(await screen.findByText(/No answer from the server/)).toBeTruthy();
+    view.rerender(<CounterDocumentPane item={retItem} online canPost={false} printer={printer} onReported={onReported} />);
+    await screen.findByText("Augmentin 625mg");
+    expect(handOver().disabled).toBe(true);
+    fireEvent.keyDown(window, { key: "Enter", ctrlKey: true });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(pos.completeCounterReturn).toHaveBeenCalledTimes(1);
+  });
+});

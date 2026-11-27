@@ -8,7 +8,7 @@ import {
   COUNTER_MISMATCH_HOLDS,
   COUNTER_MISMATCH_PROBLEM_LABEL,
 } from "@pharmaceylon/shared";
-import type { CounterWorkItem } from "../../shared/ipc-contract";
+import type { CounterWorkItem, Printer } from "../../shared/ipc-contract";
 import {
   buildMismatchInput,
   buildReceiveBody,
@@ -34,6 +34,7 @@ import {
 import styles from "./CounterDocumentPane.module.css";
 import { Icon } from "./Icon";
 import { StocktakeBody } from "./StocktakePane";
+import { SupplierReturnBody } from "./SupplierReturnPane";
 import { invoke } from "./invoke";
 import ui from "./ui.module.css";
 import { cx } from "./useAction";
@@ -209,6 +210,7 @@ export function CounterDocumentPane({
   online,
   canPost,
   onReported,
+  printer,
 }: {
   item: CounterWorkItem;
   online: boolean;
@@ -216,6 +218,8 @@ export function CounterDocumentPane({
   canPost: boolean;
   /** The list is read again so a held item shows as waiting for a corrected version. */
   onReported: () => void;
+  /** This counter's receipt printer, for the supplier return note. */
+  printer?: Printer | null;
 }) {
   const [detail, setDetail] = useState<CounterWorkDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -490,7 +494,24 @@ export function CounterDocumentPane({
         </div>
       ))}
 
-      {detail.kind === "stocktake" ? (
+      {detail.kind === "supplier_return" ? (
+        <SupplierReturnBody
+          detail={detail}
+          online={online}
+          canPost={canPost}
+          printer={printer}
+          ticked={(l) => isTicked(`${detail.id}:${l.itemId}`, lineFingerprint(l))}
+          onToggle={(l) => toggle(`${detail.id}:${l.itemId}`, lineFingerprint(l))}
+          onCompleted={() => {
+            detail.lines.forEach((l) => tickStore.delete(`${detail.id}:${l.itemId}`));
+            onReported();
+          }}
+          onRefused={() => {
+            load();
+            onReported();
+          }}
+        />
+      ) : detail.kind === "stocktake" ? (
         <StocktakeBody
           detail={detail}
           online={online}

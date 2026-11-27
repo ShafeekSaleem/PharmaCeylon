@@ -2219,6 +2219,26 @@ export const ipcContract = {
       }),
     ),
   },
+  /** Hand over an approved supplier return: the signed command names only the return. */
+  completeCounterReturn: {
+    channel: "pos:work:complete-return",
+    input: z.object({ id: uuid }),
+    output: result(
+      z.object({
+        reference: z.string(),
+        alreadyApplied: z.boolean(),
+        /** False when the returned lines are worth nothing to claim. */
+        debitNoteRaised: z.boolean(),
+        completedAt: z.string(),
+      }),
+    ),
+  },
+  /** Print the return note twice (supplier copy, branch copy), read from the server as it stands. */
+  printCounterReturnNote: {
+    channel: "pos:work:print-return-note",
+    input: z.object({ id: uuid, printerName: z.string().min(1).max(260) }),
+    output: result(printResultSchema),
+  },
   /** Post an approved stock count at the counter: the signed command names only the count. */
   postCounterStocktake: {
     channel: "pos:work:post-stocktake",

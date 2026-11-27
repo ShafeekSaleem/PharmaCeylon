@@ -658,3 +658,88 @@ describe("posting an approved stock count at the counter", () => {
     await expect(work.postStocktake(stocktakeId)).resolves.toMatchObject({ alreadyApplied: true });
   });
 });
+
+describe("handing over an approved supplier return at the counter", () => {
+  const goodsReturnId = randomUUID();
+  const evidence = randomUUID();
+
+  function handingOver(detail: Record<string, unknown>, result: { effect: string; debitNoteId: string | null }) {
+    const executed: { operation: string; body: unknown; evidence: string | null }[] = [];
+    const commands = {
+      execute: async (operation: string, body: unknown, approval: string | null) => {
+        executed.push({ operation, body, evidence: approval });
+        return { recordedAt: Date.parse("2026-11-27T10:00:00.000Z"), result };
+      },
+    };
+    const reads: string[] = [];
+    const api = {
+      request: async (_m: string, path: string) => {
+        reads.push(path);
+        return detail;
+      },
+    };
+    return {
+      executed,
+      reads,
+      work: new CounterWorkService({
+        api: api as unknown as ApiSession,
+        terminal: { current: () => ({ identity: { branchId } }) } as unknown as TerminalService,
+        commands: commands as unknown as SignedCommandService,
+      }),
+    };
+  }
+
+  const base = {
+    reference: "RT-0012",
+    approval: { evidenceId: evidence, approvedVersion: 2, currentVersion: 2, state: "matches", changes: [] },
+    mismatches: [],
+  };
+
+  it("reads the return again and signs only its id, pinned to the approval just read", async () => {
+    const { work, executed, reads } = handingOver(base, { effect: "applied", debitNoteId: randomUUID() });
+    await expect(work.completeReturn(goodsReturnId)).resolves.toEqual({
+      reference: "RT-0012",
+      alreadyApplied: false,
+      debitNoteRaised: true,
+      completedAt: "2026-11-27T10:00:00.000Z",
+    });
+    expect(reads).toEqual([`/counter-work/supplier_return/${goodsReturnId}`]);
+    expect(executed).toEqual([
+      { operation: "POST /api/v1/returns/:id/complete", body: { goodsReturnId }, evidence },
+    ]);
+  });
+
+  it("signs nothing when the approval changed, was withdrawn or is missing", async () => {
+    for (const [approval, code] of [
+      [{ ...base.approval, state: "changed" }, "APPROVAL_STALE"],
+      [{ ...base.approval, state: "revoked" }, "APPROVAL_INVALID"],
+      [{ ...base.approval, evidenceId: null, state: "not_needed" }, "APPROVAL_REQUIRED"],
+    ] as const) {
+      const { work, executed } = handingOver({ ...base, approval }, { effect: "applied", debitNoteId: null });
+      await expect(work.completeReturn(goodsReturnId)).rejects.toMatchObject({ code });
+      expect(executed).toEqual([]);
+    }
+  });
+
+  it("says when nothing was claimed, and when a replay found it completed", async () => {
+    await expect(
+      handingOver(base, { effect: "applied", debitNoteId: null }).work.completeReturn(goodsReturnId),
+    ).resolves.toMatchObject({ debitNoteRaised: false, alreadyApplied: false });
+    await expect(
+      handingOver(base, { effect: "already_applied", debitNoteId: randomUUID() }).work.completeReturn(goodsReturnId),
+    ).resolves.toMatchObject({ alreadyApplied: true });
+  });
+
+  it("does not hand over a return that left Counter work", async () => {
+    const work = new CounterWorkService({
+      api: {
+        request: async () => {
+          throw new ApiError(404, "NOT_FOUND", "gone");
+        },
+      } as unknown as ApiSession,
+      terminal: { current: () => ({ identity: { branchId } }) } as unknown as TerminalService,
+      commands: { execute: async () => { throw new Error("must not sign"); } } as unknown as SignedCommandService,
+    });
+    await expect(work.completeReturn(goodsReturnId)).rejects.toMatchObject({ code: "NOT_WAITING" });
+  });
+});

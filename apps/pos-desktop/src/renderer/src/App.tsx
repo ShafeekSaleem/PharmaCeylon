@@ -453,6 +453,7 @@ export function App() {
                       online={api?.reachable !== false}
                       you={session.staffName}
                       counterLabel={device.enrollment?.counterLabel ?? null}
+                      printer={printer}
                       onOpenSupplierPayout={(id) => {
                         setCashPayoutFocus(id);
                         setPage("cash");

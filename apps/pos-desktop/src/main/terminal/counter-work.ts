@@ -316,6 +316,38 @@ export class CounterWorkService {
     };
   }
 
+  /**
+   * Hand an approved supplier return over and complete it as one signed command. The return is
+   * read again first, so the approval pinned to the command is the server's current one, and a
+   * changed, withdrawn or missing approval stops it before anything is signed. A supplier return
+   * has no waiver. Completing takes the units out of stock and raises the debit note in the same
+   * transaction (decision 4: the signed paper note is the hand-over record).
+   */
+  async completeReturn(id: string) {
+    const detail = await this.detail("supplier_return", id);
+    const { approval } = detail;
+    if (approval.state === "changed" || approval.state === "revoked")
+      throw new ActionFailure(
+        approval.state === "changed" ? "APPROVAL_STALE" : "APPROVAL_INVALID",
+        approval.state === "changed"
+          ? "This return changed since it was approved. Ask for it to be approved again on the web."
+          : "The approval was withdrawn on the web.",
+      );
+    if (approval.state !== "matches" || !approval.evidenceId)
+      throw new ActionFailure("APPROVAL_REQUIRED", "Approve this return on the web before handing it over.");
+    const receipt = await this.deps.commands.execute(
+      "POST /api/v1/returns/:id/complete",
+      { goodsReturnId: id },
+      approval.evidenceId,
+    );
+    return {
+      reference: detail.reference,
+      alreadyApplied: receipt.result.effect === "already_applied",
+      debitNoteRaised: receipt.result.debitNoteId !== null,
+      completedAt: new Date(receipt.recordedAt).toISOString(),
+    };
+  }
+
   /** All held write-off rows the counter may read (for detail panes and post pin). */
   async heldWriteOffsAtCounter(): Promise<HeldWriteOffAtCounter[]> {
     return this.heldWriteOffRows();

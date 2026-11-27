@@ -11,6 +11,7 @@ import {
 import { createPublicKey } from "node:crypto";
 import { statfs } from "node:fs/promises";
 import { join } from "node:path";
+import type { CounterWorkReturnDetail } from "@pharmaceylon/shared";
 import type { ActionResult } from "../shared/ipc-contract";
 import { ApiSession } from "./api/api-client";
 import { checkApi } from "./api-check";
@@ -38,6 +39,7 @@ import { printHtml } from "./printing/print-html";
 import {
   renderSaleReceiptHtml,
   renderSupplierCashPayoutReceiptHtml,
+  renderSupplierReturnNoteHtml,
 } from "./printing/receipt-html";
 import { renderXReportHtml } from "./printing/x-report-html";
 import {
@@ -1030,6 +1032,35 @@ function registerIpc(
           if (!counterWork)
             throw new ActionFailure("NOT_READY", "The counter is still starting.");
           return counterWork.receiveTransfer(input);
+        }),
+      completeCounterReturn: ({ id }) =>
+        act(logger, "completeCounterReturn", () => {
+          if (!counterWork)
+            throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          return counterWork.completeReturn(id);
+        }),
+      printCounterReturnNote: ({ id, printerName }) =>
+        act(logger, "printCounterReturnNote", async () => {
+          if (!counterWork)
+            throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          // Read from the server, not the screen: the paper names the return as it stands now.
+          const detail = await counterWork.detail("supplier_return", id);
+          const device = store ? new DeviceStore(store.db).read() : null;
+          const place = {
+            branchName: device?.branchName ?? "",
+            counterLabel: device?.counterLabel ?? "",
+            accent: counterBrand.receiptAccent(),
+          };
+          const printedAt = new Date();
+          // Two copies: the rep signs one and the branch keeps the other.
+          for (const copy of ["Supplier copy", "Branch copy"] as const) {
+            const printed = await printHtml(
+              printerName,
+              renderSupplierReturnNoteHtml(detail as CounterWorkReturnDetail, place, { copy, printedAt }),
+            );
+            if (!printed.ok) return printed;
+          }
+          return { ok: true, error: null };
         }),
       postCounterStocktake: ({ id }) =>
         act(logger, "postCounterStocktake", () => {
