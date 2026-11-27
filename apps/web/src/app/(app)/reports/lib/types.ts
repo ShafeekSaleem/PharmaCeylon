@@ -891,3 +891,129 @@ export type RefundAuthorizationsReportResponse = {
   byExecutor: RefundPersonRollup[];
   refunds: RefundAuthorizationRow[];
 };
+
+/** W10 #72: `/reports/offline-activity`. Money in minor units; durations in milliseconds. */
+export type OfflineOutageRow = {
+  key: string;
+  offlineSessionId: string;
+  branchId: string;
+  branchName: string;
+  terminalId: string;
+  terminalLabel: string | null;
+  counterLabel: string | null;
+  startedAt: string;
+  lastEntryAt: string;
+  offlineForMs: number;
+  entries: number;
+  sales: number;
+  salesTotalMinor: number;
+  salesNotHonoured: number;
+  shiftsOpened: number;
+  shiftsClosed: number;
+  firstSyncedAt: string | null;
+  lastSyncedAt: string | null;
+  timeToSyncMs: number | null;
+  firstSyncAfterMs: number | null;
+  awaitingReview: number;
+  rejected: number;
+  stockPendingSales: number;
+  staff: { id: string; name: string }[];
+  status: "synced" | "needs_review";
+};
+export type OfflineActivityReportResponse = {
+  days: number;
+  timeZone: string;
+  since: string;
+  before: string;
+  kpis: {
+    outages: number;
+    countersAffected: number;
+    offlineForMs: number;
+    longestOfflineForMs: number;
+    sales: number;
+    salesTotalMinor: number;
+    salesNotHonoured: number;
+    medianTimeToSyncMs: number | null;
+    longestTimeToSyncMs: number | null;
+    outagesNeedingReview: number;
+    entriesAwaitingReview: number;
+    stockPendingSales: number;
+  };
+  byCounter: Array<{
+    terminalId: string;
+    label: string;
+    branchName: string;
+    outages: number;
+    offlineForMs: number;
+    sales: number;
+    salesTotalMinor: number;
+    awaitingReview: number;
+  }>;
+  outages: OfflineOutageRow[];
+};
+
+/** W10 #72: `/reports/stock-discrepancies`. */
+export type StockResolutionKind = "post_now" | "count_and_correct" | "link_existing_settlement";
+export type StockDiscrepancyCaseRow = {
+  caseId: string;
+  branchId: string;
+  branchName: string;
+  terminalId: string;
+  counterLabel: string | null;
+  terminalLabel: string | null;
+  status: "open" | "resolved";
+  openedAt: string;
+  resolvedAt: string | null;
+  ageMs: number;
+  sale: { id: string; invoiceNo: string; soldAt: string; seller: { id: string; name: string } | null };
+  lines: Array<{
+    productId: string;
+    productName: string;
+    batchId: string;
+    batchNo: string;
+    soldQuantity: number;
+    availableQuantityAtSync: number;
+    shortfallQuantity: number;
+    reason: string;
+  }>;
+  products: number;
+  unitsSold: number;
+  unitsShort: number;
+  reasons: string[];
+  blockedBatches: number;
+  resolution: {
+    kind: StockResolutionKind;
+    status: "prepared" | "approved" | "executed" | "cancelled";
+    requestedBy: { id: string; name: string };
+    approvedBy: { id: string; name: string } | null;
+    executedBy: { id: string; name: string } | null;
+    executedAt: string | null;
+    separated: boolean;
+  } | null;
+  cancelledResolutions: number;
+  unitsPosted: number;
+  unitsCorrected: number;
+};
+export type StockDiscrepancyReportResponse = {
+  days: number;
+  timeZone: string;
+  since: string;
+  before: string;
+  asOf: string;
+  kpis: {
+    cases: number;
+    openedInRange: number;
+    openNow: number;
+    resolvedInRange: number;
+    oldestOpenMs: number | null;
+    medianTimeToResolveMs: number | null;
+    unitsShortOpen: number;
+    blockedBatches: number;
+    awaitingApproval: number;
+    readyAtCounter: number;
+    byResolution: Record<StockResolutionKind, { count: number }>;
+  };
+  byReason: Array<{ reason: string; lines: number; units: number }>;
+  byCounter: Array<{ terminalId: string; label: string; branchName: string; cases: number; open: number; unitsShort: number }>;
+  cases: StockDiscrepancyCaseRow[];
+};

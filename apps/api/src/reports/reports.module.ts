@@ -7,6 +7,8 @@ import { SalesReportScopeService } from "./sales-report-scope.service";
 import { ShiftCashReportService } from "./shift-cash-report.service";
 import { CardAttemptsReportService } from "./card-attempts-report.service";
 import { RefundAuthorizationsReportService } from "./refund-authorizations-report.service";
+import { OfflineActivityReportService } from "./offline-activity-report.service";
+import { StockDiscrepancyReportService } from "./stock-discrepancy-report.service";
 
 @Module({
   imports: [CatalogModule],
@@ -18,6 +20,8 @@ import { RefundAuthorizationsReportService } from "./refund-authorizations-repor
     ShiftCashReportService,
     CardAttemptsReportService,
     RefundAuthorizationsReportService,
+    OfflineActivityReportService,
+    StockDiscrepancyReportService,
   ],
 })
 export class ReportsModule {}

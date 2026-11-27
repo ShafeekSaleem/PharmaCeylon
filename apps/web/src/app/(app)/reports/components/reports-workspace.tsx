@@ -19,6 +19,8 @@ import { ReturnsDiscountsSection } from "../sections/returns-discounts-section";
 import { ShiftCashSection } from "../sections/shift-cash-section";
 import { CardAttemptsSection } from "../sections/card-attempts-section";
 import { RefundAuthorizationsSection } from "../sections/refund-authorizations-section";
+import { OfflineActivitySection } from "../sections/offline-activity-section";
+import { StockDiscrepancySection } from "../sections/stock-discrepancy-section";
 import { GrossProfitSection } from "../sections/gross-profit-section";
 import { ProfitabilitySection } from "../sections/profitability-section";
 import { MarginByCategorySection } from "../sections/margin-by-category-section";
@@ -465,6 +467,10 @@ export function ReportsWorkspace() {
         <CardAttemptsSection key={report} scope={scope} isOwner={isOwner} days={period} onExportData={setExportPayload} />
       ) : report === "refund-authorizations" ? (
         <RefundAuthorizationsSection key={report} scope={scope} isOwner={isOwner} days={period} onExportData={setExportPayload} />
+      ) : report === "offline-activity" ? (
+        <OfflineActivitySection key={report} scope={scope} isOwner={isOwner} days={period} onExportData={setExportPayload} />
+      ) : report === "stock-discrepancies" ? (
+        <StockDiscrepancySection key={report} scope={scope} isOwner={isOwner} days={period} onExportData={setExportPayload} />
       ) : report === "gross-profit" ? (
         <GrossProfitSection key={report} scope={scope} isOwner={isOwner} days={period} onNavigate={navigate} onExportData={setExportPayload} />
       ) : report === "margin-by-product" ? (
