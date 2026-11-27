@@ -248,9 +248,12 @@ describe("NotificationsService", () => {
       work.get.mockImplementation((_u, _b, _q, opts) =>
         Promise.resolve({
           counterLive: true,
-          items: opts?.kinds?.includes("sale_incident.review")
-            ? []
-            : legacyItems(),
+          items:
+            opts?.kinds?.some((kind: string) =>
+              (SALES_RECOVERY_DAILY_WORK_KINDS as readonly string[]).includes(kind),
+            )
+              ? []
+              : legacyItems(),
         }),
       );
 
@@ -265,15 +268,17 @@ describe("NotificationsService", () => {
           kinds: expect.arrayContaining(["held_adjustment.post", "goods_return.approve"]),
         }),
       );
-      expect(work.get).toHaveBeenCalledWith(
-        user,
-        "branch-1",
-        { filter: "all", page: 1 },
-        expect.objectContaining({
-          pageSize: SALES_RECOVERY_NOTIFICATION_CAP,
-          kinds: [...SALES_RECOVERY_DAILY_WORK_KINDS],
-        }),
-      );
+      for (const kind of SALES_RECOVERY_DAILY_WORK_KINDS) {
+        expect(work.get).toHaveBeenCalledWith(
+          user,
+          "branch-1",
+          { filter: "all", page: 1 },
+          expect.objectContaining({
+            pageSize: SALES_RECOVERY_NOTIFICATION_CAP,
+            kinds: [kind],
+          }),
+        );
+      }
       expect(prisma.notification.upsert).toHaveBeenCalledTimes(1);
       expect(prisma.notification.upsert).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -297,7 +302,9 @@ describe("NotificationsService", () => {
       work.get.mockImplementation((_u, _b, _q, opts) =>
         Promise.resolve({
           counterLive: false,
-          items: opts?.kinds?.includes("sale_incident.review")
+          items: opts?.kinds?.some((kind: string) =>
+            (SALES_RECOVERY_DAILY_WORK_KINDS as readonly string[]).includes(kind),
+          )
             ? []
             : [
                 {
@@ -344,7 +351,7 @@ describe("NotificationsService", () => {
       work.get.mockImplementation((_u, _b, _q, opts) =>
         Promise.resolve({
           counterLive: true,
-          items: opts?.kinds?.includes("sale_incident.review") ? [recovery] : [],
+          items: opts?.kinds?.includes("sale_incident.review") ? [recovery] : [], // per-kind recovery scan
         }),
       );
       await service.list(user, "branch-1", {});
@@ -376,7 +383,7 @@ describe("NotificationsService", () => {
       };
       let recoveryPass = 0;
       work.get.mockImplementation((_u, _b, _q, opts) => {
-        if (!opts?.kinds?.includes("sale_incident.review")) {
+        if (!opts?.kinds?.includes("collected_money.review")) {
           return Promise.resolve({ counterLive: true, items: [] });
         }
         recoveryPass += 1;
@@ -421,7 +428,9 @@ describe("NotificationsService", () => {
       work.get.mockImplementation((_u, _b, _q, opts) =>
         Promise.resolve({
           counterLive: true,
-          items: opts?.kinds?.includes("sale_incident.review")
+          items: opts?.kinds?.some((kind: string) =>
+            (SALES_RECOVERY_DAILY_WORK_KINDS as readonly string[]).includes(kind),
+          )
             ? []
             : [refund, { ...refund, id: "refund:rr-2", blocked: true }],
         }),

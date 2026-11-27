@@ -852,24 +852,21 @@ export class NotificationsService {
       "goods_return.approve",
       "sale_refund.approve",
     ] as const;
-    const [legacyWork, recoveryWork] = await Promise.all([
+    const [legacyWork, ...recoveryByKind] = await Promise.all([
       this.work.get(
         user,
         branchId,
         { filter: "all", page: 1 },
         { pageSize: MAX_ACTION_ITEMS, kinds: legacyKinds },
       ),
-      this.work.get(
-        user,
-        branchId,
-        { filter: "all", page: 1 },
-        {
+      ...SALES_RECOVERY_DAILY_WORK_KINDS.map((kind) =>
+        this.work.get(user, branchId, { filter: "all", page: 1 }, {
           pageSize: SALES_RECOVERY_NOTIFICATION_CAP,
-          kinds: [...SALES_RECOVERY_DAILY_WORK_KINDS],
-        },
+          kinds: [kind],
+        }),
       ),
     ]);
-    const work = { items: [...legacyWork.items, ...recoveryWork.items] };
+    const work = { items: [...legacyWork.items, ...recoveryByKind.flatMap((scan) => scan.items)] };
     const salesRecovery = new Set<string>(SALES_RECOVERY_DAILY_WORK_KINDS);
     return work.items
       .filter((item) =>
