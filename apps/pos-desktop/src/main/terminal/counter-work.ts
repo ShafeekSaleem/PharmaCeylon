@@ -4,6 +4,7 @@ import type {
   CounterMismatchInput,
   CounterWorkItem,
   HeldWriteOffAtCounter,
+  ImportPostInput,
   ReceiveTransferInput,
   RefundAtCounter,
   RefundExecuted,
@@ -13,6 +14,7 @@ import type {
 import type {
   CounterMismatchReport,
   CounterWorkDetail,
+  CounterWorkImportDetail,
   SupplierCashPayoutView,
 } from "@pharmaceylon/shared";
 import { ApiError, type ApiSession } from "../api/api-client";
@@ -282,6 +284,48 @@ export class CounterWorkService {
       transferId: input.transferId,
       status: receipt.result.status,
       receivedQty: receipt.result.receivedQty,
+      postedAt: new Date(receipt.recordedAt).toISOString(),
+    };
+  }
+
+  /**
+   * Post staged opening stock: one category, or every row still to post. Imports have no approval
+   * step, so the post is pinned to the staged version the counter showed (`version`), never to a
+   * newer one read here. The import is read again only to stop early: a re-staged import, a
+   * category that is gone or already posted, or an import no longer waiting.
+   */
+  async postImportStock(input: ImportPostInput) {
+    const detail = (await this.detail("import_stock", input.importId)) as CounterWorkImportDetail;
+    if (detail.stockVersion !== input.version)
+      throw new ActionFailure(
+        "CHANGED_SINCE_OPENED",
+        "This import was staged again since you opened it. Check it again before posting.",
+      );
+    const toPost = detail.categories.filter((c) => !c.posted);
+    if (input.selection === "category") {
+      const category = detail.categories.find((c) => c.categoryName === input.categoryName);
+      if (!category)
+        throw new ActionFailure("CHANGED_SINCE_OPENED", "That category is not in this import any more.");
+      if (category.posted) throw new ActionFailure("ALREADY_POSTED", "That category is already posted.");
+    }
+    const receipt = await this.deps.commands.execute(
+      "POST /api/v1/products/import/:importId/stock/post",
+      {
+        importId: input.importId,
+        version: input.version,
+        selection: input.selection,
+        categoryName: input.selection === "all" ? null : input.categoryName,
+      },
+      null,
+    );
+    return {
+      reference: detail.reference,
+      batchesPosted: receipt.result.batchesPosted,
+      unitsPosted: receipt.result.unitsPosted,
+      alreadyApplied: receipt.result.effect === "already_applied",
+      // Another category is still to post, so the import stays in Counter work.
+      remaining:
+        input.selection === "category" && toPost.some((c) => c.categoryName !== input.categoryName),
       postedAt: new Date(receipt.recordedAt).toISOString(),
     };
   }

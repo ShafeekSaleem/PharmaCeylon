@@ -317,6 +317,39 @@ describe("counter reads: the lines behind one Counter work item", () => {
   });
 });
 
+describe("counter work: opening stock posted a category at a time", () => {
+  const row = (rowNumber: number, categoryName: string, posted: boolean) => ({
+    rowNumber, productId: fx.productId, name: "x", categoryName, qty: 4, costPrice: 4, sellingPrice: 6,
+    batchNo: `C${rowNumber}`, expiryDate: "2027-06-30", ...(posted ? { postedBatchId: randomUUID() } : {}),
+  });
+  const staged = async (rows: unknown[], stockPostedAt: Date | null) => {
+    const importId = randomUUID();
+    await prisma.productImport.create({ data: {
+      id: importId, tenantId: fx.tenantId, branchId: branch(), createdBy: fx.ownerId, filename: "opening.xlsx",
+      status: "completed", completedAt: new Date(), stockStaged: true, stockStagedBy: fx.ownerId,
+      stagedStock: rows as never, stockPostedAt, stockPostedBy: stockPostedAt ? fx.ownerId : null,
+    } });
+    return importId;
+  };
+  const listed = async () =>
+    (await work.list(await caller(fx.ownerId), branch())).filter((i) => i.kind === "import_stock").map((i) => i.id);
+
+  it("stays in Counter work after one category posts, until every row has its batch", async () => {
+    const partly = await staged([row(2, "Analgesics", true), row(3, "Antibiotics", false)], new Date());
+    const untouched = await staged([row(2, "Analgesics", false)], null);
+    const done = await staged([row(2, "Analgesics", true), row(3, "Antibiotics", true)], new Date());
+    const ids = await listed();
+    expect(ids).toEqual(expect.arrayContaining([partly, untouched]));
+    expect(ids).not.toContain(done);
+
+    const detail = await details.detail(await caller(fx.ownerId), branch(), "import_stock", partly);
+    if (detail.kind !== "import_stock") throw new Error("kind");
+    expect(detail.categories.map((c) => [c.categoryName, c.posted])).toEqual([["Analgesics", true], ["Antibiotics", false]]);
+    await expect(details.detail(await caller(fx.ownerId), branch(), "import_stock", done))
+      .rejects.toBeInstanceOf(NotFoundException);
+  });
+});
+
 describe("counter reads: imports this counter can still undo (decision 5)", () => {
   it("lists an untouched import with the stock it posted, and drops it once that stock moves", async () => {
     const { importId, batchId } = await importWithStock(12);

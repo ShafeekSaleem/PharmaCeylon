@@ -1067,6 +1067,12 @@ function registerIpc(
             ),
           );
         }),
+      postCounterImportStock: (input) =>
+        act(logger, "postCounterImportStock", () => {
+          if (!counterWork)
+            throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          return counterWork.postImportStock(input);
+        }),
       postCounterStocktake: ({ id }) =>
         act(logger, "postCounterStocktake", () => {
           if (!counterWork)

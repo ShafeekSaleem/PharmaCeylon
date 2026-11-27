@@ -33,6 +33,7 @@ import {
 } from "./counter-document-model";
 import styles from "./CounterDocumentPane.module.css";
 import { Icon } from "./Icon";
+import { ImportStockBody } from "./ImportStockPane";
 import { StocktakeBody } from "./StocktakePane";
 import { SupplierReturnBody } from "./SupplierReturnPane";
 import { invoke } from "./invoke";
@@ -504,6 +505,22 @@ export function CounterDocumentPane({
           onToggle={(l) => toggle(`${detail.id}:${l.itemId}`, lineFingerprint(l))}
           onCompleted={() => {
             detail.lines.forEach((l) => tickStore.delete(`${detail.id}:${l.itemId}`));
+            onReported();
+          }}
+          onRefused={() => {
+            load();
+            onReported();
+          }}
+        />
+      ) : detail.kind === "import_stock" ? (
+        <ImportStockBody
+          detail={detail}
+          online={online}
+          canPost={canPost}
+          onPosted={(remaining) => {
+            // A category posted and others are left: read it again to show it posted. Once
+            // everything is posted the import leaves Counter work, so a read would find it gone.
+            if (remaining) load();
             onReported();
           }}
           onRefused={() => {

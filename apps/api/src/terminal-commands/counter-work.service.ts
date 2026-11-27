@@ -643,10 +643,23 @@ export class CounterWorkService {
     });
   }
 
-  /** Opening stock staged from an import and not posted yet. It needs no approval. */
+  /**
+   * Opening stock staged from an import with rows still to post. It needs no approval. Posting
+   * one category sets `stockPostedAt`, so that cannot be the filter: the import stays here until
+   * every staged row has its batch, and the counter posts the rest from the same screen.
+   */
   private async stagedImports(tenantId: string, branchId: string, only?: string) {
+    // Postgres answers "any row without a batch" from the jsonb, so a fully posted import's
+    // rows are never read on a list poll.
+    const open = await this.prisma.$queryRaw<{ id: string }[]>`
+      SELECT id FROM product_import
+      WHERE tenant_id = ${tenantId}::uuid AND branch_id = ${branchId}::uuid
+        AND status = 'completed' AND stock_staged
+        AND (${only ?? null}::uuid IS NULL OR id = ${only ?? null}::uuid)
+        AND jsonb_path_exists(staged_stock, '$[*] ? (!exists(@.postedBatchId) || @.postedBatchId == null)')`;
+    if (!open.length) return [];
     const rows = await this.prisma.productImport.findMany({
-      where: { tenantId, branchId, status: "completed", stockStaged: true, stockPostedAt: null, ...(only ? { id: only } : {}) },
+      where: { tenantId, branchId, id: { in: open.map((r) => r.id) } },
       select: {
         id: true, filename: true, stagedStock: true, stockVersion: true, stockStagedBy: true,
         createdBy: true, createdAt: true, completedAt: true,
