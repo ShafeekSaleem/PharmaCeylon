@@ -440,6 +440,11 @@ export const printResultSchema = z.object({
 });
 export type PrintResult = z.infer<typeof printResultSchema>;
 
+/** The two copies of a supplier return note: the rep signs one, the branch keeps the other. */
+export const RETURN_NOTE_COPIES = ["supplier", "branch"] as const;
+export const returnNoteCopySchema = z.enum(RETURN_NOTE_COPIES);
+export type ReturnNoteCopy = z.infer<typeof returnNoteCopySchema>;
+
 const uuid = z.string().uuid();
 
 export const branchSchema = z.object({
@@ -2233,11 +2238,18 @@ export const ipcContract = {
       }),
     ),
   },
-  /** Print the return note twice (supplier copy, branch copy), read from the server as it stands. */
+  /**
+   * Print the return note (supplier copy, branch copy), read from the server as it stands and
+   * only while its approval matches. `copies` asks for just the ones a failed print left out.
+   */
   printCounterReturnNote: {
     channel: "pos:work:print-return-note",
-    input: z.object({ id: uuid, printerName: z.string().min(1).max(260) }),
-    output: result(printResultSchema),
+    input: z.object({
+      id: uuid,
+      printerName: z.string().min(1).max(260),
+      copies: z.array(returnNoteCopySchema).min(1).max(2).optional(),
+    }),
+    output: result(printResultSchema.extend({ printed: z.array(returnNoteCopySchema) })),
   },
   /** Post an approved stock count at the counter: the signed command names only the count. */
   postCounterStocktake: {

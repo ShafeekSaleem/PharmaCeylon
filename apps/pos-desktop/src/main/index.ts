@@ -13,6 +13,7 @@ import { statfs } from "node:fs/promises";
 import { join } from "node:path";
 import type { CounterWorkReturnDetail } from "@pharmaceylon/shared";
 import type { ActionResult } from "../shared/ipc-contract";
+import { RETURN_NOTE_COPIES } from "../shared/ipc-contract";
 import { ApiSession } from "./api/api-client";
 import { checkApi } from "./api-check";
 import {
@@ -36,6 +37,7 @@ import {
 import { createLogger } from "./logging/logger";
 import { printTestReceipt } from "./printing/test-receipt";
 import { printHtml } from "./printing/print-html";
+import { printCopies } from "./printing/print-copies";
 import {
   renderSaleReceiptHtml,
   renderSupplierCashPayoutReceiptHtml,
@@ -1039,12 +1041,13 @@ function registerIpc(
             throw new ActionFailure("NOT_READY", "The counter is still starting.");
           return counterWork.completeReturn(id);
         }),
-      printCounterReturnNote: ({ id, printerName }) =>
+      printCounterReturnNote: ({ id, printerName, copies }) =>
         act(logger, "printCounterReturnNote", async () => {
           if (!counterWork)
             throw new ActionFailure("NOT_READY", "The counter is still starting.");
-          // Read from the server, not the screen: the paper names the return as it stands now.
-          const detail = await counterWork.detail("supplier_return", id);
+          // Read from the server, not the screen, and only for the approved version: the paper
+          // the rep signs names the return as it stands now.
+          const detail = await counterWork.returnForNote(id);
           const device = store ? new DeviceStore(store.db).read() : null;
           const place = {
             branchName: device?.branchName ?? "",
@@ -1052,15 +1055,17 @@ function registerIpc(
             accent: counterBrand.receiptAccent(),
           };
           const printedAt = new Date();
-          // Two copies: the rep signs one and the branch keeps the other.
-          for (const copy of ["Supplier copy", "Branch copy"] as const) {
-            const printed = await printHtml(
+          // Two copies: the rep signs one and the branch keeps the other. A retry after a failure
+          // asks for only the copies that did not print.
+          return printCopies(copies ?? RETURN_NOTE_COPIES, (copy) =>
+            printHtml(
               printerName,
-              renderSupplierReturnNoteHtml(detail as CounterWorkReturnDetail, place, { copy, printedAt }),
-            );
-            if (!printed.ok) return printed;
-          }
-          return { ok: true, error: null };
+              renderSupplierReturnNoteHtml(detail as CounterWorkReturnDetail, place, {
+                copy: copy === "supplier" ? "Supplier copy" : "Branch copy",
+                printedAt,
+              }),
+            ),
+          );
         }),
       postCounterStocktake: ({ id }) =>
         act(logger, "postCounterStocktake", () => {

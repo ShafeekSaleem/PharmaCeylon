@@ -888,7 +888,10 @@ describe("handing over a supplier return", () => {
       ok: true,
       value: { reference: "RT-0012", alreadyApplied: false, debitNoteRaised: true, completedAt: "2026-11-27T10:00:00.000Z" },
     }));
-    pos.printCounterReturnNote = jest.fn(async () => ({ ok: true, value: { ok: true, error: null } }));
+    pos.printCounterReturnNote = jest.fn(async () => ({
+      ok: true,
+      value: { ok: true, error: null, printed: ["supplier", "branch"] as ("supplier" | "branch")[] },
+    }));
   });
 
   it("shows where each line is, in packs and units, and waits until every line is packed", async () => {
@@ -917,13 +920,41 @@ describe("handing over a supplier return", () => {
   });
 
   it("says when the note did not print, and leaves Print off without a printer", async () => {
-    pos.printCounterReturnNote!.mockImplementationOnce(async () => ({ ok: true, value: { ok: false, error: "Out of paper." } }));
+    pos.printCounterReturnNote!.mockImplementationOnce(async () => ({ ok: true, value: { ok: false, error: "Out of paper.", printed: [] } }));
     const view = await show();
     fireEvent.click(screen.getByRole("button", { name: /Print return note/ }));
     expect(await screen.findByText("Out of paper.")).toBeTruthy();
     view.unmount();
     await show({ printer: null as never });
     expect((screen.getByRole("button", { name: /Print return note/ }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("prints only the copy a failed print left out, and says which one printed", async () => {
+    pos.printCounterReturnNote!.mockImplementationOnce(async () => ({
+      ok: true,
+      value: { ok: false, error: "Out of paper.", printed: ["supplier"] },
+    }));
+    await show();
+    fireEvent.click(screen.getByRole("button", { name: /Print return note/ }));
+    expect(await screen.findByText("The supplier copy printed; the branch copy did not. Out of paper.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /^Print the branch copy$/ }));
+    await waitFor(() =>
+      expect(pos.printCounterReturnNote).toHaveBeenLastCalledWith({ id: id(5), printerName: "EPSON", copies: ["branch"] }),
+    );
+    expect(await screen.findByText(/The branch copy is printed now/)).toBeTruthy();
+    // Both copies are out, so a reprint is both again.
+    expect(screen.getByRole("button", { name: /^Print again$/ })).toBeTruthy();
+  });
+
+  it("will not print the note for a version nobody approved", async () => {
+    for (const state of ["changed", "revoked"] as const) {
+      detail = supplierReturn({ approval: { ...approval, state } });
+      await show();
+      expect((screen.getByRole("button", { name: /Print return note/ }) as HTMLButtonElement).disabled).toBe(true);
+      expect(screen.getByText(/prints once this version of the return is approved/)).toBeTruthy();
+      cleanup();
+    }
+    expect(pos.printCounterReturnNote).not.toHaveBeenCalled();
   });
 
   it("confirms the units and the debit note, then completes with only the return", async () => {

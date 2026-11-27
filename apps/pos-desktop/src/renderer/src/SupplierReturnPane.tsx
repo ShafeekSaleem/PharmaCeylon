@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { CounterWorkReturnDetail, CounterWorkReturnLine } from "@pharmaceylon/shared";
-import type { Printer } from "../../shared/ipc-contract";
+import type { Printer, ReturnNoteCopy } from "../../shared/ipc-contract";
 import styles from "./CounterDocumentPane.module.css";
 import { Icon } from "./Icon";
 import { invoke } from "./invoke";
@@ -149,6 +149,14 @@ function ConfirmSheet({
   );
 }
 
+/** The rep signs the supplier copy; the branch keeps its own. */
+const BOTH_COPIES: readonly ReturnNoteCopy[] = ["supplier", "branch"];
+
+/** "supplier copy", "branch copy", or "supplier and branch copies". */
+function copyNames(copies: readonly ReturnNoteCopy[]) {
+  return copies.length === 1 ? `${copies[0]} copy` : `${copies.join(" and ")} copies`;
+}
+
 /**
  * `sret` Hand over supplier return. Approved on the web; the counter packs each line, prints the
  * return note for the rep and completes it. Completing takes the units out of stock and raises the
@@ -184,6 +192,9 @@ export function SupplierReturnBody({
   const [done, setDone] = useState<string | null>(null);
   const [printing, setPrinting] = useState(false);
   const [printed, setPrinted] = useState(false);
+  // The copies the next print asks for: both, or only those a failed print left out.
+  const [missing, setMissing] = useState<ReturnNoteCopy[]>([...BOTH_COPIES]);
+  const approved = detail.approval.state === "matches";
   const [printMessage, setPrintMessage] = useState<{ ok: boolean; text: string } | null>(null);
 
   const packed = detail.lines.filter(ticked).length;
@@ -206,21 +217,42 @@ export function SupplierReturnBody({
   useKeyBinding("Ctrl+Enter", () => setConfirming(true), { enabled: ready && !confirming });
 
   const print = async () => {
-    if (!printer || printing) return;
+    if (!printer || printing || !approved) return;
     setPrinting(true);
     setPrintMessage(null);
+    const asked = missing;
     const result = await invoke(() =>
-      window.pos.printCounterReturnNote({ id: detail.id, printerName: printer.name }),
+      window.pos.printCounterReturnNote({
+        id: detail.id,
+        printerName: printer.name,
+        ...(asked.length < BOTH_COPIES.length ? { copies: asked } : {}),
+      }),
     );
     setPrinting(false);
-    if (result.ok && result.value.ok) {
-      setPrinted(true);
-      setPrintMessage({ ok: true, text: "Two copies sent to the printer. The rep signs one; keep the other with the branch file." });
-    } else
+    if (!result.ok) {
+      setPrintMessage({ ok: false, text: result.error.message });
+      return;
+    }
+    const { printed: done, error } = result.value;
+    if (done.length) setPrinted(true);
+    if (result.value.ok) {
+      setMissing([...BOTH_COPIES]);
       setPrintMessage({
-        ok: false,
-        text: result.ok ? (result.value.error ?? "The printer did not accept the job.") : result.error.message,
+        ok: true,
+        text:
+          asked.length === BOTH_COPIES.length
+            ? "Two copies sent to the printer. The rep signs one; keep the other with the branch file."
+            : `The ${copyNames(asked)} is printed now. The rep signs the supplier copy; keep the branch copy with the branch file.`,
       });
+      return;
+    }
+    const left = asked.filter((c) => !done.includes(c));
+    setMissing(left);
+    const why = error ?? "The printer did not accept the job.";
+    setPrintMessage({
+      ok: false,
+      text: done.length ? `The ${copyNames(done)} printed; the ${copyNames(left)} did not. ${why}` : why,
+    });
   };
 
   const complete = async () => {
@@ -277,17 +309,25 @@ export function SupplierReturnBody({
       {!done && (
         <div className={styles.actions}>
           <small className={styles.hint}>
-            Return note: print two copies. The rep signs one and you keep it with the branch file.
+            {approved
+              ? "Return note: print two copies. The rep signs one and you keep it with the branch file."
+              : "The return note prints once this version of the return is approved on the web."}
           </small>
           <button
             type="button"
             className={cx(ui.btn, ui.outline)}
-            disabled={!printer || printing}
+            disabled={!printer || printing || !approved}
             title={printer ? `Prints on ${printer.displayName}` : "No receipt printer is set up on this counter"}
             onClick={() => void print()}
           >
             <Icon name="printer" />
-            {printing ? "Printing…" : printed ? "Print again" : "Print return note"}
+            {printing
+              ? "Printing…"
+              : missing.length < BOTH_COPIES.length
+                ? `Print the ${copyNames(missing)}`
+                : printed
+                  ? "Print again"
+                  : "Print return note"}
           </button>
         </div>
       )}

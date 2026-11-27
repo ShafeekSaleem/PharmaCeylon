@@ -663,7 +663,7 @@ describe("handing over an approved supplier return at the counter", () => {
   const goodsReturnId = randomUUID();
   const evidence = randomUUID();
 
-  function handingOver(detail: Record<string, unknown>, result: { effect: string; debitNoteId: string | null }) {
+  function handingOver(detail: Record<string, unknown>, result: { effect: string; debitNoteId?: string | null }) {
     const executed: { operation: string; body: unknown; evidence: string | null }[] = [];
     const commands = {
       execute: async (operation: string, body: unknown, approval: string | null) => {
@@ -728,6 +728,28 @@ describe("handing over an approved supplier return at the counter", () => {
     await expect(
       handingOver(base, { effect: "already_applied", debitNoteId: randomUUID() }).work.completeReturn(goodsReturnId),
     ).resolves.toMatchObject({ alreadyApplied: true });
+  });
+
+  it("reads no debit note into a result that leaves the field out", async () => {
+    await expect(
+      handingOver(base, { effect: "applied" }).work.completeReturn(goodsReturnId),
+    ).resolves.toMatchObject({ debitNoteRaised: false });
+  });
+
+  it("gives the note the server's approved return, and nothing for a changed, withdrawn or missing approval", async () => {
+    const { work, executed, reads } = handingOver(base, { effect: "applied", debitNoteId: null });
+    await expect(work.returnForNote(goodsReturnId)).resolves.toMatchObject({ reference: "RT-0012" });
+    expect(reads).toEqual([`/counter-work/supplier_return/${goodsReturnId}`]);
+    for (const [approval, code] of [
+      [{ ...base.approval, state: "changed" }, "APPROVAL_STALE"],
+      [{ ...base.approval, state: "revoked" }, "APPROVAL_INVALID"],
+      [{ ...base.approval, evidenceId: null, state: "not_needed" }, "APPROVAL_REQUIRED"],
+    ] as const) {
+      await expect(
+        handingOver({ ...base, approval }, { effect: "applied", debitNoteId: null }).work.returnForNote(goodsReturnId),
+      ).rejects.toMatchObject({ code });
+    }
+    expect(executed).toEqual([]);
   });
 
   it("does not hand over a return that left Counter work", async () => {

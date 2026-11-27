@@ -324,6 +324,31 @@ export class CounterWorkService {
    * transaction (decision 4: the signed paper note is the hand-over record).
    */
   async completeReturn(id: string) {
+    const { detail, evidenceId } = await this.approvedReturn(id, "handing it over");
+    const receipt = await this.deps.commands.execute(
+      "POST /api/v1/returns/:id/complete",
+      { goodsReturnId: id },
+      evidenceId,
+    );
+    return {
+      reference: detail.reference,
+      alreadyApplied: receipt.result.effect === "already_applied",
+      debitNoteRaised: Boolean(receipt.result.debitNoteId),
+      completedAt: new Date(receipt.recordedAt).toISOString(),
+    };
+  }
+
+  /**
+   * The return the rep signs for, read from the server. The note is the hand-over record
+   * (decision 4), so it prints only for the version that was approved: a changed or withdrawn
+   * approval refuses here exactly as handing over does.
+   */
+  async returnForNote(id: string) {
+    return (await this.approvedReturn(id, "printing its note")).detail;
+  }
+
+  /** The supplier return as it stands, refused unless the server's approval matches it. */
+  private async approvedReturn(id: string, before: string) {
     const detail = await this.detail("supplier_return", id);
     const { approval } = detail;
     if (approval.state === "changed" || approval.state === "revoked")
@@ -334,18 +359,8 @@ export class CounterWorkService {
           : "The approval was withdrawn on the web.",
       );
     if (approval.state !== "matches" || !approval.evidenceId)
-      throw new ActionFailure("APPROVAL_REQUIRED", "Approve this return on the web before handing it over.");
-    const receipt = await this.deps.commands.execute(
-      "POST /api/v1/returns/:id/complete",
-      { goodsReturnId: id },
-      approval.evidenceId,
-    );
-    return {
-      reference: detail.reference,
-      alreadyApplied: receipt.result.effect === "already_applied",
-      debitNoteRaised: receipt.result.debitNoteId !== null,
-      completedAt: new Date(receipt.recordedAt).toISOString(),
-    };
+      throw new ActionFailure("APPROVAL_REQUIRED", `Approve this return on the web before ${before}.`);
+    return { detail, evidenceId: approval.evidenceId };
   }
 
   /** All held write-off rows the counter may read (for detail panes and post pin). */
