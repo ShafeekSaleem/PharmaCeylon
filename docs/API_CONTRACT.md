@@ -1127,8 +1127,14 @@ is locked, so a revocation that commits first refuses the sale and a later one w
   fields: `id` prefixes `incident:` (`record_id`), `payment_recovery:` (`attempt_id`),
     `collected_money:` (payment row `id`). Deep links: `/sales?view=incident-notes&recordId=…`
     (+ `&status=held` when held), `/sales?view=payment-recovery&attemptId=…`,
-    `/sales?view=unresolved-money&paymentId=…`. Operational notifications dedupe one notice per
-    task (`operational:{branchId}:work:{id}:{kind}`) and auto-resolve when the task drops out.
+    `/sales?view=unresolved-money&paymentId=…`. Collected-money detail amounts use the shared
+    two-decimal LKR formatter (`formatLkrFromMinor`, `en-GB` grouping). `GET /dashboard/work`
+    returns one merged, sorted list (recovery rows share the union with every other kind).
+    Operational notifications scan **two** capped projections and merge them: **25** legacy
+    counter/approval kinds (same set as before W11) plus **25** sales-recovery kinds, so recovery
+    volume cannot displace legacy notifications. Dedupe one notice per task
+    (`operational:{branchId}:work:{id}:{kind}`); auto-resolve when the task drops out; a returning
+    task clears `resolvedAt` on the next scan.
     Compatibility fixtures: `packages/shared/fixtures/daily-work-items-*.json`; clients should
     ignore unknown `kind` values (`isDailyWorkKind`) rather than fail the page.
   - **The desktop Returns page** prepares at the counter too: a PIN-opened counter login may call

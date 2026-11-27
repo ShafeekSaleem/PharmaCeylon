@@ -32,6 +32,8 @@ import { UpdateNotificationPreferencesDto } from "./dto/update-notification-pref
 
 const OPERATIONAL_SOURCE = "operational_scan";
 const MAX_ACTION_ITEMS = 25;
+/** Separate scan from legacy work notifications so recovery rows cannot displace them in the 25-slot window. */
+export const SALES_RECOVERY_NOTIFICATION_CAP = 25;
 
 export type AdminNotificationInput = {
   severity?: NotificationSeverity;
@@ -845,20 +847,29 @@ export class NotificationsService {
     branchName: string,
     preferences: Preferences,
   ): Promise<DesiredNotification[]> {
-    const work = await this.work.get(
-      user,
-      branchId,
-      { filter: "all", page: 1 },
-      {
-        pageSize: MAX_ACTION_ITEMS,
-        kinds: [
-          ...approvedWaitingKinds(),
-          "goods_return.approve",
-          "sale_refund.approve",
-          ...SALES_RECOVERY_DAILY_WORK_KINDS,
-        ],
-      },
-    );
+    const legacyKinds = [
+      ...approvedWaitingKinds(),
+      "goods_return.approve",
+      "sale_refund.approve",
+    ] as const;
+    const [legacyWork, recoveryWork] = await Promise.all([
+      this.work.get(
+        user,
+        branchId,
+        { filter: "all", page: 1 },
+        { pageSize: MAX_ACTION_ITEMS, kinds: legacyKinds },
+      ),
+      this.work.get(
+        user,
+        branchId,
+        { filter: "all", page: 1 },
+        {
+          pageSize: SALES_RECOVERY_NOTIFICATION_CAP,
+          kinds: [...SALES_RECOVERY_DAILY_WORK_KINDS],
+        },
+      ),
+    ]);
+    const work = { items: [...legacyWork.items, ...recoveryWork.items] };
     const salesRecovery = new Set<string>(SALES_RECOVERY_DAILY_WORK_KINDS);
     return work.items
       .filter((item) =>

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { ExecutionContext, ForbiddenException } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
-import { PaymentMethod, RoleName } from "@prisma/client";
+import { DesktopPosRollout, PaymentMethod, RoleName } from "@prisma/client";
 import type { ExternalCardAttemptRecord, OfflineSaleIncident, TerminalIdentity } from "@pharmaceylon/shared";
 import { AuditService } from "../../src/audit/audit.service";
 import { StockService } from "../../src/inventory/stock/stock.service";
@@ -790,5 +790,99 @@ describe("daily work sales recovery (W11 #145)", () => {
       where: { tenantId: owner.tenantId, recipientUserId: owner.userId, dedupeKey: key },
     });
     expect(retired?.resolvedAt).not.toBeNull();
+  });
+
+  it("does not resolve legacy counter notifications when recovery rows exceed the separate scan cap", async () => {
+    await prisma.branch.update({
+      where: { id: main.fx.mainBranchId, tenantId: main.fx.tenantId },
+      data: { desktopPosRollout: DesktopPosRollout.live, desktopPosLiveAt: new Date() },
+    });
+    const importRow = await prisma.productImport.create({
+      data: {
+        tenantId: main.fx.tenantId,
+        branchId: main.fx.mainBranchId,
+        filename: "w11-notification-starvation.csv",
+        status: "completed",
+        stockStaged: true,
+        stockStagedBy: main.manager.userId,
+        createdBy: main.manager.userId,
+        stagedStock: [
+          {
+            rowNumber: 1,
+            productId: main.fx.productId,
+            name: "Opening",
+            categoryName: "Medicines",
+            qty: 5,
+            batchNo: `STARVE-${randomUUID().slice(0, 6)}`,
+            expiryDate: "2031-12-31",
+            unitCost: "10",
+          },
+        ],
+      },
+    });
+    for (let n = 0; n < 24; n++) {
+      await seedCollectedPaymentRow(main, {
+        sequence: 88_000 + n,
+        providerReference: `RRN-STARVE-${n}`,
+      });
+    }
+    const owner = ownerOn(main);
+    const svc = notify();
+    await svc.updatePreferences(owner.tenantId, owner.userId, {});
+    await svc.list(owner, main.fx.mainBranchId, { status: "all", take: 200 });
+
+    const importKey = `operational:${main.fx.mainBranchId}:work:import:${importRow.id}:import_stock.post`;
+    const staged = await prisma.notification.findFirst({
+      where: {
+        tenantId: owner.tenantId,
+        recipientUserId: owner.userId,
+        dedupeKey: importKey,
+      },
+    });
+    expect(staged?.resolvedAt).toBeNull();
+
+    const work = await dailyWork().get(owner, main.fx.mainBranchId, {
+      filter: "all",
+      page: 1,
+      pageSize: 100,
+    });
+    expect(work.items.some((row) => row.id === `import:${importRow.id}`)).toBe(true);
+    expect(work.items.filter((row) => row.kind === "collected_money.review").length).toBeGreaterThan(
+      25,
+    );
+  });
+
+  it("omits sales recovery notifications for cashiers", async () => {
+    const svc = notify();
+    await svc.list(cashierOn(main), main.fx.mainBranchId, { status: "all", take: 50 });
+    const recovery = await prisma.notification.findMany({
+      where: {
+        tenantId: main.fx.tenantId,
+        recipientUserId: main.cashier.userId,
+        branchId: main.fx.mainBranchId,
+        source: "operational_scan",
+        dedupeKey: { contains: ":collected_money:" },
+      },
+    });
+    expect(recovery).toHaveLength(0);
+  });
+
+  it("does not duplicate notifications across repeated projection scans", async () => {
+    const owner = ownerOn(main);
+    const svc = notify();
+    await svc.list(owner, main.fx.mainBranchId, { status: "all", take: 200 });
+    await svc.updatePreferences(owner.tenantId, owner.userId, {});
+    await svc.list(owner, main.fx.mainBranchId, { status: "all", take: 200 });
+    const rows = await prisma.notification.findMany({
+      where: {
+        tenantId: owner.tenantId,
+        recipientUserId: owner.userId,
+        branchId: main.fx.mainBranchId,
+        source: "operational_scan",
+        dedupeKey: { contains: ":collected_money:" },
+      },
+      select: { dedupeKey: true },
+    });
+    expect(new Set(rows.map((row) => row.dedupeKey)).size).toBe(rows.length);
   });
 });

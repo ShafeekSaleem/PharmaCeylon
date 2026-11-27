@@ -1,6 +1,7 @@
 import { NotFoundException } from "@nestjs/common";
 import { DesktopPosRollout, NotificationCategory, RoleName } from "@prisma/client";
-import type { DailyWorkItem } from "@pharmaceylon/shared";
+import { SALES_RECOVERY_DAILY_WORK_KINDS, type DailyWorkItem } from "@pharmaceylon/shared";
+import { SALES_RECOVERY_NOTIFICATION_CAP } from "./notifications.service";
 import { NotificationsService } from "./notifications.service";
 
 describe("NotificationsService", () => {
@@ -229,24 +230,29 @@ describe("NotificationsService", () => {
       priority: 1,
     };
 
+    const legacyItems = () => [
+      waiting,
+      { ...waiting, id: "adjustment:held-2", where: "web" as const },
+      {
+        ...waiting,
+        id: "return:r-1",
+        kind: "goods_return.approve" as const,
+        category: "returns" as const,
+        approval: true,
+        blocked: true,
+      },
+    ];
+
     it("deep-links approved documents waiting at a live branch's counter, read through daily work", async () => {
       const { prisma, service, user, work } = setup();
-      work.get.mockResolvedValue({
-        counterLive: true,
-        items: [
-          waiting,
-          // A web item, and a request the viewer can't approve themselves, never notify here.
-          { ...waiting, id: "adjustment:held-2", where: "web" },
-          {
-            ...waiting,
-            id: "return:r-1",
-            kind: "goods_return.approve",
-            category: "returns",
-            approval: true,
-            blocked: true,
-          },
-        ],
-      });
+      work.get.mockImplementation((_u, _b, _q, opts) =>
+        Promise.resolve({
+          counterLive: true,
+          items: opts?.kinds?.includes("sale_incident.review")
+            ? []
+            : legacyItems(),
+        }),
+      );
 
       await service.list(user, "branch-1", {});
 
@@ -255,7 +261,17 @@ describe("NotificationsService", () => {
         "branch-1",
         { filter: "all", page: 1 },
         expect.objectContaining({
+          pageSize: 25,
           kinds: expect.arrayContaining(["held_adjustment.post", "goods_return.approve"]),
+        }),
+      );
+      expect(work.get).toHaveBeenCalledWith(
+        user,
+        "branch-1",
+        { filter: "all", page: 1 },
+        expect.objectContaining({
+          pageSize: SALES_RECOVERY_NOTIFICATION_CAP,
+          kinds: [...SALES_RECOVERY_DAILY_WORK_KINDS],
         }),
       );
       expect(prisma.notification.upsert).toHaveBeenCalledTimes(1);
@@ -278,23 +294,27 @@ describe("NotificationsService", () => {
 
     it("notifies supplier returns waiting for an approval the viewer may give", async () => {
       const { prisma, service, user, work } = setup();
-      work.get.mockResolvedValue({
-        counterLive: false,
-        items: [
-          {
-            ...waiting,
-            id: "return:r-1",
-            kind: "goods_return.approve",
-            where: "web",
-            category: "returns",
-            title: "Review supplier return",
-            reference: "RET-1",
-            href: "/returns?return=r-1",
-            action: "Review return",
-            approval: true,
-          },
-        ],
-      });
+      work.get.mockImplementation((_u, _b, _q, opts) =>
+        Promise.resolve({
+          counterLive: false,
+          items: opts?.kinds?.includes("sale_incident.review")
+            ? []
+            : [
+                {
+                  ...waiting,
+                  id: "return:r-1",
+                  kind: "goods_return.approve",
+                  where: "web",
+                  category: "returns",
+                  title: "Review supplier return",
+                  reference: "RET-1",
+                  href: "/returns?return=r-1",
+                  action: "Review return",
+                  approval: true,
+                },
+              ],
+        }),
+      );
       await service.list(user, "branch-1", {});
       expect(prisma.notification.upsert).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -309,23 +329,24 @@ describe("NotificationsService", () => {
 
     it("notifies sales recovery tasks from daily work without treating them as counter work", async () => {
       const { prisma, service, user, work } = setup();
-      work.get.mockResolvedValue({
-        counterLive: true,
-        items: [
-          {
-            ...waiting,
-            id: "incident:rec-1",
-            kind: "sale_incident.review",
-            where: "web",
-            category: "counter",
-            title: "Review incident note",
-            reference: "rec-1",
-            href: "/sales?view=incident-notes&recordId=rec-1",
-            action: "Open in Sales",
-            approval: false,
-          },
-        ],
-      });
+      const recovery = {
+        ...waiting,
+        id: "incident:rec-1",
+        kind: "sale_incident.review",
+        where: "web",
+        category: "counter",
+        title: "Review incident note",
+        reference: "rec-1",
+        href: "/sales?view=incident-notes&recordId=rec-1",
+        action: "Open in Sales",
+        approval: false,
+      };
+      work.get.mockImplementation((_u, _b, _q, opts) =>
+        Promise.resolve({
+          counterLive: true,
+          items: opts?.kinds?.includes("sale_incident.review") ? [recovery] : [],
+        }),
+      );
       await service.list(user, "branch-1", {});
       expect(prisma.notification.upsert).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -339,10 +360,72 @@ describe("NotificationsService", () => {
       );
     });
 
+    it("reopens an operational work notification when the task returns after resolving", async () => {
+      const { prisma, service, user, work } = setup();
+      const recovery = {
+        ...waiting,
+        id: "collected_money:p-1",
+        kind: "collected_money.review",
+        where: "web",
+        category: "counter",
+        title: "Resolve collected card money",
+        reference: "RRN-1",
+        href: "/sales?view=unresolved-money&paymentId=p-1",
+        action: "Open in Sales",
+        approval: false,
+      };
+      let recoveryPass = 0;
+      work.get.mockImplementation((_u, _b, _q, opts) => {
+        if (!opts?.kinds?.includes("sale_incident.review")) {
+          return Promise.resolve({ counterLive: true, items: [] });
+        }
+        recoveryPass += 1;
+        return Promise.resolve({
+          counterLive: true,
+          items: recoveryPass === 2 ? [] : [recovery],
+        });
+      });
+      prisma.notification.findMany.mockResolvedValue([
+        {
+          id: "n-1",
+          dedupeKey:
+            "operational:branch-1:work:collected_money:p-1:collected_money.review",
+          resolvedAt: null,
+        },
+      ]);
+      prisma.notification.upsert.mockResolvedValue({ id: "n-1" });
+
+      await service.list(user, "branch-1", {});
+      await service.updatePreferences("tenant-1", "user-1", {});
+      prisma.notification.findMany.mockResolvedValue([
+        {
+          id: "n-1",
+          dedupeKey:
+            "operational:branch-1:work:collected_money:p-1:collected_money.review",
+          resolvedAt: new Date("2026-11-27T00:00:00.000Z"),
+        },
+      ]);
+      await service.list(user, "branch-1", {});
+      await service.updatePreferences("tenant-1", "user-1", {});
+      await service.list(user, "branch-1", {});
+
+      const lastUpsert = prisma.notification.upsert.mock.calls.at(-1)?.[0] as {
+        update: { resolvedAt: Date | null };
+      };
+      expect(lastUpsert.update.resolvedAt).toBeNull();
+    });
+
     it("notifies actionable refund approvals and excludes self-blocked ones", async () => {
       const { prisma, service, user, work } = setup();
       const refund = { ...waiting, id: "refund:rr-1", kind: "sale_refund.approve", where: "web", category: "counter", title: "Approve prepared refund", reference: "RFR-1", href: "/sales?view=pending-approvals&request=rr-1", action: "Review refund", approval: true };
-      work.get.mockResolvedValue({ counterLive: true, items: [refund, { ...refund, id: "refund:rr-2", blocked: true }] });
+      work.get.mockImplementation((_u, _b, _q, opts) =>
+        Promise.resolve({
+          counterLive: true,
+          items: opts?.kinds?.includes("sale_incident.review")
+            ? []
+            : [refund, { ...refund, id: "refund:rr-2", blocked: true }],
+        }),
+      );
       await service.list(user, "branch-1", {});
       expect(prisma.notification.upsert).toHaveBeenCalledTimes(1);
       expect(prisma.notification.upsert).toHaveBeenCalledWith(expect.objectContaining({ create: expect.objectContaining({

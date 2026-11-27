@@ -1,4 +1,5 @@
 import { Prisma } from "@prisma/client";
+import { lkrMinorLabelSql } from "../common/lkr-money-format";
 import { SUPPORT_MANAGER_HELD_REASONS } from "../terminals/support-queue-predicates";
 
 /** Same cap as `SalesQueuesService.paymentRecovery` / `SupportEvidenceReconciler.listHeld`. */
@@ -84,7 +85,7 @@ export function collectedMoneyWorkSource(tenantId: string, branchId: string): Pr
       'counter' AS category,
       'Resolve collected card money' AS title,
       concat_ws(' · ', COALESCE(u.full_name, 'Staff'), p.provider_reference,
-        'LKR ' || (p.amount_minor::numeric / 100)::text) AS detail,
+        ${Prisma.raw(lkrMinorLabelSql("p.amount_minor"))}) AS detail,
       COALESCE(p.provider_reference, p.id::text) AS reference,
       'unresolved' AS status,
       '/sales?view=unresolved-money&paymentId=' || p.id::text AS href,
