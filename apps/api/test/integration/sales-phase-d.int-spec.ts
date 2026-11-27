@@ -6,8 +6,11 @@ import type { ExternalCardAttemptRecord, OfflineSaleIncident, TerminalIdentity }
 import { AuditService } from "../../src/audit/audit.service";
 import { StockService } from "../../src/inventory/stock/stock.service";
 import { ensureRbacSeed } from "../../prisma/rbac-seed";
+import { DailyWorkService } from "../../src/dashboard/daily-work.service";
 import { SaleReadService } from "../../src/sales/sale-read.service";
 import { SalesQueuesService } from "../../src/sales/sales-queues.service";
+import { NotificationsService } from "../../src/notifications/notifications.service";
+import { SALES_RECOVERY_DAILY_WORK_KINDS } from "@pharmaceylon/shared";
 import { AccessService } from "../../src/security/access.service";
 import { PermissionsService } from "../../src/security/permissions.service";
 import { TenantBranchGuard } from "../../src/security/guards/tenant-branch.guard";
@@ -648,5 +651,144 @@ describe("journaled offline sale receipt on history detail", () => {
       syncedAt: replayed.recordedAt.toISOString(),
     });
     expect(detail.invoiceNo).toBe(journaledCommand.receiptNumber);
+  });
+});
+
+describe("daily work sales recovery (W11 #145)", () => {
+  const workAccess = new AccessService(prisma as never, permissions as never);
+  const dailyWork = () => new DailyWorkService(prisma as never, workAccess as never);
+  const notify = () =>
+    new NotificationsService(
+      prisma as never,
+      permissions,
+      dailyWork() as never,
+    );
+
+  const recoveryItems = (items: { id: string; kind: string }[]) =>
+    items.filter((row) =>
+      (SALES_RECOVERY_DAILY_WORK_KINDS as readonly string[]).includes(row.kind),
+    );
+
+  it("matches queue eligibility and counts for managers only", async () => {
+    const [incidentQueue, paymentQueue, collectedQueue] = await Promise.all([
+      queues.incidentNotes(ownerOn(main), main.fx.mainBranchId, {}),
+      queues.paymentRecovery(ownerOn(main), main.fx.mainBranchId, {}),
+      queues.collectedMoney(ownerOn(main), main.fx.mainBranchId, {}),
+    ]);
+    const work = await dailyWork().get(ownerOn(main), main.fx.mainBranchId, {
+      filter: "all",
+      page: 1,
+      pageSize: 100,
+    });
+    const recovery = recoveryItems(work.items);
+    const incidentIds = recovery
+      .filter((row) => row.kind === "sale_incident.review")
+      .map((row) => row.id);
+    const paymentIds = recovery
+      .filter((row) => row.kind === "payment_recovery.review")
+      .map((row) => row.id);
+    const collectedIds = recovery
+      .filter((row) => row.kind === "collected_money.review")
+      .map((row) => row.id);
+
+    expect(incidentIds).toEqual(
+      expect.arrayContaining([
+        `incident:${mainAcceptedIncidentRecordId}`,
+        `incident:${mainSecondAcceptedIncidentRecordId}`,
+      ]),
+    );
+    expect(incidentIds).not.toContain(`incident:${otherTenantAcceptedIncidentRecordId}`);
+    expect(incidentIds).not.toContain(`incident:${hiddenBranchIncidentRecordId}`);
+    expect(incidentIds).toHaveLength(incidentQueue.total);
+
+    expect(paymentIds).toEqual(
+      expect.arrayContaining(mainPaymentAttemptIds.map((id) => `payment_recovery:${id}`)),
+    );
+    expect(paymentIds).not.toContain(`payment_recovery:${otherTenantPaymentAttemptId}`);
+    expect(paymentIds).not.toContain(`payment_recovery:${hiddenBranchPaymentAttemptId}`);
+    expect(paymentIds).toHaveLength(paymentQueue.total);
+
+    expect(collectedIds).toEqual(
+      expect.arrayContaining(mainCollectedPaymentIds.map((id) => `collected_money:${id}`)),
+    );
+    expect(collectedIds).not.toContain(`collected_money:${otherTenantCollectedPaymentId}`);
+    expect(collectedIds).not.toContain(`collected_money:${hiddenBranchCollectedPaymentId}`);
+    expect(collectedIds).toHaveLength(collectedQueue.total);
+
+    const cashierWork = await dailyWork().get(cashierOn(main), main.fx.mainBranchId, {
+      filter: "all",
+      page: 1,
+      pageSize: 100,
+    });
+    expect(recoveryItems(cashierWork.items)).toHaveLength(0);
+  });
+
+  it("retires tasks when the domain row leaves the queue and deep-links Sales tabs", async () => {
+    const attemptId = mainPaymentAttemptIds[0];
+    const before = await dailyWork().get(ownerOn(main), main.fx.mainBranchId, {
+      kind: "payment_recovery.review",
+      filter: "all",
+      page: 1,
+      pageSize: 50,
+    });
+    expect(before.items.find((row) => row.id === `payment_recovery:${attemptId}`)).toMatchObject({
+      href: `/sales?view=payment-recovery&attemptId=${attemptId}`,
+      approval: false,
+      blocked: false,
+      where: "web",
+    });
+    await prisma.offlineSupportRecord.updateMany({
+      where: {
+        tenantId: main.fx.tenantId,
+        branchId: main.fx.mainBranchId,
+        attemptId,
+        status: "held",
+      },
+      data: { status: "accepted", heldReason: null, verifiedAt: new Date() },
+    });
+    const after = await dailyWork().get(ownerOn(main), main.fx.mainBranchId, {
+      kind: "payment_recovery.review",
+      filter: "all",
+      page: 1,
+      pageSize: 50,
+    });
+    expect(after.total).toBe(before.total - 1);
+    expect(after.items.some((row) => row.id === `payment_recovery:${attemptId}`)).toBe(false);
+  });
+
+  it("dedupes and retires operational notifications per recovery task", async () => {
+    const owner = ownerOn(main);
+    const branchId = main.fx.mainBranchId;
+    const notificationService = notify();
+    const attemptId = mainPaymentAttemptIds[1];
+    const key = `operational:${branchId}:work:payment_recovery:${attemptId}:payment_recovery.review`;
+    await notificationService.list(owner, branchId, { status: "all", take: 100 });
+    const created = await prisma.notification.findMany({
+      where: {
+        tenantId: owner.tenantId,
+        recipientUserId: owner.userId,
+        branchId,
+        source: "operational_scan",
+        dedupeKey: key,
+        resolvedAt: null,
+      },
+    });
+    expect(created).toHaveLength(1);
+
+    await prisma.offlineSupportRecord.updateMany({
+      where: {
+        tenantId: main.fx.tenantId,
+        branchId: main.fx.mainBranchId,
+        attemptId,
+        status: "held",
+      },
+      data: { status: "accepted", heldReason: null, verifiedAt: new Date() },
+    });
+    await notificationService.updatePreferences(owner.tenantId, owner.userId, {});
+    await notificationService.list(owner, branchId, { status: "all", take: 100 });
+    const retired = await prisma.notification.findFirst({
+      where: { tenantId: owner.tenantId, recipientUserId: owner.userId, dedupeKey: key },
+    });
+    expect(retired?.resolvedAt).not.toBeNull();
   });
 });

@@ -307,6 +307,38 @@ describe("NotificationsService", () => {
       );
     });
 
+    it("notifies sales recovery tasks from daily work without treating them as counter work", async () => {
+      const { prisma, service, user, work } = setup();
+      work.get.mockResolvedValue({
+        counterLive: true,
+        items: [
+          {
+            ...waiting,
+            id: "incident:rec-1",
+            kind: "sale_incident.review",
+            where: "web",
+            category: "counter",
+            title: "Review incident note",
+            reference: "rec-1",
+            href: "/sales?view=incident-notes&recordId=rec-1",
+            action: "Open in Sales",
+            approval: false,
+          },
+        ],
+      });
+      await service.list(user, "branch-1", {});
+      expect(prisma.notification.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          create: expect.objectContaining({
+            dedupeKey: "operational:branch-1:work:incident:rec-1:sale_incident.review",
+            actionHref: "/sales?view=incident-notes&recordId=rec-1",
+            category: NotificationCategory.sales,
+            title: "Review incident note rec-1",
+          }),
+        }),
+      );
+    });
+
     it("notifies actionable refund approvals and excludes self-blocked ones", async () => {
       const { prisma, service, user, work } = setup();
       const refund = { ...waiting, id: "refund:rr-1", kind: "sale_refund.approve", where: "web", category: "counter", title: "Approve prepared refund", reference: "RFR-1", href: "/sales?view=pending-approvals&request=rr-1", action: "Review refund", approval: true };

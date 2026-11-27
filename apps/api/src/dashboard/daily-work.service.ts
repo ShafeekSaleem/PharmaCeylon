@@ -14,6 +14,11 @@ import { POS_ROLLOUT_SELECT, resolvePosRollout } from "../tenant/pos-rollout";
 import { counterKinds } from "./daily-work-kinds";
 import { DailyWorkQueryDto } from "./dto/daily-work-query.dto";
 import { refundNeedsApprovalSql } from "../sales/refund-approval-queue";
+import {
+  collectedMoneyWorkSource,
+  paymentRecoveryWorkSource,
+  saleIncidentWorkSource,
+} from "../sales/sales-recovery-work-sources";
 
 const PAGE_SIZE = 6;
 
@@ -290,6 +295,12 @@ export class DailyWorkService {
       FROM product_import i LEFT JOIN app_user u ON u.id = COALESCE(i.stock_staged_by, i.created_by)
       WHERE i.tenant_id = ${tenant}::uuid AND i.branch_id = ${branchId}::uuid AND i.stock_staged AND i.status = 'completed'
         AND EXISTS (SELECT 1 FROM jsonb_array_elements(i.staged_stock) r WHERE r->>'postedBatchId' IS NULL)`);
+    // W4 #66 / W11 #145: sales recovery tabs (same predicates as GET /sales/*-queues).
+    if (actor.has("tenant.management")) {
+      sources.push(saleIncidentWorkSource(tenant, branchId));
+      sources.push(paymentRecoveryWorkSource(tenant, branchId));
+      sources.push(collectedMoneyWorkSource(tenant, branchId));
+    }
     if (allowed("inventory.view", "inventory.quarantine"))
       sources.push(Prisma.sql`
       SELECT 'expiry:' || b.id, 'batch.expiry_review', 'inventory', CASE WHEN b.expiry_date < ${today}::date THEN 'Isolate expired stock' ELSE 'Review near-expiry batch' END,

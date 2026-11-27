@@ -62,6 +62,10 @@ export const DAILY_WORK_KIND_DEFS: Readonly<Record<DailyWorkKind, KindDef>> = {
   // P6 #52 decision 1: the counter says an approved document doesn't match. Answered on the web,
   // by approving a corrected version or keeping it as approved.
   "counter_mismatch.review": { executes: null },
+  // W4 sales recovery manager queues — review-only; execution stays in Sales tabs / counter.
+  "sale_incident.review": { executes: null },
+  "payment_recovery.review": { executes: null },
+  "collected_money.review": { executes: null },
 };
 
 export function kindOperation(kind: DailyWorkKind): MutationKey | null {

@@ -1,0 +1,22 @@
+[
+  {
+    "id": "po:00000000-0000-4000-8000-000000000001",
+    "kind": "purchase_order.approve",
+    "where": "web",
+    "category": "purchasing",
+    "title": "Review purchase order",
+    "detail": "Demo supplier",
+    "reference": "PO-1001",
+    "status": "pending_approval",
+    "href": "/purchasing?po=00000000-0000-4000-8000-000000000001",
+    "action": "Review order",
+    "createdAt": "2026-11-01T08:00:00.000Z",
+    "dueAt": null,
+    "owner": "Branch approvers",
+    "mine": false,
+    "approval": true,
+    "blocked": false,
+    "overdue": false,
+    "priority": 2
+  }
+]
