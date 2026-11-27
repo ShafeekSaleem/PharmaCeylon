@@ -1,11 +1,11 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { CounterWorkStocktakeDetail, CounterWorkStocktakeLine } from "@pharmaceylon/shared";
 import styles from "./CounterDocumentPane.module.css";
 import { Icon } from "./Icon";
 import { invoke } from "./invoke";
 import { KeyHint } from "./KeyHint";
 import { KeyScope, useKeyBinding } from "./keymap";
-import { isDifference, plural, signed, signedRs, stocktakeSummary } from "./stocktake-model";
+import { isDifference, plural, qty, signed, signedRs, STOCKTAKE_PAGE, stocktakeSummary } from "./stocktake-model";
 import ui from "./ui.module.css";
 import { cx } from "./useAction";
 
@@ -42,11 +42,11 @@ function StocktakeLines({
               )}
             </td>
             <td>{l.batchNo ?? "—"}</td>
-            <td className={styles.num}>{l.onHandAtCount.toLocaleString("en-US")}</td>
-            <td className={styles.num}>{l.countedQty === null ? "Not counted" : l.countedQty.toLocaleString("en-US")}</td>
+            <td className={styles.num}>{qty(l.onHandAtCount)}</td>
+            <td className={styles.num}>{l.countedQty === null ? "Not counted" : qty(l.countedQty)}</td>
             <td className={styles.num}>{l.difference === null ? "—" : <b>{signed(l.difference)}</b>}</td>
-            <td className={styles.num}>{l.now.toLocaleString("en-US")}</td>
-            <td className={styles.num}>{l.afterPost.toLocaleString("en-US")}</td>
+            <td className={styles.num}>{qty(l.now)}</td>
+            <td className={styles.num}>{qty(l.afterPost)}</td>
             {showCost && <td className={styles.num}>{l.valueAtCost === null ? "—" : signedRs(l.valueAtCost)}</td>}
           </tr>
         ))}
@@ -68,11 +68,21 @@ function ConfirmSheet({
   onCancel: () => void;
 }) {
   const s = stocktakeSummary(detail);
+  const ref = useRef<HTMLElement>(null);
+  // Focus moves into the sheet, so Tab starts on its buttons rather than the page behind it.
+  useEffect(() => ref.current?.focus(), []);
   useKeyBinding("Ctrl+Enter", onPost, { enabled: !posting });
   useKeyBinding("Escape", onCancel, { enabled: !posting });
   const title = [detail.reference, detail.subject].filter(Boolean).join(" · ");
   return (
-    <section className={styles.sheet} role="dialog" aria-modal="false" aria-labelledby="stk-confirm-title">
+    <section
+      ref={ref}
+      tabIndex={-1}
+      className={styles.sheet}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="stk-confirm-title"
+    >
       <div>
         <b id="stk-confirm-title">Post stock count {detail.reference}?</b>
         <small className={styles.hint}>
@@ -153,9 +163,23 @@ export function StocktakeBody({
   const ready =
     detail.approval.state === "matches" && detail.approval.evidenceId !== null && online && canPost && !posted;
   const showCost = detail.lines.some((l) => l.valueAtCost !== null) || s.valueAtCost !== null;
-  const shown = view === "differences" ? detail.lines.filter(isDifference) : detail.lines;
+  const inView = view === "differences" ? detail.lines.filter(isDifference) : detail.lines;
+  const [limit, setLimit] = useState(STOCKTAKE_PAGE);
+  const shown = inView.length > limit ? inView.slice(0, limit) : inView;
+
+  // The sheet promises "matches the version … approved"; once that stops being true (a re-read
+  // brought a changed or withdrawn approval, the counter went offline, an action is waiting),
+  // the sheet closes rather than leaving a Post button that does nothing.
+  useEffect(() => {
+    if (!ready) setConfirming(false);
+  }, [ready]);
 
   useKeyBinding("Ctrl+Enter", () => setConfirming(true), { enabled: ready && !confirming });
+
+  const showView = (next: View) => {
+    setView(next);
+    setLimit(STOCKTAKE_PAGE);
+  };
 
   const post = async () => {
     if (!ready || posting) return;
@@ -195,15 +219,31 @@ export function StocktakeBody({
         </p>
       )}
       <div className={ui.seg} role="group" aria-label="Show lines">
-        <button type="button" aria-pressed={view === "differences"} onClick={() => setView("differences")}>
+        <button type="button" aria-pressed={view === "differences"} onClick={() => showView("differences")}>
           Differences <i>{s.differences}</i>
         </button>
-        <button type="button" aria-pressed={view === "all"} onClick={() => setView("all")}>
+        <button type="button" aria-pressed={view === "all"} onClick={() => showView("all")}>
           All lines <i>{s.lines}</i>
         </button>
       </div>
       {shown.length ? (
-        <StocktakeLines lines={shown} showCost={showCost} />
+        <>
+          <StocktakeLines lines={shown} showCost={showCost} />
+          {inView.length > shown.length && (
+            <div className={styles.actions}>
+              <small className={styles.hint}>
+                Showing {qty(shown.length)} of {plural(inView.length, "line")}.
+              </small>
+              <button
+                type="button"
+                className={cx(ui.btn, ui.outline)}
+                onClick={() => setLimit((n) => n + STOCKTAKE_PAGE)}
+              >
+                Show {qty(Math.min(STOCKTAKE_PAGE, inView.length - shown.length))} more
+              </button>
+            </div>
+          )}
+        </>
       ) : (
         <p className={styles.hint}>Every counted line matched what was on hand at the count.</p>
       )}
@@ -247,7 +287,7 @@ export function StocktakeBody({
                 ? "Confirm the action waiting at this counter first."
                 : detail.approval.state !== "matches"
                   ? "Posting is off until this count is approved again on the web."
-                  : "Posting can't be undone. A later correction is a new count or a stock adjustment."}
+                  : "You check the totals before anything posts."}
           </small>
           <button
             type="button"

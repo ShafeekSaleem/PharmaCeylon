@@ -81,7 +81,7 @@ test('supplier cash payout is available at supplier_payout', () => {
 
 test('planned P6 screens still list as ready_for_execution with non-executable next action label', () => {
   const task = c.projectCounterWorkTask({
-    kind: 'stocktake',
+    kind: 'supplier_return',
     id: '00000000-0000-4000-8000-000000000004',
     approval: { evidenceId: 'ev-3', state: 'matches', changes: [] },
     approvedAt: '2026-11-11T09:00:00.000Z',
@@ -94,8 +94,8 @@ test('planned P6 screens still list as ready_for_execution with non-executable n
   assert.match(task.nextAction.label, /screen planned/);
 });
 
-test('screens the desktop ships are executable: refund, held write-off, offline sale stock, cash payout', () => {
-  for (const kind of ['refund', 'held_adjustment', 'stock_case', 'supplier_cash_payout']) {
+test('screens the desktop ships are executable: refund, held write-off, offline sale stock, cash payout, stocktake', () => {
+  for (const kind of ['refund', 'held_adjustment', 'stock_case', 'supplier_cash_payout', 'stocktake']) {
     const task = c.projectCounterWorkTask({
       kind,
       id: '00000000-0000-4000-8000-000000000005',

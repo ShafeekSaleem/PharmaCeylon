@@ -747,6 +747,94 @@ describe("posting a stock count", () => {
     await waitFor(() => expect(pos.counterWorkDetail).toHaveBeenCalledTimes(2));
   });
 
+  it("closes the sheet when posting stops being possible while it is open", async () => {
+    const view = render(<CounterDocumentPane item={stkItem} online canPost onReported={onReported} />);
+    await screen.findByText("Panadol 500mg");
+    fireEvent.click(postButton());
+    expect(document.activeElement).toBe(screen.getByRole("dialog"));
+    view.rerender(<CounterDocumentPane item={stkItem} online={false} canPost onReported={onReported} />);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(postButton().disabled).toBe(true);
+    // The approval moved on: the frame's next read brings a changed version.
+    view.rerender(<CounterDocumentPane item={stkItem} online canPost onReported={onReported} />);
+    fireEvent.click(postButton());
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    detail = stocktake({ approval: { ...approval, currentVersion: 4, state: "changed", changes: ["Line 2 count"] } });
+    const moved = { ...stkItem, approval: { ...stkItem.approval, currentVersion: 4 } } as CounterWorkItem;
+    view.rerender(<CounterDocumentPane item={moved} online canPost onReported={onReported} />);
+    await screen.findByText(/approved again on the web/);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(postButton().disabled).toBe(true);
+    expect(pos.postCounterStocktake).not.toHaveBeenCalled();
+  });
+
+  it("keeps Post off after a lost answer, so nothing is sent twice", async () => {
+    pos.postCounterStocktake!.mockImplementationOnce(async () => ({
+      ok: false,
+      error: { code: "UNCONFIRMED", message: "No answer from the server. Confirm it before doing anything else." },
+    }));
+    const view = render(<CounterDocumentPane item={stkItem} online canPost onReported={onReported} />);
+    await screen.findByText("Panadol 500mg");
+    fireEvent.click(postButton());
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: /Post 2 adjustments/ }));
+    expect(await screen.findByText(/No answer from the server/)).toBeTruthy();
+    // The frame now lists the unconfirmed command and stops passing canPost.
+    view.rerender(<CounterDocumentPane item={stkItem} online canPost={false} onReported={onReported} />);
+    await screen.findByText("Panadol 500mg");
+    expect(postButton().disabled).toBe(true);
+    fireEvent.click(postButton());
+    fireEvent.keyDown(window, { key: "Enter", ctrlKey: true });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(pos.postCounterStocktake).toHaveBeenCalledTimes(1);
+  });
+
+  it("says plainly when no line was counted", async () => {
+    const lines = (stocktake() as unknown as { lines: Record<string, unknown>[] }).lines.map((l) => ({
+      ...l,
+      countedQty: null,
+      difference: null,
+      valueAtCost: null,
+    }));
+    detail = stocktake({ totals: { lines: 4, differences: 0, valueAtCost: "0.00" }, lines });
+    await openStk();
+    expect(screen.getByText("0 lines counted")).toBeTruthy();
+    expect(screen.getAllByText("Not counted")).toHaveLength(4);
+    fireEvent.click(postButton());
+    const sheet = screen.getByRole("dialog");
+    expect(within(sheet).getByText(/Writes no adjustments/)).toBeTruthy();
+    expect(within(sheet).getByText(/4 lines weren't counted; posting leaves them as they are/)).toBeTruthy();
+  });
+
+  it("shows a long count a page at a time", async () => {
+    const lines = Array.from({ length: 230 }, (_, n) => ({
+      lineId: `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`,
+      productId: id(13),
+      productName: `Product ${n + 1}`,
+      packLabel: null,
+      unitsPerPack: 1,
+      batchId: id(31),
+      batchNo: `B${n}`,
+      expiryDate: null,
+      onHandAtCount: 10,
+      countedQty: 9,
+      difference: -1,
+      now: 10,
+      afterPost: 9,
+      valueAtCost: "-1.00",
+      reviewNote: null,
+    }));
+    detail = stocktake({ totals: { lines: 230, differences: 230, valueAtCost: "-230.00" }, lines });
+    render(<CounterDocumentPane item={stkItem} online canPost onReported={onReported} />);
+    await screen.findByText("Product 1");
+    expect(screen.queryByText("Product 101")).toBeNull();
+    expect(screen.getByText("Showing 100 of 230 lines.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Show 100 more" }));
+    expect(screen.getByText("Product 200")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Show 30 more" }));
+    expect(screen.getByText("Product 230")).toBeTruthy();
+    expect(screen.queryByText(/^Showing/)).toBeNull();
+  });
+
   it("posts a count where everything matched", async () => {
     detail = stocktake({
       totals: { lines: 1, differences: 0, valueAtCost: "0.00" },

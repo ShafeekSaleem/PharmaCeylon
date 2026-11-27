@@ -1,4 +1,4 @@
-import type { CounterWorkStocktakeDetail, CounterWorkStocktakeLine } from "@pharmaceylon/shared";
+import { DISPLAY_LOCALE, type CounterWorkStocktakeDetail, type CounterWorkStocktakeLine } from "@pharmaceylon/shared";
 import { minor, money } from "./sell-model";
 
 /** A counted line whose difference is not zero: one adjustment when the count posts. */
@@ -32,10 +32,16 @@ export function stocktakeSummary(detail: CounterWorkStocktakeDetail): StocktakeS
   };
 }
 
+/** How many rows a view shows before "Show more": a branch-wide count can run to thousands. */
+export const STOCKTAKE_PAGE = 100;
+
+/** A whole number of units in the app's display locale: "1,140". */
+export const qty = (n: number) => n.toLocaleString(DISPLAY_LOCALE);
+
 /** A signed whole number as the mockup writes it: "+10", "−12", "0". */
 export function signed(n: number): string {
-  if (n > 0) return `+${n.toLocaleString("en-US")}`;
-  if (n < 0) return `−${Math.abs(n).toLocaleString("en-US")}`;
+  if (n > 0) return `+${qty(n)}`;
+  if (n < 0) return `−${qty(Math.abs(n))}`;
   return "0";
 }
 
@@ -47,4 +53,4 @@ export function signedRs(amount: string): string {
 }
 
 export const plural = (n: number, one: string, many = `${one}s`) =>
-  `${n.toLocaleString("en-US")} ${n === 1 ? one : many}`;
+  `${qty(n)} ${n === 1 ? one : many}`;
