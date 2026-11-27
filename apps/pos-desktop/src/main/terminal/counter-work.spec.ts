@@ -769,7 +769,12 @@ describe("handing over an approved supplier return at the counter", () => {
 describe("posting staged opening stock at the counter", () => {
   const importId = randomUUID();
 
-  function posting(detail: Record<string, unknown>, result: Record<string, unknown> = {}) {
+  /** `after` is what the read after posting returns (by default, the Antibiotics now posted). */
+  function posting(
+    detail: Record<string, unknown>,
+    result: Record<string, unknown> = {},
+    after: Record<string, unknown> | Error = postedOne(detail),
+  ) {
     const executed: { operation: string; body: unknown; evidence: string | null }[] = [];
     const commands = {
       execute: async (operation: string, body: unknown, approval: string | null) => {
@@ -780,9 +785,18 @@ describe("posting staged opening stock at the counter", () => {
         };
       },
     };
-    const api = { request: async () => detail };
+    const reads: string[] = [];
+    const api = {
+      request: async (_m: string, path: string) => {
+        reads.push(path);
+        if (reads.length === 1) return detail;
+        if (after instanceof Error) throw after;
+        return after;
+      },
+    };
     return {
       executed,
+      reads,
       work: new CounterWorkService({
         api: api as unknown as ApiSession,
         terminal: { current: () => ({ identity: { branchId } }) } as unknown as TerminalService,
@@ -802,8 +816,16 @@ describe("posting staged opening stock at the counter", () => {
     ],
   };
 
+  function postedOne(detail: Record<string, unknown>) {
+    const categories = (detail.categories ?? []) as { categoryName: string | null; posted: boolean }[];
+    return {
+      ...detail,
+      categories: categories.map((c) => (c.categoryName === "Antibiotics" ? { ...c, posted: true } : c)),
+    };
+  }
+
   it("signs one category pinned to the version shown, with no approval, and says the rest is left", async () => {
-    const { work, executed } = posting(staged);
+    const { work, executed, reads } = posting(staged);
     await expect(
       work.postImportStock({ importId, version: 3, selection: "category", categoryName: "Antibiotics" }),
     ).resolves.toEqual({
@@ -821,6 +843,43 @@ describe("posting staged opening stock at the counter", () => {
         evidence: null,
       },
     ]);
+    // Read before and after posting.
+    expect(reads).toEqual([`/counter-work/import_stock/${importId}`, `/counter-work/import_stock/${importId}`]);
+  });
+
+  it("says nothing is left when another counter posted the rest meanwhile", async () => {
+    const allPosted = { ...staged, categories: staged.categories.map((c) => ({ ...c, posted: true })) };
+    await expect(
+      posting(staged, {}, allPosted).work.postImportStock({
+        importId, version: 3, selection: "category", categoryName: "Antibiotics",
+      }),
+    ).resolves.toMatchObject({ remaining: false });
+    // A fully posted import has left Counter work, so the read after is a 404.
+    await expect(
+      posting(staged, {}, new ApiError(404, "NOT_FOUND", "gone")).work.postImportStock({
+        importId, version: 3, selection: "category", categoryName: "Antibiotics",
+      }),
+    ).resolves.toMatchObject({ remaining: false });
+    // A failed read keeps the guess from before posting; the next list read corrects it.
+    await expect(
+      posting(staged, {}, new Error("offline")).work.postImportStock({
+        importId, version: 3, selection: "category", categoryName: "Antibiotics",
+      }),
+    ).resolves.toMatchObject({ remaining: true });
+  });
+
+  it("posts an import whose rows have no category as one selection", async () => {
+    const plain = {
+      ...staged,
+      categories: [{ categoryName: null, rows: 12, batches: 12, units: 400, posted: false }],
+    };
+    const { work, executed, reads } = posting(plain);
+    await expect(
+      work.postImportStock({ importId, version: 3, selection: "all", categoryName: null }),
+    ).resolves.toMatchObject({ remaining: false });
+    expect(executed[0]!.body).toEqual({ importId, version: 3, selection: "all", categoryName: null });
+    // Posting the rest leaves nothing, so there is nothing to read again.
+    expect(reads).toHaveLength(1);
   });
 
   it("posts the rest with no category, and the rows with no category as their own selection", async () => {

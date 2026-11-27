@@ -649,13 +649,15 @@ export class CounterWorkService {
    * every staged row has its batch, and the counter posts the rest from the same screen.
    */
   private async stagedImports(tenantId: string, branchId: string, only?: string) {
-    // Postgres answers "any row without a batch" from the jsonb, so a fully posted import's
-    // rows are never read on a list poll.
+    // A fully posted import is skipped on its flag, so its rows are never read on a list poll;
+    // the jsonb check then answers "any row without a batch" for the few still open, and is
+    // the backstop if the flag was ever missed.
     const open = await this.prisma.$queryRaw<{ id: string }[]>`
       SELECT id FROM product_import
       WHERE tenant_id = ${tenantId}::uuid AND branch_id = ${branchId}::uuid
         AND status = 'completed' AND stock_staged
         AND (${only ?? null}::uuid IS NULL OR id = ${only ?? null}::uuid)
+        AND stock_fully_posted_at IS NULL
         AND jsonb_path_exists(staged_stock, '$[*] ? (!exists(@.postedBatchId) || @.postedBatchId == null)')`;
     if (!open.length) return [];
     const rows = await this.prisma.productImport.findMany({

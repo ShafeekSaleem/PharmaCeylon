@@ -1165,6 +1165,23 @@ describe("posting opening stock", () => {
     expect(screen.queryByRole("button", { name: /^Post the rest/ })).toBeNull();
   });
 
+  it("posts an import with no categories as one batch of rows, with one button", async () => {
+    detail = staged({
+      categories: [{ categoryName: null, rows: 2, batches: 2, units: 436, posted: false }],
+      rows: [
+        { rowNumber: 2, productId: id(14), productName: "Amoxicillin 500mg", categoryName: null, batchNo: "AMX-5530", expiryDate: "2028-04-30", qty: 400, unitCost: "6.20", posted: false },
+        { rowNumber: 3, productId: id(16), productName: "Vicks VapoRub", categoryName: null, batchNo: "VV-7710", expiryDate: "2028-06-30", qty: 36, unitCost: null, posted: false },
+      ],
+    });
+    await show();
+    expect(screen.getByText("Vicks VapoRub")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^Post No category/ })).toBeNull();
+    fireEvent.click(rest());
+    const sheet = screen.getByRole("dialog");
+    expect(sheet.textContent).toContain("Posts 2 rows and 436 units.");
+    expect(sheet.textContent).not.toContain("No category");
+  });
+
   it("will not post offline or with an action unconfirmed, and closes an open sheet", async () => {
     const view = await show();
     fireEvent.click(rest());

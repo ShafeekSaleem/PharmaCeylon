@@ -213,6 +213,11 @@ it("posts one category per atomic chunk, replays saved IDs and rejects replaceme
   ]);
   const first = await post(saved.id, 1, "Medicines");
   expect(first.rows.filter((r) => r.postedBatchId)).toHaveLength(1);
+  // One category is not the whole import: Counter work keeps listing it.
+  expect(
+    (await prisma.productImport.findUniqueOrThrow({ where: { id: saved.id } }))
+      .stockFullyPostedAt,
+  ).toBeNull();
   await expect(
     drafts.replace(user(), fx.mainBranchId, saved.id, {
       version: 1,
@@ -227,6 +232,7 @@ it("posts one category per atomic chunk, replays saved IDs and rejects replaceme
   });
   expect(record.unitsPosted).toBe(15);
   expect(record.stockVersion).toBe(1);
+  expect(record.stockFullyPostedAt).toBeInstanceOf(Date);
   expect(
     await prisma.stockLedger.count({
       where: { tenantId: fx.tenantId, referenceId: saved.id },

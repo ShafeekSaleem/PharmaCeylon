@@ -318,14 +318,24 @@ export class CounterWorkService {
       },
       null,
     );
+    // Whether another category is still to post, so the import stays in Counter work. Read again
+    // after posting: another counter may have posted the others meanwhile. If that read fails,
+    // the pre-post read is the best guess and the next list read corrects it.
+    const expected =
+      input.selection === "category" && toPost.some((c) => c.categoryName !== input.categoryName);
+    const remaining = !expected
+      ? false
+      : await this.detail("import_stock", input.importId).then(
+          (after) => (after as CounterWorkImportDetail).categories.some((c) => !c.posted),
+          (error: unknown) =>
+            error instanceof ActionFailure && error.code === "NOT_WAITING" ? false : expected,
+        );
     return {
       reference: detail.reference,
       batchesPosted: receipt.result.batchesPosted,
       unitsPosted: receipt.result.unitsPosted,
       alreadyApplied: receipt.result.effect === "already_applied",
-      // Another category is still to post, so the import stays in Counter work.
-      remaining:
-        input.selection === "category" && toPost.some((c) => c.categoryName !== input.categoryName),
+      remaining,
       postedAt: new Date(receipt.recordedAt).toISOString(),
     };
   }

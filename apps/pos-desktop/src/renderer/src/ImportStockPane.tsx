@@ -47,6 +47,8 @@ function ConfirmSheet({
   const rows = posting.reduce((n, c) => n + c.rows, 0);
   const units = posting.reduce((n, c) => n + c.units, 0);
   const action = one ? `Post ${categoryLabel(one.categoryName)} · ${plural(rows, "row")}` : `Post the rest · ${plural(rows, "row")}`;
+  // An import with no categories at all: naming "No category" would say nothing.
+  const uncategorised = detail.categories.every((c) => c.categoryName === null);
   return (
     <section
       ref={ref}
@@ -63,7 +65,8 @@ function ConfirmSheet({
         <small className={styles.hint}>Staged version {detail.stockVersion} · no approval step</small>
       </div>
       <p>
-        Posts <b>{plural(rows, "row")}</b> and <b>{plural(units, "unit")}</b> in {joinNames(posting)}.
+        Posts <b>{plural(rows, "row")}</b> and <b>{plural(units, "unit")}</b>
+        {uncategorised ? "" : ` in ${joinNames(posting)}`}.
         {rest.posted.length > 0 && ` ${joinNames(rest.posted)} ${rest.posted.length === 1 ? "was" : "were"} posted and ${rest.posted.length === 1 ? "is" : "are"} not posted again.`}
       </p>
       <ul className={styles.checks}>
@@ -312,7 +315,8 @@ export function ImportStockBody({
                   ? "Every category is posted."
                   : FINAL}
           </small>
-          {chosen && !chosen.posted && (
+          {/* With one category left, Post the rest posts exactly those rows. */}
+          {chosen && !chosen.posted && rest.categories.length > 1 && (
             <button
               type="button"
               className={cx(ui.btn, ui.outline)}
